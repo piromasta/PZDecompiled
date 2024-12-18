@@ -23,7 +23,7 @@ public class RBKateAndBaldspot extends RandomizedBuildingBase {
       var1.bAlarmed = false;
       var1.setHasBeenVisited(true);
       var1.setAllExplored(true);
-      ArrayList var2 = this.addZombiesOnSquare(1, "Kate", 100, this.getSq(10746, 9412, 1));
+      ArrayList var2 = this.addZombiesOnSquare(1, "Kate", 100, getSq(10746, 9412, 1));
       if (var2 != null && !var2.isEmpty()) {
          IsoZombie var3 = (IsoZombie)var2.get(0);
          HumanVisual var4 = (HumanVisual)var3.getVisual();
@@ -46,7 +46,7 @@ public class RBKateAndBaldspot extends RandomizedBuildingBase {
          var3.setCanWalk(false);
          var3.setCrawlerType(1);
          var3.resetModelNextFrame();
-         var2 = this.addZombiesOnSquare(1, "Bob", 0, this.getSq(10747, 9412, 1));
+         var2 = this.addZombiesOnSquare(1, "Bob", 0, getSq(10747, 9412, 1));
          if (var2 != null && !var2.isEmpty()) {
             IsoZombie var15 = (IsoZombie)var2.get(0);
             var4 = (HumanVisual)var15.getVisual();
@@ -71,11 +71,11 @@ public class RBKateAndBaldspot extends RandomizedBuildingBase {
             var15.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem("RippedSheets"));
             var15.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem("Pills"));
             InventoryItem var17 = InventoryItemFactory.CreateItem("Hammer");
-            var17.setCondition(1);
+            var17.setCondition(1, false);
             var15.addItemToSpawnAtDeath(var17);
             var15.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem("Nails"));
             var15.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem("Plank"));
-            var2 = this.addZombiesOnSquare(1, "Raider", 0, this.getSq(10745, 9411, 0));
+            var2 = this.addZombiesOnSquare(1, "Raider", 0, getSq(10745, 9411, 0));
             if (var2 != null && !var2.isEmpty()) {
                IsoZombie var18 = (IsoZombie)var2.get(0);
                var4 = (HumanVisual)var18.getVisual();
@@ -96,37 +96,37 @@ public class RBKateAndBaldspot extends RandomizedBuildingBase {
 
                var18.getHumanVisual().setSkinTextureIndex(1);
                InventoryItem var19 = InventoryItemFactory.CreateItem("Shotgun");
-               var19.setCondition(0);
+               var19.setCondition(0, false);
                var18.setAttachedItem("Rifle On Back", var19);
                InventoryItem var20 = InventoryItemFactory.CreateItem("BaseballBat");
-               var20.setCondition(1);
+               var20.setCondition(1, false);
                var18.addItemToSpawnAtDeath(var20);
                var18.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem("ShotgunShells"));
                var18.resetModelNextFrame();
-               this.addItemOnGround(this.getSq(10747, 9412, 1), InventoryItemFactory.CreateItem("Pillow"));
-               IsoGridSquare var10 = this.getSq(10745, 9410, 0);
+               this.addItemOnGround(getSq(10747, 9412, 1), InventoryItemFactory.CreateItem("Pillow"));
+               IsoGridSquare var10 = getSq(10745, 9410, 0);
                var10.Burn();
-               var10 = this.getSq(10745, 9411, 0);
+               var10 = getSq(10745, 9411, 0);
                var10.Burn();
-               var10 = this.getSq(10746, 9411, 0);
+               var10 = getSq(10746, 9411, 0);
                var10.Burn();
-               var10 = this.getSq(10745, 9410, 0);
+               var10 = getSq(10745, 9410, 0);
                var10.Burn();
-               var10 = this.getSq(10745, 9412, 0);
+               var10 = getSq(10745, 9412, 0);
                var10.Burn();
-               var10 = this.getSq(10747, 9410, 0);
+               var10 = getSq(10747, 9410, 0);
                var10.Burn();
-               var10 = this.getSq(10746, 9409, 0);
+               var10 = getSq(10746, 9409, 0);
                var10.Burn();
-               var10 = this.getSq(10745, 9409, 0);
+               var10 = getSq(10745, 9409, 0);
                var10.Burn();
-               var10 = this.getSq(10744, 9410, 0);
+               var10 = getSq(10744, 9410, 0);
                var10.Burn();
-               var10 = this.getSq(10747, 9411, 0);
+               var10 = getSq(10747, 9411, 0);
                var10.Burn();
-               var10 = this.getSq(10746, 9412, 0);
+               var10 = getSq(10746, 9412, 0);
                var10.Burn();
-               IsoGridSquare var11 = this.getSq(10746, 9410, 0);
+               IsoGridSquare var11 = getSq(10746, 9410, 0);
 
                for(int var12 = 0; var12 < var11.getObjects().size(); ++var12) {
                   IsoObject var13 = (IsoObject)var11.getObjects().get(var12);
@@ -139,11 +139,11 @@ public class RBKateAndBaldspot extends RandomizedBuildingBase {
                   }
                }
 
-               this.addBarricade(this.getSq(10747, 9417, 0), 3);
-               this.addBarricade(this.getSq(10745, 9417, 0), 3);
-               this.addBarricade(this.getSq(10744, 9413, 0), 3);
-               this.addBarricade(this.getSq(10744, 9412, 0), 3);
-               this.addBarricade(this.getSq(10752, 9413, 0), 3);
+               this.addBarricade(getSq(10747, 9417, 0), 3);
+               this.addBarricade(getSq(10745, 9417, 0), 3);
+               this.addBarricade(getSq(10744, 9413, 0), 3);
+               this.addBarricade(getSq(10744, 9412, 0), 3);
+               this.addBarricade(getSq(10752, 9413, 0), 3);
             }
          }
       }

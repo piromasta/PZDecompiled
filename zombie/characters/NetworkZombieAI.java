@@ -8,12 +8,8 @@ import zombie.ai.states.LungeState;
 import zombie.ai.states.PathFindState;
 import zombie.ai.states.ThumpState;
 import zombie.ai.states.WalkTowardState;
-import zombie.core.Core;
-import zombie.core.math.PZMath;
-import zombie.core.utils.UpdateTimer;
-import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
-import zombie.debug.DebugType;
+import zombie.debug.options.Multiplayer;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
@@ -21,15 +17,17 @@ import zombie.iso.Vector2;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.NetworkVariables;
-import zombie.network.packets.ZombiePacket;
+import zombie.network.id.ObjectID;
+import zombie.network.id.ObjectIDManager;
+import zombie.network.id.ObjectIDType;
+import zombie.network.packets.character.ZombiePacket;
+import zombie.pathfind.PathFindBehavior2;
 import zombie.popman.NetworkZombieSimulator;
-import zombie.vehicles.PathFindBehavior2;
+import zombie.util.Type;
 
 public class NetworkZombieAI extends NetworkCharacterAI {
-   private final UpdateTimer timer;
    private final PathFindBehavior2 pfb2;
    public final IsoZombie zombie;
-   public boolean usePathFind = false;
    public float targetX = 0.0F;
    public float targetY = 0.0F;
    public int targetZ = 0;
@@ -37,19 +35,20 @@ public class NetworkZombieAI extends NetworkCharacterAI {
    private byte flags;
    private byte direction;
    public final NetworkZombieMind mindSync;
-   public short reanimatedBodyID;
-   public boolean DebugInterfaceActive = false;
+   public final ObjectID reanimatedBodyID;
+   public boolean DebugInterfaceActive;
 
    public NetworkZombieAI(IsoGameCharacter var1) {
       super(var1);
+      this.reanimatedBodyID = ObjectIDManager.createObjectID(ObjectIDType.DeadBody);
+      this.DebugInterfaceActive = false;
       this.zombie = (IsoZombie)var1;
       this.isClimbing = false;
       this.flags = 0;
       this.pfb2 = this.zombie.getPathFindBehavior2();
-      this.timer = new UpdateTimer();
       this.mindSync = new NetworkZombieMind(this.zombie);
       var1.ulBeatenVehicle.Reset(400L);
-      this.reanimatedBodyID = -1;
+      this.reanimatedBodyID.reset();
    }
 
    public void reset() {
@@ -61,37 +60,39 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       this.isClimbing = false;
       this.flags = 0;
       this.zombie.getHitDir().set(0.0F, 0.0F);
-      this.reanimatedBodyID = -1;
+      this.reanimatedBodyID.reset();
+   }
+
+   public IsoPlayer getRelatedPlayer() {
+      return (IsoPlayer)Type.tryCastTo(this.zombie.target, IsoPlayer.class);
+   }
+
+   public boolean isRemote() {
+      return this.zombie.isRemoteZombie();
+   }
+
+   public Multiplayer.DebugFlagsOG.IsoGameCharacterOG getBooleanDebugOptions() {
+      return DebugOptions.instance.Multiplayer.DebugFlags.Zombie;
    }
 
    public void extraUpdate() {
       NetworkZombieSimulator.getInstance().addExtraUpdate(this.zombie);
    }
 
-   private long getUpdateTime() {
-      return this.timer.getTime();
-   }
-
-   public void setUpdateTimer(float var1) {
-      this.timer.reset((long)PZMath.clamp((int)var1, 200, 3800));
-   }
-
    private void setUsingExtrapolation(ZombiePacket var1, int var2) {
       if (this.zombie.isMoving()) {
          Vector2 var3 = this.zombie.dir.ToVector();
          this.zombie.networkCharacter.checkReset(var2);
-         NetworkCharacter.Transform var4 = this.zombie.networkCharacter.predict(500, var2, this.zombie.x, this.zombie.y, var3.x, var3.y);
+         NetworkCharacter.Transform var4 = this.zombie.networkCharacter.predict(500, var2, this.zombie.getX(), this.zombie.getY(), var3.x, var3.y);
          var1.x = var4.position.x;
          var1.y = var4.position.y;
-         var1.z = (byte)((int)this.zombie.z);
+         var1.z = (byte)((int)this.zombie.getZ());
          var1.moveType = NetworkVariables.PredictionTypes.Moving;
-         this.setUpdateTimer(300.0F);
       } else {
-         var1.x = this.zombie.x;
-         var1.y = this.zombie.y;
-         var1.z = (byte)((int)this.zombie.z);
+         var1.x = this.zombie.getX();
+         var1.y = this.zombie.getY();
+         var1.z = (byte)((int)this.zombie.getZ());
          var1.moveType = NetworkVariables.PredictionTypes.Static;
-         this.setUpdateTimer(2280.0F);
       }
 
    }
@@ -101,7 +102,6 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       var1.y = ((IsoObject)this.zombie.getThumpTarget()).getY();
       var1.z = (byte)((int)((IsoObject)this.zombie.getThumpTarget()).getZ());
       var1.moveType = NetworkVariables.PredictionTypes.Thump;
-      this.setUpdateTimer(2280.0F);
    }
 
    private void setUsingClimb(ZombiePacket var1) {
@@ -109,29 +109,26 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       var1.y = this.zombie.getTarget().getY();
       var1.z = (byte)((int)this.zombie.getTarget().getZ());
       var1.moveType = NetworkVariables.PredictionTypes.Climb;
-      this.setUpdateTimer(2280.0F);
    }
 
    private void setUsingLungeState(ZombiePacket var1, long var2) {
       if (this.zombie.target == null) {
          this.setUsingExtrapolation(var1, (int)var2);
       } else {
-         float var4 = IsoUtils.DistanceTo(this.zombie.target.x, this.zombie.target.y, this.zombie.x, this.zombie.y);
+         float var4 = IsoUtils.DistanceTo(this.zombie.target.getX(), this.zombie.target.getY(), this.zombie.getX(), this.zombie.getY());
          float var5;
          if (var4 > 5.0F) {
-            var1.x = (this.zombie.x + this.zombie.target.x) * 0.5F;
-            var1.y = (this.zombie.y + this.zombie.target.y) * 0.5F;
-            var1.z = (byte)((int)this.zombie.target.z);
+            var1.x = (this.zombie.getX() + this.zombie.target.getX()) * 0.5F;
+            var1.y = (this.zombie.getY() + this.zombie.target.getY()) * 0.5F;
+            var1.z = (byte)((int)this.zombie.target.getZ());
             var5 = var4 * 0.5F / 5.0E-4F * this.zombie.speedMod;
             var1.moveType = NetworkVariables.PredictionTypes.LungeHalf;
-            this.setUpdateTimer(var5 * 0.6F);
          } else {
-            var1.x = this.zombie.target.x;
-            var1.y = this.zombie.target.y;
-            var1.z = (byte)((int)this.zombie.target.z);
+            var1.x = this.zombie.target.getX();
+            var1.y = this.zombie.target.getY();
+            var1.z = (byte)((int)this.zombie.target.getZ());
             var5 = var4 / 5.0E-4F * this.zombie.speedMod;
             var1.moveType = NetworkVariables.PredictionTypes.Lunge;
-            this.setUpdateTimer(var5 * 0.6F);
          }
 
       }
@@ -142,8 +139,8 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       if (this.zombie.getPath2() == null) {
          float var3 = this.pfb2.getPathLength();
          if (var3 > 5.0F) {
-            var1.x = (this.zombie.x + this.pfb2.getTargetX()) * 0.5F;
-            var1.y = (this.zombie.y + this.pfb2.getTargetY()) * 0.5F;
+            var1.x = (this.zombie.getX() + this.pfb2.getTargetX()) * 0.5F;
+            var1.y = (this.zombie.getY() + this.pfb2.getTargetY()) * 0.5F;
             var1.z = (byte)((int)this.pfb2.getTargetZ());
             var2 = var3 * 0.5F / 5.0E-4F * this.zombie.speedMod;
             var1.moveType = NetworkVariables.PredictionTypes.WalkHalf;
@@ -157,21 +154,19 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       } else {
          var1.x = this.pfb2.pathNextX;
          var1.y = this.pfb2.pathNextY;
-         var1.z = (byte)((int)this.zombie.z);
-         var2 = IsoUtils.DistanceTo(this.zombie.x, this.zombie.y, this.pfb2.pathNextX, this.pfb2.pathNextY) / 5.0E-4F * this.zombie.speedMod;
+         var1.z = (byte)((int)this.zombie.getZ());
+         var2 = IsoUtils.DistanceTo(this.zombie.getX(), this.zombie.getY(), this.pfb2.pathNextX, this.pfb2.pathNextY) / 5.0E-4F * this.zombie.speedMod;
          var1.moveType = NetworkVariables.PredictionTypes.Walk;
       }
 
-      this.setUpdateTimer(var2 * 0.6F);
    }
 
    private void setUsingPathFindState(ZombiePacket var1) {
       var1.x = this.pfb2.pathNextX;
       var1.y = this.pfb2.pathNextY;
-      var1.z = (byte)((int)this.zombie.z);
-      float var2 = IsoUtils.DistanceTo(this.zombie.x, this.zombie.y, this.pfb2.pathNextX, this.pfb2.pathNextY) / 5.0E-4F * this.zombie.speedMod;
+      var1.z = (byte)((int)this.zombie.getZ());
+      float var2 = IsoUtils.DistanceTo(this.zombie.getX(), this.zombie.getY(), this.pfb2.pathNextX, this.pfb2.pathNextY) / 5.0E-4F * this.zombie.speedMod;
       var1.moveType = NetworkVariables.PredictionTypes.PathFind;
-      this.setUpdateTimer(var2 * 0.6F);
    }
 
    public void set(ZombiePacket var1) {
@@ -183,44 +178,37 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       var1.timeSinceSeenFlesh = NetworkZombieVariables.getInt(this.zombie, (short)3);
       var1.smParamTargetAngle = NetworkZombieVariables.getInt(this.zombie, (short)4);
       var1.walkType = NetworkVariables.WalkType.fromString(this.zombie.getVariableString("zombieWalkType"));
-      var1.realX = this.zombie.x;
-      var1.realY = this.zombie.y;
-      var1.realZ = (byte)((int)this.zombie.z);
+      var1.realX = this.zombie.getX();
+      var1.realY = this.zombie.getY();
+      var1.realZ = (byte)((int)this.zombie.getZ());
       this.zombie.realState = NetworkVariables.ZombieState.fromString(this.zombie.getAdvancedAnimator().getCurrentStateName());
       var1.realState = this.zombie.realState;
-      var1.reanimatedBodyID = this.reanimatedBodyID;
+      var1.reanimatedBodyID.set(this.reanimatedBodyID);
       if (this.zombie.getThumpTarget() != null && this.zombie.getCurrentState() == ThumpState.instance()) {
          this.setUsingThump(var1);
-      } else if (this.zombie.getTarget() != null && !this.isClimbing && (this.zombie.getCurrentState() == ClimbOverFenceState.instance() || this.zombie.getCurrentState() == ClimbOverWallState.instance() || this.zombie.getCurrentState() == ClimbThroughWindowState.instance())) {
+      } else if (this.zombie.getTarget() == null || this.isClimbing || this.zombie.getCurrentState() != ClimbOverFenceState.instance() && this.zombie.getCurrentState() != ClimbOverWallState.instance() && this.zombie.getCurrentState() != ClimbThroughWindowState.instance()) {
+         if (this.zombie.getCurrentState() == WalkTowardState.instance()) {
+            this.setUsingWalkTowardState(var1);
+         } else if (this.zombie.getCurrentState() == LungeState.instance()) {
+            this.setUsingLungeState(var1, (long)var2);
+         } else if (this.zombie.getCurrentState() == PathFindState.instance() && this.zombie.isMoving()) {
+            this.setUsingPathFindState(var1);
+         } else {
+            this.setUsingExtrapolation(var1, var2);
+         }
+      } else {
          this.setUsingClimb(var1);
          this.isClimbing = true;
-      } else if (this.zombie.getCurrentState() == WalkTowardState.instance()) {
-         this.setUsingWalkTowardState(var1);
-      } else if (this.zombie.getCurrentState() == LungeState.instance()) {
-         this.setUsingLungeState(var1, (long)var2);
-      } else if (this.zombie.getCurrentState() == PathFindState.instance() && this.zombie.isMoving()) {
-         this.setUsingPathFindState(var1);
-      } else {
-         this.setUsingExtrapolation(var1, var2);
       }
 
       Vector2 var3 = this.zombie.dir.ToVector();
-      this.zombie.networkCharacter.updateExtrapolationPoint(var2, this.zombie.x, this.zombie.y, var3.x, var3.y);
-      if (DebugOptions.instance.MultiplayerLogPrediction.getValue() && Core.bDebug) {
-         DebugLog.log(DebugType.Multiplayer, getPredictionDebug(this.zombie, var1, var2, this.getUpdateTime()));
-      }
-
+      this.zombie.networkCharacter.updateExtrapolationPoint(var2, this.zombie.getX(), this.zombie.getY(), var3.x, var3.y);
    }
 
    public void parse(ZombiePacket var1) {
-      int var2 = (int)(GameTime.getServerTime() / 1000000L);
-      if (DebugOptions.instance.MultiplayerLogPrediction.getValue()) {
-         this.zombie.getNetworkCharacterAI().addTeleportData(var2, getPredictionDebug(this.zombie, var1, var2, (long)var2));
-      }
-
       if (this.usePathFind) {
          this.pfb2.pathToLocationF(var1.x, var1.y, (float)var1.z);
-         this.pfb2.walkingOnTheSpot.reset(this.zombie.x, this.zombie.y);
+         this.pfb2.walkingOnTheSpot.reset(this.zombie.getX(), this.zombie.getY());
       }
 
       this.targetX = var1.x;
@@ -240,7 +228,7 @@ public class NetworkZombieAI extends NetworkCharacterAI {
       this.zombie.realx = var1.realX;
       this.zombie.realy = var1.realY;
       this.zombie.realz = var1.realZ;
-      if ((IsoUtils.DistanceToSquared(this.zombie.x, this.zombie.y, this.zombie.realx, this.zombie.realy) > 9.0F || this.zombie.z != (float)this.zombie.realz) && (this.zombie.isRemoteZombie() || IsoPlayer.getInstance() != null && IsoUtils.DistanceToSquared(this.zombie.x, this.zombie.y, IsoPlayer.getInstance().x, IsoPlayer.getInstance().y) > 2.0F)) {
+      if ((IsoUtils.DistanceToSquared(this.zombie.getX(), this.zombie.getY(), this.zombie.realx, this.zombie.realy) > 9.0F || this.zombie.getZ() != (float)this.zombie.realz) && (this.zombie.isRemoteZombie() || IsoPlayer.getInstance() != null && IsoUtils.DistanceToSquared(this.zombie.getX(), this.zombie.getY(), IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY()) > 2.0F)) {
          NetworkTeleport.teleport(this.zombie, NetworkTeleport.Type.teleportation, this.zombie.realx, this.zombie.realy, this.zombie.realz, 1.0F);
       }
 
@@ -265,9 +253,5 @@ public class NetworkZombieAI extends NetworkCharacterAI {
          }
       }
 
-   }
-
-   public static String getPredictionDebug(IsoGameCharacter var0, ZombiePacket var1, int var2, long var3) {
-      return String.format("Prediction Z_%d [type=%s, distance=%f], time [current=%d, next=%d], states [current=%s, previous=%s]", var1.id, var1.moveType.toString(), IsoUtils.DistanceTo(var0.x, var0.y, var1.x, var1.y), var2, var3 - (long)var2, var0.getCurrentStateName(), var0.getPreviousStateName());
    }
 }

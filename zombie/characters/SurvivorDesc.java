@@ -1,7 +1,6 @@
 package zombie.characters;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,7 +16,7 @@ import zombie.characters.skills.PerkFactory;
 import zombie.characters.traits.ObservationFactory;
 import zombie.core.Color;
 import zombie.core.ImmutableColor;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.core.skinnedmodel.visual.HumanVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
@@ -56,6 +55,9 @@ public final class SurvivorDesc implements IHumanVisual {
    private final ArrayList<ObservationFactory.Observation> Observations = new ArrayList(0);
    private SurvivorFactory.SurvivorType type;
    public boolean bDead;
+   private String voicePrefix;
+   private float voicePitch;
+   private int voiceType;
 
    public HumanVisual getHumanVisual() {
       return this.humanVisual;
@@ -93,6 +95,30 @@ public final class SurvivorDesc implements IHumanVisual {
       ItemVisuals var2 = new ItemVisuals();
       this.getHumanVisual().dressInNamedOutfit(var1, var2);
       this.getWornItems().setFromItemVisuals(var2);
+   }
+
+   public String getVoicePrefix() {
+      return this.voicePrefix;
+   }
+
+   public void setVoicePrefix(String var1) {
+      this.voicePrefix = var1;
+   }
+
+   public int getVoiceType() {
+      return this.voiceType;
+   }
+
+   public void setVoiceType(int var1) {
+      this.voiceType = var1;
+   }
+
+   public float getVoicePitch() {
+      return this.voicePitch;
+   }
+
+   public void setVoicePitch(float var1) {
+      this.voicePitch = var1;
    }
 
    public SurvivorGroup getGroup() {
@@ -141,6 +167,9 @@ public final class SurvivorDesc implements IHumanVisual {
 
    public SurvivorDesc() {
       this.type = SurvivorFactory.SurvivorType.Neutral;
+      this.voicePrefix = "VoiceFemale";
+      this.voicePitch = 0.0F;
+      this.voiceType = 0;
       this.ID = IDCount++;
       IsoWorld.instance.SurvivorDescriptors.put(this.ID, this);
       this.doStats();
@@ -148,12 +177,18 @@ public final class SurvivorDesc implements IHumanVisual {
 
    public SurvivorDesc(boolean var1) {
       this.type = SurvivorFactory.SurvivorType.Neutral;
+      this.voicePrefix = "VoiceFemale";
+      this.voicePitch = 0.0F;
+      this.voiceType = 0;
       this.ID = IDCount++;
       this.doStats();
    }
 
    public SurvivorDesc(SurvivorDesc var1) {
       this.type = SurvivorFactory.SurvivorType.Neutral;
+      this.voicePrefix = "VoiceFemale";
+      this.voicePitch = 0.0F;
+      this.voiceType = 0;
       this.aggressiveness = var1.aggressiveness;
       this.bDead = var1.bDead;
       this.bFemale = var1.bFemale;
@@ -171,6 +206,9 @@ public final class SurvivorDesc implements IHumanVisual {
       this.temper = var1.temper;
       this.torso = var1.torso;
       this.type = var1.type;
+      this.voicePitch = var1.voicePitch;
+      this.voiceType = var1.voiceType;
+      this.voicePrefix = var1.voicePrefix;
    }
 
    public void meet(SurvivorDesc var1) {
@@ -203,20 +241,9 @@ public final class SurvivorDesc implements IHumanVisual {
    }
 
    private PerkFactory.Perk loadPerk(ByteBuffer var1, int var2) throws IOException {
-      PerkFactory.Perk var4;
-      if (var2 >= 152) {
-         String var5 = GameWindow.ReadStringUTF(var1);
-         var4 = PerkFactory.Perks.FromString(var5);
-         return var4 == PerkFactory.Perks.MAX ? null : var4;
-      } else {
-         int var3 = var1.getInt();
-         if (var3 >= 0 && var3 < PerkFactory.Perks.MAX.index()) {
-            var4 = PerkFactory.Perks.fromIndex(var3);
-            return var4 == PerkFactory.Perks.MAX ? null : var4;
-         } else {
-            return null;
-         }
-      }
+      String var3 = GameWindow.ReadStringUTF(var1);
+      PerkFactory.Perk var4 = PerkFactory.Perks.FromString(var3);
+      return var4 == PerkFactory.Perks.MAX ? null : var4;
    }
 
    public void load(ByteBuffer var1, int var2, IsoGameCharacter var3) throws IOException {
@@ -254,6 +281,16 @@ public final class SurvivorDesc implements IHumanVisual {
          }
       }
 
+      if (var2 >= 208) {
+         this.voicePrefix = GameWindow.ReadString(var1);
+         this.voicePitch = var1.getFloat();
+         this.voiceType = var1.getInt();
+      } else {
+         this.voicePrefix = this.bFemale ? "VoiceFemale" : "VoiceMale";
+         this.voicePitch = 0.0F;
+         this.voiceType = Rand.Next(3);
+      }
+
       this.Instance = var3;
    }
 
@@ -285,40 +322,44 @@ public final class SurvivorDesc implements IHumanVisual {
          var1.putInt((Integer)var5.getValue());
       }
 
+      GameWindow.WriteString(var1, this.voicePrefix);
+      var1.putFloat(this.voicePitch);
+      var1.putInt(this.voiceType);
    }
 
-   public void loadCompact(ByteBuffer var1) {
-      this.ID = -1;
-      this.torso = GameWindow.ReadString(var1);
-      this.bFemale = var1.get() == 1;
-      this.extra.clear();
-      if (var1.get() == 1) {
-         byte var2 = var1.get();
-
-         for(int var3 = 0; var3 < var2; ++var3) {
-            String var4 = GameWindow.ReadString(var1);
-            this.extra.add(var4);
-         }
-      }
-
-   }
-
-   public void saveCompact(ByteBuffer var1) throws UnsupportedEncodingException {
-      GameWindow.WriteString(var1, this.torso);
-      var1.put((byte)(this.bFemale ? 1 : 0));
+   public String getDescription(String var1) {
+      String var2 = "SurvivorDesc [" + var1;
+      var2 = var2 + "ID=" + this.ID + " | " + var1;
+      var2 = var2 + "forename=" + this.forename + " | " + var1;
+      var2 = var2 + "surname=" + this.surname + " | " + var1;
+      var2 = var2 + "torso=" + this.torso + " | " + var1;
+      var2 = var2 + "bFemale=" + this.bFemale + " | " + var1;
+      var2 = var2 + "Profession=" + this.Profession + " | " + var1;
       if (!this.extra.isEmpty()) {
-         var1.put((byte)1);
-         var1.put((byte)this.extra.size());
-         Iterator var2 = this.extra.iterator();
+         var2 = var2 + "extra=";
 
-         while(var2.hasNext()) {
-            String var3 = (String)var2.next();
-            GameWindow.WriteString(var1, var3);
+         for(int var3 = 0; var3 < this.extra.size(); ++var3) {
+            var2 = var2 + (String)this.extra.get(var3) + ",";
          }
-      } else {
-         var1.put((byte)0);
+
+         var2 = var2 + " | " + var1;
       }
 
+      if (this.getXPBoostMap().size() > 0) {
+         var2 = var2 + "XPBoost=" + var1;
+
+         Map.Entry var4;
+         for(Iterator var5 = this.getXPBoostMap().entrySet().iterator(); var5.hasNext(); var2 = var2 + ((PerkFactory.Perk)var4.getKey()).getId() + "(" + ((PerkFactory.Perk)var4.getKey()).getName() + "):" + var4.getValue() + ", " + var1) {
+            var4 = (Map.Entry)var5.next();
+         }
+
+         var2 = var2 + " ] ";
+      }
+
+      var2 = var2 + "voicePrefix=" + this.voicePrefix + " | " + var1;
+      var2 = var2 + "voicePitch=" + this.voicePitch + " | " + var1;
+      var2 = var2 + "voiceType=" + this.voiceType + " | " + var1;
+      return var2;
    }
 
    public void addObservation(String var1) {
@@ -341,6 +382,10 @@ public final class SurvivorDesc implements IHumanVisual {
 
    public int getMetCount(SurvivorDesc var1) {
       return this.MetCount.containsKey(var1.ID) ? (Integer)this.MetCount.get(var1.ID) : 0;
+   }
+
+   public String getFullname() {
+      return this.forename + " " + this.surname;
    }
 
    public String getForename() {

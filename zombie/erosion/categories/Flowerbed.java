@@ -9,6 +9,7 @@ import zombie.erosion.obj.ErosionObjSprites;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class Flowerbed extends ErosionCategory {
    private final int[] tileID = new int[]{16, 17, 18, 19, 20, 21, 22, 23, 28, 29, 30, 31};
@@ -17,41 +18,41 @@ public final class Flowerbed extends ErosionCategory {
    public Flowerbed() {
    }
 
-   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5) {
-      int var6 = var1.getObjects().size();
+   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6) {
+      int var7 = var1.getObjects().size();
 
-      for(int var7 = var6 - 1; var7 >= 0; --var7) {
-         IsoSprite var8 = ((IsoObject)var1.getObjects().get(var7)).getSprite();
-         if (var8 != null && var8.getName() != null) {
-            int var9;
-            if (var8.getName().startsWith("f_flowerbed_1")) {
-               var9 = Integer.parseInt(var8.getName().replace("f_flowerbed_1_", ""));
-               if (var9 <= 23) {
-                  if (var9 >= 12) {
-                     var9 -= 12;
+      for(int var8 = var7 - 1; var8 >= 0; --var8) {
+         IsoSprite var9 = ((IsoObject)var1.getObjects().get(var8)).getSprite();
+         if (var9 != null && var9.getName() != null) {
+            int var10;
+            if (var9.getName().startsWith("f_flowerbed_1")) {
+               var10 = Integer.parseInt(var9.getName().replace("f_flowerbed_1_", ""));
+               if (var10 <= 23) {
+                  if (var10 >= 12) {
+                     var10 -= 12;
                   }
 
-                  CategoryData var13 = (CategoryData)this.setCatModData(var2);
-                  var13.hasSpawned = true;
-                  var13.gameObj = var9;
-                  var13.dispSeason = -1;
-                  ErosionObj var14 = (ErosionObj)this.objs.get(var13.gameObj);
-                  ((IsoObject)var1.getObjects().get(var7)).setName(var14.name);
+                  CategoryData var14 = (CategoryData)this.setCatModData(var2);
+                  var14.hasSpawned = true;
+                  var14.gameObj = var10;
+                  var14.dispSeason = -1;
+                  ErosionObj var15 = (ErosionObj)this.objs.get(var14.gameObj);
+                  ((IsoObject)var1.getObjects().get(var8)).setName(var15.name);
                   return true;
                }
             }
 
-            if (var8.getName().startsWith("vegetation_ornamental_01")) {
-               var9 = Integer.parseInt(var8.getName().replace("vegetation_ornamental_01_", ""));
+            if (var9.getName().startsWith("vegetation_ornamental_01")) {
+               var10 = Integer.parseInt(var9.getName().replace("vegetation_ornamental_01_", ""));
 
-               for(int var10 = 0; var10 < this.tileID.length; ++var10) {
-                  if (this.tileID[var10] == var9) {
-                     CategoryData var11 = (CategoryData)this.setCatModData(var2);
-                     var11.hasSpawned = true;
-                     var11.gameObj = var10;
-                     var11.dispSeason = -1;
-                     ErosionObj var12 = (ErosionObj)this.objs.get(var11.gameObj);
-                     ((IsoObject)var1.getObjects().get(var7)).setName(var12.name);
+               for(int var11 = 0; var11 < this.tileID.length; ++var11) {
+                  if (this.tileID[var11] == var10) {
+                     CategoryData var12 = (CategoryData)this.setCatModData(var2);
+                     var12.hasSpawned = true;
+                     var12.gameObj = var11;
+                     var12.dispSeason = -1;
+                     ErosionObj var13 = (ErosionObj)this.objs.get(var12.gameObj);
+                     ((IsoObject)var1.getObjects().get(var8)).setName(var13.name);
                      return true;
                   }
                }
@@ -62,7 +63,7 @@ public final class Flowerbed extends ErosionCategory {
       return false;
    }
 
-   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6) {
+   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7) {
       return false;
    }
 

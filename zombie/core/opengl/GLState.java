@@ -6,9 +6,14 @@ import zombie.util.Type;
 public final class GLState {
    public static final CAlphaFunc AlphaFunc = new CAlphaFunc();
    public static final CAlphaTest AlphaTest = new CAlphaTest();
+   public static final CBlend Blend = new CBlend();
    public static final CBlendFunc BlendFunc = new CBlendFunc();
    public static final CBlendFuncSeparate BlendFuncSeparate = new CBlendFuncSeparate();
    public static final CColorMask ColorMask = new CColorMask();
+   public static final CDepthFunc DepthFunc = new CDepthFunc();
+   public static final CDepthMask DepthMask = new CDepthMask();
+   public static final CDepthTest DepthTest = new CDepthTest();
+   public static final CScissorTest ScissorTest = new CScissorTest();
    public static final CStencilFunc StencilFunc = new CStencilFunc();
    public static final CStencilMask StencilMask = new CStencilMask();
    public static final CStencilOp StencilOp = new CStencilOp();
@@ -20,9 +25,14 @@ public final class GLState {
    public static void startFrame() {
       AlphaFunc.setDirty();
       AlphaTest.setDirty();
+      Blend.setDirty();
       BlendFunc.setDirty();
       BlendFuncSeparate.setDirty();
       ColorMask.setDirty();
+      DepthFunc.setDirty();
+      DepthMask.setDirty();
+      DepthTest.setDirty();
+      ScissorTest.setDirty();
       StencilFunc.setDirty();
       StencilMask.setDirty();
       StencilOp.setDirty();
@@ -47,6 +57,21 @@ public final class GLState {
             SpriteRenderer.instance.glEnable(3008);
          } else {
             SpriteRenderer.instance.glDisable(3008);
+         }
+
+      }
+   }
+
+   public static final class CBlend extends BaseBoolean {
+      CBlend() {
+         ((CBooleanValue)this.currentValue).value = true;
+      }
+
+      void Set(CBooleanValue var1) {
+         if (var1.value) {
+            SpriteRenderer.instance.glEnable(3042);
+         } else {
+            SpriteRenderer.instance.glDisable(3042);
          }
 
       }
@@ -79,6 +104,55 @@ public final class GLState {
       }
    }
 
+   public static final class CDepthFunc extends BaseInt {
+      CDepthFunc() {
+         ((CIntValue)this.currentValue).value = 513;
+      }
+
+      void Set(CIntValue var1) {
+         SpriteRenderer.instance.glDepthFunc(var1.value);
+      }
+   }
+
+   public static final class CDepthMask extends BaseBoolean {
+      public CDepthMask() {
+      }
+
+      void Set(CBooleanValue var1) {
+         SpriteRenderer.instance.glDepthMask(var1.value);
+      }
+   }
+
+   public static final class CDepthTest extends BaseBoolean {
+      CDepthTest() {
+         ((CBooleanValue)this.currentValue).value = false;
+      }
+
+      void Set(CBooleanValue var1) {
+         if (var1.value) {
+            SpriteRenderer.instance.glEnable(2929);
+         } else {
+            SpriteRenderer.instance.glDisable(2929);
+         }
+
+      }
+   }
+
+   public static final class CScissorTest extends BaseBoolean {
+      CScissorTest() {
+         ((CBooleanValue)this.currentValue).value = false;
+      }
+
+      void Set(CBooleanValue var1) {
+         if (var1.value) {
+            SpriteRenderer.instance.glEnable(3089);
+         } else {
+            SpriteRenderer.instance.glDisable(3089);
+         }
+
+      }
+   }
+
    public static final class CStencilFunc extends Base3Ints {
       public CStencilFunc() {
       }
@@ -89,7 +163,8 @@ public final class GLState {
    }
 
    public static final class CStencilMask extends BaseInt {
-      public CStencilMask() {
+      CStencilMask() {
+         ((CIntValue)this.currentValue).value = 255;
       }
 
       void Set(CIntValue var1) {
@@ -336,7 +411,7 @@ public final class GLState {
 
       public boolean equals(Object var1) {
          C4BooleansValue var2 = (C4BooleansValue)Type.tryCastTo(var1, C4BooleansValue.class);
-         return var2 != null && var2.a == this.a && var2.b == this.b && var2.c == this.c;
+         return var2 != null && var2.a == this.a && var2.b == this.b && var2.c == this.c && var2.d == this.d;
       }
 
       public IOpenGLState.Value set(IOpenGLState.Value var1) {

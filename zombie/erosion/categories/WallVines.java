@@ -12,6 +12,7 @@ import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class WallVines extends ErosionCategory {
    private ArrayList<ErosionObjOverlay> objs = new ArrayList();
@@ -26,24 +27,24 @@ public final class WallVines extends ErosionCategory {
    public WallVines() {
    }
 
-   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5) {
-      int var6 = var1.getObjects().size();
+   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6) {
+      int var7 = var1.getObjects().size();
 
-      for(int var7 = var6 - 1; var7 >= 1; --var7) {
-         IsoObject var8 = (IsoObject)var1.getObjects().get(var7);
-         if (var8.AttachedAnimSprite != null) {
-            for(int var9 = 0; var9 < var8.AttachedAnimSprite.size(); ++var9) {
-               IsoSprite var10 = ((IsoSpriteInstance)var8.AttachedAnimSprite.get(var9)).parentSprite;
-               if (var10 != null && var10.getName() != null && var10.getName().startsWith("f_wallvines_1_") && this.spriteToObj.containsKey(var10.getName())) {
-                  CategoryData var11 = (CategoryData)this.setCatModData(var2);
-                  var11.gameObj = (Integer)this.spriteToObj.get(var10.getName());
-                  int var12 = (Integer)this.spriteToStage.get(var10.getName());
-                  var11.stage = var12;
-                  var11.maxStage = 2;
-                  var11.spawnTime = 0;
-                  var8.AttachedAnimSprite.remove(var9);
-                  if (var8.AttachedAnimSprite != null && var9 < var8.AttachedAnimSprite.size()) {
-                     var8.AttachedAnimSprite.remove(var9);
+      for(int var8 = var7 - 1; var8 >= 1; --var8) {
+         IsoObject var9 = (IsoObject)var1.getObjects().get(var8);
+         if (var9.AttachedAnimSprite != null) {
+            for(int var10 = 0; var10 < var9.AttachedAnimSprite.size(); ++var10) {
+               IsoSprite var11 = ((IsoSpriteInstance)var9.AttachedAnimSprite.get(var10)).parentSprite;
+               if (var11 != null && var11.getName() != null && var11.getName().startsWith("f_wallvines_1_") && this.spriteToObj.containsKey(var11.getName())) {
+                  CategoryData var12 = (CategoryData)this.setCatModData(var2);
+                  var12.gameObj = (Integer)this.spriteToObj.get(var11.getName());
+                  int var13 = (Integer)this.spriteToStage.get(var11.getName());
+                  var12.stage = var13;
+                  var12.maxStage = 2;
+                  var12.spawnTime = 0;
+                  var9.AttachedAnimSprite.remove(var10);
+                  if (var9.AttachedAnimSprite != null && var10 < var9.AttachedAnimSprite.size()) {
+                     var9.AttachedAnimSprite.remove(var10);
                   }
 
                   return true;
@@ -55,55 +56,55 @@ public final class WallVines extends ErosionCategory {
       return false;
    }
 
-   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6) {
-      if (!var4) {
+   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7) {
+      if (!var5) {
          return false;
       } else {
-         int var7 = var2.noiseMainInt;
-         int var8 = this.spawnChance[var7];
-         if (var8 == 0) {
+         int var8 = var2.noiseMainInt;
+         int var9 = this.spawnChance[var8];
+         if (var9 == 0) {
             return false;
-         } else if (var2.rand(var1.x, var1.y, 101) >= var8) {
+         } else if (var2.rand(var1.x, var1.y, 101) >= var9) {
             return false;
          } else {
-            boolean var9 = true;
-            IsoObject var10 = this.validWall(var1, true, true);
-            IsoObject var11 = this.validWall(var1, false, true);
-            byte var17;
-            if (var10 != null && var11 != null) {
-               var17 = 0;
-            } else if (var10 != null) {
-               var17 = 1;
+            boolean var10 = true;
+            IsoObject var11 = this.validWall(var1, true, true);
+            IsoObject var12 = this.validWall(var1, false, true);
+            byte var18;
+            if (var11 != null && var12 != null) {
+               var18 = 0;
+            } else if (var11 != null) {
+               var18 = 1;
             } else {
-               if (var11 == null) {
+               if (var12 == null) {
                   return false;
                }
 
-               var17 = 2;
+               var18 = 2;
             }
 
-            CategoryData var12 = (CategoryData)this.setCatModData(var2);
-            var12.gameObj = this.objsRef[var17][var2.rand(var1.x, var1.y, this.objsRef[var17].length)];
-            var12.maxStage = var7 > 65 ? 3 : (var7 > 60 ? 2 : (var7 > 55 ? 1 : 0));
-            var12.stage = 0;
-            var12.spawnTime = 100 - var7;
-            if (var12.maxStage == 3) {
-               IsoGridSquare var13 = IsoWorld.instance.CurrentCell.getGridSquare(var1.getX(), var1.getY(), var1.getZ() + 1);
-               if (var13 != null) {
-                  IsoObject var14 = this.validWall(var13, var17 == 1, true);
-                  ErosionObjOverlay var15 = (ErosionObjOverlay)this.objs.get(var12.gameObj);
-                  if (var14 != null && var15 != null) {
-                     CategoryData var16 = new CategoryData();
-                     var16.gameObj = this.objsRef[var17][var2.rand(var1.x, var1.y, this.objsRef[var17].length)];
-                     var16.maxStage = var7 > 75 ? 2 : (var7 > 70 ? 1 : 0);
-                     var16.stage = 0;
-                     var16.spawnTime = var12.spawnTime + (int)((float)var15.cycleTime / ((float)var12.maxStage + 1.0F) * 4.0F);
-                     var12.hasTop = var16;
+            CategoryData var13 = (CategoryData)this.setCatModData(var2);
+            var13.gameObj = this.objsRef[var18][var2.rand(var1.x, var1.y, this.objsRef[var18].length)];
+            var13.maxStage = var8 > 65 ? 3 : (var8 > 60 ? 2 : (var8 > 55 ? 1 : 0));
+            var13.stage = 0;
+            var13.spawnTime = 100 - var8;
+            if (var13.maxStage == 3) {
+               IsoGridSquare var14 = IsoWorld.instance.CurrentCell.getGridSquare(var1.getX(), var1.getY(), var1.getZ() + 1);
+               if (var14 != null) {
+                  IsoObject var15 = this.validWall(var14, var18 == 1, true);
+                  ErosionObjOverlay var16 = (ErosionObjOverlay)this.objs.get(var13.gameObj);
+                  if (var15 != null && var16 != null) {
+                     CategoryData var17 = new CategoryData();
+                     var17.gameObj = this.objsRef[var18][var2.rand(var1.x, var1.y, this.objsRef[var18].length)];
+                     var17.maxStage = var8 > 75 ? 2 : (var8 > 70 ? 1 : 0);
+                     var17.stage = 0;
+                     var17.spawnTime = var13.spawnTime + (int)((float)var16.cycleTime / ((float)var13.maxStage + 1.0F) * 4.0F);
+                     var13.hasTop = var17;
                   } else {
-                     var12.maxStage = 2;
+                     var13.maxStage = 2;
                   }
                } else {
-                  var12.maxStage = 2;
+                  var13.maxStage = 2;
                }
             }
 

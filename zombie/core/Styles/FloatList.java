@@ -6,27 +6,29 @@ public class FloatList implements Serializable {
    private static final long serialVersionUID = 1L;
    private float[] value;
    private int count;
-   private final boolean fastExpand;
+   private final ExpandStyle expandStyle;
 
    public FloatList() {
       this(0);
    }
 
    public FloatList(int var1) {
-      this(true, var1);
+      this(FloatList.ExpandStyle.Fast, var1);
    }
 
-   public FloatList(boolean var1, int var2) {
+   public FloatList(ExpandStyle var1, int var2) {
       this.count = 0;
-      this.fastExpand = var1;
+      this.expandStyle = var1;
       this.value = new float[var2];
    }
 
    public float add(float var1) {
       if (this.count == this.value.length) {
          float[] var2 = this.value;
-         if (this.fastExpand) {
+         if (this.expandStyle == FloatList.ExpandStyle.Fast) {
             this.value = new float[(var2.length << 1) + 1];
+         } else if (this.expandStyle == FloatList.ExpandStyle.Normal) {
+            this.value = new float[var2.length + var2.length / 10 + 10];
          } else {
             this.value = new float[var2.length + 1];
          }
@@ -105,6 +107,15 @@ public class FloatList implements Serializable {
          float[] var1 = this.value;
          this.value = new float[this.count];
          System.arraycopy(var1, 0, this.value, 0, this.count);
+      }
+   }
+
+   public static enum ExpandStyle {
+      Slow,
+      Normal,
+      Fast;
+
+      private ExpandStyle() {
       }
    }
 }

@@ -3,16 +3,22 @@ package zombie.core.skinnedmodel.shader;
 import java.nio.FloatBuffer;
 import org.joml.Math;
 import org.joml.Vector4f;
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL20;
+import org.lwjgl.opengl.GL43;
 import org.lwjgl.util.vector.Matrix4f;
 import org.lwjgl.util.vector.Vector3f;
-import org.lwjglx.BufferUtils;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.core.DefaultShader;
+import zombie.core.PerformanceSettings;
+import zombie.core.SceneShaderStore;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.PZGLUtil;
 import zombie.core.opengl.ShaderProgram;
+import zombie.core.rendering.InstancedBuffer;
+import zombie.core.rendering.ShaderBufferData;
+import zombie.core.rendering.ShaderPropertyBlock;
 import zombie.core.skinnedmodel.model.ModelInstance;
 import zombie.core.skinnedmodel.model.ModelInstanceRenderData;
 import zombie.core.skinnedmodel.model.ModelSlotRenderData;
@@ -72,22 +78,40 @@ public final class Shader {
    public int BoneIndicesAttrib;
    public int BoneWeightsAttrib;
    private int UVScale;
+   private int FinalScale;
    final boolean bStatic;
+   final boolean bInstanced;
+   public int InstancedDataAttrib;
+   public static final int INSTANCE_MAX = 128;
+   public InstancedBuffer instancedData;
    private static FloatBuffer floatBuffer;
    private static final int MAX_BONES = 64;
-   private static final Vector3f tempVec3f = new Vector3f();
+   private static final ThreadLocal<Vector3f> tempVec3f = ThreadLocal.withInitial(Vector3f::new);
    private final FloatBuffer floatBuffer2 = BufferUtils.createFloatBuffer(16);
 
-   public Shader(String var1, boolean var2) {
+   public Shader(String var1, boolean var2, boolean var3) {
       this.name = var1;
-      this.m_shaderProgram = ShaderProgram.createShaderProgram(var1, var2, false);
+      this.m_shaderProgram = ShaderProgram.createShaderProgram(var1, var2, var3, false);
       this.m_shaderProgram.addCompileListener(this::onProgramCompiled);
       this.bStatic = var2;
       this.compile();
+      this.bInstanced = this.InstancedDataAttrib >= 0;
+   }
+
+   public ShaderBufferData GetBufferData() {
+      return this.instancedData.GetBufferData();
    }
 
    public boolean isStatic() {
       return this.bStatic;
+   }
+
+   public boolean isInstanced() {
+      return this.bInstanced;
+   }
+
+   public String getName() {
+      return this.name;
    }
 
    public ShaderProgram getShaderProgram() {
@@ -98,95 +122,102 @@ public final class Shader {
       this.Start();
       int var2 = this.m_shaderProgram.getShaderID();
       if (!this.bStatic) {
-         this.MatrixID = ARBShaderObjects.glGetUniformLocationARB(var2, "MatrixPalette");
+         this.MatrixID = GL20.glGetUniformLocation(var2, "MatrixPalette");
       } else {
-         this.TransformMatrixID = ARBShaderObjects.glGetUniformLocationARB(var2, "transform");
+         this.TransformMatrixID = GL20.glGetUniformLocation(var2, "transform");
+         if (this.TransformMatrixID == -1) {
+            this.TransformMatrixID = GL20.glGetAttribLocation(var2, "transform");
+         }
       }
 
-      this.HueChange = ARBShaderObjects.glGetUniformLocationARB(var2, "HueChange");
-      this.LightingAmount = ARBShaderObjects.glGetUniformLocationARB(var2, "LightingAmount");
-      this.Light0Colour = ARBShaderObjects.glGetUniformLocationARB(var2, "Light0Colour");
-      this.Light0Direction = ARBShaderObjects.glGetUniformLocationARB(var2, "Light0Direction");
-      this.Light1Colour = ARBShaderObjects.glGetUniformLocationARB(var2, "Light1Colour");
-      this.Light1Direction = ARBShaderObjects.glGetUniformLocationARB(var2, "Light1Direction");
-      this.Light2Colour = ARBShaderObjects.glGetUniformLocationARB(var2, "Light2Colour");
-      this.Light2Direction = ARBShaderObjects.glGetUniformLocationARB(var2, "Light2Direction");
-      this.Light3Colour = ARBShaderObjects.glGetUniformLocationARB(var2, "Light3Colour");
-      this.Light3Direction = ARBShaderObjects.glGetUniformLocationARB(var2, "Light3Direction");
-      this.Light4Colour = ARBShaderObjects.glGetUniformLocationARB(var2, "Light4Colour");
-      this.Light4Direction = ARBShaderObjects.glGetUniformLocationARB(var2, "Light4Direction");
-      this.TintColour = ARBShaderObjects.glGetUniformLocationARB(var2, "TintColour");
-      this.Texture0 = ARBShaderObjects.glGetUniformLocationARB(var2, "Texture0");
-      this.TexturePainColor = ARBShaderObjects.glGetUniformLocationARB(var2, "TexturePainColor");
-      this.TextureRust = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureRust");
-      this.TextureMask = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureMask");
-      this.TextureLights = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureLights");
-      this.TextureDamage1Overlay = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage1Overlay");
-      this.TextureDamage1Shell = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage1Shell");
-      this.TextureDamage2Overlay = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage2Overlay");
-      this.TextureDamage2Shell = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage2Shell");
-      this.TextureRustA = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureRustA");
-      this.TextureUninstall1 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureUninstall1");
-      this.TextureUninstall2 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureUninstall2");
-      this.TextureLightsEnables1 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureLightsEnables1");
-      this.TextureLightsEnables2 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureLightsEnables2");
-      this.TextureDamage1Enables1 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage1Enables1");
-      this.TextureDamage1Enables2 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage1Enables2");
-      this.TextureDamage2Enables1 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage2Enables1");
-      this.TextureDamage2Enables2 = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureDamage2Enables2");
-      this.MatBlood1Enables1 = ARBShaderObjects.glGetUniformLocationARB(var2, "MatBlood1Enables1");
-      this.MatBlood1Enables2 = ARBShaderObjects.glGetUniformLocationARB(var2, "MatBlood1Enables2");
-      this.MatBlood2Enables1 = ARBShaderObjects.glGetUniformLocationARB(var2, "MatBlood2Enables1");
-      this.MatBlood2Enables2 = ARBShaderObjects.glGetUniformLocationARB(var2, "MatBlood2Enables2");
-      this.Alpha = ARBShaderObjects.glGetUniformLocationARB(var2, "Alpha");
-      this.TextureReflectionA = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureReflectionA");
-      this.TextureReflectionB = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureReflectionB");
-      this.ReflectionParam = ARBShaderObjects.glGetUniformLocationARB(var2, "ReflectionParam");
-      this.UVScale = ARBShaderObjects.glGetUniformLocationARB(var2, "UVScale");
+      this.HueChange = GL20.glGetUniformLocation(var2, "HueChange");
+      this.LightingAmount = GL20.glGetUniformLocation(var2, "LightingAmount");
+      this.Light0Colour = GL20.glGetUniformLocation(var2, "Light0Colour");
+      this.Light0Direction = GL20.glGetUniformLocation(var2, "Light0Direction");
+      this.Light1Colour = GL20.glGetUniformLocation(var2, "Light1Colour");
+      this.Light1Direction = GL20.glGetUniformLocation(var2, "Light1Direction");
+      this.Light2Colour = GL20.glGetUniformLocation(var2, "Light2Colour");
+      this.Light2Direction = GL20.glGetUniformLocation(var2, "Light2Direction");
+      this.Light3Colour = GL20.glGetUniformLocation(var2, "Light3Colour");
+      this.Light3Direction = GL20.glGetUniformLocation(var2, "Light3Direction");
+      this.Light4Colour = GL20.glGetUniformLocation(var2, "Light4Colour");
+      this.Light4Direction = GL20.glGetUniformLocation(var2, "Light4Direction");
+      this.TintColour = GL20.glGetUniformLocation(var2, "TintColour");
+      this.Texture0 = GL20.glGetUniformLocation(var2, "Texture0");
+      this.TexturePainColor = GL20.glGetUniformLocation(var2, "TexturePainColor");
+      this.TextureRust = GL20.glGetUniformLocation(var2, "TextureRust");
+      this.TextureMask = GL20.glGetUniformLocation(var2, "TextureMask");
+      this.TextureLights = GL20.glGetUniformLocation(var2, "TextureLights");
+      this.TextureDamage1Overlay = GL20.glGetUniformLocation(var2, "TextureDamage1Overlay");
+      this.TextureDamage1Shell = GL20.glGetUniformLocation(var2, "TextureDamage1Shell");
+      this.TextureDamage2Overlay = GL20.glGetUniformLocation(var2, "TextureDamage2Overlay");
+      this.TextureDamage2Shell = GL20.glGetUniformLocation(var2, "TextureDamage2Shell");
+      this.TextureRustA = GL20.glGetUniformLocation(var2, "TextureRustA");
+      this.TextureUninstall1 = GL20.glGetUniformLocation(var2, "TextureUninstall1");
+      this.TextureUninstall2 = GL20.glGetUniformLocation(var2, "TextureUninstall2");
+      this.TextureLightsEnables1 = GL20.glGetUniformLocation(var2, "TextureLightsEnables1");
+      this.TextureLightsEnables2 = GL20.glGetUniformLocation(var2, "TextureLightsEnables2");
+      this.TextureDamage1Enables1 = GL20.glGetUniformLocation(var2, "TextureDamage1Enables1");
+      this.TextureDamage1Enables2 = GL20.glGetUniformLocation(var2, "TextureDamage1Enables2");
+      this.TextureDamage2Enables1 = GL20.glGetUniformLocation(var2, "TextureDamage2Enables1");
+      this.TextureDamage2Enables2 = GL20.glGetUniformLocation(var2, "TextureDamage2Enables2");
+      this.MatBlood1Enables1 = GL20.glGetUniformLocation(var2, "MatBlood1Enables1");
+      this.MatBlood1Enables2 = GL20.glGetUniformLocation(var2, "MatBlood1Enables2");
+      this.MatBlood2Enables1 = GL20.glGetUniformLocation(var2, "MatBlood2Enables1");
+      this.MatBlood2Enables2 = GL20.glGetUniformLocation(var2, "MatBlood2Enables2");
+      this.Alpha = GL20.glGetUniformLocation(var2, "Alpha");
+      this.TextureReflectionA = GL20.glGetUniformLocation(var2, "TextureReflectionA");
+      this.TextureReflectionB = GL20.glGetUniformLocation(var2, "TextureReflectionB");
+      this.ReflectionParam = GL20.glGetUniformLocation(var2, "ReflectionParam");
+      this.UVScale = GL20.glGetUniformLocation(var2, "UVScale");
+      this.FinalScale = GL20.glGetUniformLocation(var2, "FinalScale");
       this.m_shaderProgram.setSamplerUnit("Texture", 0);
       if (this.Texture0 != -1) {
-         ARBShaderObjects.glUniform1iARB(this.Texture0, 0);
+         GL20.glUniform1i(this.Texture0, 0);
       }
 
       if (this.TextureRust != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureRust, 1);
+         GL20.glUniform1i(this.TextureRust, 1);
       }
 
       if (this.TextureMask != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureMask, 2);
+         GL20.glUniform1i(this.TextureMask, 2);
       }
 
       if (this.TextureLights != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureLights, 3);
+         GL20.glUniform1i(this.TextureLights, 3);
       }
 
       if (this.TextureDamage1Overlay != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureDamage1Overlay, 4);
+         GL20.glUniform1i(this.TextureDamage1Overlay, 4);
       }
 
       if (this.TextureDamage1Shell != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureDamage1Shell, 5);
+         GL20.glUniform1i(this.TextureDamage1Shell, 5);
       }
 
       if (this.TextureDamage2Overlay != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureDamage2Overlay, 6);
+         GL20.glUniform1i(this.TextureDamage2Overlay, 6);
       }
 
       if (this.TextureDamage2Shell != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureDamage2Shell, 7);
+         GL20.glUniform1i(this.TextureDamage2Shell, 7);
       }
 
       if (this.TextureReflectionA != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureReflectionA, 8);
+         GL20.glUniform1i(this.TextureReflectionA, 8);
       }
 
       if (this.TextureReflectionB != -1) {
-         ARBShaderObjects.glUniform1iARB(this.TextureReflectionB, 9);
+         GL20.glUniform1i(this.TextureReflectionB, 9);
       }
 
-      this.MirrorXID = ARBShaderObjects.glGetUniformLocationARB(var2, "MirrorX");
+      this.MirrorXID = GL20.glGetUniformLocation(var2, "MirrorX");
       this.BoneIndicesAttrib = GL20.glGetAttribLocation(var2, "boneIndices");
       this.BoneWeightsAttrib = GL20.glGetAttribLocation(var2, "boneWeights");
+      this.InstancedDataAttrib = GL43.glGetProgramResourceIndex(var2, 37606, "instancedData");
+      this.instancedData = new InstancedBuffer(this, 128);
+      this.instancedData.SetBinding(this.InstancedDataAttrib);
       this.End();
    }
 
@@ -210,6 +241,11 @@ public final class Shader {
    }
 
    public void Start() {
+      if (this.getID() != SceneShaderStore.DefaultShaderID) {
+         DefaultShader var10000 = SceneShaderStore.DefaultShader;
+         DefaultShader.isActive = false;
+      }
+
       this.m_shaderProgram.Start();
    }
 
@@ -237,12 +273,33 @@ public final class Shader {
       }
 
       this.setTexture(var6, "Texture", 0);
+      float var8;
+      if (var2.modelInstance.parent != null) {
+         var8 = var2.modelInstance.parent.targetDepth;
+         if (!PerformanceSettings.FBORenderChunk) {
+            var8 = 0.5F;
+         }
+
+         this.setTargetDepth(var8);
+      } else {
+         var8 = var2.modelInstance.targetDepth;
+         if (!PerformanceSettings.FBORenderChunk) {
+            var8 = 0.5F;
+         }
+
+         this.setTargetDepth(var8);
+      }
+
       this.setDepthBias(var2.depthBias / 50.0F);
       this.setAmbient(var3, var4, var5);
       this.setLightingAmount(1.0F);
       this.setHueShift(var2.hue);
       this.setTint(var2.tintR, var2.tintG, var2.tintB);
       this.setAlpha(var1.alpha);
+      if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+         this.setAmbient(1.0F, 1.0F, 1.0F);
+      }
+
    }
 
    private void setLights(ModelSlotRenderData var1, int var2) {
@@ -265,7 +322,11 @@ public final class Shader {
    }
 
    public void setAlpha(float var1) {
-      ARBShaderObjects.glUniform1fARB(this.Alpha, var1);
+      GL20.glUniform1f(this.Alpha, var1);
+   }
+
+   public void setScale(float var1) {
+      this.m_shaderProgram.setValue("FinalScale", var1);
    }
 
    public void updateParams() {
@@ -287,7 +348,7 @@ public final class Shader {
          }
 
          floatBuffer.flip();
-         ARBShaderObjects.glUniformMatrix4fvARB(this.MatrixID, true, floatBuffer);
+         GL20.glUniformMatrix4fv(this.MatrixID, true, floatBuffer);
       }
    }
 
@@ -297,7 +358,7 @@ public final class Shader {
 
    public void setMatrixPalette(FloatBuffer var1, boolean var2) {
       if (!this.bStatic) {
-         ARBShaderObjects.glUniformMatrix4fvARB(this.MatrixID, var2, var1);
+         GL20.glUniformMatrix4fv(this.MatrixID, var2, var1);
       }
    }
 
@@ -318,32 +379,32 @@ public final class Shader {
          }
 
          floatBuffer.flip();
-         ARBShaderObjects.glUniformMatrix4fvARB(this.MatrixID, true, floatBuffer);
+         GL20.glUniformMatrix4fv(this.MatrixID, true, floatBuffer);
       }
    }
 
    public void setTint(float var1, float var2, float var3) {
-      ARBShaderObjects.glUniform3fARB(this.TintColour, var1, var2, var3);
+      GL20.glUniform3f(this.TintColour, var1, var2, var3);
    }
 
    public void setTextureRustA(float var1) {
-      ARBShaderObjects.glUniform1fARB(this.TextureRustA, var1);
+      GL20.glUniform1f(this.TextureRustA, var1);
    }
 
    public void setTexturePainColor(float var1, float var2, float var3, float var4) {
-      ARBShaderObjects.glUniform4fARB(this.TexturePainColor, var1, var2, var3, var4);
+      GL20.glUniform4f(this.TexturePainColor, var1, var2, var3, var4);
    }
 
    public void setTexturePainColor(org.joml.Vector3f var1, float var2) {
-      ARBShaderObjects.glUniform4fARB(this.TexturePainColor, var1.x(), var1.y(), var1.z(), var2);
+      GL20.glUniform4f(this.TexturePainColor, var1.x(), var1.y(), var1.z(), var2);
    }
 
    public void setTexturePainColor(Vector4f var1) {
-      ARBShaderObjects.glUniform4fARB(this.TexturePainColor, var1.x(), var1.y(), var1.z(), var1.w());
+      GL20.glUniform4f(this.TexturePainColor, var1.x(), var1.y(), var1.z(), var1.w());
    }
 
    public void setReflectionParam(float var1, float var2, float var3) {
-      ARBShaderObjects.glUniform3fARB(this.ReflectionParam, var1, var2, var3);
+      GL20.glUniform3f(this.ReflectionParam, var1, var2, var3);
    }
 
    public void setTextureUninstall1(float[] var1) {
@@ -393,7 +454,7 @@ public final class Shader {
    }
 
    public void setShaderAlpha(float var1) {
-      ARBShaderObjects.glUniform1fARB(this.Alpha, var1);
+      GL20.glUniform1f(this.Alpha, var1);
    }
 
    public void setLight(int var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, ModelInstance var10) {
@@ -402,9 +463,9 @@ public final class Shader {
       float var13 = 0.0F;
       IsoMovingObject var14 = var10.object;
       if (var14 != null) {
-         var11 = var14.x;
-         var12 = var14.y;
-         var13 = var14.z;
+         var11 = var14.getX();
+         var12 = var14.getY();
+         var13 = var14.getZ();
       }
 
       this.setLight(var1, var2, var3, var4, var5, var6, var7, var8, var9, var11, var12, var13, var14);
@@ -435,7 +496,7 @@ public final class Shader {
       }
 
       if (var5 + var6 + var7 != 0.0F && !(var8 <= 0.0F)) {
-         Vector3f var16 = tempVec3f;
+         Vector3f var16 = (Vector3f)tempVec3f.get();
          if (!Float.isNaN(var9)) {
             var16.set(var2, var3, var4);
             var16.x -= var10;
@@ -503,6 +564,67 @@ public final class Shader {
       }
    }
 
+   public void setLightInst(int var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, float var11, float var12, ShaderPropertyBlock var13) {
+      if (var13.GetParameter("LightDirection") == null) {
+         var13.SetVector3Array("LightDirection", new Vector3f[5]);
+      }
+
+      if (var13.GetParameter("LightColour") == null) {
+         var13.SetVector3Array("LightColour", new Vector3f[5]);
+      }
+
+      if (var5 + var6 + var7 != 0.0F && !(var8 <= 0.0F)) {
+         Vector3f var14 = (Vector3f)tempVec3f.get();
+         if (!Float.isNaN(var9)) {
+            var14.set(var2, var3, var4);
+            var14.x -= var10;
+            var14.y -= var11;
+            var14.z -= var12;
+         } else {
+            var14.set(var2, var3, var4);
+         }
+
+         float var15 = var14.length();
+         if (var15 < 1.0E-4F) {
+            var14.set(0.0F, 0.0F, 1.0F);
+         } else {
+            var14.normalise();
+         }
+
+         float var16;
+         float var17;
+         if (!Float.isNaN(var9)) {
+            var16 = -var9;
+            var17 = var14.x;
+            float var18 = var14.y;
+            var14.x = var17 * Math.cos(var16) - var18 * Math.sin(var16);
+            var14.y = var17 * Math.sin(var16) + var18 * Math.cos(var16);
+         }
+
+         var16 = var14.y;
+         var14.y = var14.z;
+         var14.z = var16;
+         if (var14.lengthSquared() < 1.0E-4F) {
+            var14.set(0.0F, 1.0F, 0.0F);
+         } else {
+            var14.normalise();
+         }
+
+         var17 = Math.clamp(0.0F, 1.0F, 1.0F - var15 / var8);
+         var5 *= var17;
+         var6 *= var17;
+         var7 *= var17;
+         var5 = PZMath.clamp(var5, 0.0F, 1.0F);
+         var6 = PZMath.clamp(var6, 0.0F, 1.0F);
+         var7 = PZMath.clamp(var7, 0.0F, 1.0F);
+         var13.SetVector3ArrayElement("LightDirection", var1, -var14.x, var14.y, var14.z);
+         var13.SetVector3ArrayElement("LightColour", var1, var5, var6, var7);
+      } else {
+         var13.SetVector3ArrayElement("LightDirection", var1, 0.0F, 1.0F, 0.0F);
+         var13.SetVector3ArrayElement("LightColour", var1, 0.0F, 0.0F, 0.0F);
+      }
+   }
+
    private void doVector3(int var1, float var2, float var3, float var4) {
       this.m_shaderProgram.setVector3(var1, var2, var3, var4);
    }
@@ -519,6 +641,10 @@ public final class Shader {
          this.m_shaderProgram.setValue("LightingAmount", var1);
       }
 
+   }
+
+   public void setTargetDepth(float var1) {
+      this.m_shaderProgram.setValue("targetDepth", var1);
    }
 
    public void setDepthBias(float var1) {
@@ -541,15 +667,24 @@ public final class Shader {
       floatBuffer.clear();
       var1.store(floatBuffer);
       floatBuffer.flip();
-      ARBShaderObjects.glUniformMatrix4fvARB(this.TransformMatrixID, var2, floatBuffer);
+      GL20.glUniformMatrix4fv(this.TransformMatrixID, var2, floatBuffer);
    }
 
-   public void setTransformMatrix(org.joml.Matrix4f var1, boolean var2) {
+   public void StoreMatrix(org.joml.Matrix4f var1) {
       this.floatBuffer2.clear();
       var1.get(this.floatBuffer2);
       this.floatBuffer2.position(16);
       this.floatBuffer2.flip();
-      ARBShaderObjects.glUniformMatrix4fvARB(this.TransformMatrixID, var2, this.floatBuffer2);
+   }
+
+   public void setTransformMatrix(org.joml.Matrix4f var1, boolean var2) {
+      if (this.TransformMatrixID != -1) {
+         this.floatBuffer2.clear();
+         var1.get(this.floatBuffer2);
+         this.floatBuffer2.position(16);
+         this.floatBuffer2.flip();
+         GL20.glUniformMatrix4fv(this.TransformMatrixID, var2, this.floatBuffer2);
+      }
    }
 
    public void setMatrix(int var1, org.joml.Matrix4f var2) {
@@ -557,17 +692,21 @@ public final class Shader {
       var2.get(this.floatBuffer2);
       this.floatBuffer2.position(16);
       this.floatBuffer2.flip();
-      ARBShaderObjects.glUniformMatrix4fvARB(var1, true, this.floatBuffer2);
+      GL20.glUniformMatrix4fv(var1, true, this.floatBuffer2);
    }
 
    public void setMatrix(int var1, float[] var2) {
       this.floatBuffer2.clear();
       this.floatBuffer2.put(var2);
       this.floatBuffer2.flip();
-      ARBShaderObjects.glUniformMatrix4fvARB(var1, true, this.floatBuffer2);
+      GL20.glUniformMatrix4fv(var1, true, this.floatBuffer2);
    }
 
    public boolean isVehicleShader() {
       return this.TextureRust != -1;
+   }
+
+   public void setHighResDepthMultiplier(float var1) {
+      this.getShaderProgram().setValue("HighResDepthMultiplier", var1);
    }
 }

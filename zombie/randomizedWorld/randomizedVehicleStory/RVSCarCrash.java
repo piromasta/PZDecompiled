@@ -1,11 +1,11 @@
 package zombie.randomizedWorld.randomizedVehicleStory;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.Vector2;
+import zombie.iso.zones.Zone;
 import zombie.vehicles.BaseVehicle;
 
 public final class RVSCarCrash extends RandomizedVehicleStoryBase {
@@ -13,14 +13,14 @@ public final class RVSCarCrash extends RandomizedVehicleStoryBase {
       this.name = "Basic Car Crash";
       this.minZoneWidth = 5;
       this.minZoneHeight = 7;
-      this.setChance(25);
+      this.setChance(250);
    }
 
-   public void randomizeVehicleStory(IsoMetaGrid.Zone var1, IsoChunk var2) {
+   public void randomizeVehicleStory(Zone var1, IsoChunk var2) {
       this.callVehicleStorySpawner(var1, var2, 0.0F);
    }
 
-   public boolean initVehicleStorySpawner(IsoMetaGrid.Zone var1, IsoChunk var2, boolean var3) {
+   public boolean initVehicleStorySpawner(Zone var1, IsoChunk var2, boolean var3) {
       VehicleStorySpawner var4 = VehicleStorySpawner.getInstance();
       var4.clear();
       float var5 = 0.5235988F;
@@ -45,7 +45,7 @@ public final class RVSCarCrash extends RandomizedVehicleStoryBase {
       IsoGridSquare var3 = var2.square;
       if (var3 != null) {
          float var4 = var2.z;
-         IsoMetaGrid.Zone var5 = (IsoMetaGrid.Zone)var1.getParameter("zone", IsoMetaGrid.Zone.class);
+         Zone var5 = (Zone)var1.getParameter("zone", Zone.class);
          boolean var6 = var1.getParameterBoolean("smashed");
          boolean var7 = var1.getParameterBoolean("east");
          switch (var2.id) {
@@ -53,8 +53,10 @@ public final class RVSCarCrash extends RandomizedVehicleStoryBase {
             case "vehicle2":
                BaseVehicle var10 = this.addVehicle(var5, var2.position.x, var2.position.y, var4, var2.direction, "bad", (String)null, (Integer)null, (String)null);
                if (var10 != null) {
+                  var10.setAlarmed(false);
+                  String var11;
                   if (var6) {
-                     String var11 = "Front";
+                     var11 = "Front";
                      if ("vehicle2".equals(var2.id)) {
                         var11 = var7 ? "Right" : "Left";
                      }
@@ -64,7 +66,12 @@ public final class RVSCarCrash extends RandomizedVehicleStoryBase {
                   }
 
                   if ("vehicle1".equals(var2.id) && Rand.Next(10) < 4) {
-                     this.addZombiesOnVehicle(Rand.Next(2, 5), (String)null, (Integer)null, var10);
+                     var11 = null;
+                     if (var10.getZombieType() != null) {
+                        var11 = var10.getRandomZombieType();
+                     }
+
+                     this.addZombiesOnVehicle(Rand.Next(2, 5), var11, (Integer)null, var10);
                   }
                }
             default:

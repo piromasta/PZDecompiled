@@ -1,7 +1,11 @@
 package zombie.iso.sprite;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
+import zombie.core.PerformanceSettings;
 import zombie.core.textures.ColorInfo;
+import zombie.core.textures.TextureDraw;
+import zombie.debug.DebugOptions;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -121,6 +125,14 @@ public final class IsoSpriteInstance {
       this.parentSprite.render(this, var1, var2, var3, var4, var5, var6, var7, var8, true);
    }
 
+   public void render(IsoObject var1, float var2, float var3, float var4, IsoDirections var5, float var6, float var7, ColorInfo var8, boolean var9) {
+      this.parentSprite.render(this, var1, var2, var3, var4, var5, var6, var7, var8, var9);
+   }
+
+   public void render(IsoObject var1, float var2, float var3, float var4, IsoDirections var5, float var6, float var7, ColorInfo var8, boolean var9, Consumer<TextureDraw> var10) {
+      this.parentSprite.render(this, var1, var2, var3, var4, var5, var6, var7, var8, var9, var10);
+   }
+
    public void SetAlpha(float var1) {
       this.alpha = var1;
       this.bCopyTargetAlpha = false;
@@ -135,7 +147,17 @@ public final class IsoSpriteInstance {
    }
 
    protected void renderprep(IsoObject var1) {
-      if (var1 != null && this.bCopyTargetAlpha) {
+      if (DebugOptions.instance.FBORenderChunk.ForceAlphaAndTargetOne.getValue() && var1 != null) {
+         var1.setAlphaAndTarget(1.0F);
+      }
+
+      if (PerformanceSettings.FBORenderChunk && DebugOptions.instance.FBORenderChunk.ForceAlphaToTarget.getValue()) {
+         if (var1 != null && this.bCopyTargetAlpha) {
+            this.targetAlpha = var1.getTargetAlpha(IsoCamera.frameState.playerIndex);
+         }
+
+         this.alpha = this.targetAlpha;
+      } else if (var1 != null && this.bCopyTargetAlpha) {
          this.targetAlpha = var1.getTargetAlpha(IsoCamera.frameState.playerIndex);
          this.alpha = var1.getAlpha(IsoCamera.frameState.playerIndex);
       } else if (!this.bMultiplyObjectAlpha) {
@@ -217,13 +239,15 @@ public final class IsoSpriteInstance {
    }
 
    public static void add(IsoSpriteInstance var0) {
-      var0.reset();
+      if (var0 != null) {
+         var0.reset();
 
-      while(!lock.compareAndSet(false, true)) {
-         Thread.onSpinWait();
+         while(!lock.compareAndSet(false, true)) {
+            Thread.onSpinWait();
+         }
+
+         pool.release((Object)var0);
+         lock.set(false);
       }
-
-      pool.release((Object)var0);
-      lock.set(false);
    }
 }

@@ -1,12 +1,16 @@
 package zombie.ui;
 
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaThread;
+import zombie.GameProfiler;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoPlayer;
@@ -17,6 +21,7 @@ import zombie.core.SpriteRenderer;
 import zombie.core.Translator;
 import zombie.core.Styles.TransparentStyle;
 import zombie.core.Styles.UIFBOStyle;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureFBO;
@@ -25,14 +30,11 @@ import zombie.gameStates.GameLoadingState;
 import zombie.input.GameKeyboard;
 import zombie.input.Mouse;
 import zombie.iso.IsoCamera;
-import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoObjectPicker;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
-import zombie.iso.areas.SafeHouse;
-import zombie.network.CoopMaster;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.util.list.PZArrayUtil;
@@ -42,7 +44,7 @@ public final class UIManager {
    public static int lastMouseY = 0;
    public static IsoObjectPicker.ClickObject Picked = null;
    public static Clock clock;
-   public static final ArrayList<UIElement> UI = new ArrayList();
+   public static final ArrayList<UIElementInterface> UI = new ArrayList();
    public static ObjectTooltip toolTip = null;
    public static Texture mouseArrow;
    public static Texture mouseExamine;
@@ -50,7 +52,6 @@ public final class UIManager {
    public static Texture mouseGrab;
    public static SpeedControls speedControls;
    public static UIDebugConsole DebugConsole;
-   public static UIServerToolbox ServerToolbox;
    public static final MoodlesUI[] MoodleUI = new MoodlesUI[4];
    public static boolean bFadeBeforeUI = false;
    public static final ActionProgressBar[] ProgressBar = new ActionProgressBar[4];
@@ -70,6 +71,7 @@ public final class UIManager {
    public static boolean VisibleAllUI = true;
    public static TextureFBO UIFBO;
    public static boolean useUIFBO = false;
+   public static boolean UITextureContentsValid = false;
    public static Texture black = null;
    public static boolean bSuspend = false;
    public static float lastAlpha = 10000.0F;
@@ -80,36 +82,37 @@ public final class UIManager {
    public static long uiUpdateIntervalMS = 0L;
    public static long uiRenderTimeMS = 0L;
    public static long uiRenderIntervalMS = 0L;
-   private static final ArrayList<UIElement> tutorialStack = new ArrayList();
-   public static final ArrayList<UIElement> toTop = new ArrayList();
+   private static final ArrayList<UIElementInterface> tutorialStack = new ArrayList();
+   public static final ArrayList<UIElementInterface> toTop = new ArrayList();
    public static KahluaThread defaultthread = null;
    public static KahluaThread previousThread = null;
-   static final ArrayList<UIElement> toRemove = new ArrayList();
-   static final ArrayList<UIElement> toAdd = new ArrayList();
+   static final ArrayList<UIElementInterface> toRemove = new ArrayList();
+   static final ArrayList<UIElementInterface> toAdd = new ArrayList();
    static int wheel = 0;
    static int lastwheel = 0;
-   static final ArrayList<UIElement> debugUI = new ArrayList();
-   static boolean bShowLuaDebuggerOnError = true;
+   static final ArrayList<UIElementInterface> debugUI = new ArrayList();
+   static boolean bShowLuaDebuggerOnError = false;
    public static String luaDebuggerAction = null;
    static final Sync sync = new Sync();
    private static boolean showPausedMessage = true;
-   private static UIElement playerInventoryUI;
-   private static UIElement playerLootUI;
-   private static UIElement playerInventoryTooltip;
-   private static UIElement playerLootTooltip;
+   private static UIElementInterface playerInventoryUI;
+   private static UIElementInterface playerLootUI;
+   private static UIElementInterface playerInventoryTooltip;
+   private static UIElementInterface playerLootTooltip;
    private static final FadeInfo[] playerFadeInfo = new FadeInfo[4];
+   private static final BlinkInfo[] playerBlinkInfo = new BlinkInfo[4];
 
    public UIManager() {
    }
 
-   public static void AddUI(UIElement var0) {
+   public static void AddUI(UIElementInterface var0) {
       toRemove.remove(var0);
       toRemove.add(var0);
       toAdd.remove(var0);
       toAdd.add(var0);
    }
 
-   public static void RemoveElement(UIElement var0) {
+   public static void RemoveElement(UIElementInterface var0) {
       toAdd.remove(var0);
       toRemove.remove(var0);
       toRemove.add(var0);
@@ -230,17 +233,11 @@ public final class UIManager {
 
             getUI().add(getToolTip());
             setDebugConsole(new UIDebugConsole(20, Core.getInstance().getScreenHeight() - 265));
-            setServerToolbox(new UIServerToolbox(100, 200));
+            DebugConsole.setY((double)Core.getInstance().getScreenHeight() - DebugConsole.getHeight() - 20.0);
             if (Core.bDebug && DebugOptions.instance.UIDebugConsoleStartVisible.getValue()) {
                DebugConsole.setVisible(true);
             } else {
                DebugConsole.setVisible(false);
-            }
-
-            if (CoopMaster.instance.isRunning()) {
-               ServerToolbox.setVisible(true);
-            } else {
-               ServerToolbox.setVisible(false);
             }
 
             for(var0 = 0; var0 < 4; ++var0) {
@@ -251,7 +248,6 @@ public final class UIManager {
             }
 
             getUI().add(getDebugConsole());
-            getUI().add(getServerToolbox());
             setLastMouseTexture(getMouseArrow());
             resize();
 
@@ -278,11 +274,16 @@ public final class UIManager {
             uiRenderIntervalMS = Math.min(var0 - uiRenderTimeMS, 1000L);
             uiRenderTimeMS = var0;
             UIElement.StencilLevel = 0;
+            IndieGL.enableBlend();
             if (useUIFBO) {
                SpriteRenderer.instance.setDefaultStyle(UIFBOStyle.instance);
+               IndieGL.glBlendFuncSeparate(770, 771, 1, 771);
+            } else {
+               IndieGL.glBlendFunc(770, 771);
             }
 
-            UITransition.UpdateAll();
+            IndieGL.disableDepthTest();
+            GameProfiler.getInstance().invokeAndMeasure("UITransition.UpdateAll", UITransition::UpdateAll);
             if (getBlack() == null) {
                setBlack(Texture.getSharedTexture("black.png"));
             }
@@ -291,44 +292,31 @@ public final class UIManager {
                LuaEventManager.triggerEvent("OnPreUIDraw");
             }
 
-            int var2 = Mouse.getXA();
-            int var3 = Mouse.getYA();
             if (isbFadeBeforeUI()) {
-               setFadeAlpha((double)(getFadeInTime().floatValue() / getFadeInTimeMax().floatValue()));
-               if (getFadeAlpha() > 1.0) {
-                  setFadeAlpha(1.0);
-               }
-
-               if (getFadeAlpha() < 0.0) {
-                  setFadeAlpha(0.0);
-               }
-
-               if (isFadingOut()) {
-                  setFadeAlpha(1.0 - getFadeAlpha());
-               }
-
-               if (IsoCamera.CamCharacter != null && getFadeAlpha() > 0.0) {
-                  DrawTexture(getBlack(), 0.0, 0.0, (double)Core.getInstance().getScreenWidth(), (double)Core.getInstance().getScreenHeight(), getFadeAlpha());
-               }
+               renderFadeOverlay();
             }
 
             setLastAlpha(getFadeAlpha().floatValue());
 
-            int var4;
-            for(var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
-               if (IsoPlayer.players[var4] != null && playerFadeInfo[var4].isFadeBeforeUI()) {
-                  playerFadeInfo[var4].render();
+            int var2;
+            for(var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
+               if (IsoPlayer.players[var2] != null && playerFadeInfo[var2].isFadeBeforeUI()) {
+                  playerFadeInfo[var2].render();
                }
             }
 
-            for(var4 = 0; var4 < getUI().size(); ++var4) {
-               if ((((UIElement)UI.get(var4)).isIgnoreLossControl() || !TutorialManager.instance.StealControl) && !((UIElement)UI.get(var4)).isFollowGameWorld()) {
+            for(var2 = 0; var2 < getUI().size(); ++var2) {
+               if ((((UIElementInterface)UI.get(var2)).isIgnoreLossControl() || !TutorialManager.instance.StealControl) && !((UIElementInterface)UI.get(var2)).isFollowGameWorld()) {
                   try {
-                     if (((UIElement)getUI().get(var4)).isDefaultDraw()) {
-                        ((UIElement)getUI().get(var4)).render();
+                     if (((UIElementInterface)getUI().get(var2)).isDefaultDraw()) {
+                        GameProfiler var10000 = GameProfiler.getInstance();
+                        String var10001 = "Render " + getUI().get(var2);
+                        UIElementInterface var10002 = (UIElementInterface)getUI().get(var2);
+                        Objects.requireNonNull(var10002);
+                        var10000.invokeAndMeasure(var10001, var10002::render);
                      }
-                  } catch (Exception var8) {
-                     Logger.getLogger(GameWindow.class.getName()).log(Level.SEVERE, (String)null, var8);
+                  } catch (Exception var6) {
+                     Logger.getLogger(GameWindow.class.getName()).log(Level.SEVERE, (String)null, var6);
                   }
                }
             }
@@ -338,36 +326,21 @@ public final class UIManager {
             }
 
             if (isShowPausedMessage() && GameTime.isGamePaused() && (getModal() == null || !Modal.isVisible()) && VisibleAllUI) {
-               String var9 = Translator.getText("IGUI_GamePaused");
-               int var5 = TextManager.instance.MeasureStringX(UIFont.Small, var9) + 32;
-               int var6 = TextManager.instance.font.getLineHeight();
-               int var7 = (int)Math.ceil((double)var6 * 1.5);
-               SpriteRenderer.instance.renderi((Texture)null, Core.getInstance().getScreenWidth() / 2 - var5 / 2, Core.getInstance().getScreenHeight() / 2 - var7 / 2, var5, var7, 0.0F, 0.0F, 0.0F, 0.75F, (Consumer)null);
-               TextManager.instance.DrawStringCentre((double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() / 2 - var6 / 2), var9, 1.0, 1.0, 1.0, 1.0);
+               String var7 = Translator.getText("IGUI_GamePaused");
+               int var3 = TextManager.instance.MeasureStringX(UIFont.Small, var7) + 32;
+               int var4 = TextManager.instance.font.getLineHeight();
+               int var5 = (int)Math.ceil((double)var4 * 1.5);
+               SpriteRenderer.instance.renderi((Texture)null, Core.getInstance().getScreenWidth() / 2 - var3 / 2, Core.getInstance().getScreenHeight() / 6 - var5 / 2, var3, var5, 0.0F, 0.0F, 0.0F, 0.75F, (Consumer)null);
+               TextManager.instance.DrawStringCentre((double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() / 6 - var4 / 2), var7, 1.0, 1.0, 1.0, 1.0);
             }
 
             if (!isbFadeBeforeUI()) {
-               setFadeAlpha(getFadeInTime() / getFadeInTimeMax());
-               if (getFadeAlpha() > 1.0) {
-                  setFadeAlpha(1.0);
-               }
-
-               if (getFadeAlpha() < 0.0) {
-                  setFadeAlpha(0.0);
-               }
-
-               if (isFadingOut()) {
-                  setFadeAlpha(1.0 - getFadeAlpha());
-               }
-
-               if (IsoCamera.CamCharacter != null && getFadeAlpha() > 0.0) {
-                  DrawTexture(getBlack(), 0.0, 0.0, (double)Core.getInstance().getScreenWidth(), (double)Core.getInstance().getScreenHeight(), getFadeAlpha());
-               }
+               renderFadeOverlay();
             }
 
-            for(var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
-               if (IsoPlayer.players[var4] != null && !playerFadeInfo[var4].isFadeBeforeUI()) {
-                  playerFadeInfo[var4].render();
+            for(var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
+               if (IsoPlayer.players[var2] != null && !playerFadeInfo[var2].isFadeBeforeUI()) {
+                  playerFadeInfo[var2].render();
                }
             }
 
@@ -377,10 +350,23 @@ public final class UIManager {
 
             if (useUIFBO) {
                SpriteRenderer.instance.setDefaultStyle(TransparentStyle.instance);
+               IndieGL.glBlendFunc(770, 771);
             }
 
          }
       }
+   }
+
+   public static void renderFadeOverlay() {
+      setFadeAlpha((double)((float)FadeInTime / (float)FadeInTimeMax));
+      if (isFadingOut()) {
+         setFadeAlpha(1.0 - getFadeAlpha());
+      }
+
+      if (IsoCamera.getCameraCharacter() != null && getFadeAlpha() > 0.0) {
+         DrawTexture(getBlack(), 0.0, 0.0, (double)Core.getInstance().getScreenWidth(), (double)Core.getInstance().getScreenHeight(), getFadeAlpha());
+      }
+
    }
 
    public static void resize() {
@@ -406,7 +392,31 @@ public final class UIManager {
                var1 /= 2;
             }
 
-            MoodleUI[var0].setX((double)(var1 - 50));
+            int var4 = 32;
+            switch (Core.getInstance().getOptionMoodleSize()) {
+               case 1:
+                  var4 = 32;
+                  break;
+               case 2:
+                  var4 = 48;
+                  break;
+               case 3:
+                  var4 = 64;
+                  break;
+               case 4:
+                  var4 = 80;
+                  break;
+               case 5:
+                  var4 = 96;
+                  break;
+               case 6:
+                  var4 = 128;
+                  break;
+               case 7:
+                  var4 = TextManager.instance.font.getLineHeight() * 3;
+            }
+
+            MoodleUI[var0].setX((double)(var1 - (10 + var4)));
             if ((var0 == 0 || var0 == 1) && IsoPlayer.numPlayers > 1) {
                MoodleUI[var0].setY((double)var3);
             }
@@ -436,15 +446,15 @@ public final class UIManager {
          }
 
          if (IsoPlayer.numPlayers == 1) {
-            speedControls.setX((double)(Core.getInstance().getScreenWidth() - 110));
+            speedControls.setX((double)((float)Core.getInstance().getScreenWidth() - speedControls.width - 10.0F));
          } else {
-            speedControls.setX((double)(Core.getInstance().getScreenWidth() / 2 - 50));
+            speedControls.setX((double)((float)(Core.getInstance().getScreenWidth() / 2) - speedControls.width - 10.0F));
          }
 
          if (IsoPlayer.numPlayers == 1 && !clock.isVisible()) {
             speedControls.setY(clock.getY());
          } else {
-            speedControls.setY(clock.getY() + clock.getHeight() + 6.0);
+            speedControls.setY(clock.getY() + clock.getHeight() + 10.0);
          }
 
          speedControls.setVisible(VisibleAllUI && !IsoPlayer.allPlayersDead());
@@ -454,11 +464,33 @@ public final class UIManager {
    public static Vector2 getTileFromMouse(double var0, double var2, double var4) {
       PickedTile.x = IsoUtils.XToIso((float)(var0 - 0.0), (float)(var2 - 0.0), (float)var4);
       PickedTile.y = IsoUtils.YToIso((float)(var0 - 0.0), (float)(var2 - 0.0), (float)var4);
-      PickedTileLocal.x = getPickedTile().x - (float)((int)getPickedTile().x);
-      PickedTileLocal.y = getPickedTile().y - (float)((int)getPickedTile().y);
-      PickedTile.x = (float)((int)getPickedTile().x);
-      PickedTile.y = (float)((int)getPickedTile().y);
+      PickedTileLocal.x = getPickedTile().x - (float)PZMath.fastfloor(getPickedTile().x);
+      PickedTileLocal.y = getPickedTile().y - (float)PZMath.fastfloor(getPickedTile().y);
+      PickedTile.x = (float)PZMath.fastfloor(getPickedTile().x);
+      PickedTile.y = (float)PZMath.fastfloor(getPickedTile().y);
       return getPickedTile();
+   }
+
+   private static int isOverElement(UIElementInterface var0, int var1, int var2) {
+      if (!var0.isIgnoreLossControl() && TutorialManager.instance.StealControl) {
+         return -1;
+      } else if (!var0.isVisible()) {
+         return -1;
+      } else if (Modal != null && Modal != var0 && Modal.isVisible()) {
+         return -1;
+      } else if (var0.isCapture()) {
+         return 1;
+      } else {
+         if (var0.getMaxDrawHeight() != -1.0) {
+            if ((double)var1 >= var0.getX() && (double)var2 >= var0.getY() && (double)var1 < var0.getX() + var0.getWidth() && (double)var2 < var0.getY() + Math.min(var0.getHeight(), var0.getMaxDrawHeight())) {
+               return 1;
+            }
+         } else if (var0.isOverElement((double)var1, (double)var2)) {
+            return 1;
+         }
+
+         return 0;
+      }
    }
 
    public static void update() {
@@ -477,52 +509,50 @@ public final class UIManager {
 
          for(int var0 = 0; var0 < IsoPlayer.numPlayers; ++var0) {
             playerFadeInfo[var0].update();
+            playerBlinkInfo[var0].update();
          }
 
-         long var13 = System.currentTimeMillis();
-         if (var13 - uiUpdateTimeMS >= 100L) {
+         long var16 = System.currentTimeMillis();
+         if (var16 - uiUpdateTimeMS >= 100L) {
             doTick = true;
-            uiUpdateIntervalMS = Math.min(var13 - uiUpdateTimeMS, 1000L);
-            uiUpdateTimeMS = var13;
+            uiUpdateIntervalMS = Math.min(var16 - uiUpdateTimeMS, 1000L);
+            uiUpdateTimeMS = var16;
          } else {
             doTick = false;
          }
 
-         boolean var2 = false;
-         boolean var3 = false;
-         boolean var4 = false;
-         int var5 = Mouse.getXA();
-         int var6 = Mouse.getYA();
-         int var7 = Mouse.getX();
-         int var8 = Mouse.getY();
+         int var2 = Mouse.getXA();
+         int var3 = Mouse.getYA();
+         int var4 = Mouse.getX();
+         int var5 = Mouse.getY();
          tutorialStack.clear();
 
-         int var9;
-         UIElement var10;
-         UIElement var11;
-         for(var9 = UI.size() - 1; var9 >= 0; --var9) {
-            var10 = (UIElement)UI.get(var9);
-            if (var10.getParent() != null) {
-               UI.remove(var9);
+         int var6;
+         UIElementInterface var7;
+         UIElementInterface var8;
+         for(var6 = UI.size() - 1; var6 >= 0; --var6) {
+            var7 = (UIElementInterface)UI.get(var6);
+            if (var7.getParent() != null) {
+               UI.remove(var6);
                throw new IllegalStateException();
             }
 
-            if (var10.isFollowGameWorld()) {
-               tutorialStack.add(var10);
+            if (var7.isFollowGameWorld()) {
+               tutorialStack.add(var7);
             }
 
-            if (var10 instanceof ObjectTooltip) {
-               var11 = (UIElement)UI.remove(var9);
-               UI.add(var11);
+            if (var7 instanceof ObjectTooltip) {
+               var8 = (UIElementInterface)UI.remove(var6);
+               UI.add(var8);
             }
          }
 
-         for(var9 = 0; var9 < UI.size(); ++var9) {
-            var10 = (UIElement)UI.get(var9);
-            if (var10.alwaysOnTop || toTop.contains(var10)) {
-               var11 = (UIElement)UI.remove(var9);
-               --var9;
-               toAdd.add(var11);
+         for(var6 = 0; var6 < UI.size(); ++var6) {
+            var7 = (UIElementInterface)UI.get(var6);
+            if (var7.isAlwaysOnTop() || toTop.contains(var7)) {
+               var8 = (UIElementInterface)UI.remove(var6);
+               --var6;
+               toAdd.add(var8);
             }
          }
 
@@ -533,201 +563,110 @@ public final class UIManager {
 
          toTop.clear();
 
-         for(var9 = 0; var9 < UI.size(); ++var9) {
-            var10 = (UIElement)UI.get(var9);
-            if (var10.alwaysBack) {
-               var11 = (UIElement)UI.remove(var9);
-               UI.add(0, var11);
+         for(var6 = 0; var6 < UI.size(); ++var6) {
+            var7 = (UIElementInterface)UI.get(var6);
+            if (var7.isBackMost()) {
+               var8 = (UIElementInterface)UI.remove(var6);
+               UI.add(0, var8);
             }
          }
 
-         for(var9 = 0; var9 < tutorialStack.size(); ++var9) {
-            UI.remove(tutorialStack.get(var9));
-            UI.add(0, (UIElement)tutorialStack.get(var9));
+         for(var6 = 0; var6 < tutorialStack.size(); ++var6) {
+            UI.remove(tutorialStack.get(var6));
+            UI.add(0, (UIElementInterface)tutorialStack.get(var6));
          }
 
-         if (Mouse.isLeftPressed()) {
-            Core.UnfocusActiveTextEntryBox();
-
-            for(var9 = UI.size() - 1; var9 >= 0; --var9) {
-               var10 = (UIElement)UI.get(var9);
-               if ((getModal() == null || getModal() == var10 || !getModal().isVisible()) && (var10.isIgnoreLossControl() || !TutorialManager.instance.StealControl) && var10.isVisible()) {
-                  if ((!((double)var5 >= var10.getX()) || !((double)var6 >= var10.getY()) || !((double)var5 < var10.getX() + var10.getWidth()) || !((double)var6 < var10.getY() + var10.getHeight())) && !var10.isCapture()) {
-                     var10.onMouseDownOutside((double)(var5 - var10.getX().intValue()), (double)(var6 - var10.getY().intValue()));
-                  } else if (var10.onMouseDown((double)(var5 - var10.getX().intValue()), (double)(var6 - var10.getY().intValue()))) {
-                     var2 = true;
-                     break;
-                  }
-               }
+         GameProfiler.ProfileArea var19 = GameProfiler.getInstance().startIfEnabled("updateMouseButtons");
+         int var17 = updateMouseButtons(var2, var3);
+         boolean var18 = (var17 & 1) == 1;
+         boolean var9 = (var17 & 2) == 2;
+         boolean var10 = false;
+         GameProfiler.getInstance().end(var19);
+         int var11 = GameKeyboard.whichKeyPressed("Attack/Click");
+         if (var11 > 0 && checkPicked()) {
+            if ((var11 != 10000 || !var18) && (var11 != 10001 || !var9)) {
+               LuaEventManager.triggerEvent("OnObjectLeftMouseButtonDown", Picked.tile, BoxedStaticValues.toDouble((double)var2), BoxedStaticValues.toDouble((double)var3));
             }
 
-            if (checkPicked() && !var2) {
-               LuaEventManager.triggerEvent("OnObjectLeftMouseButtonDown", Picked.tile, BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-            }
-
-            if (!var2) {
-               LuaEventManager.triggerEvent("OnMouseDown", BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-               CloseContainers();
-               if (IsoWorld.instance.CurrentCell != null && !IsoWorld.instance.CurrentCell.DoBuilding(0, false) && getPicked() != null && !GameTime.isGamePaused() && IsoPlayer.getInstance() != null && !IsoPlayer.getInstance().isAiming() && !IsoPlayer.getInstance().isAsleep()) {
-                  getPicked().tile.onMouseLeftClick(getPicked().lx, getPicked().ly);
-               }
-            } else {
-               Mouse.UIBlockButtonDown(0);
+            GameKeyboard.whichKeyPressed("Attack/Click");
+            if (IsoWorld.instance.CurrentCell != null && !IsoWorld.instance.CurrentCell.DoBuilding(0, false) && getPicked() != null && !GameTime.isGamePaused() && IsoPlayer.getInstance() != null && !IsoPlayer.getInstance().isAiming() && !IsoPlayer.getInstance().isAsleep()) {
+               getPicked().tile.onMouseLeftClick(getPicked().lx, getPicked().ly);
             }
          }
 
-         int var14;
-         boolean var18;
-         if (Mouse.isLeftReleased()) {
-            var18 = false;
-
-            for(var14 = UI.size() - 1; var14 >= 0; --var14) {
-               var11 = (UIElement)UI.get(var14);
-               if ((var11.isIgnoreLossControl() || !TutorialManager.instance.StealControl) && var11.isVisible() && (getModal() == null || getModal() == var11 || !getModal().isVisible())) {
-                  if ((!((double)var5 >= var11.getX()) || !((double)var6 >= var11.getY()) || !((double)var5 < var11.getX() + var11.getWidth()) || !((double)var6 < var11.getY() + var11.getHeight())) && !var11.isCapture()) {
-                     var11.onMouseUpOutside((double)(var5 - var11.getX().intValue()), (double)(var6 - var11.getY().intValue()));
-                  } else if (var11.onMouseUp((double)(var5 - var11.getX().intValue()), (double)(var6 - var11.getY().intValue()))) {
-                     var18 = true;
-                     break;
-                  }
-               }
-            }
-
-            if (!var18) {
-               LuaEventManager.triggerEvent("OnMouseUp", BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-               if (checkPicked() && !var2) {
-                  LuaEventManager.triggerEvent("OnObjectLeftMouseButtonUp", Picked.tile, BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-               }
-            }
-         }
-
-         if (Mouse.isRightPressed()) {
-            for(var9 = UI.size() - 1; var9 >= 0; --var9) {
-               var10 = (UIElement)UI.get(var9);
-               if (var10.isVisible() && (getModal() == null || getModal() == var10 || !getModal().isVisible())) {
-                  if ((!((double)var5 >= var10.getX()) || !((double)var6 >= var10.getY()) || !((double)var5 < var10.getX() + var10.getWidth()) || !((double)var6 < var10.getY() + var10.getHeight())) && !var10.isCapture()) {
-                     var10.onRightMouseDownOutside((double)(var5 - var10.getX().intValue()), (double)(var6 - var10.getY().intValue()));
-                  } else if (var10.onRightMouseDown((double)(var5 - var10.getX().intValue()), (double)(var6 - var10.getY().intValue()))) {
-                     var3 = true;
-                     break;
-                  }
-               }
-            }
-
-            if (!var3) {
-               LuaEventManager.triggerEvent("OnRightMouseDown", BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-               if (checkPicked() && !var3) {
-                  LuaEventManager.triggerEvent("OnObjectRightMouseButtonDown", Picked.tile, BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-               }
-            } else {
-               Mouse.UIBlockButtonDown(1);
-            }
-
-            if (IsoWorld.instance.CurrentCell != null && getPicked() != null && getSpeedControls() != null && !IsoPlayer.getInstance().isAiming() && !IsoPlayer.getInstance().isAsleep() && !GameTime.isGamePaused()) {
-               getSpeedControls().SetCurrentGameSpeed(1);
-               getPicked().tile.onMouseRightClick(getPicked().lx, getPicked().ly);
-               setRightDownObject(getPicked().tile);
-            }
-         }
-
-         if (Mouse.isRightReleased()) {
-            var18 = false;
-            boolean var15 = false;
-
-            for(var9 = UI.size() - 1; var9 >= 0; --var9) {
-               var11 = (UIElement)UI.get(var9);
-               if ((var11.isIgnoreLossControl() || !TutorialManager.instance.StealControl) && var11.isVisible() && (getModal() == null || getModal() == var11 || !getModal().isVisible())) {
-                  if ((!((double)var5 >= var11.getX()) || !((double)var6 >= var11.getY()) || !((double)var5 < var11.getX() + var11.getWidth()) || !((double)var6 < var11.getY() + var11.getHeight())) && !var11.isCapture()) {
-                     var11.onRightMouseUpOutside((double)(var5 - var11.getX().intValue()), (double)(var6 - var11.getY().intValue()));
-                  } else if (var11.onRightMouseUp((double)(var5 - var11.getX().intValue()), (double)(var6 - var11.getY().intValue()))) {
-                     var15 = true;
-                     break;
-                  }
-               }
-            }
-
-            if (!var15) {
-               LuaEventManager.triggerEvent("OnRightMouseUp", BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-               if (checkPicked()) {
-                  boolean var17 = true;
-                  if (GameClient.bClient && Picked.tile.getSquare() != null) {
-                     SafeHouse var12 = SafeHouse.isSafeHouse(Picked.tile.getSquare(), IsoPlayer.getInstance().getUsername(), true);
-                     if (var12 != null) {
-                        var17 = false;
-                     }
-                  }
-
-                  if (var17) {
-                     LuaEventManager.triggerEvent("OnObjectRightMouseButtonUp", Picked.tile, BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6));
-                  }
-               }
-            }
-
-            if (IsoPlayer.getInstance() != null) {
-               IsoPlayer.getInstance().setDragObject((IsoMovingObject)null);
-            }
-
-            if (IsoWorld.instance.CurrentCell != null && getRightDownObject() != null && IsoPlayer.getInstance() != null && !IsoPlayer.getInstance().IsAiming() && !IsoPlayer.getInstance().isAsleep()) {
-               getRightDownObject().onMouseRightReleased();
-               setRightDownObject((IsoObject)null);
-            }
+         var11 = GameKeyboard.whichKeyWasDown("Attack/Click");
+         if (var11 > 0 && checkPicked() && (var11 != 10000 || !var18) && (var11 != 10001 || !var9)) {
+            LuaEventManager.triggerEvent("OnObjectLeftMouseButtonUp", Picked.tile, BoxedStaticValues.toDouble((double)var2), BoxedStaticValues.toDouble((double)var3));
          }
 
          lastwheel = 0;
          wheel = Mouse.getWheelState();
-         var18 = false;
+         boolean var12 = false;
          if (wheel != lastwheel) {
-            var14 = wheel - lastwheel < 0 ? 1 : -1;
+            int var13 = wheel - lastwheel < 0 ? 1 : -1;
 
-            for(int var19 = UI.size() - 1; var19 >= 0; --var19) {
-               UIElement var16 = (UIElement)UI.get(var19);
-               if ((var16.isIgnoreLossControl() || !TutorialManager.instance.StealControl) && var16.isVisible() && (var16.isPointOver((double)var5, (double)var6) || var16.isCapture()) && var16.onMouseWheel((double)var14)) {
-                  var18 = true;
+            for(int var14 = UI.size() - 1; var14 >= 0; --var14) {
+               UIElementInterface var15 = (UIElementInterface)UI.get(var14);
+               if ((var15.isPointOver((double)var2, (double)var3) || var15.isCapture()) && var15.onConsumeMouseWheel((double)var13, (double)var2 - var15.getX(), (double)var3 - var15.getY())) {
+                  var12 = true;
                   break;
                }
             }
 
-            if (!var18) {
-               Core.getInstance().doZoomScroll(0, var14);
+            LuaEventManager.triggerEvent("OnMouseWheel", BoxedStaticValues.toDouble((double)wheel));
+            if (!var12) {
+               Core.getInstance().doZoomScroll(0, var13);
             }
          }
 
-         if (getLastMouseX() != (double)var5 || getLastMouseY() != (double)var6) {
-            for(var14 = UI.size() - 1; var14 >= 0; --var14) {
-               var11 = (UIElement)UI.get(var14);
-               if ((var11.isIgnoreLossControl() || !TutorialManager.instance.StealControl) && var11.isVisible()) {
-                  if ((!((double)var5 >= var11.getX()) || !((double)var6 >= var11.getY()) || !((double)var5 < var11.getX() + var11.getWidth()) || !((double)var6 < var11.getY() + var11.getHeight())) && !var11.isCapture()) {
-                     var11.onMouseMoveOutside((double)var5 - getLastMouseX(), (double)var6 - getLastMouseY());
-                  } else if (!var4 && var11.onMouseMove((double)var5 - getLastMouseX(), (double)var6 - getLastMouseY())) {
-                     var4 = true;
-                  }
-               }
-            }
-         }
-
-         if (!var4 && IsoPlayer.players[0] != null) {
-            setPicked(IsoObjectPicker.Instance.ContextPick(var5, var6));
-            if (IsoCamera.CamCharacter != null) {
-               setPickedTile(getTileFromMouse((double)var7, (double)var8, (double)((int)IsoPlayer.players[0].getZ())));
+         GameProfiler.ProfileArea var20 = GameProfiler.getInstance().startIfEnabled("updateMouseMove");
+         var10 = updateMouseMove(var2, var3, var10);
+         GameProfiler.getInstance().end(var20);
+         if (!var10 && IsoPlayer.players[0] != null) {
+            setPicked(IsoObjectPicker.Instance.ContextPick(var2, var3));
+            if (IsoCamera.getCameraCharacter() != null) {
+               setPickedTile(getTileFromMouse((double)var4, (double)var5, (double)PZMath.fastfloor(IsoPlayer.players[0].getZ())));
             }
 
-            LuaEventManager.triggerEvent("OnMouseMove", BoxedStaticValues.toDouble((double)var5), BoxedStaticValues.toDouble((double)var6), BoxedStaticValues.toDouble((double)var7), BoxedStaticValues.toDouble((double)var8));
-         } else {
-            Mouse.UIBlockButtonDown(2);
+            LuaEventManager.triggerEvent("OnMouseMove", BoxedStaticValues.toDouble((double)var2), BoxedStaticValues.toDouble((double)var3), BoxedStaticValues.toDouble((double)var4), BoxedStaticValues.toDouble((double)var5));
          }
 
-         setLastMouseX((double)var5);
-         setLastMouseY((double)var6);
-
-         for(var14 = 0; var14 < UI.size(); ++var14) {
-            ((UIElement)UI.get(var14)).update();
-         }
-
-         updateTooltip((double)var5, (double)var6);
+         setLastMouseX((double)var2);
+         setLastMouseY((double)var3);
+         GameProfiler.getInstance().invokeAndMeasure("updateUIElements", UIManager::updateUIElements);
+         GameProfiler.getInstance().invokeAndMeasure("updateTooltip", (double)var2, (double)var3, UIManager::updateTooltip);
          handleZoomKeys();
          IsoCamera.cameras[0].lastOffX = (float)((int)IsoCamera.cameras[0].OffX);
          IsoCamera.cameras[0].lastOffY = (float)((int)IsoCamera.cameras[0].OffY);
       }
+   }
+
+   private static int updateMouseButtons(int var0, int var1) {
+      // $FF: Couldn't be decompiled
+   }
+
+   private static boolean updateMouseMove(int var0, int var1, boolean var2) {
+      if (getLastMouseX() != (double)var0 || getLastMouseY() != (double)var1) {
+         for(int var3 = UI.size() - 1; var3 >= 0; --var3) {
+            UIElementInterface var4 = (UIElementInterface)UI.get(var3);
+            if ((var4.isIgnoreLossControl() || !TutorialManager.instance.StealControl) && var4.isVisible()) {
+               if (!var4.isOverElement((double)var0, (double)var1) && !var4.isCapture()) {
+                  var4.onExtendMouseMoveOutside((double)var0 - getLastMouseX(), (double)var1 - getLastMouseY(), (double)var0 - var4.getX(), (double)var1 - var4.getY());
+               } else if (!var2 && var4.onConsumeMouseMove((double)var0 - getLastMouseX(), (double)var1 - getLastMouseY(), (double)var0 - var4.getX(), (double)var1 - var4.getY())) {
+                  var2 = true;
+               }
+            }
+         }
+      }
+
+      return var2;
+   }
+
+   private static void updateUIElements() {
+      for(int var0 = 0; var0 < UI.size(); ++var0) {
+         ((UIElementInterface)UI.get(var0)).update();
+      }
+
    }
 
    private static boolean checkPicked() {
@@ -736,7 +675,7 @@ public final class UIManager {
 
    private static void handleZoomKeys() {
       boolean var0 = true;
-      if (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.IsEditable && Core.CurrentTextEntryBox.DoingTextEntry) {
+      if (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.isEditable() && Core.CurrentTextEntryBox.isDoingTextEntry()) {
          var0 = false;
       }
 
@@ -744,7 +683,7 @@ public final class UIManager {
          var0 = false;
       }
 
-      if (GameKeyboard.isKeyDown(Core.getInstance().getKey("Zoom in"))) {
+      if (GameKeyboard.isKeyDown("Zoom in")) {
          if (var0 && !KeyDownZoomIn) {
             Core.getInstance().doZoomScroll(0, -1);
          }
@@ -754,7 +693,7 @@ public final class UIManager {
          KeyDownZoomIn = false;
       }
 
-      if (GameKeyboard.isKeyDown(Core.getInstance().getKey("Zoom out"))) {
+      if (GameKeyboard.isKeyDown("Zoom out")) {
          if (var0 && !KeyDownZoomOut) {
             Core.getInstance().doZoomScroll(0, 1);
          }
@@ -798,11 +737,11 @@ public final class UIManager {
       clock = var0;
    }
 
-   public static ArrayList<UIElement> getUI() {
+   public static ArrayList<UIElementInterface> getUI() {
       return UI;
    }
 
-   public static void setUI(ArrayList<UIElement> var0) {
+   public static void setUI(ArrayList<UIElementInterface> var0) {
       PZArrayUtil.copy(UI, var0);
    }
 
@@ -862,14 +801,6 @@ public final class UIManager {
       DebugConsole = var0;
    }
 
-   public static UIServerToolbox getServerToolbox() {
-      return ServerToolbox;
-   }
-
-   public static void setServerToolbox(UIServerToolbox var0) {
-      ServerToolbox = var0;
-   }
-
    public static MoodlesUI getMoodleUI(double var0) {
       return MoodleUI[(int)var0];
    }
@@ -899,7 +830,7 @@ public final class UIManager {
    }
 
    public static void setFadeAlpha(double var0) {
-      FadeAlpha = (float)var0;
+      FadeAlpha = PZMath.clamp((float)var0, 0.0F, 1.0F);
    }
 
    public static Double getFadeInTimeMax() {
@@ -1014,7 +945,7 @@ public final class UIManager {
       RightDownObject = var0;
    }
 
-   static void pushToTop(UIElement var0) {
+   static void pushToTop(UIElementInterface var0) {
       toTop.add(var0);
    }
 
@@ -1037,7 +968,7 @@ public final class UIManager {
    public static void debugBreakpoint(String var0, long var1) {
       if (bShowLuaDebuggerOnError) {
          if (Core.CurrentTextEntryBox != null) {
-            Core.CurrentTextEntryBox.DoingTextEntry = false;
+            Core.CurrentTextEntryBox.setDoingTextEntry(false);
             Core.CurrentTextEntryBox = null;
          }
 
@@ -1080,9 +1011,10 @@ public final class UIManager {
                setShowPausedMessage(false);
                boolean var6 = false;
                boolean[] var7 = new boolean[11];
+               boolean var8 = false;
 
-               for(int var8 = 0; var8 < 11; ++var8) {
-                  var7[var8] = true;
+               for(int var9 = 0; var9 < 11; ++var9) {
+                  var7[var9] = true;
                }
 
                if (debugUI.size() == 0) {
@@ -1100,22 +1032,26 @@ public final class UIManager {
                      System.exit(0);
                   }
 
-                  if (!GameWindow.bLuaDebuggerKeyDown && GameKeyboard.isKeyDown(Core.getInstance().getKey("Toggle Lua Debugger"))) {
+                  if (GameKeyboard.isKeyDown(1)) {
+                     var8 = true;
+                  }
+
+                  if (!GameWindow.bLuaDebuggerKeyDown && (GameKeyboard.isKeyDown("Toggle Lua Debugger") || var8 && !GameKeyboard.isKeyDown(1))) {
                      GameWindow.bLuaDebuggerKeyDown = true;
                      executeGame(var4, var5, var3);
                      return;
                   }
 
-                  String var11 = luaDebuggerAction;
+                  String var12 = luaDebuggerAction;
                   luaDebuggerAction = null;
-                  if ("StepInto".equalsIgnoreCase(var11)) {
+                  if ("StepInto".equalsIgnoreCase(var12)) {
                      LuaManager.thread.bStep = true;
                      LuaManager.thread.bStepInto = true;
                      executeGame(var4, var5, var3);
                      return;
                   }
 
-                  if ("StepOver".equalsIgnoreCase(var11)) {
+                  if ("StepOver".equalsIgnoreCase(var12)) {
                      LuaManager.thread.bStep = true;
                      LuaManager.thread.bStepInto = false;
                      LuaManager.thread.lastCallFrame = LuaManager.thread.getCurrentCoroutine().getCallframeTop();
@@ -1123,25 +1059,25 @@ public final class UIManager {
                      return;
                   }
 
-                  if ("Resume".equalsIgnoreCase(var11)) {
+                  if ("Resume".equalsIgnoreCase(var12)) {
                      executeGame(var4, var5, var3);
                      return;
                   }
 
                   sync.startFrame();
 
-                  for(int var9 = 0; var9 < 11; ++var9) {
-                     boolean var10 = GameKeyboard.isKeyDown(59 + var9);
-                     if (var10) {
-                        if (!var7[var9]) {
-                           if (var9 + 1 == 5) {
+                  for(int var10 = 0; var10 < 11; ++var10) {
+                     boolean var11 = GameKeyboard.isKeyDown(59 + var10);
+                     if (var11) {
+                        if (!var7[var10]) {
+                           if (var10 + 1 == 5) {
                               LuaManager.thread.bStep = true;
                               LuaManager.thread.bStepInto = true;
                               executeGame(var4, var5, var3);
                               return;
                            }
 
-                           if (var9 + 1 == 6) {
+                           if (var10 + 1 == 6) {
                               LuaManager.thread.bStep = true;
                               LuaManager.thread.bStepInto = false;
                               LuaManager.thread.lastCallFrame = LuaManager.thread.getCurrentCoroutine().getCallframeTop();
@@ -1150,9 +1086,9 @@ public final class UIManager {
                            }
                         }
 
-                        var7[var9] = true;
+                        var7[var10] = true;
                      } else {
-                        var7[var9] = false;
+                        var7[var10] = false;
                      }
                   }
 
@@ -1169,12 +1105,14 @@ public final class UIManager {
 
                   Core.getInstance().EndFrameUI();
                   resize();
-                  if (!GameKeyboard.isKeyDown(Core.getInstance().getKey("Toggle Lua Debugger"))) {
+                  if (!GameKeyboard.isKeyDown("Toggle Lua Debugger")) {
                      GameWindow.bLuaDebuggerKeyDown = false;
                   }
 
                   sync.endFrame();
-                  Core.getInstance().setScreenSize(RenderThread.getDisplayWidth(), RenderThread.getDisplayHeight());
+                  if (!Core.isUseGameViewport()) {
+                     Core.getInstance().setScreenSize(RenderThread.getDisplayWidth(), RenderThread.getDisplayHeight());
+                  }
                }
 
             }
@@ -1182,7 +1120,7 @@ public final class UIManager {
       }
    }
 
-   private static void executeGame(ArrayList<UIElement> var0, boolean var1, int var2) {
+   private static void executeGame(ArrayList<UIElementInterface> var0, boolean var1, int var2) {
       debugUI.clear();
       debugUI.addAll(UI);
       UI.clear();
@@ -1236,11 +1174,11 @@ public final class UIManager {
    }
 
    protected static void updateTooltip(double var0, double var2) {
-      UIElement var4 = null;
+      UIElementInterface var4 = null;
 
       for(int var5 = getUI().size() - 1; var5 >= 0; --var5) {
-         UIElement var6 = (UIElement)getUI().get(var5);
-         if (var6 != toolTip && var6.isVisible() && var0 >= var6.getX() && var2 >= var6.getY() && var0 < var6.getX() + var6.getWidth() && var2 < var6.getY() + var6.getHeight() && (var6.maxDrawHeight == -1 || var2 < var6.getY() + (double)var6.maxDrawHeight)) {
+         UIElementInterface var6 = (UIElementInterface)getUI().get(var5);
+         if (var6 != toolTip && var6.isVisible() && var6.isOverElement(var0, var2) && (var6.getMaxDrawHeight() == -1.0 || var2 < var6.getY() + var6.getMaxDrawHeight())) {
             var4 = var6;
             break;
          }
@@ -1271,14 +1209,14 @@ public final class UIManager {
 
    }
 
-   public static void setPlayerInventory(int var0, UIElement var1, UIElement var2) {
+   public static void setPlayerInventory(int var0, UIElementInterface var1, UIElementInterface var2) {
       if (var0 == 0) {
          playerInventoryUI = var1;
          playerLootUI = var2;
       }
    }
 
-   public static void setPlayerInventoryTooltip(int var0, UIElement var1, UIElement var2) {
+   public static void setPlayerInventoryTooltip(int var0, UIElementInterface var1, UIElementInterface var2) {
       if (var0 == 0) {
          playerInventoryTooltip = var1;
          playerLootTooltip = var2;
@@ -1360,12 +1298,9 @@ public final class UIManager {
 
    public static boolean onKeyPress(int var0) {
       for(int var1 = UI.size() - 1; var1 >= 0; --var1) {
-         UIElement var2 = (UIElement)UI.get(var1);
-         if (var2.isVisible() && var2.isWantKeyEvents()) {
-            var2.onKeyPress(var0);
-            if (var2.isKeyConsumed(var0)) {
-               return true;
-            }
+         UIElementInterface var2 = (UIElementInterface)UI.get(var1);
+         if (var2.isVisible() && var2.isWantKeyEvents() && var2.onConsumeKeyPress(var0)) {
+            return true;
          }
       }
 
@@ -1374,12 +1309,9 @@ public final class UIManager {
 
    public static boolean onKeyRepeat(int var0) {
       for(int var1 = UI.size() - 1; var1 >= 0; --var1) {
-         UIElement var2 = (UIElement)UI.get(var1);
-         if (var2.isVisible() && var2.isWantKeyEvents()) {
-            var2.onKeyRepeat(var0);
-            if (var2.isKeyConsumed(var0)) {
-               return true;
-            }
+         UIElementInterface var2 = (UIElementInterface)UI.get(var1);
+         if (var2.isVisible() && var2.isWantKeyEvents() && var2.onConsumeKeyRepeat(var0)) {
+            return true;
          }
       }
 
@@ -1388,12 +1320,9 @@ public final class UIManager {
 
    public static boolean onKeyRelease(int var0) {
       for(int var1 = UI.size() - 1; var1 >= 0; --var1) {
-         UIElement var2 = (UIElement)UI.get(var1);
-         if (var2.isVisible() && var2.isWantKeyEvents()) {
-            var2.onKeyRelease(var0);
-            if (var2.isKeyConsumed(var0)) {
-               return true;
-            }
+         UIElementInterface var2 = (UIElementInterface)UI.get(var1);
+         if (var2.isVisible() && var2.isWantKeyEvents() && var2.onConsumeKeyRelease(var0)) {
+            return true;
          }
       }
 
@@ -1402,7 +1331,7 @@ public final class UIManager {
 
    public static boolean isForceCursorVisible() {
       for(int var0 = UI.size() - 1; var0 >= 0; --var0) {
-         UIElement var1 = (UIElement)UI.get(var0);
+         UIElementInterface var1 = (UIElementInterface)UI.get(var0);
          if (var1.isVisible() && (var1.isForceCursorVisible() || var1.isMouseOver())) {
             return true;
          }
@@ -1411,9 +1340,26 @@ public final class UIManager {
       return false;
    }
 
+   public static Object tableget(KahluaTable var0, Object var1) {
+      return var0 != null ? getDefaultThread().tableget(var0, var1) : null;
+   }
+
+   public static float getBlinkAlpha(int var0) {
+      return var0 >= 0 && var0 < playerBlinkInfo.length ? playerBlinkInfo[var0].alpha : 1.0F;
+   }
+
+   public static int getSyncedIconIndex(int var0, int var1) {
+      return playerBlinkInfo[0].syncedIconIndex % var1;
+   }
+
+   public static int resetSyncedIconIndex(int var0) {
+      return playerBlinkInfo[0].syncedIconIndex = 0;
+   }
+
    static {
       for(int var0 = 0; var0 < 4; ++var0) {
          playerFadeInfo[var0] = new FadeInfo(var0);
+         playerBlinkInfo[var0] = new BlinkInfo();
       }
 
    }
@@ -1507,6 +1453,43 @@ public final class UIManager {
             int var4 = IsoCamera.getScreenHeight(this.playerIndex);
             UIManager.DrawTexture(UIManager.getBlack(), (double)var1, (double)var2, (double)var3, (double)var4, (double)this.getFadeAlpha());
          }
+      }
+   }
+
+   private static class BlinkInfo {
+      private float alpha = 1.0F;
+      private final float delta = 0.015F;
+      private float direction = -1.0F;
+      private int syncedIconIndex = 0;
+      private float syncedIconIndexTimer = 0.0F;
+
+      private BlinkInfo() {
+      }
+
+      private void update() {
+         if (this.alpha >= 1.0F) {
+            this.alpha = 1.0F;
+            this.direction = -1.0F;
+         } else if (this.alpha <= 0.0F) {
+            this.alpha = 0.0F;
+            this.direction = 1.0F;
+         }
+
+         this.alpha += 0.015F * ((float)PerformanceSettings.getLockFPS() / 30.0F) * this.direction;
+         this.syncedIconIndexTimer += GameTime.instance.getRealworldSecondsSinceLastUpdate();
+         if ((double)this.syncedIconIndexTimer > 1.5) {
+            this.syncedIconIndexTimer = 0.0F;
+            ++this.syncedIconIndex;
+            if (this.syncedIconIndex > 32767) {
+               this.syncedIconIndex = 0;
+            }
+         }
+
+      }
+
+      private void reset() {
+         this.alpha = 1.0F;
+         this.direction = -1.0F;
       }
    }
 

@@ -8,9 +8,11 @@ import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.ZombieThumpManager;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.iso.IsoChunk;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
@@ -21,6 +23,8 @@ import zombie.iso.objects.IsoBarricade;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
+import zombie.iso.objects.IsoWindowFrame;
+import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.objects.interfaces.Thumpable;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
@@ -50,9 +54,10 @@ public final class ThumpState extends State {
          var1.faceThisObject((IsoObject)var3);
       }
 
+      this.slideAwayFromEdge(var1, var3);
       boolean var4 = GameServer.bServer && GameServer.bFastForward || !GameServer.bServer && IsoPlayer.allPlayersAsleep();
-      if (var4 || var1.actionContext.hasEventOccurred("thumpframe")) {
-         var1.actionContext.clearEvent("thumpframe");
+      if (var4 || var1.getActionContext().hasEventOccurred("thumpframe")) {
+         var1.getActionContext().clearEvent("thumpframe");
          var1.setTimeThumping(var1.getTimeThumping() + 1);
          if (var2.TimeSinceSeenFlesh < 5.0F) {
             var1.setTimeThumping(0);
@@ -68,7 +73,7 @@ public final class ThumpState extends State {
          }
 
          Thumpable var12 = var1.getThumpTarget() == null ? null : var1.getThumpTarget().getThumpableFor(var1);
-         boolean var7 = GameServer.bServer || SoundManager.instance.isListenerInRange(var1.x, var1.y, 20.0F);
+         boolean var7 = GameServer.bServer || SoundManager.instance.isListenerInRange(var1.getX(), var1.getY(), 20.0F);
          if (var7 && !IsoPlayer.allPlayersAsleep()) {
             if (var12 instanceof IsoWindow) {
                var2.setThumpFlag(Rand.Next(3) == 0 ? 2 : 3);
@@ -79,14 +84,12 @@ public final class ThumpState extends State {
             } else if (var12 != null) {
                String var8 = "ZombieThumpGeneric";
                IsoBarricade var9 = (IsoBarricade)Type.tryCastTo(var12, IsoBarricade.class);
-               if (var9 == null || !var9.isMetal() && !var9.isMetalBar()) {
-                  if (var12 instanceof IsoDoor) {
-                     var8 = ((IsoDoor)var12).getThumpSound();
-                  } else if (var12 instanceof IsoThumpable) {
-                     var8 = ((IsoThumpable)var12).getThumpSound();
-                  }
-               } else {
+               if (var9 != null && (var9.isMetal() || var9.isMetalBar())) {
                   var8 = "ZombieThumpMetal";
+               } else if (var12 instanceof IsoDoor) {
+                  var8 = ((IsoDoor)var12).getThumpSound();
+               } else if (var12 instanceof IsoThumpable) {
+                  var8 = ((IsoThumpable)var12).getThumpSound();
                }
 
                if ("ZombieThumpGeneric".equals(var8)) {
@@ -97,6 +100,10 @@ public final class ThumpState extends State {
                   var2.setThumpFlag(4);
                } else if ("ZombieThumpGarageDoor".equals(var8)) {
                   var2.setThumpFlag(5);
+               } else if ("ZombieThumpWireFence".equals(var8)) {
+                  var2.setThumpFlag(6);
+               } else if ("ZombieThumpMetalPoleGate".equals(var8)) {
+                  var2.setThumpFlag(7);
                } else {
                   var2.setThumpFlag(1);
                }
@@ -158,6 +165,101 @@ public final class ThumpState extends State {
 
    }
 
+   private void slideAwayFromEdge(IsoGameCharacter var1, Thumpable var2) {
+      boolean var3 = false;
+      boolean var4 = false;
+      if (!(var2 instanceof BaseVehicle)) {
+         if (var2 instanceof IsoObject) {
+            IsoObject var5 = (IsoObject)var2;
+            IsoGridSquare var6 = var5.getSquare();
+            if (!(var2 instanceof IsoBarricade)) {
+               if (var2 instanceof IsoDoor) {
+                  IsoDoor var8 = (IsoDoor)var2;
+                  var4 = var8.getNorth();
+               } else if (var2 instanceof IsoThumpable) {
+                  IsoThumpable var9 = (IsoThumpable)var2;
+                  var3 = var9.isBlockAllTheSquare();
+                  var4 = var9.getNorth();
+               } else if (var2 instanceof IsoWindow) {
+                  IsoWindow var10 = (IsoWindow)var2;
+                  var4 = var10.getNorth();
+               } else if (var2 instanceof IsoWindowFrame) {
+                  IsoWindowFrame var11 = (IsoWindowFrame)var2;
+                  var4 = var11.getNorth();
+               }
+            } else {
+               IsoBarricade var7 = (IsoBarricade)var2;
+               var4 = var7.getDir() == IsoDirections.N || var7.getDir() == IsoDirections.S;
+            }
+
+            float var12 = 0.4F;
+            Thumpable var13 = var2.getThumpableFor(var1);
+            if (var13 instanceof IsoBarricade) {
+               IsoBarricade var14 = (IsoBarricade)var13;
+               if (var2 instanceof BarricadeAble) {
+                  BarricadeAble var15 = (BarricadeAble)var2;
+                  if (IsoBarricade.GetBarricadeForCharacter(var15, var1) == var13) {
+                     var12 = 0.47F;
+                  }
+               }
+            }
+
+            if (var3) {
+               if (var1.getY() < (float)var6.y) {
+                  this.slideAwayFromEdgeN(var1, var6.y, var12);
+               } else if (var1.getY() > (float)(var6.y + 1)) {
+                  this.slideAwayFromEdgeS(var1, var6.y + 1, var12);
+               }
+
+               if (var1.getX() < (float)var6.x) {
+                  this.slideAwayFromEdgeW(var1, var6.x, var12);
+               } else if (var1.getX() > (float)(var6.x + 1)) {
+                  this.slideAwayFromEdgeE(var1, var6.x + 1, var12);
+               }
+            } else if (var4) {
+               if (var1.getY() < (float)var6.y) {
+                  this.slideAwayFromEdgeN(var1, var6.y, var12);
+               } else {
+                  this.slideAwayFromEdgeS(var1, var6.y, var12);
+               }
+            } else if (var1.getX() < (float)var6.x) {
+               this.slideAwayFromEdgeW(var1, var6.x, var12);
+            } else {
+               this.slideAwayFromEdgeE(var1, var6.x, var12);
+            }
+         }
+
+      }
+   }
+
+   private void slideAwayFromEdgeN(IsoGameCharacter var1, int var2, float var3) {
+      if (var1.getY() > (float)var2 - var3) {
+         var1.setNextY((float)var2 - var3);
+      }
+
+   }
+
+   private void slideAwayFromEdgeS(IsoGameCharacter var1, int var2, float var3) {
+      if (var1.getY() < (float)var2 + var3) {
+         var1.setNextY((float)var2 + var3);
+      }
+
+   }
+
+   private void slideAwayFromEdgeW(IsoGameCharacter var1, int var2, float var3) {
+      if (var1.getX() > (float)var2 - var3) {
+         var1.setNextX((float)var2 - var3);
+      }
+
+   }
+
+   private void slideAwayFromEdgeE(IsoGameCharacter var1, int var2, float var3) {
+      if (var1.getX() < (float)var2 + var3) {
+         var1.setNextX((float)var2 + var3);
+      }
+
+   }
+
    private IsoPlayer findPlayer(int var1, int var2, int var3, int var4, int var5) {
       for(int var6 = var3; var6 <= var4; ++var6) {
          for(int var7 = var1; var7 <= var2; ++var7) {
@@ -197,7 +299,7 @@ public final class ThumpState extends State {
             }
          }
 
-         if (var6 != null && !LosUtil.lineClearCollide(var5.getX(), var5.getY(), var5.getZ(), (int)var6.getX(), (int)var6.getY(), (int)var6.getZ(), false)) {
+         if (var6 != null && !LosUtil.lineClearCollide(var5.getX(), var5.getY(), var5.getZ(), PZMath.fastfloor(var6.getX()), PZMath.fastfloor(var6.getY()), PZMath.fastfloor(var6.getZ()), false)) {
             var1.setTarget(var6);
             var1.vectorToTarget.x = var6.getX();
             var1.vectorToTarget.y = var6.getY();
@@ -241,8 +343,8 @@ public final class ThumpState extends State {
          } else if (var3.getObjectIndex() == -1) {
             return false;
          } else {
-            int var4 = var3.getSquare().getX() / 10;
-            int var5 = var3.getSquare().getY() / 10;
+            int var4 = var3.getSquare().getX() / 8;
+            int var5 = var3.getSquare().getY() / 8;
             IsoChunk var6 = GameServer.bServer ? ServerMap.instance.getChunk(var4, var5) : IsoWorld.instance.CurrentCell.getChunk(var4, var5);
             if (var6 == null) {
                return false;

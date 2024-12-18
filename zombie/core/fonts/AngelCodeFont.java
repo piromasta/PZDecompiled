@@ -26,6 +26,7 @@ import zombie.core.Color;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureID;
+import zombie.debug.DebugLog;
 import zombie.util.StringUtils;
 
 public final class AngelCodeFont implements Font, AssetStateObserver {
@@ -198,36 +199,48 @@ public final class AngelCodeFont implements Font, AssetStateObserver {
    }
 
    public int getHeight(String var1) {
-      DisplayList var2 = null;
+      return this.getHeight(var1, false, false);
+   }
+
+   public int getHeight(String var1, boolean var2, boolean var3) {
+      DisplayList var4 = null;
       if (this.displayListCaching) {
-         var2 = (DisplayList)this.displayLists.get(var1);
-         if (var2 != null && var2.height != null) {
-            return var2.height.intValue();
+         var4 = (DisplayList)this.displayLists.get(var1);
+         if (var4 != null && var4.height != null) {
+            return var4.height.intValue();
          }
       }
 
-      int var3 = 1;
-      int var4 = 0;
+      int var5 = 1;
+      int var6 = 0;
+      int var7 = 1000000;
 
-      for(int var5 = 0; var5 < var1.length(); ++var5) {
-         char var6 = var1.charAt(var5);
-         if (var6 == '\n') {
-            ++var3;
-            var4 = 0;
-         } else if (var6 != ' ' && var6 < this.chars.length) {
-            CharDef var7 = this.chars[var6];
-            if (var7 != null) {
-               var4 = Math.max(var7.height + var7.yoffset, var4);
+      for(int var8 = 0; var8 < var1.length(); ++var8) {
+         char var9 = var1.charAt(var8);
+         if (var9 == '\n') {
+            ++var5;
+            var6 = 0;
+         } else if (var9 != ' ' && var9 < this.chars.length) {
+            CharDef var10 = this.chars[var9];
+            if (var10 != null) {
+               var6 = Math.max(var10.height + var10.yoffset, var6);
+               var7 = Math.min(var10.yoffset, var7);
             }
          }
       }
 
-      var4 = var3 * this.getLineHeight();
-      if (var2 != null) {
-         var2.height = new Short((short)var4);
-      }
+      if (var2) {
+         return var6 - var7;
+      } else if (var3) {
+         return var7;
+      } else {
+         var6 = var5 * this.getLineHeight();
+         if (var4 != null) {
+            var4.height = (short)var6;
+         }
 
-      return var4;
+         return var6;
+      }
    }
 
    public int getLineHeight() {
@@ -284,7 +297,7 @@ public final class AngelCodeFont implements Font, AssetStateObserver {
       }
 
       if (var5 != null) {
-         var5.width = new Short((short)var7);
+         var5.width = (short)var7;
       }
 
       return var7;
@@ -315,7 +328,7 @@ public final class AngelCodeFont implements Font, AssetStateObserver {
       }
 
       if (var2 != null) {
-         var2.yOffset = new Short((short)var4);
+         var2.yOffset = (short)var4;
       }
 
       return var4;
@@ -406,7 +419,7 @@ public final class AngelCodeFont implements Font, AssetStateObserver {
                   var13 |= TextureID.bUseCompression ? 4 : 0;
                   Texture var14 = Texture.getSharedTexture(var12, var13);
                   if (var14 == null) {
-                     System.out.println("AngelCodeFont failed to load page " + var11 + " texture " + var12);
+                     DebugLog.DetailedInfo.trace("AngelCodeFont failed to load page " + var11 + " texture " + var12);
                   } else {
                      this.pages.put(var11, var14);
                      if (!var14.isReady()) {
@@ -504,7 +517,11 @@ public final class AngelCodeFont implements Font, AssetStateObserver {
          if (var9 == '\n') {
             var5 = 0.0F;
             var6 += (float)this.getLineHeight();
-         } else if (var9 < this.chars.length) {
+         } else {
+            if (var9 >= this.chars.length) {
+               var9 = '?';
+            }
+
             CharDef var10 = this.chars[var9];
             if (var10 != null) {
                if (var7 != null) {

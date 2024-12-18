@@ -1,11 +1,13 @@
 package zombie.ui;
 
+import org.lwjgl.opengl.GL11;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.SurvivorDesc;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
+import zombie.core.Styles.UIFBOStyle;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimatedModel;
 import zombie.core.skinnedmodel.population.IClothingItemListener;
 import zombie.core.skinnedmodel.population.OutfitManager;
@@ -70,7 +72,10 @@ public final class UI3DModel extends UIElement implements IClothingItemListener 
 
    public void setDirection(IsoDirections var1) {
       this.dir = var1;
-      this.animatedModel.setAngle(var1.ToVector());
+      if (var1 != null) {
+         this.animatedModel.setAngle(var1.ToVector());
+      }
+
    }
 
    public IsoDirections getDirection() {
@@ -101,12 +106,44 @@ public final class UI3DModel extends UIElement implements IClothingItemListener 
       this.animatedModel.setCharacter(var1);
    }
 
+   public IsoGameCharacter getCharacter() {
+      return this.animatedModel.getCharacter();
+   }
+
    public void setSurvivorDesc(SurvivorDesc var1) {
       this.animatedModel.setSurvivorDesc(var1);
    }
 
    public void setState(String var1) {
       this.animatedModel.setState(var1);
+   }
+
+   public String getState() {
+      return this.animatedModel.getState();
+   }
+
+   public void setVariable(String var1, String var2) {
+      this.animatedModel.setVariable(var1, var2);
+   }
+
+   public void setVariable(String var1, boolean var2) {
+      this.animatedModel.setVariable(var1, var2);
+   }
+
+   public Object getVariable(String var1) {
+      return this.animatedModel.getVariable(var1);
+   }
+
+   public void setVariable(String var1, float var2) {
+      this.animatedModel.setVariable(var1, var2);
+   }
+
+   public void clearVariable(String var1) {
+      this.animatedModel.clearVariable(var1);
+   }
+
+   public void clearVariables() {
+      this.animatedModel.clearVariables();
    }
 
    public void reportEvent(String var1) {
@@ -156,11 +193,12 @@ public final class UI3DModel extends UIElement implements IClothingItemListener 
 
       public void render() {
          float var1 = UI3DModel.this.animatedModel.isIsometric() ? 22.0F : 25.0F;
-         if (UI3DModel.this.zoom > 0.0F) {
-            var1 -= UI3DModel.this.zoom;
-         }
-
+         var1 -= UI3DModel.this.zoom;
+         GL11.glEnable(2929);
+         GL11.glDepthMask(true);
+         GL11.glClearDepth(1.0);
          UI3DModel.this.animatedModel.DoRender(this.absX, Core.height - this.absY - (int)UI3DModel.this.height, (int)UI3DModel.this.width, (int)UI3DModel.this.height, var1, this.m_animPlayerAngle);
+         UIFBOStyle.instance.setupState();
          this.bRendered = true;
       }
 

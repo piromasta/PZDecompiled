@@ -12,11 +12,11 @@ import zombie.SystemDisabler;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
-import zombie.commands.PlayerType;
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.core.Core;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
-import zombie.core.raknet.UdpConnection;
 import zombie.core.znet.ISteamWorkshopCallback;
 import zombie.core.znet.SteamUGCDetails;
 import zombie.core.znet.SteamUtils;
@@ -54,7 +54,7 @@ public final class ConnectToServerState extends GameState {
 
    public void enter() {
       instance = this;
-      ConnectionManager.log("connect-state", ConnectToServerState.State.Start.name().toLowerCase(), (UdpConnection)null);
+      ConnectionManager.log("connect-state", ConnectToServerState.State.Start.name().toLowerCase(), GameClient.connection);
       this.state = ConnectToServerState.State.Start;
    }
 
@@ -169,18 +169,19 @@ public final class ConnectToServerState extends GameState {
       }
 
       GameClient.instance.ID = var1.get();
-      ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.TestTCP.name().toLowerCase(), (UdpConnection)null);
+      ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.TestTCP.name().toLowerCase(), GameClient.connection);
       this.state = ConnectToServerState.State.TestTCP;
    }
 
    private void TestTCP() {
       noise("TestTCP");
       ByteBuffer var1 = this.connectionDetails;
-      GameClient.connection.accessLevel = PlayerType.fromString(GameWindow.ReadStringUTF(var1));
-      if (!SystemDisabler.getAllowDebugConnections() && Core.bDebug && !SystemDisabler.getOverrideServerConnectDebugCheck() && GameClient.connection.accessLevel != 32 && !CoopMaster.instance.isRunning()) {
+      GameClient.connection.role = new Role("");
+      GameClient.connection.role.parse(var1);
+      if (SystemDisabler.getKickInDebug() && Core.bDebug && !SystemDisabler.getOverrideServerConnectDebugCheck() && !GameClient.connection.role.haveCapability(Capability.ConnectWithDebug) && !CoopMaster.instance.isRunning()) {
          LuaEventManager.triggerEvent("OnConnectFailed", Translator.getText("UI_OnConnectFailed_DebugNotAllowed"));
          GameClient.connection.forceDisconnect("connect-debug-used");
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.Exit;
       } else {
          GameClient.GameMap = GameWindow.ReadStringUTF(var1);
@@ -192,10 +193,10 @@ public final class ConnectToServerState extends GameState {
          }
 
          if (SteamUtils.isSteamModeEnabled()) {
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopInit.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopInit.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.WorkshopInit;
          } else {
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.CheckMods.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.CheckMods.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.CheckMods;
          }
 
@@ -214,7 +215,7 @@ public final class ConnectToServerState extends GameState {
       }
 
       if (this.workshopItems.isEmpty()) {
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.WorkshopUpdate;
       } else {
          long[] var9 = new long[this.workshopItems.size()];
@@ -227,13 +228,13 @@ public final class ConnectToServerState extends GameState {
          this.query = new ItemQuery();
          this.query.handle = SteamWorkshop.instance.CreateQueryUGCDetailsRequest(var9, this.query);
          if (this.query.handle != 0L) {
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopQuery.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopQuery.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.WorkshopQuery;
          } else {
             this.query = null;
             LuaEventManager.triggerEvent("OnConnectFailed", Translator.getText("UI_OnConnectFailed_CreateQueryUGCDetailsRequest"));
             GameClient.connection.forceDisconnect("connect-workshop-query");
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.Exit;
          }
 
@@ -260,10 +261,10 @@ public final class ConnectToServerState extends GameState {
 
       if (this.confirmItems.isEmpty()) {
          this.query = null;
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.WorkshopUpdate;
       } else if (this.query == null) {
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.WorkshopUpdate;
       } else {
          assert this.query.isCompleted();
@@ -278,7 +279,7 @@ public final class ConnectToServerState extends GameState {
          LuaEventManager.triggerEvent("OnServerWorkshopItems", "Required", var5);
          ArrayList var7 = this.query.details;
          this.query = null;
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.ServerWorkshopItemScreen.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.ServerWorkshopItemScreen.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.ServerWorkshopItemScreen;
          LuaEventManager.triggerEvent("OnServerWorkshopItems", "Details", var7);
       }
@@ -289,7 +290,7 @@ public final class ConnectToServerState extends GameState {
       if (!this.query.isCompleted()) {
          if (this.query.isNotCompleted()) {
             this.query = null;
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.ServerWorkshopItemScreen.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.ServerWorkshopItemScreen.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.ServerWorkshopItemScreen;
             LuaEventManager.triggerEvent("OnServerWorkshopItems", "Error", "ItemQueryNotCompleted");
          }
@@ -310,7 +311,7 @@ public final class ConnectToServerState extends GameState {
                }
             }
 
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopConfirm.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopConfirm.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.WorkshopConfirm;
             return;
          }
@@ -325,7 +326,7 @@ public final class ConnectToServerState extends GameState {
          WorkshopItem var2 = (WorkshopItem)this.workshopItems.get(var1);
          var2.update();
          if (var2.state == ConnectToServerState.WorkshopItemState.Fail) {
-            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.ServerWorkshopItemScreen.name().toLowerCase(), (UdpConnection)null);
+            ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.ServerWorkshopItemScreen.name().toLowerCase(), GameClient.connection);
             this.state = ConnectToServerState.State.ServerWorkshopItemScreen;
             LuaEventManager.triggerEvent("OnServerWorkshopItems", "Error", var2.ID, var2.error);
             return;
@@ -338,7 +339,7 @@ public final class ConnectToServerState extends GameState {
 
       ZomboidFileSystem.instance.resetModFolders();
       LuaEventManager.triggerEvent("OnServerWorkshopItems", "Success");
-      ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.CheckMods.name().toLowerCase(), (UdpConnection)null);
+      ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.CheckMods.name().toLowerCase(), GameClient.connection);
       this.state = ConnectToServerState.State.CheckMods;
    }
 
@@ -368,10 +369,10 @@ public final class ConnectToServerState extends GameState {
 
          LuaEventManager.triggerEvent("OnConnectFailed", var8);
          GameClient.connection.forceDisconnect("connect-mod-required");
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.Exit;
       } else {
-         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Finish.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Finish.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.Finish;
       }
    }
@@ -448,7 +449,7 @@ public final class ConnectToServerState extends GameState {
          GameClient.connection.forceDisconnect("connection-details-error");
       }
 
-      ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), (UdpConnection)null);
+      ConnectionManager.log("connect-state-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), GameClient.connection);
       this.state = ConnectToServerState.State.Exit;
    }
 
@@ -456,7 +457,7 @@ public final class ConnectToServerState extends GameState {
       if (this.state != ConnectToServerState.State.ServerWorkshopItemScreen) {
          throw new IllegalStateException("state != ServerWorkshopItemScreen");
       } else if ("install".equals(var1)) {
-         ConnectionManager.log("connect-state-lua-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-lua-" + this.state.name().toLowerCase(), ConnectToServerState.State.WorkshopUpdate.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.WorkshopUpdate;
       } else if ("disconnect".equals(var1)) {
          LuaEventManager.triggerEvent("OnConnectFailed", "ServerWorkshopItemsCancelled");
@@ -464,7 +465,7 @@ public final class ConnectToServerState extends GameState {
             GameClient.connection.forceDisconnect("connect-workshop-canceled");
          }
 
-         ConnectionManager.log("connect-state-lua-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), (UdpConnection)null);
+         ConnectionManager.log("connect-state-lua-" + this.state.name().toLowerCase(), ConnectToServerState.State.Exit.name().toLowerCase(), GameClient.connection);
          this.state = ConnectToServerState.State.Exit;
       }
    }

@@ -8,19 +8,20 @@ public class SystemDisabler {
    public static boolean doOverridePOVCharacters = true;
    public static boolean doVehiclesEverywhere = false;
    public static boolean doWorldSyncEnable = false;
-   public static boolean doObjectStateSyncEnable = false;
-   private static boolean doAllowDebugConnections = false;
    private static boolean doOverrideServerConnectDebugCheck = false;
    private static boolean doHighFriction = false;
    private static boolean doVehicleLowRider = false;
    public static boolean doEnableDetectOpenGLErrorsInTexture = false;
    public static boolean doVehiclesWithoutTextures = false;
    public static boolean zombiesDontAttack = false;
+   public static boolean disableSyncInventory = true;
    public static boolean zombiesSwitchOwnershipEachUpdate = false;
+   private static boolean doPrintDetailedInfo = false;
    private static boolean doMainLoopDealWithNetData = true;
    public static boolean useNetworkCharacter = false;
    private static boolean bEnableAdvancedSoundOptions = false;
-   public static boolean doKickInDebug = true;
+   private static boolean doKickInDebug = false;
+   private static boolean uncappedFPS = false;
 
    public SystemDisabler() {
    }
@@ -53,16 +54,11 @@ public class SystemDisabler {
       doWorldSyncEnable = var0;
    }
 
-   public static void setObjectStateSyncEnable(boolean var0) {
-      doObjectStateSyncEnable = var0;
-   }
-
-   public static boolean getAllowDebugConnections() {
-      return doAllowDebugConnections;
-   }
-
    public static boolean getOverrideServerConnectDebugCheck() {
-      return doOverrideServerConnectDebugCheck;
+      if (!doOverrideServerConnectDebugCheck) {
+      }
+
+      return true;
    }
 
    public static boolean getdoHighFriction() {
@@ -71,6 +67,10 @@ public class SystemDisabler {
 
    public static boolean getdoVehicleLowRider() {
       return doVehicleLowRider;
+   }
+
+   public static boolean printDetailedInfo() {
+      return doPrintDetailedInfo;
    }
 
    public static boolean getDoMainLoopDealWithNetData() {
@@ -85,6 +85,18 @@ public class SystemDisabler {
       return bEnableAdvancedSoundOptions;
    }
 
+   public static boolean getKickInDebug() {
+      return doKickInDebug;
+   }
+
+   public static void setUncappedFPS(boolean var0) {
+      uncappedFPS = var0;
+   }
+
+   public static boolean getUncappedFPS() {
+      return uncappedFPS;
+   }
+
    public static void Reset() {
       doCharacterStats = true;
       doZombieCreation = true;
@@ -92,9 +104,7 @@ public class SystemDisabler {
       doPlayerCreation = true;
       doOverridePOVCharacters = true;
       doVehiclesEverywhere = false;
-      doAllowDebugConnections = false;
       doWorldSyncEnable = false;
-      doObjectStateSyncEnable = false;
       doMainLoopDealWithNetData = true;
       bEnableAdvancedSoundOptions = false;
    }

@@ -4,8 +4,10 @@ import gnu.trove.list.array.TFloatArrayList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import org.joml.Vector2f;
 import org.joml.Vector2i;
@@ -18,15 +20,17 @@ import zombie.core.BoxedStaticValues;
 import zombie.core.ImmutableColor;
 import zombie.core.math.PZMath;
 import zombie.core.physics.Bullet;
+import zombie.core.random.Rand;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
 import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 import zombie.util.StringUtils;
 import zombie.vehicles.BaseVehicle;
 
-public final class VehicleScript extends BaseScriptObject {
+public final class VehicleScript extends BaseScriptObject implements IModelAttachmentOwner {
    private String fileName;
    private String name;
    private final ArrayList<Model> models = new ArrayList();
@@ -40,6 +44,7 @@ public final class VehicleScript extends BaseScriptObject {
    private float steeringClampMax = 0.9F;
    private float wheelFriction = 800.0F;
    private float stoppingMovementForce = 1.0F;
+   private float animalTrailerSize = 0.0F;
    private float suspensionStiffness = 20.0F;
    private float suspensionDamping = 2.3F;
    private float suspensionCompression = 4.4F;
@@ -52,11 +57,13 @@ public final class VehicleScript extends BaseScriptObject {
    private boolean bHadShadowOExtents = false;
    private boolean bHadShadowOffset = false;
    private final Vector2f extentsOffset = new Vector2f(0.5F, 0.5F);
-   private final Vector3f physicsChassisShape = new Vector3f(0.75F, 0.5F, 1.0F);
+   private final Vector3f physicsChassisShape = new Vector3f(0.0F);
    private final ArrayList<PhysicsShape> m_physicsShapes = new ArrayList();
    private final ArrayList<Wheel> wheels = new ArrayList();
    private final ArrayList<Passenger> passengers = new ArrayList();
    public float maxSpeed = 20.0F;
+   private boolean useChassisPhysicsCollision = true;
+   public float maxSpeedReverse = 40.0F;
    public boolean isSmallVehicle = true;
    public float spawnOffsetY = 0.0F;
    private int frontEndHealth = 100;
@@ -76,6 +83,12 @@ public final class VehicleScript extends BaseScriptObject {
    private String engineRPMType = "jeep";
    private float offroadEfficiency = 1.0F;
    private final TFloatArrayList crawlOffsets = new TFloatArrayList();
+   private ArrayList<String> zombieType;
+   private ArrayList<String> specialKeyRing;
+   private boolean notKillCrops = false;
+   private boolean hasLighter = true;
+   private String carMechanicsOverlay = null;
+   private String carModelName = null;
    public int gearRatioCount = 0;
    public final float[] gearRatio = new float[9];
    private final Skin textures = new Skin();
@@ -86,10 +99,12 @@ public final class VehicleScript extends BaseScriptObject {
    private final LightBar lightbar = new LightBar();
    private final Sounds sound = new Sounds();
    public boolean textureMaskEnable = false;
-   private static final int PHYSICS_SHAPE_BOX = 1;
-   private static final int PHYSICS_SHAPE_SPHERE = 2;
+   public static final int PHYSICS_SHAPE_BOX = 1;
+   public static final int PHYSICS_SHAPE_SPHERE = 2;
+   public static final int PHYSICS_SHAPE_MESH = 3;
 
    public VehicleScript() {
+      super(ScriptType.Vehicle);
       this.gearRatioCount = 4;
       this.gearRatio[0] = 7.09F;
       this.gearRatio[1] = 6.44F;
@@ -99,281 +114,316 @@ public final class VehicleScript extends BaseScriptObject {
       this.gearRatio[5] = 1.0F;
    }
 
-   public void Load(String var1, String var2) {
-      ScriptManager var3 = ScriptManager.instance;
-      this.fileName = var3.currentFileName;
-      if (!var3.scriptsWithVehicles.contains(this.fileName)) {
-         var3.scriptsWithVehicles.add(this.fileName);
-      }
-
+   public void InitLoadPP(String var1) {
+      super.InitLoadPP(var1);
+      ScriptManager var2 = ScriptManager.instance;
+      this.fileName = var2.currentFileName;
       this.name = var1;
-      ScriptParser.Block var4 = ScriptParser.parse(var2);
-      var4 = (ScriptParser.Block)var4.children.get(0);
-      Iterator var5 = var4.elements.iterator();
+   }
+
+   public void Load(String var1, String var2) throws Exception {
+      ScriptParser.Block var3 = ScriptParser.parse(var2);
+      var3 = (ScriptParser.Block)var3.children.get(0);
+      super.LoadCommonBlock(var3);
+      Iterator var4 = var3.elements.iterator();
 
       while(true) {
-         while(var5.hasNext()) {
-            ScriptParser.BlockElement var6 = (ScriptParser.BlockElement)var5.next();
-            String var16;
-            if (var6.asValue() != null) {
-               String[] var13 = var6.asValue().string.split("=");
-               var16 = var13[0].trim();
-               String var18 = var13[1].trim();
-               if ("extents".equals(var16)) {
-                  this.LoadVector3f(var18, this.extents);
-               } else if ("shadowExtents".equals(var16)) {
-                  this.LoadVector2f(var18, this.shadowExtents);
-                  this.bHadShadowOExtents = true;
-               } else if ("shadowOffset".equals(var16)) {
-                  this.LoadVector2f(var18, this.shadowOffset);
-                  this.bHadShadowOffset = true;
-               } else if ("physicsChassisShape".equals(var16)) {
-                  this.LoadVector3f(var18, this.physicsChassisShape);
-               } else if ("extentsOffset".equals(var16)) {
-                  this.LoadVector2f(var18, this.extentsOffset);
-               } else if ("mass".equals(var16)) {
-                  this.mass = Float.parseFloat(var18);
-               } else if ("offRoadEfficiency".equalsIgnoreCase(var16)) {
-                  this.offroadEfficiency = Float.parseFloat(var18);
-               } else if ("centerOfMassOffset".equals(var16)) {
-                  this.LoadVector3f(var18, this.centerOfMassOffset);
-               } else if ("engineForce".equals(var16)) {
-                  this.engineForce = Float.parseFloat(var18);
-               } else if ("engineIdleSpeed".equals(var16)) {
-                  this.engineIdleSpeed = Float.parseFloat(var18);
-               } else if ("gearRatioCount".equals(var16)) {
-                  this.gearRatioCount = Integer.parseInt(var18);
-               } else if ("gearRatioR".equals(var16)) {
-                  this.gearRatio[0] = Float.parseFloat(var18);
-               } else if ("gearRatio1".equals(var16)) {
-                  this.gearRatio[1] = Float.parseFloat(var18);
-               } else if ("gearRatio2".equals(var16)) {
-                  this.gearRatio[2] = Float.parseFloat(var18);
-               } else if ("gearRatio3".equals(var16)) {
-                  this.gearRatio[3] = Float.parseFloat(var18);
-               } else if ("gearRatio4".equals(var16)) {
-                  this.gearRatio[4] = Float.parseFloat(var18);
-               } else if ("gearRatio5".equals(var16)) {
-                  this.gearRatio[5] = Float.parseFloat(var18);
-               } else if ("gearRatio6".equals(var16)) {
-                  this.gearRatio[6] = Float.parseFloat(var18);
-               } else if ("gearRatio7".equals(var16)) {
-                  this.gearRatio[7] = Float.parseFloat(var18);
-               } else if ("gearRatio8".equals(var16)) {
-                  this.gearRatio[8] = Float.parseFloat(var18);
-               } else if ("textureMaskEnable".equals(var16)) {
-                  this.textureMaskEnable = Boolean.parseBoolean(var18);
-               } else if ("textureRust".equals(var16)) {
-                  this.textures.textureRust = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureMask".equals(var16)) {
-                  this.textures.textureMask = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureLights".equals(var16)) {
-                  this.textures.textureLights = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureDamage1Overlay".equals(var16)) {
-                  this.textures.textureDamage1Overlay = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureDamage1Shell".equals(var16)) {
-                  this.textures.textureDamage1Shell = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureDamage2Overlay".equals(var16)) {
-                  this.textures.textureDamage2Overlay = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureDamage2Shell".equals(var16)) {
-                  this.textures.textureDamage2Shell = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("textureShadow".equals(var16)) {
-                  this.textures.textureShadow = StringUtils.discardNullOrWhitespace(var18);
-               } else if ("rollInfluence".equals(var16)) {
-                  this.rollInfluence = Float.parseFloat(var18);
-               } else if ("steeringIncrement".equals(var16)) {
-                  this.steeringIncrement = Float.parseFloat(var18);
-               } else if ("steeringClamp".equals(var16)) {
-                  this.steeringClamp = Float.parseFloat(var18);
-               } else if ("suspensionStiffness".equals(var16)) {
-                  this.suspensionStiffness = Float.parseFloat(var18);
-               } else if ("suspensionDamping".equals(var16)) {
-                  this.suspensionDamping = Float.parseFloat(var18);
-               } else if ("suspensionCompression".equals(var16)) {
-                  this.suspensionCompression = Float.parseFloat(var18);
-               } else if ("suspensionRestLength".equals(var16)) {
-                  this.suspensionRestLength = Float.parseFloat(var18);
-               } else if ("maxSuspensionTravelCm".equals(var16)) {
-                  this.maxSuspensionTravelCm = Float.parseFloat(var18);
-               } else if ("wheelFriction".equals(var16)) {
-                  this.wheelFriction = Float.parseFloat(var18);
-               } else if ("stoppingMovementForce".equals(var16)) {
-                  this.stoppingMovementForce = Float.parseFloat(var18);
-               } else if ("maxSpeed".equals(var16)) {
-                  this.maxSpeed = Float.parseFloat(var18);
-               } else if ("isSmallVehicle".equals(var16)) {
-                  this.isSmallVehicle = Boolean.parseBoolean(var18);
-               } else if ("spawnOffsetY".equals(var16)) {
-                  this.spawnOffsetY = Float.parseFloat(var18) - 0.995F;
-               } else if ("frontEndDurability".equals(var16)) {
-                  this.frontEndHealth = Integer.parseInt(var18);
-               } else if ("rearEndDurability".equals(var16)) {
-                  this.rearEndHealth = Integer.parseInt(var18);
-               } else if ("storageCapacity".equals(var16)) {
-                  this.storageCapacity = Integer.parseInt(var18);
-               } else if ("engineLoudness".equals(var16)) {
-                  this.engineLoudness = Integer.parseInt(var18);
-               } else if ("engineQuality".equals(var16)) {
-                  this.engineQuality = Integer.parseInt(var18);
-               } else if ("seats".equals(var16)) {
-                  this.seats = Integer.parseInt(var18);
-               } else if ("hasSiren".equals(var16)) {
-                  this.hasSiren = Boolean.parseBoolean(var18);
-               } else if ("mechanicType".equals(var16)) {
-                  this.mechanicType = Integer.parseInt(var18);
-               } else if ("forcedColor".equals(var16)) {
-                  String[] var21 = var18.split(" ");
-                  this.setForcedHue(Float.parseFloat(var21[0]));
-                  this.setForcedSat(Float.parseFloat(var21[1]));
-                  this.setForcedVal(Float.parseFloat(var21[2]));
-               } else if ("engineRPMType".equals(var16)) {
-                  this.engineRPMType = var18.trim();
-               } else if ("template".equals(var16)) {
-                  this.LoadTemplate(var18);
-               } else if ("template!".equals(var16)) {
-                  VehicleTemplate var22 = ScriptManager.instance.getVehicleTemplate(var18);
-                  if (var22 == null) {
-                     DebugLog.log("ERROR: template \"" + var18 + "\" not found");
+         while(true) {
+            while(var4.hasNext()) {
+               ScriptParser.BlockElement var5 = (ScriptParser.BlockElement)var4.next();
+               String var15;
+               if (var5.asValue() != null) {
+                  String[] var12 = var5.asValue().string.split("=");
+                  var15 = var12[0].trim();
+                  String var17 = var12[1].trim();
+                  if ("extents".equals(var15)) {
+                     this.LoadVector3f(var17, this.extents);
+                  } else if ("shadowExtents".equals(var15)) {
+                     this.LoadVector2f(var17, this.shadowExtents);
+                     this.bHadShadowOExtents = true;
+                  } else if ("shadowOffset".equals(var15)) {
+                     this.LoadVector2f(var17, this.shadowOffset);
+                     this.bHadShadowOffset = true;
+                  } else if ("physicsChassisShape".equals(var15)) {
+                     this.LoadVector3f(var17, this.physicsChassisShape);
+                  } else if ("extentsOffset".equals(var15)) {
+                     this.LoadVector2f(var17, this.extentsOffset);
+                  } else if ("mass".equals(var15)) {
+                     this.mass = Float.parseFloat(var17);
+                  } else if ("offRoadEfficiency".equalsIgnoreCase(var15)) {
+                     this.offroadEfficiency = Float.parseFloat(var17);
+                  } else if ("centerOfMassOffset".equals(var15)) {
+                     this.LoadVector3f(var17, this.centerOfMassOffset);
+                  } else if ("engineForce".equals(var15)) {
+                     this.engineForce = Float.parseFloat(var17);
+                  } else if ("engineIdleSpeed".equals(var15)) {
+                     this.engineIdleSpeed = Float.parseFloat(var17);
+                  } else if ("gearRatioCount".equals(var15)) {
+                     this.gearRatioCount = Integer.parseInt(var17);
+                  } else if ("gearRatioR".equals(var15)) {
+                     this.gearRatio[0] = Float.parseFloat(var17);
+                  } else if ("gearRatio1".equals(var15)) {
+                     this.gearRatio[1] = Float.parseFloat(var17);
+                  } else if ("gearRatio2".equals(var15)) {
+                     this.gearRatio[2] = Float.parseFloat(var17);
+                  } else if ("gearRatio3".equals(var15)) {
+                     this.gearRatio[3] = Float.parseFloat(var17);
+                  } else if ("gearRatio4".equals(var15)) {
+                     this.gearRatio[4] = Float.parseFloat(var17);
+                  } else if ("gearRatio5".equals(var15)) {
+                     this.gearRatio[5] = Float.parseFloat(var17);
+                  } else if ("gearRatio6".equals(var15)) {
+                     this.gearRatio[6] = Float.parseFloat(var17);
+                  } else if ("gearRatio7".equals(var15)) {
+                     this.gearRatio[7] = Float.parseFloat(var17);
+                  } else if ("gearRatio8".equals(var15)) {
+                     this.gearRatio[8] = Float.parseFloat(var17);
+                  } else if ("textureMaskEnable".equals(var15)) {
+                     this.textureMaskEnable = Boolean.parseBoolean(var17);
+                  } else if ("textureRust".equals(var15)) {
+                     this.textures.textureRust = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureMask".equals(var15)) {
+                     this.textures.textureMask = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureLights".equals(var15)) {
+                     this.textures.textureLights = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureDamage1Overlay".equals(var15)) {
+                     this.textures.textureDamage1Overlay = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureDamage1Shell".equals(var15)) {
+                     this.textures.textureDamage1Shell = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureDamage2Overlay".equals(var15)) {
+                     this.textures.textureDamage2Overlay = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureDamage2Shell".equals(var15)) {
+                     this.textures.textureDamage2Shell = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("textureShadow".equals(var15)) {
+                     this.textures.textureShadow = StringUtils.discardNullOrWhitespace(var17);
+                  } else if ("rollInfluence".equals(var15)) {
+                     this.rollInfluence = Float.parseFloat(var17);
+                  } else if ("steeringIncrement".equals(var15)) {
+                     this.steeringIncrement = Float.parseFloat(var17);
+                  } else if ("steeringClamp".equals(var15)) {
+                     this.steeringClamp = Float.parseFloat(var17);
+                  } else if ("suspensionStiffness".equals(var15)) {
+                     this.suspensionStiffness = Float.parseFloat(var17);
+                  } else if ("suspensionDamping".equals(var15)) {
+                     this.suspensionDamping = Float.parseFloat(var17);
+                  } else if ("suspensionCompression".equals(var15)) {
+                     this.suspensionCompression = Float.parseFloat(var17);
+                  } else if ("suspensionRestLength".equals(var15)) {
+                     this.suspensionRestLength = Float.parseFloat(var17);
+                  } else if ("maxSuspensionTravelCm".equals(var15)) {
+                     this.maxSuspensionTravelCm = Float.parseFloat(var17);
+                  } else if ("wheelFriction".equals(var15)) {
+                     this.wheelFriction = Float.parseFloat(var17);
+                  } else if ("stoppingMovementForce".equals(var15)) {
+                     this.stoppingMovementForce = Float.parseFloat(var17);
+                  } else if ("animalTrailerSize".equalsIgnoreCase(var15)) {
+                     this.animalTrailerSize = Float.parseFloat(var17);
+                  } else if ("maxSpeed".equals(var15)) {
+                     this.maxSpeed = Float.parseFloat(var17);
+                  } else if ("maxSpeedReverse".equals(var15)) {
+                     this.maxSpeedReverse = Float.parseFloat(var17);
+                  } else if ("isSmallVehicle".equals(var15)) {
+                     this.isSmallVehicle = Boolean.parseBoolean(var17);
+                  } else if ("spawnOffsetY".equals(var15)) {
+                     this.spawnOffsetY = Float.parseFloat(var17) - 0.995F;
+                  } else if ("frontEndDurability".equals(var15)) {
+                     this.frontEndHealth = Integer.parseInt(var17);
+                  } else if ("rearEndDurability".equals(var15)) {
+                     this.rearEndHealth = Integer.parseInt(var17);
+                  } else if ("storageCapacity".equals(var15)) {
+                     this.storageCapacity = Integer.parseInt(var17);
+                  } else if ("engineLoudness".equals(var15)) {
+                     this.engineLoudness = Integer.parseInt(var17);
+                  } else if ("engineQuality".equals(var15)) {
+                     this.engineQuality = Integer.parseInt(var17);
+                  } else if ("seats".equals(var15)) {
+                     this.seats = Integer.parseInt(var17);
+                  } else if ("hasSiren".equals(var15)) {
+                     this.hasSiren = Boolean.parseBoolean(var17);
+                  } else if ("mechanicType".equals(var15)) {
+                     this.mechanicType = Integer.parseInt(var17);
                   } else {
-                     this.Load(var1, var22.body);
+                     String[] var20;
+                     if ("forcedColor".equals(var15)) {
+                        var20 = var17.split(" ");
+                        this.setForcedHue(Float.parseFloat(var20[0]));
+                        this.setForcedSat(Float.parseFloat(var20[1]));
+                        this.setForcedVal(Float.parseFloat(var20[2]));
+                     } else if ("engineRPMType".equals(var15)) {
+                        this.engineRPMType = var17.trim();
+                     } else {
+                        int var22;
+                        if ("zombieType".equals(var15)) {
+                           this.zombieType = new ArrayList();
+                           var20 = var17.split(";");
+
+                           for(var22 = 0; var22 < var20.length; ++var22) {
+                              this.zombieType.add(var20[var22].trim());
+                           }
+                        } else if ("specialKeyRing".equals(var15)) {
+                           this.specialKeyRing = new ArrayList();
+                           var20 = var17.split(";");
+
+                           for(var22 = 0; var22 < var20.length; ++var22) {
+                              this.specialKeyRing.add(var20[var22].trim());
+                           }
+                        } else if ("notKillCrops".equals(var15)) {
+                           this.notKillCrops = Boolean.parseBoolean(var17);
+                        } else if ("hasLighter".equals(var15)) {
+                           this.hasLighter = Boolean.parseBoolean(var17);
+                        } else if ("carMechanicsOverlay".equals(var15)) {
+                           this.carMechanicsOverlay = var17.trim();
+                        } else if ("carModelName".equals(var15)) {
+                           this.carModelName = var17.trim();
+                        } else if ("template".equals(var15)) {
+                           this.LoadTemplate(var17);
+                        } else if ("template!".equals(var15)) {
+                           VehicleTemplate var21 = ScriptManager.instance.getVehicleTemplate(var17);
+                           if (var21 == null) {
+                              DebugLog.log("ERROR: template \"" + var17 + "\" not found in: " + this.getFileName());
+                           } else {
+                              this.Load(var1, var21.body);
+                           }
+                        } else if ("engineRepairLevel".equals(var15)) {
+                           this.engineRepairLevel = Integer.parseInt(var17);
+                        } else if ("playerDamageProtection".equals(var15)) {
+                           this.setPlayerDamageProtection(Float.parseFloat(var17));
+                        } else if ("useChassisPhysicsCollision".equals(var15)) {
+                           this.useChassisPhysicsCollision = Boolean.parseBoolean(var17);
+                        }
+                     }
                   }
-               } else if ("engineRepairLevel".equals(var16)) {
-                  this.engineRepairLevel = Integer.parseInt(var18);
-               } else if ("playerDamageProtection".equals(var16)) {
-                  this.setPlayerDamageProtection(Float.parseFloat(var18));
-               }
-            } else {
-               ScriptParser.Block var7 = var6.asBlock();
-               if ("area".equals(var7.type)) {
-                  this.LoadArea(var7);
-               } else if ("attachment".equals(var7.type)) {
-                  this.LoadAttachment(var7);
-               } else if ("model".equals(var7.type)) {
-                  this.LoadModel(var7, this.models);
                } else {
-                  Iterator var17;
-                  if ("part".equals(var7.type)) {
-                     if (var7.id != null && var7.id.contains("*")) {
-                        var16 = var7.id;
-                        var17 = this.parts.iterator();
-
-                        while(var17.hasNext()) {
-                           Part var20 = (Part)var17.next();
-                           if (this.globMatch(var16, var20.id)) {
-                              var7.id = var20.id;
-                              this.LoadPart(var7);
-                           }
-                        }
-                     } else {
-                        this.LoadPart(var7);
-                     }
-                  } else if ("passenger".equals(var7.type)) {
-                     if (var7.id != null && var7.id.contains("*")) {
-                        var16 = var7.id;
-                        var17 = this.passengers.iterator();
-
-                        while(var17.hasNext()) {
-                           Passenger var19 = (Passenger)var17.next();
-                           if (this.globMatch(var16, var19.id)) {
-                              var7.id = var19.id;
-                              this.LoadPassenger(var7);
-                           }
-                        }
-                     } else {
-                        this.LoadPassenger(var7);
-                     }
-                  } else if ("physics".equals(var7.type)) {
-                     PhysicsShape var15 = this.LoadPhysicsShape(var7);
-                     if (var15 != null && this.m_physicsShapes.size() < 10) {
-                        this.m_physicsShapes.add(var15);
-                     }
-                  } else if ("skin".equals(var7.type)) {
-                     Skin var14 = this.LoadSkin(var7);
-                     if (!StringUtils.isNullOrWhitespace(var14.texture)) {
-                        this.skins.add(var14);
-                     }
-                  } else if ("wheel".equals(var7.type)) {
-                     this.LoadWheel(var7);
+                  ScriptParser.Block var6 = var5.asBlock();
+                  if ("area".equals(var6.type)) {
+                     this.LoadArea(var6);
+                  } else if ("attachment".equals(var6.type)) {
+                     this.LoadAttachment(var6);
+                  } else if ("model".equals(var6.type)) {
+                     this.LoadModel(var6, this.models);
                   } else {
-                     Iterator var8;
-                     ScriptParser.Value var9;
-                     String var10;
-                     String var11;
-                     if ("lightbar".equals(var7.type)) {
-                        var8 = var7.values.iterator();
+                     Iterator var16;
+                     if ("part".equals(var6.type)) {
+                        if (var6.id != null && var6.id.contains("*")) {
+                           var15 = var6.id;
+                           var16 = this.parts.iterator();
 
-                        while(var8.hasNext()) {
-                           var9 = (ScriptParser.Value)var8.next();
-                           var10 = var9.getKey().trim();
-                           var11 = var9.getValue().trim();
-                           if ("soundSiren".equals(var10)) {
-                              this.lightbar.soundSiren0 = var11 + "Yelp";
-                              this.lightbar.soundSiren1 = var11 + "Wall";
-                              this.lightbar.soundSiren2 = var11 + "Alarm";
+                           while(var16.hasNext()) {
+                              Part var19 = (Part)var16.next();
+                              if (this.globMatch(var15, var19.id)) {
+                                 var6.id = var19.id;
+                                 this.LoadPart(var6);
+                              }
                            }
-
-                           if ("soundSiren0".equals(var10)) {
-                              this.lightbar.soundSiren0 = var11;
-                           }
-
-                           if ("soundSiren1".equals(var10)) {
-                              this.lightbar.soundSiren1 = var11;
-                           }
-
-                           if ("soundSiren2".equals(var10)) {
-                              this.lightbar.soundSiren2 = var11;
-                           }
-
-                           String[] var12;
-                           if ("leftCol".equals(var10)) {
-                              var12 = var11.split(";");
-                              this.leftSirenCol = new ImmutableColor(Float.parseFloat(var12[0]), Float.parseFloat(var12[1]), Float.parseFloat(var12[2]));
-                           }
-
-                           if ("rightCol".equals(var10)) {
-                              var12 = var11.split(";");
-                              this.rightSirenCol = new ImmutableColor(Float.parseFloat(var12[0]), Float.parseFloat(var12[1]), Float.parseFloat(var12[2]));
-                           }
-
-                           this.lightbar.enable = true;
-                           if (this.getPartById("lightbar") == null) {
-                              Part var23 = new Part();
-                              var23.id = "lightbar";
-                              this.parts.add(var23);
-                           }
+                        } else {
+                           this.LoadPart(var6);
                         }
-                     } else if ("sound".equals(var7.type)) {
-                        var8 = var7.values.iterator();
+                     } else if ("passenger".equals(var6.type)) {
+                        if (var6.id != null && var6.id.contains("*")) {
+                           var15 = var6.id;
+                           var16 = this.passengers.iterator();
 
-                        while(var8.hasNext()) {
-                           var9 = (ScriptParser.Value)var8.next();
-                           var10 = var9.getKey().trim();
-                           var11 = var9.getValue().trim();
-                           if ("backSignal".equals(var10)) {
-                              this.sound.backSignal = StringUtils.discardNullOrWhitespace(var11);
-                              this.sound.backSignalEnable = this.sound.backSignal != null;
-                           } else if ("engine".equals(var10)) {
-                              this.sound.engine = StringUtils.discardNullOrWhitespace(var11);
-                           } else if ("engineStart".equals(var10)) {
-                              this.sound.engineStart = StringUtils.discardNullOrWhitespace(var11);
-                           } else if ("engineTurnOff".equals(var10)) {
-                              this.sound.engineTurnOff = StringUtils.discardNullOrWhitespace(var11);
-                           } else if ("horn".equals(var10)) {
-                              this.sound.horn = StringUtils.discardNullOrWhitespace(var11);
-                              this.sound.hornEnable = this.sound.horn != null;
-                           } else if ("ignitionFail".equals(var10)) {
-                              this.sound.ignitionFail = StringUtils.discardNullOrWhitespace(var11);
-                           } else if ("ignitionFailNoPower".equals(var10)) {
-                              this.sound.ignitionFailNoPower = StringUtils.discardNullOrWhitespace(var11);
+                           while(var16.hasNext()) {
+                              Passenger var18 = (Passenger)var16.next();
+                              if (this.globMatch(var15, var18.id)) {
+                                 var6.id = var18.id;
+                                 this.LoadPassenger(var6);
+                              }
+                           }
+                        } else {
+                           this.LoadPassenger(var6);
+                        }
+                     } else if ("physics".equals(var6.type)) {
+                        PhysicsShape var14 = this.LoadPhysicsShape(var6);
+                        if (var14 != null && this.m_physicsShapes.size() < 10) {
+                           this.m_physicsShapes.add(var14);
+                        }
+                     } else if ("skin".equals(var6.type)) {
+                        Skin var13 = this.LoadSkin(var6);
+                        if (!StringUtils.isNullOrWhitespace(var13.texture)) {
+                           this.skins.add(var13);
+                        }
+                     } else if ("wheel".equals(var6.type)) {
+                        this.LoadWheel(var6);
+                     } else {
+                        Iterator var7;
+                        ScriptParser.Value var8;
+                        String var9;
+                        String var10;
+                        if ("lightbar".equals(var6.type)) {
+                           var7 = var6.values.iterator();
+
+                           while(var7.hasNext()) {
+                              var8 = (ScriptParser.Value)var7.next();
+                              var9 = var8.getKey().trim();
+                              var10 = var8.getValue().trim();
+                              if ("soundSiren".equals(var9)) {
+                                 this.lightbar.soundSiren0 = var10 + "Yelp";
+                                 this.lightbar.soundSiren1 = var10 + "Wall";
+                                 this.lightbar.soundSiren2 = var10 + "Alarm";
+                              }
+
+                              if ("soundSiren0".equals(var9)) {
+                                 this.lightbar.soundSiren0 = var10;
+                              }
+
+                              if ("soundSiren1".equals(var9)) {
+                                 this.lightbar.soundSiren1 = var10;
+                              }
+
+                              if ("soundSiren2".equals(var9)) {
+                                 this.lightbar.soundSiren2 = var10;
+                              }
+
+                              String[] var11;
+                              if ("leftCol".equals(var9)) {
+                                 var11 = var10.split(";");
+                                 this.leftSirenCol = new ImmutableColor(Float.parseFloat(var11[0]), Float.parseFloat(var11[1]), Float.parseFloat(var11[2]));
+                              }
+
+                              if ("rightCol".equals(var9)) {
+                                 var11 = var10.split(";");
+                                 this.rightSirenCol = new ImmutableColor(Float.parseFloat(var11[0]), Float.parseFloat(var11[1]), Float.parseFloat(var11[2]));
+                              }
+
+                              this.lightbar.enable = true;
+                              if (this.getPartById("lightbar") == null) {
+                                 Part var23 = new Part();
+                                 var23.id = "lightbar";
+                                 this.parts.add(var23);
+                              }
+                           }
+                        } else if ("sound".equals(var6.type)) {
+                           for(var7 = var6.values.iterator(); var7.hasNext(); this.sound.specified.add(var9)) {
+                              var8 = (ScriptParser.Value)var7.next();
+                              var9 = var8.getKey().trim();
+                              var10 = var8.getValue().trim();
+                              if ("backSignal".equals(var9)) {
+                                 this.sound.backSignal = StringUtils.discardNullOrWhitespace(var10);
+                                 this.sound.backSignalEnable = this.sound.backSignal != null;
+                              } else if ("engine".equals(var9)) {
+                                 this.sound.engine = StringUtils.discardNullOrWhitespace(var10);
+                              } else if ("engineStart".equals(var9)) {
+                                 this.sound.engineStart = StringUtils.discardNullOrWhitespace(var10);
+                              } else if ("engineTurnOff".equals(var9)) {
+                                 this.sound.engineTurnOff = StringUtils.discardNullOrWhitespace(var10);
+                              } else if ("horn".equals(var9)) {
+                                 this.sound.horn = StringUtils.discardNullOrWhitespace(var10);
+                                 this.sound.hornEnable = this.sound.horn != null;
+                              } else if ("ignitionFail".equals(var9)) {
+                                 this.sound.ignitionFail = StringUtils.discardNullOrWhitespace(var10);
+                              } else if ("ignitionFailNoPower".equals(var9)) {
+                                 this.sound.ignitionFailNoPower = StringUtils.discardNullOrWhitespace(var10);
+                              }
                            }
                         }
                      }
                   }
                }
             }
-         }
 
-         return;
+            return;
+         }
       }
    }
 
@@ -425,6 +475,9 @@ public final class VehicleScript extends BaseScriptObject {
                break;
             case 2:
                var7.radius *= var1;
+               break;
+            case 3:
+               var7.extents.mul(var1);
          }
       }
 
@@ -444,7 +497,7 @@ public final class VehicleScript extends BaseScriptObject {
          var10.w *= var1;
       }
 
-      if (!this.extents.equals(this.physicsChassisShape)) {
+      if (this.hasPhysicsChassisShape() && !this.extents.equals(this.physicsChassisShape)) {
          DebugLog.Script.warn("vehicle \"" + this.name + "\" extents != physicsChassisShape");
       }
 
@@ -492,16 +545,7 @@ public final class VehicleScript extends BaseScriptObject {
       float[] var1 = new float[200];
       int var2 = 0;
       var1[var2++] = this.getModelScale();
-      var1[var2++] = this.extents.x;
-      var1[var2++] = this.extents.y;
-      var1[var2++] = this.extents.z;
-      var1[var2++] = this.physicsChassisShape.x;
-      var1[var2++] = this.physicsChassisShape.y;
-      var1[var2++] = this.physicsChassisShape.z;
       var1[var2++] = this.mass;
-      var1[var2++] = this.centerOfMassOffset.x;
-      var1[var2++] = this.centerOfMassOffset.y;
-      var1[var2++] = this.centerOfMassOffset.z;
       var1[var2++] = this.rollInfluence;
       var1[var2++] = this.suspensionStiffness;
       var1[var2++] = this.suspensionCompression;
@@ -527,20 +571,38 @@ public final class VehicleScript extends BaseScriptObject {
          var1[var2++] = var4.radius;
       }
 
-      var1[var2++] = (float)(this.m_physicsShapes.size() + 1);
-      var1[var2++] = 1.0F;
-      var1[var2++] = this.centerOfMassOffset.x;
-      var1[var2++] = this.centerOfMassOffset.y;
-      var1[var2++] = this.centerOfMassOffset.z;
-      var1[var2++] = this.physicsChassisShape.x;
-      var1[var2++] = this.physicsChassisShape.y;
-      var1[var2++] = this.physicsChassisShape.z;
-      var1[var2++] = 0.0F;
-      var1[var2++] = 0.0F;
-      var1[var2++] = 0.0F;
+      var3 = (this.hasPhysicsChassisShape() && this.useChassisPhysicsCollision ? 1 : 0) + this.m_physicsShapes.size();
+      if (var3 == 0) {
+         var3 = 1;
+      }
 
-      for(var3 = 0; var3 < this.m_physicsShapes.size(); ++var3) {
-         PhysicsShape var5 = (PhysicsShape)this.m_physicsShapes.get(var3);
+      var1[var2++] = (float)var3;
+      if (this.hasPhysicsChassisShape() && this.useChassisPhysicsCollision) {
+         var1[var2++] = 1.0F;
+         var1[var2++] = this.centerOfMassOffset.x;
+         var1[var2++] = this.centerOfMassOffset.y;
+         var1[var2++] = this.centerOfMassOffset.z;
+         var1[var2++] = this.physicsChassisShape.x;
+         var1[var2++] = this.physicsChassisShape.y;
+         var1[var2++] = this.physicsChassisShape.z;
+         var1[var2++] = 0.0F;
+         var1[var2++] = 0.0F;
+         var1[var2++] = 0.0F;
+      } else if (this.m_physicsShapes.isEmpty()) {
+         var1[var2++] = 1.0F;
+         var1[var2++] = this.centerOfMassOffset.x;
+         var1[var2++] = this.centerOfMassOffset.y;
+         var1[var2++] = this.centerOfMassOffset.z;
+         var1[var2++] = this.extents.x;
+         var1[var2++] = this.extents.y;
+         var1[var2++] = this.extents.z;
+         var1[var2++] = 0.0F;
+         var1[var2++] = 0.0F;
+         var1[var2++] = 0.0F;
+      }
+
+      for(int var6 = 0; var6 < this.m_physicsShapes.size(); ++var6) {
+         PhysicsShape var5 = (PhysicsShape)this.m_physicsShapes.get(var6);
          var1[var2++] = (float)var5.type;
          var1[var2++] = var5.offset.x;
          var1[var2++] = var5.offset.y;
@@ -554,6 +616,7 @@ public final class VehicleScript extends BaseScriptObject {
             var1[var2++] = var5.rotate.z;
          } else if (var5.type == 2) {
             var1[var2++] = var5.radius;
+         } else if (var5.type == 3) {
          }
       }
 
@@ -584,6 +647,7 @@ public final class VehicleScript extends BaseScriptObject {
       ModelAttachment var2 = this.getAttachmentById(var1.id);
       if (var2 == null) {
          var2 = new ModelAttachment(var1.id);
+         var2.setOwner(this);
          this.m_attachments.add(var2);
       }
 
@@ -600,7 +664,7 @@ public final class VehicleScript extends BaseScriptObject {
          } else if ("rotate".equals(var5)) {
             this.LoadVector3f(var6, var2.getRotate());
          } else if ("canAttach".equals(var5)) {
-            var2.setCanAttach(new ArrayList(Arrays.asList(var6.split(","))));
+            var2.setCanAttach(new ArrayList(Arrays.asList(var6.split(";"))));
          } else if ("zoffset".equals(var5)) {
             var2.setZOffset(Float.parseFloat(var6));
          } else if ("updateconstraint".equals(var5)) {
@@ -633,6 +697,12 @@ public final class VehicleScript extends BaseScriptObject {
             this.LoadVector3f(var7, var3.rotate);
          } else if ("scale".equals(var6)) {
             var3.scale = Float.parseFloat(var7);
+         } else if ("attachmentParent".equals(var6)) {
+            var3.attachmentNameParent = var7.isEmpty() ? null : var7;
+         } else if ("attachmentSelf".equals(var6)) {
+            var3.attachmentNameSelf = var7.isEmpty() ? null : var7;
+         } else if ("ignoreVehicleScale".equalsIgnoreCase(var6)) {
+            var3.bIgnoreVehicleScale = Boolean.parseBoolean(var7);
          }
       }
 
@@ -879,6 +949,8 @@ public final class VehicleScript extends BaseScriptObject {
                var2.wheel = var6;
             } else if ("category".equals(var5)) {
                var2.category = var6;
+            } else if ("durability".equals(var5)) {
+               var2.durability = Float.parseFloat(var6);
             } else if ("specificItem".equals(var5)) {
                var2.specificItem = Boolean.parseBoolean(var6);
             } else if ("hasLightsRear".equals(var5)) {
@@ -927,50 +999,67 @@ public final class VehicleScript extends BaseScriptObject {
 
    private PhysicsShape LoadPhysicsShape(ScriptParser.Block var1) {
       boolean var2 = true;
-      byte var8;
+      byte var9;
       switch (var1.id) {
          case "box":
-            var8 = 1;
+            var9 = 1;
             break;
          case "sphere":
-            var8 = 2;
+            var9 = 2;
+            break;
+         case "mesh":
+            var9 = 3;
             break;
          default:
             return null;
       }
 
-      PhysicsShape var9 = new PhysicsShape();
-      var9.type = var8;
-      Iterator var10 = var1.values.iterator();
+      PhysicsShape var10 = new PhysicsShape();
+      var10.type = var9;
+      Iterator var11 = var1.values.iterator();
 
-      while(var10.hasNext()) {
-         ScriptParser.Value var5 = (ScriptParser.Value)var10.next();
+      while(var11.hasNext()) {
+         ScriptParser.Value var5 = (ScriptParser.Value)var11.next();
          String var6 = var5.getKey().trim();
          String var7 = var5.getValue().trim();
          if ("extents".equalsIgnoreCase(var6)) {
-            this.LoadVector3f(var7, var9.extents);
+            this.LoadVector3f(var7, var10.extents);
          } else if ("offset".equalsIgnoreCase(var6)) {
-            this.LoadVector3f(var7, var9.offset);
+            this.LoadVector3f(var7, var10.offset);
          } else if ("radius".equalsIgnoreCase(var6)) {
-            var9.radius = Float.parseFloat(var7);
+            var10.radius = Float.parseFloat(var7);
          } else if ("rotate".equalsIgnoreCase(var6)) {
-            this.LoadVector3f(var7, var9.rotate);
+            this.LoadVector3f(var7, var10.rotate);
+         } else if ("physicsShapeScript".equalsIgnoreCase(var6)) {
+            var10.physicsShapeScript = StringUtils.discardNullOrWhitespace(var7);
+         } else if ("scale".equalsIgnoreCase(var6)) {
+            float var8 = Float.parseFloat(var7);
+            var10.extents.set(var8);
          }
       }
 
-      switch (var9.type) {
+      switch (var10.type) {
          case 1:
-            if (var9.extents.x() <= 0.0F || var9.extents.y() <= 0.0F || var9.extents.z() <= 0.0F) {
+            if (var10.extents.x() <= 0.0F || var10.extents.y() <= 0.0F || var10.extents.z() <= 0.0F) {
                return null;
             }
             break;
          case 2:
-            if (var9.radius <= 0.0F) {
+            if (var10.radius <= 0.0F) {
                return null;
+            }
+            break;
+         case 3:
+            if (var10.physicsShapeScript == null) {
+               return null;
+            }
+
+            if (var10.extents.x() <= 0.0F) {
+               var10.extents.set(1.0F);
             }
       }
 
-      return var9;
+      return var10;
    }
 
    private Door LoadDoor(ScriptParser.Block var1) {
@@ -1105,7 +1194,7 @@ public final class VehicleScript extends BaseScriptObject {
          String var9 = var2[0];
          VehicleTemplate var4 = ScriptManager.instance.getVehicleTemplate(var9);
          if (var4 == null) {
-            DebugLog.log("ERROR: template \"" + var1 + "\" not found");
+            DebugLog.log("ERROR: template \"" + var1 + "\" not found A");
             return;
          }
 
@@ -1143,6 +1232,14 @@ public final class VehicleScript extends BaseScriptObject {
 
                this.copyWheelsFrom(var5, var2[2]);
                break;
+            case "physics":
+               if (var2.length == 2) {
+                  DebugLog.log("ERROR: template \"" + var1 + "\"");
+                  return;
+               }
+
+               this.copyPhysicsFrom(var5, var2[2]);
+               break;
             default:
                DebugLog.log("ERROR: template \"" + var1 + "\"");
                return;
@@ -1151,7 +1248,7 @@ public final class VehicleScript extends BaseScriptObject {
          String var8 = var1.trim();
          VehicleTemplate var10 = ScriptManager.instance.getVehicleTemplate(var8);
          if (var10 == null) {
-            DebugLog.log("ERROR: template \"" + var1 + "\" not found");
+            DebugLog.log("ERROR: template \"" + var1 + "\" not found B");
             return;
          }
 
@@ -1159,7 +1256,9 @@ public final class VehicleScript extends BaseScriptObject {
          this.copyAreasFrom(var11, "*");
          this.copyPartsFrom(var11, "*");
          this.copyPassengersFrom(var11, "*");
+         this.copySoundFrom(var11, "*");
          this.copyWheelsFrom(var11, "*");
+         this.copyPhysicsFrom(var11, "*");
       }
 
    }
@@ -1220,6 +1319,16 @@ public final class VehicleScript extends BaseScriptObject {
 
    }
 
+   public void copyPhysicsFrom(VehicleScript var1, String var2) {
+      this.m_physicsShapes.clear();
+
+      for(int var3 = 0; var3 < var1.getPhysicsShapeCount(); ++var3) {
+         this.m_physicsShapes.add(var3, var1.getPhysicsShape(var3).makeCopy());
+      }
+
+      this.useChassisPhysicsCollision = var1.useChassisPhysicsCollision();
+   }
+
    public void copyPassengersFrom(VehicleScript var1, String var2) {
       if ("*".equals(var2)) {
          for(int var3 = 0; var3 < var1.getPassengerCount(); ++var3) {
@@ -1243,6 +1352,34 @@ public final class VehicleScript extends BaseScriptObject {
             this.passengers.add(var6.makeCopy());
          } else {
             this.passengers.set(var7, var6.makeCopy());
+         }
+      }
+
+   }
+
+   public void copySoundFrom(VehicleScript var1, String var2) {
+      if ("*".equals(var2)) {
+         for(Iterator var3 = var1.sound.specified.iterator(); var3.hasNext(); this.sound.specified.add(var4)) {
+            switch ((String)var3.next()) {
+               case "backSignal":
+                  this.sound.backSignal = var1.sound.backSignal;
+                  this.sound.backSignalEnable = var1.sound.backSignalEnable;
+                  break;
+               case "engine":
+                  this.sound.engine = var1.sound.engine;
+                  break;
+               case "engineStart":
+                  this.sound.engineStart = var1.sound.engineStart;
+                  break;
+               case "engineTurnOff":
+                  this.sound.engineTurnOff = var1.sound.engineTurnOff;
+                  break;
+               case "ignitionFail":
+                  this.sound.ignitionFail = var1.sound.ignitionFail;
+                  break;
+               case "ignitionFailNoPower":
+                  this.sound.ignitionFailNoPower = var1.sound.ignitionFailNoPower;
+            }
          }
       }
 
@@ -1383,6 +1520,10 @@ public final class VehicleScript extends BaseScriptObject {
       return var10000 + "." + this.getName();
    }
 
+   public String getFullType() {
+      return this.getFullName();
+   }
+
    public Model getModel() {
       return this.models.isEmpty() ? null : (Model)this.models.get(0);
    }
@@ -1454,22 +1595,33 @@ public final class VehicleScript extends BaseScriptObject {
    }
 
    public ModelAttachment addAttachment(ModelAttachment var1) {
+      var1.setOwner(this);
       this.m_attachments.add(var1);
       return var1;
    }
 
    public ModelAttachment removeAttachment(ModelAttachment var1) {
+      var1.setOwner((IModelAttachmentOwner)null);
       this.m_attachments.remove(var1);
       return var1;
    }
 
    public ModelAttachment addAttachmentAt(int var1, ModelAttachment var2) {
+      var2.setOwner(this);
       this.m_attachments.add(var1, var2);
       return var2;
    }
 
    public ModelAttachment removeAttachment(int var1) {
-      return (ModelAttachment)this.m_attachments.remove(var1);
+      ModelAttachment var2 = (ModelAttachment)this.m_attachments.remove(var1);
+      var2.setOwner((IModelAttachmentOwner)null);
+      return var2;
+   }
+
+   public void beforeRenameAttachment(ModelAttachment var1) {
+   }
+
+   public void afterRenameAttachment(ModelAttachment var1) {
    }
 
    public LightBar getLightbar() {
@@ -1490,6 +1642,14 @@ public final class VehicleScript extends BaseScriptObject {
 
    public Vector3f getPhysicsChassisShape() {
       return this.physicsChassisShape;
+   }
+
+   public boolean hasPhysicsChassisShape() {
+      return this.physicsChassisShape.lengthSquared() > 0.0F;
+   }
+
+   public boolean useChassisPhysicsCollision() {
+      return this.useChassisPhysicsCollision;
    }
 
    public Vector2f getShadowExtents() {
@@ -1637,6 +1797,45 @@ public final class VehicleScript extends BaseScriptObject {
 
    public PhysicsShape getPhysicsShape(int var1) {
       return var1 >= 0 && var1 < this.m_physicsShapes.size() ? (PhysicsShape)this.m_physicsShapes.get(var1) : null;
+   }
+
+   public PhysicsShape addPhysicsShape(String var1) {
+      Objects.requireNonNull(var1);
+      PhysicsShape var2 = new PhysicsShape();
+      byte var10001;
+      switch (var1) {
+         case "box":
+            var10001 = 1;
+            break;
+         case "sphere":
+            var10001 = 2;
+            break;
+         case "mesh":
+            var10001 = 3;
+            break;
+         default:
+            throw new IllegalArgumentException("invalid vehicle physics shape \"%s\"".formatted(var1));
+      }
+
+      var2.type = var10001;
+      switch (var2.type) {
+         case 1:
+            var2.extents.set(1.0F, 1.0F, 1.0F);
+            break;
+         case 2:
+            var2.radius = 0.5F;
+            break;
+         case 3:
+            var2.physicsShapeScript = "Base.XXX";
+            var2.extents.set(1.0F);
+      }
+
+      this.m_physicsShapes.add(var2);
+      return var2;
+   }
+
+   public PhysicsShape removePhysicsShape(int var1) {
+      return (PhysicsShape)this.m_physicsShapes.remove(var1);
    }
 
    public int getFrontEndHealth() {
@@ -1834,6 +2033,72 @@ public final class VehicleScript extends BaseScriptObject {
       return this.crawlOffsets;
    }
 
+   public float getAnimalTrailerSize() {
+      return this.animalTrailerSize;
+   }
+
+   public ArrayList<String> getZombieType() {
+      return this.zombieType;
+   }
+
+   public ArrayList<String> getSpecialKeyRing() {
+      return this.specialKeyRing;
+   }
+
+   public String getRandomZombieType() {
+      return this.getZombieType().size() == 0 ? null : (String)this.getZombieType().get(Rand.Next(this.getZombieType().size()));
+   }
+
+   public String getRandomSpecialKeyRing() {
+      return !this.hasSpecialKeyRing() ? "Base.KeyRing" : (String)this.getSpecialKeyRing().get(Rand.Next(this.getSpecialKeyRing().size()));
+   }
+
+   public boolean hasSpecialKeyRing() {
+      if (this.getSpecialKeyRing() == null) {
+         return false;
+      } else {
+         return this.getSpecialKeyRing().size() > 0;
+      }
+   }
+
+   public String getFirstZombieType() {
+      return this.getZombieType().size() == 0 ? null : (String)this.getZombieType().get(0);
+   }
+
+   public boolean hasZombieType(String var1) {
+      for(int var2 = 0; var2 < this.getZombieType().size(); ++var2) {
+         if (this.getZombieType().get(var2) != null && this.getZombieType().get(var2) == var1) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   public boolean notKillCrops() {
+      return this.notKillCrops;
+   }
+
+   public boolean hasLighter() {
+      return this.hasLighter;
+   }
+
+   public String getCarMechanicsOverlay() {
+      return this.carMechanicsOverlay;
+   }
+
+   public void setCarMechanicsOverlay(String var1) {
+      this.carMechanicsOverlay = var1;
+   }
+
+   public String getCarModelName() {
+      return this.carModelName;
+   }
+
+   public void setCarModelName(String var1) {
+      this.carModelName = var1;
+   }
+
    public static final class Skin {
       public String texture;
       public String textureRust = null;
@@ -1913,6 +2178,7 @@ public final class VehicleScript extends BaseScriptObject {
       public String engineTurnOff = null;
       public String ignitionFail = null;
       public String ignitionFailNoPower = null;
+      public final HashSet<String> specified = new HashSet();
 
       public Sounds() {
       }
@@ -1981,12 +2247,23 @@ public final class VehicleScript extends BaseScriptObject {
       public float scale = 1.0F;
       public final Vector3f offset = new Vector3f();
       public final Vector3f rotate = new Vector3f();
+      public String attachmentNameParent = null;
+      public String attachmentNameSelf = null;
+      public boolean bIgnoreVehicleScale = false;
 
       public Model() {
       }
 
       public String getId() {
          return this.id;
+      }
+
+      public String getFile() {
+         return this.file;
+      }
+
+      public float getScale() {
+         return this.scale;
       }
 
       public Vector3f getOffset() {
@@ -1997,6 +2274,14 @@ public final class VehicleScript extends BaseScriptObject {
          return this.rotate;
       }
 
+      public String getAttachmentNameParent() {
+         return this.attachmentNameParent;
+      }
+
+      public String getAttachmentNameSelf() {
+         return this.attachmentNameSelf;
+      }
+
       Model makeCopy() {
          Model var1 = new Model();
          var1.id = this.id;
@@ -2004,6 +2289,9 @@ public final class VehicleScript extends BaseScriptObject {
          var1.scale = this.scale;
          var1.offset.set(this.offset);
          var1.rotate.set(this.rotate);
+         var1.attachmentNameParent = this.attachmentNameParent;
+         var1.attachmentNameSelf = this.attachmentNameSelf;
+         var1.bIgnoreVehicleScale = this.bIgnoreVehicleScale;
          return var1;
       }
    }
@@ -2027,6 +2315,7 @@ public final class VehicleScript extends BaseScriptObject {
       public boolean mechanicRequireKey = false;
       public boolean repairMechanic = false;
       public boolean hasLightsRear = false;
+      private float durability = 0.0F;
 
       public Part() {
       }
@@ -2045,6 +2334,52 @@ public final class VehicleScript extends BaseScriptObject {
 
       public void setRepairMechanic(boolean var1) {
          this.repairMechanic = var1;
+      }
+
+      public String getId() {
+         return this.id;
+      }
+
+      public int getModelCount() {
+         return this.models == null ? 0 : this.models.size();
+      }
+
+      public Model getModel(int var1) {
+         return (Model)this.models.get(var1);
+      }
+
+      public float getDurability() {
+         return this.durability;
+      }
+
+      public Anim getAnimById(String var1) {
+         if (this.anims == null) {
+            return null;
+         } else {
+            for(int var2 = 0; var2 < this.anims.size(); ++var2) {
+               Anim var3 = (Anim)this.anims.get(var2);
+               if (var3.id.equals(var1)) {
+                  return var3;
+               }
+            }
+
+            return null;
+         }
+      }
+
+      public Model getModelById(String var1) {
+         if (this.models == null) {
+            return null;
+         } else {
+            for(int var2 = 0; var2 < this.models.size(); ++var2) {
+               Model var3 = (Model)this.models.get(var2);
+               if (var3.id.equals(var1)) {
+                  return var3;
+               }
+            }
+
+            return null;
+         }
       }
 
       Part makeCopy() {
@@ -2109,6 +2444,7 @@ public final class VehicleScript extends BaseScriptObject {
          var1.mechanicRequireKey = this.mechanicRequireKey;
          var1.repairMechanic = this.repairMechanic;
          var1.hasLightsRear = this.hasLightsRear;
+         var1.durability = this.durability;
          return var1;
       }
    }
@@ -2219,6 +2555,7 @@ public final class VehicleScript extends BaseScriptObject {
       public final Vector3f rotate = new Vector3f();
       public final Vector3f extents = new Vector3f();
       public float radius;
+      public String physicsShapeScript = null;
 
       public PhysicsShape() {
       }
@@ -2229,6 +2566,8 @@ public final class VehicleScript extends BaseScriptObject {
                return "box";
             case 2:
                return "sphere";
+            case 3:
+               return "mesh";
             default:
                throw new RuntimeException("unhandled VehicleScript.PhysicsShape");
          }
@@ -2252,6 +2591,24 @@ public final class VehicleScript extends BaseScriptObject {
 
       public void setRadius(float var1) {
          this.radius = PZMath.clamp(var1, 0.05F, 5.0F);
+      }
+
+      public String getPhysicsShapeScript() {
+         return this.physicsShapeScript;
+      }
+
+      public void setPhysicsShapeScript(String var1) {
+         this.physicsShapeScript = (String)Objects.requireNonNull(var1);
+      }
+
+      private PhysicsShape makeCopy() {
+         PhysicsShape var1 = new PhysicsShape();
+         var1.type = this.type;
+         var1.extents.set(this.extents);
+         var1.offset.set(this.offset);
+         var1.rotate.set(this.rotate);
+         var1.radius = this.radius;
+         return var1;
       }
    }
 

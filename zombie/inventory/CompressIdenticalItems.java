@@ -83,52 +83,61 @@ public final class CompressIdenticalItems {
          }
       }
 
-      ByteBuffer var18 = var1.getByteData();
-      ByteBuffer var19 = var2.getByteData();
-      if (var18 != null) {
-         assert var18.position() == 0;
+      if (var1.getAttributes() != null && var2.getAttributes() != null && !var1.getAttributes().isIdenticalTo(var2.getAttributes())) {
+         return false;
+      } else if (var1.getAttributes() != null && var2.getAttributes() == null || var1.getAttributes() == null && var2.getAttributes() != null) {
+         return false;
+      } else {
+         ByteBuffer var18 = var1.getByteData();
+         ByteBuffer var19 = var2.getByteData();
+         if (var18 != null) {
+            assert var18.position() == 0;
 
-         if (!var18.equals(var19)) {
+            if (!var18.equals(var19)) {
+               return false;
+            }
+         } else if (var19 != null) {
             return false;
          }
-      } else if (var19 != null) {
-         return false;
-      }
 
-      ByteBuffer var5 = null;
-      int var6 = var2.id;
-      var2.id = 0;
+         ByteBuffer var5 = null;
+         int var6 = var2.id;
+         var2.id = 0;
 
-      while(true) {
-         try {
-            var5 = var0.itemCompareBuffer;
-            var5.position(0);
-            int var7 = var5.getInt();
-            int var8 = var5.position();
-            var5.position(var7);
-            int var9 = var5.position();
-            var2.save(var5, false);
-            int var10 = var5.position();
-            if (var10 - var9 != var7 - var8) {
-               boolean var20 = false;
-               return var20;
-            }
+         while(true) {
+            boolean var11;
+            try {
+               var5 = var0.itemCompareBuffer;
+               var5.position(0);
+               int var7 = var5.getInt();
+               int var8 = var5.position();
+               var5.position(var7);
+               int var9 = var5.position();
+               var2.save(var5, false);
+               int var10 = var5.position();
+               if (var10 - var9 == var7 - var8) {
+                  for(int var20 = 0; var20 < var7 - var8; ++var20) {
+                     if (var5.get(var8 + var20) != var5.get(var9 + var20)) {
+                        boolean var12 = false;
+                        return var12;
+                     }
+                  }
 
-            for(int var11 = 0; var11 < var7 - var8; ++var11) {
-               if (var5.get(var8 + var11) != var5.get(var9 + var11)) {
-                  boolean var12 = false;
-                  return var12;
+                  return true;
                }
+
+               var11 = false;
+            } catch (BufferOverflowException var16) {
+               var5 = ensureCapacity(var5);
+               var5.clear();
+               var0.itemCompareBuffer = var5;
+               setCompareItem(var0, var1);
+               continue;
+            } finally {
+               var2.id = var6;
             }
 
-            return true;
-         } catch (BufferOverflowException var16) {
-            var5 = ensureCapacity(var5);
-            var5.clear();
-            var0.itemCompareBuffer = var5;
-            setCompareItem(var0, var1);
-         } finally {
-            var2.id = var6;
+            return var11;
          }
       }
    }
@@ -213,13 +222,7 @@ public final class CompressIdenticalItems {
          short var6 = var0.getShort();
 
          for(int var7 = 0; var7 < var6; ++var7) {
-            int var8 = 1;
-            if (var1 >= 149) {
-               var8 = var0.getInt();
-            } else if (var1 >= 128) {
-               var8 = var0.getShort();
-            }
-
+            int var8 = var0.getInt();
             int var9 = var0.position();
             InventoryItem var10 = InventoryItem.loadItem(var0, var1);
             int var11;
@@ -253,13 +256,11 @@ public final class CompressIdenticalItems {
                   var5.savedItems.add(var10);
                }
 
-               if (var1 >= 128) {
-                  for(var11 = 1; var11 < var8; ++var11) {
-                     var12 = var0.getInt();
-                     var10 = (InventoryItem)var5.savedItems.get(var5.savedItems.size() - var8 + var11);
-                     if (var10 != null) {
-                        var10.id = var12;
-                     }
+               for(var11 = 1; var11 < var8; ++var11) {
+                  var12 = var0.getInt();
+                  var10 = (InventoryItem)var5.savedItems.get(var5.savedItems.size() - var8 + var11);
+                  if (var10 != null) {
+                     var10.id = var12;
                   }
                }
             }

@@ -17,12 +17,18 @@ public final class ObjectTooltip extends UIElement {
    int showDelay = 0;
    float targetAlpha = 0.0F;
    Texture texture = Texture.getSharedTexture("black");
+   public int padLeft = 5;
+   public int padTop = 5;
    public int padRight = 5;
    public int padBottom = 5;
    private IsoGameCharacter character;
    private boolean measureOnly;
    private float weightOfStack = 0.0F;
    private static int lineSpacing = 14;
+   private static int PAD_LEFT = -1;
+   private static int PAD_RIGHT;
+   private static int PAD_TOP;
+   private static int PAD_BOTTOM;
    private static String fontSize = "Small";
    private static UIFont font;
    private static Stack<Layout> freeLayouts;
@@ -49,6 +55,10 @@ public final class ObjectTooltip extends UIElement {
          lineSpacing = TextManager.instance.getFontFromEnum(font).getLineHeight();
       }
 
+      int var0 = TextManager.instance.MeasureStringX(font, "0");
+      PAD_RIGHT = var0;
+      PAD_LEFT = var0;
+      PAD_TOP = PAD_BOTTOM = var0 / 2;
    }
 
    public UIFont getFont() {
@@ -141,12 +151,12 @@ public final class ObjectTooltip extends UIElement {
          }
 
          int var14 = (int)Math.floor((double)((float)var3 * var5));
-         if (var5 > 0.0F && var14 == 0) {
-            var14 = 1;
+         this.DrawTextureScaledColor((Texture)null, (double)var1 - 1.0, (double)var2 - 1.0, (double)var3 + 2.0, (double)var4, 0.25, 0.25, 0.25, 1.0);
+         if (var5 != 0.0F && var5 != 1.0F) {
+            this.DrawTextureScaledColor((Texture)null, (double)var1 + (double)var14, (double)var2, 1.0, (double)var4 - 2.0, 0.5, 0.5, 0.5, 1.0);
          }
 
-         this.DrawTextureScaledColor((Texture)null, (double)var1, (double)var2, (double)var14, 3.0, var6, var8, var10, var12);
-         this.DrawTextureScaledColor((Texture)null, (double)var1 + (double)var14, (double)var2, (double)var3 - (double)var14, 3.0, 0.25, 0.25, 0.25, 1.0);
+         this.DrawTextureScaledColor((Texture)null, (double)var1, (double)var2, (double)var14, (double)var4 - 2.0, var6, var8, var10, var12);
       }
    }
 
@@ -234,6 +244,10 @@ public final class ObjectTooltip extends UIElement {
    }
 
    public Layout beginLayout() {
+      this.padLeft = PAD_LEFT;
+      this.padRight = PAD_RIGHT;
+      this.padTop = PAD_TOP;
+      this.padBottom = PAD_BOTTOM;
       Layout var1 = null;
       if (freeLayouts.isEmpty()) {
          var1 = new Layout();
@@ -293,6 +307,7 @@ public final class ObjectTooltip extends UIElement {
       public int minValueWidth;
       public Layout next;
       public int nextPadY;
+      public int offsetY = 0;
       private static Stack<LayoutItem> freeItems = new Stack();
 
       public Layout() {
@@ -366,6 +381,7 @@ public final class ObjectTooltip extends UIElement {
          this.minValueWidth = 0;
          this.next = null;
          this.nextPadY = 0;
+         this.offsetY = 0;
       }
    }
 
@@ -415,6 +431,7 @@ public final class ObjectTooltip extends UIElement {
          this.g1 = var3;
          this.a1 = var5;
          this.hasValue = true;
+         this.rightJustify = true;
       }
 
       public void setValueRight(int var1, boolean var2) {
@@ -529,7 +546,16 @@ public final class ObjectTooltip extends UIElement {
          }
 
          if (this.progressFraction != -1.0F) {
-            var5.DrawProgressBar(var1 + var3, var2 + ObjectTooltip.lineSpacing / 2 - 1, this.progressWidth, 2, this.progressFraction, (double)this.r1, (double)this.g1, (double)this.b1, (double)this.a1);
+            byte var6 = 5;
+            if ("Medium".equals(ObjectTooltip.fontSize)) {
+               var6 = 6;
+            }
+
+            if ("Large".equals(ObjectTooltip.fontSize)) {
+               var6 = 7;
+            }
+
+            var5.DrawProgressBar(var1 + var3, var2 + ObjectTooltip.lineSpacing / 2 - 1, var4, var6, this.progressFraction, (double)this.r1, (double)this.g1, (double)this.b1, (double)this.a1);
          }
 
       }

@@ -1,27 +1,37 @@
 package zombie.debug.options;
 
 import java.util.ArrayList;
-import zombie.debug.BooleanDebugOption;
+import java.util.Iterator;
+import zombie.util.StringUtils;
 
 public class OptionGroup implements IDebugOptionGroup {
    public final IDebugOptionGroup Group;
    private IDebugOptionGroup m_parentGroup;
    private final String m_groupName;
-   private final ArrayList<IDebugOption> m_children = new ArrayList();
+   private String m_fullName;
+   private final ArrayList<IDebugOption> m_children;
 
-   public OptionGroup(String var1) {
-      this.m_groupName = var1;
-      this.Group = this;
+   public OptionGroup() {
+      this((IDebugOptionGroup)null);
+   }
+
+   public OptionGroup(IDebugOptionGroup var1) {
+      this(var1, (String)null);
    }
 
    public OptionGroup(IDebugOptionGroup var1, String var2) {
-      this.m_groupName = getCombinedName(var1, var2);
+      this.m_children = new ArrayList();
       this.Group = this;
-      var1.addChild(this);
+      this.m_groupName = this.getGroupName(var2);
+      this.m_fullName = this.m_groupName;
+      if (var1 != null) {
+         var1.addChild(this);
+      }
+
    }
 
    public String getName() {
-      return this.m_groupName;
+      return this.m_fullName;
    }
 
    public IDebugOptionGroup getParent() {
@@ -29,7 +39,29 @@ public class OptionGroup implements IDebugOptionGroup {
    }
 
    public void setParent(IDebugOptionGroup var1) {
+      if (this.m_parentGroup != null) {
+         IDebugOptionGroup var2 = this.m_parentGroup;
+         this.m_parentGroup = null;
+         var2.removeChild(this);
+      }
+
       this.m_parentGroup = var1;
+      this.onFullPathChanged();
+   }
+
+   public void onFullPathChanged() {
+      String var1 = getCombinedName(this.m_parentGroup, this.m_groupName);
+      if (!StringUtils.equals(this.m_fullName, var1)) {
+         this.m_fullName = var1;
+      }
+
+      Iterator var2 = this.m_children.iterator();
+
+      while(var2.hasNext()) {
+         IDebugOption var3 = (IDebugOption)var2.next();
+         var3.onFullPathChanged();
+      }
+
    }
 
    public Iterable<IDebugOption> getChildren() {
@@ -37,9 +69,18 @@ public class OptionGroup implements IDebugOptionGroup {
    }
 
    public void addChild(IDebugOption var1) {
-      this.m_children.add(var1);
-      var1.setParent(this);
-      this.onChildAdded(var1);
+      if (!this.m_children.contains(var1)) {
+         this.m_children.add(var1);
+         var1.setParent(this);
+         this.onChildAdded(var1);
+      }
+   }
+
+   public void removeChild(IDebugOption var1) {
+      if (this.m_children.contains(var1)) {
+         this.m_children.remove(var1);
+         var1.setParent((IDebugOptionGroup)null);
+      }
    }
 
    public void onChildAdded(IDebugOption var1) {
@@ -53,40 +94,18 @@ public class OptionGroup implements IDebugOptionGroup {
 
    }
 
-   public static BooleanDebugOption newOption(String var0, boolean var1) {
-      return newOptionInternal((IDebugOptionGroup)null, var0, false, var1);
-   }
-
-   public static BooleanDebugOption newDebugOnlyOption(String var0, boolean var1) {
-      return newOptionInternal((IDebugOptionGroup)null, var0, true, var1);
-   }
-
-   public static BooleanDebugOption newOption(IDebugOptionGroup var0, String var1, boolean var2) {
-      return newOptionInternal(var0, var1, false, var2);
-   }
-
-   public static BooleanDebugOption newDebugOnlyOption(IDebugOptionGroup var0, String var1, boolean var2) {
-      return newOptionInternal(var0, var1, true, var2);
-   }
-
-   private static BooleanDebugOption newOptionInternal(IDebugOptionGroup var0, String var1, boolean var2, boolean var3) {
-      String var4 = getCombinedName(var0, var1);
-      BooleanDebugOption var5 = new BooleanDebugOption(var4, var2, var3);
-      if (var0 != null) {
-         var0.addChild(var5);
+   public String getGroupName(String var1) {
+      if (var1 == null) {
+         var1 = this.getClass().getSimpleName();
+         if (var1.endsWith("OG")) {
+            var1 = var1.substring(0, var1.length() - 2);
+         }
       }
 
-      return var5;
+      return var1;
    }
 
-   private static String getCombinedName(IDebugOptionGroup var0, String var1) {
-      String var2;
-      if (var0 != null) {
-         var2 = String.format("%s.%s", var0.getName(), var1);
-      } else {
-         var2 = var1;
-      }
-
-      return var2;
+   public static String getCombinedName(IDebugOptionGroup var0, String var1) {
+      return var0 == null ? var1 : var0.getCombinedName(var1);
    }
 }

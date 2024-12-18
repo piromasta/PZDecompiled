@@ -6,10 +6,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import org.joml.Math;
+import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL14;
-import org.lwjgl.util.vector.Matrix4f;
+import org.lwjgl.opengl.GL20;
 import org.lwjglx.BufferUtils;
 import zombie.GameProfiler;
 import zombie.GameTime;
@@ -23,12 +24,27 @@ import zombie.characters.WornItems.BodyLocations;
 import zombie.characters.action.ActionContext;
 import zombie.characters.action.ActionGroup;
 import zombie.characters.action.IActionStateChanged;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Color;
 import zombie.core.Core;
+import zombie.core.DefaultShader;
 import zombie.core.ImmutableColor;
+import zombie.core.PerformanceSettings;
+import zombie.core.SceneShaderStore;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
+import zombie.core.opengl.GLStateRenderThread;
+import zombie.core.opengl.IModelCamera;
+import zombie.core.opengl.ShaderProgram;
+import zombie.core.opengl.VBORenderer;
+import zombie.core.rendering.RenderList;
+import zombie.core.rendering.ShaderParameter;
+import zombie.core.rendering.ShaderPropertyBlock;
+import zombie.core.skinnedmodel.IGrappleable;
 import zombie.core.skinnedmodel.ModelCamera;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.advancedanimation.events.IAnimEventCallback;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
 import zombie.core.skinnedmodel.animation.debug.AnimationPlayerRecorder;
@@ -38,9 +54,11 @@ import zombie.core.skinnedmodel.model.ModelInstance;
 import zombie.core.skinnedmodel.model.ModelInstanceRenderData;
 import zombie.core.skinnedmodel.model.ModelInstanceTextureCreator;
 import zombie.core.skinnedmodel.model.ModelInstanceTextureInitializer;
+import zombie.core.skinnedmodel.model.ModelSlotRenderData;
 import zombie.core.skinnedmodel.model.SkinningData;
 import zombie.core.skinnedmodel.model.VehicleModelInstance;
 import zombie.core.skinnedmodel.model.VehicleSubModelInstance;
+import zombie.core.skinnedmodel.model.VertexBufferObject;
 import zombie.core.skinnedmodel.population.BeardStyle;
 import zombie.core.skinnedmodel.population.BeardStyles;
 import zombie.core.skinnedmodel.population.ClothingItem;
@@ -48,8 +66,10 @@ import zombie.core.skinnedmodel.population.HairStyle;
 import zombie.core.skinnedmodel.population.HairStyles;
 import zombie.core.skinnedmodel.population.PopTemplateManager;
 import zombie.core.skinnedmodel.shader.Shader;
+import zombie.core.skinnedmodel.visual.AnimalVisual;
 import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.visual.HumanVisual;
+import zombie.core.skinnedmodel.visual.IAnimalVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
@@ -58,9 +78,12 @@ import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
+import zombie.iso.IsoCamera;
+import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.Vector2;
+import zombie.iso.objects.ShadowParams;
 import zombie.popman.ObjectPool;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.ModelAttachment;
@@ -74,11 +97,13 @@ import zombie.util.Type;
 import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
 
-public final class AnimatedModel extends AnimationVariableSource implements IAnimatable, IAnimEventCallback, IActionStateChanged, IHumanVisual {
+public final class AnimatedModel extends AnimationVariableSource implements IAnimatable, IAnimEventCallback, IActionStateChanged, IAnimalVisual, IHumanVisual {
    private String animSetName = "player-avatar";
    private String outfitName;
    private IsoGameCharacter character;
-   private HumanVisual baseVisual = null;
+   private IGrappleable grappleable;
+   private BaseVisual baseVisual = null;
+   private final HumanVisual humanVisual = new HumanVisual(this);
    private final ItemVisuals itemVisuals = new ItemVisuals();
    private String primaryHandModelName;
    private String secondaryHandModelName;
@@ -87,6 +112,8 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
    private boolean bFemale = false;
    private boolean bZombie = false;
    private boolean bSkeleton = false;
+   private String animalType = null;
+   private float FinalScale = 1.0F;
    private String state;
    private final Vector2 angle = new Vector2();
    private final Vector3f offset = new Vector3f(0.0F, -0.45F, 0.0F);
@@ -103,17 +130,24 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
    private float lightsOriginZ;
    private final IsoGridSquare.ResultLight[] lights = new IsoGridSquare.ResultLight[5];
    private final ColorInfo ambient = new ColorInfo();
+   private float highResDepthMultiplier = 0.0F;
    private boolean bOutside = true;
    private boolean bRoom = false;
    private boolean bUpdateTextures;
    private boolean bClothingChanged;
    private boolean bAnimate = true;
+   private boolean bShowBip01 = false;
    private ModelInstanceTextureCreator textureCreator;
+   private int cullFace = 1028;
    private final StateInfo[] stateInfos = new StateInfo[3];
    private boolean bReady;
    private static final ObjectPool<AnimatedModelInstanceRenderData> instDataPool = new ObjectPool(AnimatedModelInstanceRenderData::new);
    private final UIModelCamera uiModelCamera = new UIModelCamera();
    private static final WorldModelCamera worldModelCamera = new WorldModelCamera();
+
+   public IsoGameCharacter getCharacter() {
+      return this.character;
+   }
 
    public AnimatedModel() {
       this.advancedAnimator.init(this);
@@ -131,12 +165,24 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
 
    }
 
-   public void setVisual(HumanVisual var1) {
+   public void setVisual(BaseVisual var1) {
       this.baseVisual = var1;
    }
 
    public BaseVisual getVisual() {
       return this.baseVisual;
+   }
+
+   public AnimalVisual getAnimalVisual() {
+      return (AnimalVisual)Type.tryCastTo(this.baseVisual, AnimalVisual.class);
+   }
+
+   public String getAnimalType() {
+      return this.animalType;
+   }
+
+   public float getAnimalSize() {
+      return this.FinalScale;
    }
 
    public HumanVisual getHumanVisual() {
@@ -183,12 +229,22 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       if (var1 instanceof IHumanVisual) {
          var1.getItemVisuals(this.itemVisuals);
          this.character = var1;
+         this.setGrappleable(var1);
          if (var1.getAttachedItems() != null) {
             this.attachedModelNames.initFrom(var1.getAttachedItems());
          }
 
-         this.setModelData(((IHumanVisual)var1).getHumanVisual(), this.itemVisuals);
+         if (var1 instanceof IsoAnimal) {
+            this.setModelData(((IsoAnimal)var1).getAnimalVisual(), this.itemVisuals, (IsoAnimal)var1);
+         } else {
+            this.setModelData(((IHumanVisual)var1).getHumanVisual(), this.itemVisuals);
+         }
+
       }
+   }
+
+   public void setGrappleable(IGrappleable var1) {
+      this.grappleable = var1;
    }
 
    public void setSurvivorDesc(SurvivorDesc var1) {
@@ -215,12 +271,22 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       this.attachedModelNames.copyFrom(var1);
    }
 
-   public void setModelData(HumanVisual var1, ItemVisuals var2) {
-      AnimationPlayer var3 = this.animPlayer;
-      Model var4 = this.animPlayer == null ? null : var3.getModel();
+   public void setModelData(BaseVisual var1, ItemVisuals var2) {
+      this.setModelData(var1, var2, (IsoAnimal)null);
+   }
+
+   public void setModelData(BaseVisual var1, ItemVisuals var2, IsoAnimal var3) {
+      AnimationPlayer var4 = this.animPlayer;
+      Model var5 = this.animPlayer == null ? null : var4.getModel();
       if (this.baseVisual != var1) {
-         if (this.baseVisual == null) {
-            this.baseVisual = new HumanVisual(this);
+         if (this.baseVisual == null || this.baseVisual.getClass() != var1.getClass()) {
+            if (var1 instanceof AnimalVisual) {
+               this.baseVisual = new AnimalVisual(this);
+            }
+
+            if (var1 instanceof HumanVisual) {
+               this.baseVisual = new HumanVisual(this);
+            }
          }
 
          this.baseVisual.copyFrom(var1);
@@ -235,10 +301,20 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
          this.bFemale = false;
          this.bZombie = false;
          this.bSkeleton = false;
-         if (var1 != null) {
-            this.bFemale = var1.isFemale();
-            this.bZombie = var1.isZombie();
-            this.bSkeleton = var1.isSkeleton();
+         this.animalType = null;
+         this.FinalScale = 1.0F;
+         AnimalVisual var6 = (AnimalVisual)Type.tryCastTo(var1, AnimalVisual.class);
+         if (var6 != null) {
+            this.animalType = var6.getAnimalType();
+            this.FinalScale = var6.getAnimalSize();
+            this.bSkeleton = var6.isSkeleton();
+         }
+
+         HumanVisual var7 = (HumanVisual)Type.tryCastTo(var1, HumanVisual.class);
+         if (var7 != null) {
+            this.bFemale = var7.isFemale();
+            this.bZombie = var7.isZombie();
+            this.bSkeleton = var7.isSkeleton();
          }
       }
 
@@ -246,48 +322,53 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
          ModelManager.instance.resetModelInstanceRecurse(this.modelInstance, this);
       }
 
-      Model var5 = var1.getModel();
-      this.getAnimationPlayer().setModel(var5);
-      this.modelInstance = ModelManager.instance.newInstance(var5, (IsoGameCharacter)null, this.getAnimationPlayer());
+      Model var13 = var1.getModel();
+      if (var1 instanceof AnimalVisual) {
+         this.character = var3;
+      }
+
+      this.getAnimationPlayer().setModel(var13);
+      this.modelInstance = ModelManager.instance.newInstance(var13, (IsoGameCharacter)null, this.getAnimationPlayer());
       this.modelInstance.m_modelScript = var1.getModelScript();
       this.modelInstance.setOwner(this);
       this.populateCharacterModelSlot();
       this.DoCharacterModelEquipped();
-      boolean var6 = false;
+      boolean var14 = false;
       if (this.bAnimate) {
-         AnimationSet var7 = AnimationSet.GetAnimationSet(this.GetAnimSetName(), false);
-         if (var7 != this.advancedAnimator.animSet || var3 != this.getAnimationPlayer() || var4 != var5) {
-            var6 = true;
+         AnimationSet var8 = AnimationSet.GetAnimationSet(this.GetAnimSetName(), false);
+         if (var8 != this.advancedAnimator.animSet || var4 != this.getAnimationPlayer() || var5 != var13) {
+            var14 = true;
          }
       } else {
-         var6 = true;
+         var14 = true;
       }
 
-      if (var6) {
+      if (var14) {
          this.advancedAnimator.OnAnimDataChanged(false);
       }
 
       if (this.bAnimate) {
-         ActionGroup var11 = ActionGroup.getActionGroup(this.GetAnimSetName());
-         if (var11 != this.actionContext.getGroup()) {
-            this.actionContext.setGroup(var11);
+         ActionGroup var15 = ActionGroup.getActionGroup(this.GetAnimSetName());
+         if (var15 != this.actionContext.getGroup()) {
+            this.actionContext.setGroup(var15);
          }
 
-         this.advancedAnimator.SetState(this.actionContext.getCurrentStateName(), PZArrayUtil.listConvert(this.actionContext.getChildStates(), (var0) -> {
-            return var0.name;
+         String var9 = StringUtils.isNullOrWhitespace(this.state) ? this.actionContext.getCurrentStateName() : this.state;
+         this.advancedAnimator.SetState(var9, PZArrayUtil.listConvert(this.actionContext.getChildStates(), (var0) -> {
+            return var0.getName();
          }));
       } else if (!StringUtils.isNullOrWhitespace(this.state)) {
          this.advancedAnimator.SetState(this.state);
       }
 
-      if (var6) {
-         float var12 = GameTime.getInstance().FPSMultiplier;
+      if (var14) {
+         float var16 = GameTime.getInstance().FPSMultiplier;
          GameTime.getInstance().FPSMultiplier = 100.0F;
 
          try {
-            this.advancedAnimator.update();
+            this.advancedAnimator.update(this.getAnimationTimeDelta());
          } finally {
-            GameTime.getInstance().FPSMultiplier = var12;
+            GameTime.getInstance().FPSMultiplier = var16;
          }
       }
 
@@ -297,6 +378,10 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
 
       this.trackTime = 0.0F;
       this.stateInfoMain().bModelsReady = this.isReadyToRender();
+   }
+
+   private float getAnimationTimeDelta() {
+      return this.character != null ? this.character.getAnimationTimeDelta() : GameTime.instance.getTimeDelta();
    }
 
    public void setAmbient(ColorInfo var1, boolean var2, boolean var3) {
@@ -348,16 +433,51 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       this.m_alpha = var1;
    }
 
+   public void setTint(float var1, float var2, float var3) {
+      StateInfo var4 = this.stateInfoMain();
+      var4.tintR = var1;
+      var4.tintG = var2;
+      var4.tintB = var3;
+   }
+
+   public void setTint(ColorInfo var1) {
+      this.setTint(var1.r, var1.g, var1.b);
+   }
+
    public void setTrackTime(float var1) {
       this.trackTime = var1;
+   }
+
+   public void setScale(float var1) {
+      this.FinalScale = PZMath.max(0.0F, var1);
+   }
+
+   public float getScale() {
+      return this.FinalScale;
+   }
+
+   public void setCullFace(int var1) {
+      this.cullFace = var1;
+   }
+
+   public void setHighResDepthMultiplier(float var1) {
+      this.highResDepthMultiplier = var1;
    }
 
    public void clothingItemChanged(String var1) {
       this.bClothingChanged = true;
    }
 
+   public boolean isAnimate() {
+      return this.bAnimate;
+   }
+
    public void setAnimate(boolean var1) {
       this.bAnimate = var1;
+   }
+
+   public void setShowBip01(boolean var1) {
+      this.bShowBip01 = var1;
    }
 
    private void initOutfit() {
@@ -532,19 +652,21 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
 
       for(int var7 = 0; var7 < this.attachedModelNames.size(); ++var7) {
          AttachedModelName var2 = this.attachedModelNames.get(var7);
-         ModelInstance var3 = ModelManager.instance.addStatic((ModelInstance)null, var2.modelName, var2.attachmentNameSelf, var2.attachmentNameParent);
-         this.postProcessNewItemInstance(this.modelInstance, var3, ImmutableColor.white);
-         if (var2.bloodLevel > 0.0F && !Core.getInstance().getOptionSimpleWeaponTextures()) {
-            ModelInstanceTextureInitializer var4 = ModelInstanceTextureInitializer.alloc();
-            var4.init(var3, var2.bloodLevel);
-            var3.setTextureInitializer(var4);
-         }
+         if (!ModelManager.instance.shouldHideModel(this.itemVisuals, var2.attachmentNameSelf) && !ModelManager.instance.shouldHideModel(this.itemVisuals, var2.attachmentNameParent)) {
+            ModelInstance var3 = ModelManager.instance.addStatic((ModelInstance)null, var2.modelName, var2.attachmentNameSelf, var2.attachmentNameParent);
+            this.postProcessNewItemInstance(this.modelInstance, var3, ImmutableColor.white);
+            if (var2.bloodLevel > 0.0F && !Core.getInstance().getOptionSimpleWeaponTextures()) {
+               ModelInstanceTextureInitializer var4 = ModelInstanceTextureInitializer.alloc();
+               var4.init(var3, var2.bloodLevel);
+               var3.setTextureInitializer(var4);
+            }
 
-         for(int var8 = 0; var8 < var2.getChildCount(); ++var8) {
-            AttachedModelName var5 = var2.getChildByIndex(var8);
-            ModelInstance var6 = ModelManager.instance.addStatic(var3, var5.modelName, var5.attachmentNameSelf, var5.attachmentNameParent);
-            var3.sub.remove(var6);
-            this.postProcessNewItemInstance(var3, var6, ImmutableColor.white);
+            for(int var8 = 0; var8 < var2.getChildCount(); ++var8) {
+               AttachedModelName var5 = var2.getChildByIndex(var8);
+               ModelInstance var6 = ModelManager.instance.addStatic(var3, var5.modelName, var5.attachmentNameSelf, var5.attachmentNameParent);
+               var3.sub.remove(var6);
+               this.postProcessNewItemInstance(var3, var6, ImmutableColor.white);
+            }
          }
       }
 
@@ -565,16 +687,13 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
    }
 
    private ModelInstance addStatic(String var1, String var2, String var3, String var4) {
-      if (DebugLog.isEnabled(DebugType.Animation)) {
-         DebugLog.Animation.debugln("Adding Static Model:" + var1);
-      }
-
+      DebugType.ModelManager.debugln("Adding static Model: %s", var1);
       Model var5 = ModelManager.instance.tryGetLoadedModel(var1, var2, true, var4, false);
       if (var5 == null) {
          ModelManager.instance.loadStaticModel(var1.toLowerCase(), var2, var4);
          var5 = ModelManager.instance.getLoadedModel(var1, var2, true, var4);
          if (var5 == null) {
-            DebugLog.General.error("ModelManager.addStatic> Model not found. model:" + var1 + " tex:" + var2);
+            DebugType.ModelManager.error("ModelManager.addStatic> Model not found. model:" + var1 + " tex:" + var2);
             return null;
          }
       }
@@ -613,29 +732,32 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       this.modelInstance.SetForceDir(this.angle);
       GameTime var1 = GameTime.getInstance();
       float var2 = var1.FPSMultiplier;
+      float var3 = var1.getTrueMultiplier();
       if (this.bAnimate) {
+         var1.setMultiplier(1.0F);
          if (UIManager.useUIFBO) {
-            var1.FPSMultiplier *= GameWindow.averageFPS / (float)Core.OptionUIRenderFPS;
+            var1.FPSMultiplier *= GameWindow.averageFPS / (float)Core.getInstance().getOptionUIRenderFPS();
          }
 
          this.actionContext.update();
-         this.advancedAnimator.update();
+         this.advancedAnimator.update(this.getAnimationTimeDelta());
          this.animPlayer.Update();
-         int var3 = SpriteRenderer.instance.getMainStateIndex();
-         StateInfo var4 = this.stateInfos[var3];
-         if (!var4.readyData.isEmpty()) {
-            ModelInstance var5 = ((AnimatedModelInstanceRenderData)var4.readyData.get(0)).modelInstance;
-            if (var5 != this.modelInstance && var5.AnimPlayer != this.modelInstance.AnimPlayer) {
-               var5.Update();
+         int var4 = SpriteRenderer.instance.getMainStateIndex();
+         StateInfo var5 = this.stateInfos[var4];
+         if (!var5.readyData.isEmpty()) {
+            ModelInstance var6 = ((AnimatedModelInstanceRenderData)var5.readyData.get(0)).modelInstance;
+            if (var6 != this.modelInstance && var6.AnimPlayer != this.modelInstance.AnimPlayer) {
+               var6.Update(this.getAnimationTimeDelta());
             }
          }
 
          var1.FPSMultiplier = var2;
+         var1.setMultiplier(var3);
       } else {
          var1.FPSMultiplier = 100.0F;
 
          try {
-            this.advancedAnimator.update();
+            this.advancedAnimator.update(this.getAnimationTimeDelta());
          } finally {
             var1.FPSMultiplier = var2;
          }
@@ -679,7 +801,10 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
    }
 
    private void initRenderData(StateInfo var1, AnimatedModelInstanceRenderData var2, ModelInstance var3) {
-      AnimatedModelInstanceRenderData var4 = ((AnimatedModelInstanceRenderData)instDataPool.alloc()).init(var3);
+      AnimatedModelInstanceRenderData var4 = (AnimatedModelInstanceRenderData)instDataPool.alloc();
+      var4.initModel(var3, var2);
+      var4.init();
+      var4.modelInstance.targetDepth = 0.5F;
       var1.instData.add(var4);
       var4.transformToParent(var2);
 
@@ -715,7 +840,7 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
             GameTime.getInstance().FPSMultiplier = 100.0F;
 
             try {
-               this.advancedAnimator.update();
+               this.advancedAnimator.update(this.getAnimationTimeDelta());
             } finally {
                GameTime.getInstance().FPSMultiplier = var2;
             }
@@ -732,8 +857,10 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
 
       for(int var6 = 0; var6 < var1.readyData.size(); ++var6) {
          AnimatedModelInstanceRenderData var3 = (AnimatedModelInstanceRenderData)var1.readyData.get(var6);
-         var3.init(var3.modelInstance);
-         var3.transformToParent(var1.getParentData(var3.modelInstance));
+         if (var3.modelInstance.AnimPlayer == null || var3.modelInstance.AnimPlayer.getModel() == var3.modelInstance.model) {
+            var3.init();
+            var3.transformToParent(var1.getParentData(var3.modelInstance));
+         }
       }
 
       var1.bRendered = false;
@@ -796,7 +923,18 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       var3.instData.clear();
    }
 
-   public void DoRender(ModelCamera var1) {
+   public void setTargetDepth(float var1) {
+      int var2 = SpriteRenderer.instance.getRenderStateIndex();
+      StateInfo var3 = this.stateInfos[var2];
+
+      for(int var4 = 0; var4 < var3.instData.size(); ++var4) {
+         AnimatedModelInstanceRenderData var5 = (AnimatedModelInstanceRenderData)var3.instData.get(var4);
+         var5.modelInstance.targetDepth = var1;
+      }
+
+   }
+
+   public void DoRender(IModelCamera var1) {
       int var2 = SpriteRenderer.instance.getRenderStateIndex();
       StateInfo var3 = this.stateInfos[var2];
       this.bReady = true;
@@ -837,12 +975,28 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
          var1.Begin();
          this.StartCharacter();
          this.Render();
+         boolean var11 = false;
+         if (var11) {
+            GL11.glDisable(2884);
+            VBORenderer var12 = VBORenderer.getInstance();
+            float var13 = 1.0F;
+            float var8 = 1.0F;
+            float var9 = 1.0F;
+            float var10 = 1.0F;
+            var12.setDepthTestForAllRuns(Boolean.TRUE);
+            var12.addBox(1.0F, 0.1F, 1.0F, var13, var8, var9, var10, (ShaderProgram)null);
+            var12.flush();
+            var12.setDepthTestForAllRuns((Boolean)null);
+            GL11.glEnable(2884);
+         }
+
          this.EndCharacter();
          var1.End();
          GL11.glDepthFunc(519);
          GL11.glPopAttrib();
          GL11.glPopClientAttrib();
          Texture.lastTextureID = -1;
+         GLStateRenderThread.restore();
          SpriteRenderer.ringBuffer.restoreVBOs = true;
          var3.bRendered = this.bReady;
       }
@@ -864,11 +1018,12 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       worldModelCamera.y = var2;
       worldModelCamera.z = var3;
       worldModelCamera.angle = var4;
+      worldModelCamera.animatedModel = this;
       this.DoRender(worldModelCamera);
    }
 
    private void debugDrawAxes() {
-      if (Core.bDebug && DebugOptions.instance.ModelRenderAxis.getValue()) {
+      if (Core.bDebug && DebugOptions.instance.Model.Render.Axis.getValue()) {
          Model.debugDrawAxis(0.0F, 0.0F, 0.0F, 1.0F, 4.0F);
       }
 
@@ -913,125 +1068,186 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
    }
 
    private void DrawChar(AnimatedModelInstanceRenderData var1) {
-      ModelInstance var2 = var1.modelInstance;
-      FloatBuffer var3 = var1.matrixPalette;
-      if (var2 != null) {
-         if (var2.AnimPlayer != null) {
-            if (var2.AnimPlayer.hasSkinningData()) {
-               if (var2.model != null) {
-                  if (var2.model.isReady()) {
-                     if (var2.tex != null || var2.model.tex != null) {
+      StateInfo var2 = this.stateInfoRender();
+      ModelInstance var3 = var1.modelInstance;
+      FloatBuffer var4 = var1.matrixPalette;
+      if (var3 != null) {
+         if (var3.AnimPlayer != null) {
+            if (var3.AnimPlayer.hasSkinningData()) {
+               if (var3.model != null) {
+                  if (var3.model.isReady()) {
+                     if (var3.tex != null || var3.model.tex != null) {
+                        if (var3.model.Effect == null) {
+                           var3.model.CreateShader("basicEffect");
+                        }
+
                         GL11.glEnable(2884);
-                        GL11.glCullFace(1028);
+                        GL11.glCullFace(this.cullFace);
                         GL11.glEnable(2929);
                         GL11.glEnable(3008);
                         GL11.glDepthFunc(513);
                         GL11.glDepthRange(0.0, 1.0);
                         GL11.glAlphaFunc(516, 0.01F);
-                        if (var2.model.Effect == null) {
-                           var2.model.CreateShader("basicEffect");
+                        if (!var3.model.Effect.isInstanced()) {
+                           this.DrawCharSingular(var1);
+                        } else {
+                           var1.properties.SetFloat("Alpha", this.m_alpha);
+                           var1.properties.SetVector3("AmbientColour", this.ambient.r * 0.45F, this.ambient.g * 0.45F, this.ambient.b * 0.45F);
+                           var1.properties.SetVector3("TintColour", this.modelInstance.tintR * var2.tintR, this.modelInstance.tintG * var2.tintG, this.modelInstance.tintB * var2.tintB);
+                           if (this.highResDepthMultiplier != 0.0F) {
+                              var1.properties.SetFloat("HighResDepthMultiplier", this.highResDepthMultiplier);
+                           }
+
+                           Matrix4f var5 = Core.getInstance().modelViewMatrixStack.alloc();
+                           VertexBufferObject.getModelViewProjection(var5);
+                           var1.properties.SetMatrix4("mvp", var5).transpose();
+                           Core.getInstance().modelViewMatrixStack.release(var5);
+                           RenderList.DrawImmediate((ModelSlotRenderData)null, var1);
+                           ShaderHelper.forgetCurrentlyBound();
+                           ShaderHelper.glUseProgramObjectARB(0);
                         }
-
-                        Shader var4 = var2.model.Effect;
-                        int var6;
-                        if (var4 != null) {
-                           var4.Start();
-                           if (var2.model.bStatic) {
-                              var4.setTransformMatrix(var1.xfrm, true);
-                           } else {
-                              var4.setMatrixPalette(var3, true);
-                           }
-
-                           var4.setLight(0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var2);
-                           var4.setLight(1, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var2);
-                           var4.setLight(2, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var2);
-                           var4.setLight(3, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var2);
-                           var4.setLight(4, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var2);
-                           float var5 = 0.7F;
-
-                           for(var6 = 0; var6 < this.lights.length; ++var6) {
-                              IsoGridSquare.ResultLight var7 = this.lights[var6];
-                              if (var7.radius > 0) {
-                                 var4.setLight(var6, (float)var7.x + 0.5F, (float)var7.y + 0.5F, (float)var7.z + 0.5F, var7.r * var5, var7.g * var5, var7.b * var5, (float)var7.radius, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
-                              }
-                           }
-
-                           if (var2.tex != null) {
-                              var4.setTexture(var2.tex, "Texture", 0);
-                           } else if (var2.model.tex != null) {
-                              var4.setTexture(var2.model.tex, "Texture", 0);
-                           }
-
-                           float var10;
-                           if (this.bOutside) {
-                              var10 = ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
-                              var4.setLight(3, this.lightsOriginX - 2.0F, this.lightsOriginY - 2.0F, this.lightsOriginZ + 1.0F, this.ambient.r * var10 / 4.0F, this.ambient.g * var10 / 4.0F, this.ambient.b * var10 / 4.0F, 5000.0F, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
-                              var4.setLight(4, this.lightsOriginX + 2.0F, this.lightsOriginY + 2.0F, this.lightsOriginZ + 1.0F, this.ambient.r * var10 / 4.0F, this.ambient.g * var10 / 4.0F, this.ambient.b * var10 / 4.0F, 5000.0F, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
-                           } else if (this.bRoom) {
-                              var10 = ModelInstance.MODEL_LIGHT_MULT_ROOM;
-                              var4.setLight(4, this.lightsOriginX + 2.0F, this.lightsOriginY + 2.0F, this.lightsOriginZ + 1.0F, this.ambient.r * var10 / 4.0F, this.ambient.g * var10 / 4.0F, this.ambient.b * var10 / 4.0F, 5000.0F, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
-                           }
-
-                           var4.setDepthBias(var2.depthBias / 50.0F);
-                           var4.setAmbient(this.ambient.r * 0.45F, this.ambient.g * 0.45F, this.ambient.b * 0.45F);
-                           var4.setLightingAmount(1.0F);
-                           var4.setHueShift(var2.hue);
-                           var4.setTint(var2.tintR, var2.tintG, var2.tintB);
-                           var4.setAlpha(this.m_alpha);
-                        }
-
-                        var2.model.Mesh.Draw(var4);
-                        if (var4 != null) {
-                           var4.End();
-                        }
-
-                        if (Core.bDebug && DebugOptions.instance.ModelRenderLights.getValue() && var2.parent == null) {
-                           Model var10000;
-                           if (this.lights[0].radius > 0) {
-                              var10000 = var2.model;
-                              Model.debugDrawLightSource((float)this.lights[0].x, (float)this.lights[0].y, (float)this.lights[0].z, 0.0F, 0.0F, 0.0F, -var1.m_animPlayerAngle);
-                           }
-
-                           if (this.lights[1].radius > 0) {
-                              var10000 = var2.model;
-                              Model.debugDrawLightSource((float)this.lights[1].x, (float)this.lights[1].y, (float)this.lights[1].z, 0.0F, 0.0F, 0.0F, -var1.m_animPlayerAngle);
-                           }
-
-                           if (this.lights[2].radius > 0) {
-                              var10000 = var2.model;
-                              Model.debugDrawLightSource((float)this.lights[2].x, (float)this.lights[2].y, (float)this.lights[2].z, 0.0F, 0.0F, 0.0F, -var1.m_animPlayerAngle);
-                           }
-                        }
-
-                        if (Core.bDebug && DebugOptions.instance.ModelRenderBones.getValue()) {
-                           GL11.glDisable(2929);
-                           GL11.glDisable(3553);
-                           GL11.glLineWidth(1.0F);
-                           GL11.glBegin(1);
-
-                           for(int var9 = 0; var9 < var2.AnimPlayer.modelTransforms.length; ++var9) {
-                              var6 = (Integer)var2.AnimPlayer.getSkinningData().SkeletonHierarchy.get(var9);
-                              if (var6 >= 0) {
-                                 Color var11 = Model.debugDrawColours[var9 % Model.debugDrawColours.length];
-                                 GL11.glColor3f(var11.r, var11.g, var11.b);
-                                 Matrix4f var8 = var2.AnimPlayer.modelTransforms[var9];
-                                 GL11.glVertex3f(var8.m03, var8.m13, var8.m23);
-                                 var8 = var2.AnimPlayer.modelTransforms[var6];
-                                 GL11.glVertex3f(var8.m03, var8.m13, var8.m23);
-                              }
-                           }
-
-                           GL11.glEnd();
-                           GL11.glColor3f(1.0F, 1.0F, 1.0F);
-                           GL11.glEnable(2929);
-                        }
-
                      }
                   }
                }
             }
          }
       }
+   }
+
+   private void DrawCharSingular(AnimatedModelInstanceRenderData var1) {
+      StateInfo var2 = this.stateInfoRender();
+      ModelInstance var3 = var1.modelInstance;
+      FloatBuffer var4 = var1.matrixPalette;
+      Shader var5 = var3.model.Effect;
+      int var7;
+      int var15;
+      if (var5 != null) {
+         var5.Start();
+         if (var3.model.bStatic) {
+            var5.setTransformMatrix(var1.xfrm, true);
+         } else {
+            var5.setMatrixPalette(var4, true);
+         }
+
+         var5.setLight(0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var3);
+         var5.setLight(1, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var3);
+         var5.setLight(2, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var3);
+         var5.setLight(3, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var3);
+         var5.setLight(4, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var3);
+         float var6 = 0.7F;
+
+         for(var7 = 0; var7 < this.lights.length; ++var7) {
+            IsoGridSquare.ResultLight var8 = this.lights[var7];
+            if (var8.radius > 0) {
+               var5.setLight(var7, (float)var8.x + 0.5F, (float)var8.y + 0.5F, (float)var8.z + 0.5F, var8.r * var6, var8.g * var6, var8.b * var6, (float)var8.radius, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
+            }
+         }
+
+         if (var3.tex != null) {
+            var5.setTexture(var3.tex, "Texture", 0);
+         } else if (var3.model.tex != null) {
+            var5.setTexture(var3.model.tex, "Texture", 0);
+         }
+
+         float var14;
+         if (this.bOutside) {
+            var14 = ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
+            var5.setLight(3, this.lightsOriginX - 2.0F, this.lightsOriginY - 2.0F, this.lightsOriginZ + 1.0F, this.ambient.r * var14 / 4.0F, this.ambient.g * var14 / 4.0F, this.ambient.b * var14 / 4.0F, 5000.0F, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
+            var5.setLight(4, this.lightsOriginX + 2.0F, this.lightsOriginY + 2.0F, this.lightsOriginZ + 1.0F, this.ambient.r * var14 / 4.0F, this.ambient.g * var14 / 4.0F, this.ambient.b * var14 / 4.0F, 5000.0F, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
+         } else if (this.bRoom) {
+            var14 = ModelInstance.MODEL_LIGHT_MULT_ROOM;
+            var5.setLight(4, this.lightsOriginX + 2.0F, this.lightsOriginY + 2.0F, this.lightsOriginZ + 1.0F, this.ambient.r * var14 / 4.0F, this.ambient.g * var14 / 4.0F, this.ambient.b * var14 / 4.0F, 5000.0F, var1.m_animPlayerAngle, this.lightsOriginX, this.lightsOriginY, this.lightsOriginZ, (IsoMovingObject)null);
+         }
+
+         var14 = var3.targetDepth;
+         var5.setTargetDepth(var14);
+         var5.setDepthBias(var3.depthBias / 50.0F);
+         var5.setAmbient(this.ambient.r * 0.45F, this.ambient.g * 0.45F, this.ambient.b * 0.45F);
+         var5.setLightingAmount(1.0F);
+         var5.setHueShift(var3.hue);
+         var5.setTint(var3.tintR * var2.tintR, var3.tintG * var2.tintG, var3.tintB * var2.tintB);
+         var5.setAlpha(this.m_alpha);
+         var5.setScale(this.FinalScale);
+         if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+            for(var15 = 0; var15 < 5; ++var15) {
+               var5.setLight(var15, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F / 0.0F, var3);
+            }
+
+            var5.setAmbient(1.0F, 1.0F, 1.0F);
+         }
+
+         if (this.highResDepthMultiplier != 0.0F) {
+            var5.setHighResDepthMultiplier(this.highResDepthMultiplier);
+         }
+      }
+
+      var3.model.Mesh.Draw(var5);
+      if (var5 != null) {
+         if (this.highResDepthMultiplier != 0.0F) {
+            var5.setHighResDepthMultiplier(0.0F);
+         }
+
+         var5.End();
+      }
+
+      DefaultShader var10000 = SceneShaderStore.DefaultShader;
+      DefaultShader.isActive = false;
+      ShaderHelper.forgetCurrentlyBound();
+      GL20.glUseProgram(0);
+      if (Core.bDebug && DebugOptions.instance.Model.Render.Lights.getValue() && var3.parent == null) {
+         Model var17;
+         if (this.lights[0].radius > 0) {
+            var17 = var3.model;
+            Model.debugDrawLightSource((float)this.lights[0].x, (float)this.lights[0].y, (float)this.lights[0].z, 0.0F, 0.0F, 0.0F, -var1.m_animPlayerAngle);
+         }
+
+         if (this.lights[1].radius > 0) {
+            var17 = var3.model;
+            Model.debugDrawLightSource((float)this.lights[1].x, (float)this.lights[1].y, (float)this.lights[1].z, 0.0F, 0.0F, 0.0F, -var1.m_animPlayerAngle);
+         }
+
+         if (this.lights[2].radius > 0) {
+            var17 = var3.model;
+            Model.debugDrawLightSource((float)this.lights[2].x, (float)this.lights[2].y, (float)this.lights[2].z, 0.0F, 0.0F, 0.0F, -var1.m_animPlayerAngle);
+         }
+      }
+
+      if (Core.bDebug && DebugOptions.instance.Model.Render.Bones.getValue()) {
+         VBORenderer var12 = VBORenderer.getInstance();
+         var12.startRun(var12.FORMAT_PositionColor);
+         var12.setMode(1);
+         var12.setLineWidth(1.0F);
+         var12.setDepthTest(false);
+
+         for(var7 = 0; var7 < var3.AnimPlayer.getModelTransformsCount(); ++var7) {
+            var15 = (Integer)var3.AnimPlayer.getSkinningData().SkeletonHierarchy.get(var7);
+            if (var15 >= 0) {
+               org.lwjgl.util.vector.Matrix4f var9 = var3.AnimPlayer.getModelTransformAt(var7);
+               org.lwjgl.util.vector.Matrix4f var10 = var3.AnimPlayer.getModelTransformAt(var15);
+               Color var11 = Model.debugDrawColours[var7 % Model.debugDrawColours.length];
+               var12.addLine(var9.m03, var9.m13, var9.m23, var10.m03, var10.m13, var10.m23, var11.r, var11.g, var11.b, 1.0F);
+            }
+         }
+
+         var12.endRun();
+         var12.flush();
+         GL11.glColor3f(1.0F, 1.0F, 1.0F);
+         GL11.glEnable(2929);
+      }
+
+      if (this.bShowBip01 && var3.AnimPlayer.getModelTransformsCount() > 0) {
+         int var13 = var3.AnimPlayer.getSkinningBoneIndex("Bip01", -1);
+         if (var13 != -1) {
+            org.lwjgl.util.vector.Matrix4f var16 = var3.AnimPlayer.getModelTransformAt(var13);
+            Model.debugDrawAxis(var16.m03, 0.0F * var16.m13, var16.m23, 0.1F, 4.0F);
+         }
+      }
+
+      ShaderHelper.glUseProgramObjectARB(0);
+   }
+
+   public ShadowParams calculateShadowParams(ShadowParams var1, boolean var2) {
+      return IsoGameCharacter.calculateShadowParams(this.getAnimationPlayer(), this.getAnimalSize(), var2, var1);
    }
 
    public void releaseAnimationPlayer() {
@@ -1046,6 +1262,14 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
          int var3 = var1.getDepth();
          this.actionContext.reportEvent(var3, var2.m_EventName);
       }
+   }
+
+   public boolean hasAnimationPlayer() {
+      return true;
+   }
+
+   public IGrappleable getGrappleable() {
+      return this.grappleable;
    }
 
    public AnimationPlayer getAnimationPlayer() {
@@ -1063,7 +1287,7 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
 
    public void actionStateChanged(ActionContext var1) {
       this.advancedAnimator.SetState(var1.getCurrentStateName(), PZArrayUtil.listConvert(var1.getChildStates(), (var0) -> {
-         return var0.name;
+         return var0.getName();
       }));
    }
 
@@ -1102,6 +1326,9 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       final ArrayList<AnimatedModelInstanceRenderData> readyData = new ArrayList();
       boolean bModelsReady;
       boolean bRendered;
+      float tintR = 1.0F;
+      float tintG = 1.0F;
+      float tintB = 1.0F;
 
       public StateInfo() {
       }
@@ -1131,80 +1358,135 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
 
       public void Begin() {
          GL11.glViewport(this.x, this.y, this.w, this.h);
-         GL11.glMatrixMode(5889);
-         GL11.glPushMatrix();
-         GL11.glLoadIdentity();
-         float var1 = (float)this.w / (float)this.h;
+         Matrix4f var1 = Core.getInstance().projectionMatrixStack.alloc();
+         float var2 = (float)this.w / (float)this.h;
          if (AnimatedModel.this.flipY) {
-            GL11.glOrtho((double)(-this.sizeV * var1), (double)(this.sizeV * var1), (double)this.sizeV, (double)(-this.sizeV), -100.0, 100.0);
+            var1.setOrtho(-this.sizeV * var2, this.sizeV * var2, this.sizeV, -this.sizeV, -100.0F, 100.0F);
          } else {
-            GL11.glOrtho((double)(-this.sizeV * var1), (double)(this.sizeV * var1), (double)(-this.sizeV), (double)this.sizeV, -100.0, 100.0);
+            var1.setOrtho(-this.sizeV * var2, this.sizeV * var2, -this.sizeV, this.sizeV, -100.0F, 100.0F);
          }
 
-         float var2 = Math.sqrt(2048.0F);
-         GL11.glScalef(-var2, var2, var2);
-         GL11.glMatrixMode(5888);
-         GL11.glPushMatrix();
-         GL11.glLoadIdentity();
+         float var3 = Math.sqrt(2048.0F);
+         var1.scale(-var3, var3, var3);
+         Core.getInstance().projectionMatrixStack.push(var1);
+         Matrix4f var4 = Core.getInstance().modelViewMatrixStack.alloc();
+         var4.identity();
          if (AnimatedModel.this.bIsometric) {
-            GL11.glRotatef(30.0F, 1.0F, 0.0F, 0.0F);
-            GL11.glRotated((double)(this.m_animPlayerAngle * 57.295776F + 45.0F), 0.0, 1.0, 0.0);
+            var4.rotate(0.5235988F, 1.0F, 0.0F, 0.0F);
+            var4.rotate(this.m_animPlayerAngle + 0.7853982F, 0.0F, 1.0F, 0.0F);
          } else {
-            GL11.glRotated((double)(this.m_animPlayerAngle * 57.295776F), 0.0, 1.0, 0.0);
+            var4.rotate(this.m_animPlayerAngle, 0.0F, 1.0F, 0.0F);
          }
 
-         GL11.glTranslatef(AnimatedModel.this.offset.x(), AnimatedModel.this.offset.y(), AnimatedModel.this.offset.z());
+         var4.translate(AnimatedModel.this.offset.x(), AnimatedModel.this.offset.y(), AnimatedModel.this.offset.z());
+         Core.getInstance().modelViewMatrixStack.push(var4);
       }
 
       public void End() {
-         GL11.glMatrixMode(5889);
-         GL11.glPopMatrix();
-         GL11.glMatrixMode(5888);
-         GL11.glPopMatrix();
+         Core.getInstance().projectionMatrixStack.pop();
+         Core.getInstance().modelViewMatrixStack.pop();
       }
    }
 
-   private static final class AnimatedModelInstanceRenderData {
-      ModelInstance modelInstance;
-      FloatBuffer matrixPalette;
-      public final org.joml.Matrix4f xfrm = new org.joml.Matrix4f();
+   public static class AnimatedModelInstanceRenderData {
+      public Model model;
+      public Texture tex;
+      public ModelInstance modelInstance;
+      public FloatBuffer matrixPalette;
+      private boolean bMatrixPaletteValid = false;
+      public final Matrix4f xfrm = new Matrix4f();
       float m_animPlayerAngle;
+      public final ShaderPropertyBlock properties = new ShaderPropertyBlock();
+      public AnimatedModelInstanceRenderData parent;
 
-      private AnimatedModelInstanceRenderData() {
+      public AnimatedModelInstanceRenderData() {
       }
 
-      AnimatedModelInstanceRenderData init(ModelInstance var1) {
-         this.modelInstance = var1;
-         this.xfrm.identity();
+      public void initMatrixPalette() {
          this.m_animPlayerAngle = 0.0F / 0.0F;
-         if (var1.AnimPlayer != null) {
-            this.m_animPlayerAngle = var1.AnimPlayer.getRenderedAngle();
-            if (!var1.model.bStatic) {
-               SkinningData var2 = (SkinningData)var1.model.Tag;
-               if (Core.bDebug && var2 == null) {
+         this.bMatrixPaletteValid = false;
+         if (this.modelInstance.AnimPlayer != null && this.modelInstance.AnimPlayer.isReady()) {
+            this.m_animPlayerAngle = this.modelInstance.AnimPlayer.getRenderedAngle();
+            if (!this.modelInstance.model.bStatic) {
+               SkinningData var1 = (SkinningData)this.modelInstance.model.Tag;
+               if (Core.bDebug && var1 == null) {
                   DebugLog.General.warn("skinningData is null, matrixPalette may be invalid");
                }
 
-               Matrix4f[] var3 = var1.AnimPlayer.getSkinTransforms(var2);
-               if (this.matrixPalette == null || this.matrixPalette.capacity() < var3.length * 16) {
-                  this.matrixPalette = BufferUtils.createFloatBuffer(var3.length * 16);
+               org.lwjgl.util.vector.Matrix4f[] var2 = this.modelInstance.AnimPlayer.getSkinTransforms(var1);
+               if (this.matrixPalette == null || this.matrixPalette.capacity() < var2.length * 16) {
+                  this.matrixPalette = BufferUtils.createFloatBuffer(var2.length * 16);
                }
 
                this.matrixPalette.clear();
 
-               for(int var4 = 0; var4 < var3.length; ++var4) {
-                  var3[var4].store(this.matrixPalette);
+               for(int var3 = 0; var3 < var2.length; ++var3) {
+                  var2[var3].store(this.matrixPalette);
                }
 
                this.matrixPalette.flip();
+               this.bMatrixPaletteValid = true;
             }
          }
 
-         if (var1.getTextureInitializer() != null) {
-            var1.getTextureInitializer().renderMain();
+      }
+
+      public AnimatedModelInstanceRenderData init() {
+         if (this.bMatrixPaletteValid) {
+            ShaderParameter var2 = this.properties.GetParameter("MatrixPalette");
+            org.lwjgl.util.vector.Matrix4f[] var1;
+            if (var2 == null) {
+               var1 = new org.lwjgl.util.vector.Matrix4f[60];
+               this.properties.SetMatrix4Array("MatrixPalette", var1);
+            } else {
+               var1 = var2.GetMatrix4Array();
+            }
+
+            int var3 = this.matrixPalette.limit() / 64;
+
+            for(int var4 = 0; var4 < var3; ++var4) {
+               var1[var4].load(this.matrixPalette);
+            }
+
+            this.matrixPalette.position(0);
          }
 
+         if (this.modelInstance.getTextureInitializer() != null) {
+            this.modelInstance.getTextureInitializer().renderMain();
+         }
+
+         this.UpdateCharacter(this.modelInstance.model.Effect);
          return this;
+      }
+
+      public void initModel(ModelInstance var1, AnimatedModelInstanceRenderData var2) {
+         this.xfrm.identity();
+         this.modelInstance = var1;
+         this.parent = var2;
+         if (!var1.model.bStatic && this.matrixPalette == null) {
+            this.matrixPalette = BufferUtils.createFloatBuffer(960);
+         }
+
+         this.initMatrixPalette();
+      }
+
+      public void UpdateCharacter(Shader var1) {
+         this.properties.SetFloat("Alpha", 1.0F);
+         this.properties.SetVector2("UVScale", 1.0F, 1.0F);
+         this.properties.SetFloat("targetDepth", this.modelInstance.targetDepth);
+         this.properties.SetFloat("DepthBias", this.modelInstance.depthBias / 50.0F);
+         this.properties.SetFloat("LightingAmount", 1.0F);
+         this.properties.SetFloat("HueChange", this.modelInstance.hue);
+         this.properties.SetVector3("TintColour", 1.0F, 1.0F, 1.0F);
+         if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+            for(int var2 = 0; var2 < 4; ++var2) {
+               this.properties.SetVector3ArrayElement("LightDirection", var2, 0.0F, 1.0F, 0.0F);
+            }
+
+            this.properties.SetVector3("AmbientColour", 1.0F, 1.0F, 1.0F);
+         }
+
+         this.properties.SetMatrix4("transform", this.xfrm);
       }
 
       public AnimatedModelInstanceRenderData transformToParent(AnimatedModelInstanceRenderData var1) {
@@ -1214,8 +1496,12 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
             } else {
                this.xfrm.set(var1.xfrm);
                this.xfrm.transpose();
-               org.joml.Matrix4f var2 = (org.joml.Matrix4f)((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).alloc();
+               Matrix4f var2 = (Matrix4f)((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).alloc();
                ModelAttachment var3 = var1.modelInstance.getAttachmentById(this.modelInstance.attachmentNameParent);
+               if (var3 == null && this.modelInstance.parentBoneName != null) {
+                  var3 = var1.modelInstance.getAttachmentById(this.modelInstance.parentBoneName);
+               }
+
                if (var3 == null) {
                   if (this.modelInstance.parentBoneName != null && var1.modelInstance.AnimPlayer != null) {
                      ModelInstanceRenderData.applyBoneTransform(var1.modelInstance, this.modelInstance.parentBoneName, this.xfrm);
@@ -1227,16 +1513,20 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
                }
 
                ModelAttachment var4 = this.modelInstance.getAttachmentById(this.modelInstance.attachmentNameSelf);
+               if (var4 == null && this.modelInstance.parentBoneName != null) {
+                  var4 = this.modelInstance.getAttachmentById(this.modelInstance.parentBoneName);
+               }
+
                if (var4 != null) {
                   ModelInstanceRenderData.makeAttachmentTransform(var4, var2);
-                  var2.invert();
+                  if (ModelInstanceRenderData.INVERT_ATTACHMENT_SELF_TRANSFORM) {
+                     var2.invert();
+                  }
+
                   this.xfrm.mul(var2);
                }
 
-               if (this.modelInstance.model.Mesh != null && this.modelInstance.model.Mesh.isReady() && this.modelInstance.model.Mesh.m_transform != null) {
-                  this.xfrm.mul(this.modelInstance.model.Mesh.m_transform);
-               }
-
+               ModelInstanceRenderData.postMultiplyMeshTransform(this.xfrm, this.modelInstance.model.Mesh);
                if (this.modelInstance.scale != 1.0F) {
                   this.xfrm.scale(this.modelInstance.scale);
                }
@@ -1256,6 +1546,7 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       float y;
       float z;
       float angle;
+      AnimatedModel animatedModel;
 
       private WorldModelCamera() {
       }
@@ -1263,6 +1554,15 @@ public final class AnimatedModel extends AnimationVariableSource implements IAni
       public void Begin() {
          Core.getInstance().DoPushIsoStuff(this.x, this.y, this.z, this.angle, false);
          GL11.glDepthMask(true);
+         if (PerformanceSettings.FBORenderChunk) {
+            float var1 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), this.x, this.y, this.z).depthStart;
+            float var2 = VertexBufferObject.getDepthValueAt(0.0F, 0.0F, 0.0F);
+            var1 = var1 - (var2 + 1.0F) / 2.0F + 0.5F;
+            this.animatedModel.setTargetDepth(var1);
+         } else {
+            this.animatedModel.setTargetDepth(0.5F);
+         }
+
       }
 
       public void End() {

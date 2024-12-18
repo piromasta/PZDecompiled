@@ -3,7 +3,7 @@ package zombie.iso;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
-import zombie.GameTime;
+import zombie.core.math.PZMath;
 import zombie.iso.sprite.IsoSprite;
 
 public class IsoFloorBloodSplat {
@@ -17,7 +17,7 @@ public class IsoFloorBloodSplat {
    public float worldAge;
    public int index;
    public int fade;
-   IsoChunk chunk;
+   public IsoChunk chunk;
 
    public IsoFloorBloodSplat() {
    }
@@ -31,7 +31,7 @@ public class IsoFloorBloodSplat {
    }
 
    public void save(ByteBuffer var1) {
-      int var2 = (int)(this.x / 10.0F * 255.0F);
+      int var2 = PZMath.fastfloor(this.x / 8.0F * 255.0F);
       if (var2 < 0) {
          var2 = 0;
       }
@@ -40,7 +40,7 @@ public class IsoFloorBloodSplat {
          var2 = 255;
       }
 
-      int var3 = (int)(this.y / 10.0F * 255.0F);
+      int var3 = PZMath.fastfloor(this.y / 8.0F * 255.0F);
       if (var3 < 0) {
          var3 = 0;
       }
@@ -49,7 +49,7 @@ public class IsoFloorBloodSplat {
          var3 = 255;
       }
 
-      int var4 = (int)(this.z / 8.0F * 255.0F);
+      int var4 = PZMath.fastfloor(this.z / 8.0F * 255.0F);
       if (var4 < 0) {
          var4 = 0;
       }
@@ -67,22 +67,11 @@ public class IsoFloorBloodSplat {
    }
 
    public void load(ByteBuffer var1, int var2) throws IOException {
-      if (var2 >= 65) {
-         this.x = (float)(var1.get() & 255) / 255.0F * 10.0F;
-         this.y = (float)(var1.get() & 255) / 255.0F * 10.0F;
-         this.z = (float)(var1.get() & 255) / 255.0F * 8.0F;
-         this.Type = var1.get();
-         this.worldAge = var1.getFloat();
-         if (var2 >= 73) {
-            this.index = var1.get();
-         }
-      } else {
-         this.x = var1.getFloat();
-         this.y = var1.getFloat();
-         this.z = var1.getFloat();
-         this.Type = var1.getInt();
-         this.worldAge = (float)GameTime.getInstance().getWorldAgeHours();
-      }
-
+      this.x = (float)PZMath.fastfloor((float)(var1.get() & 255)) / 255.0F * 8.0F;
+      this.y = (float)PZMath.fastfloor((float)(var1.get() & 255)) / 255.0F * 8.0F;
+      this.z = (float)PZMath.fastfloor((float)(var1.get() & 255)) / 255.0F * 8.0F;
+      this.Type = var1.get();
+      this.worldAge = var1.getFloat();
+      this.index = var1.get();
    }
 }

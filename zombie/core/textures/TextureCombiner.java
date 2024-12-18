@@ -11,9 +11,12 @@ import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL30;
 import org.lwjglx.opengl.OpenGLException;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
+import zombie.core.opengl.GLStateRenderThread;
 import zombie.core.opengl.PZGLUtil;
+import zombie.core.opengl.VBORenderer;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.model.VertexBufferObject;
 import zombie.core.utils.ImageUtils;
 
 public final class TextureCombiner {
@@ -189,100 +192,92 @@ public final class TextureCombiner {
       GL11.glDisable(2960);
       this.fbo.startDrawing(true, true);
       PZGLUtil.checkGLErrorThrow("FBO.startDrawing %s", this.fbo);
-      GL11.glMatrixMode(5888);
-      GL11.glPushMatrix();
       Core.getInstance().DoStartFrameStuffSmartTextureFx(var2, var3, -1);
       PZGLUtil.checkGLErrorThrow("Core.DoStartFrameStuffFx w:%d, h:%d", var2, var3);
+      VBORenderer var5 = VBORenderer.getInstance();
 
-      for(int var5 = 0; var5 < var1.size(); ++var5) {
-         TextureCombinerCommand var6 = (TextureCombinerCommand)var1.get(var5);
-         if (var6.shader != null) {
-            var6.shader.Start();
-         }
+      for(int var6 = 0; var6 < var1.size(); ++var6) {
+         TextureCombinerCommand var7 = (TextureCombinerCommand)var1.get(var6);
+         if (var7.shader != null) {
+            var7.shader.Start();
+            VertexBufferObject.setModelViewProjection(var7.shader.getShaderProgram());
+            GL13.glActiveTexture(33984);
+            GL11.glEnable(3553);
+            Texture var13 = var7.tex == null ? Texture.getErrorTexture() : var7.tex;
+            var13.bind();
+            if (var7.mask != null) {
+               GL13.glActiveTexture(33985);
+               GL13.glEnable(3553);
+               int var9 = Texture.lastTextureID;
+               if (var7.mask.getTextureId() != null) {
+                  var7.mask.getTextureId().setMagFilter(9728);
+                  var7.mask.getTextureId().setMinFilter(9728);
+               }
 
-         GL13.glActiveTexture(33984);
-         GL11.glEnable(3553);
-         Texture var7 = var6.tex == null ? Texture.getErrorTexture() : var6.tex;
-         var7.bind();
-         if (var6.mask != null) {
-            GL13.glActiveTexture(33985);
-            GL13.glEnable(3553);
-            int var8 = Texture.lastTextureID;
-            if (var6.mask.getTextureId() != null) {
-               var6.mask.getTextureId().setMagFilter(9728);
-               var6.mask.getTextureId().setMinFilter(9728);
+               var7.mask.bind();
+               Texture.lastTextureID = var9;
+            } else {
+               GL13.glActiveTexture(33985);
+               GL13.glDisable(3553);
             }
 
-            var6.mask.bind();
-            Texture.lastTextureID = var8;
-         } else {
-            GL13.glActiveTexture(33985);
-            GL13.glDisable(3553);
-         }
+            if (var7.shader != null) {
+               if (var7.shaderParams != null) {
+                  ArrayList var14 = var7.shaderParams;
 
-         if (var6.shader != null) {
-            if (var6.shaderParams != null) {
-               ArrayList var12 = var6.shaderParams;
+                  for(int var10 = 0; var10 < var14.size(); ++var10) {
+                     TextureCombinerShaderParam var11 = (TextureCombinerShaderParam)var14.get(var10);
+                     float var12 = Rand.Next(var11.min, var11.max);
+                     var7.shader.setValue(var11.name, var12);
+                  }
+               }
 
-               for(int var9 = 0; var9 < var12.size(); ++var9) {
-                  TextureCombinerShaderParam var10 = (TextureCombinerShaderParam)var12.get(var9);
-                  float var11 = Rand.Next(var10.min, var10.max);
-                  var6.shader.setValue(var10.name, var11);
+               var7.shader.setValue("DIFFUSE", var13, 0);
+               if (var7.mask != null) {
+                  var7.shader.setValue("MASK", var7.mask, 1);
                }
             }
 
-            var6.shader.setValue("DIFFUSE", var7, 0);
-            if (var6.mask != null) {
-               var6.shader.setValue("MASK", var6.mask, 1);
+            GL14.glBlendFuncSeparate(var7.blendSrc, var7.blendDest, var7.blendSrcA, var7.blendDestA);
+            float var15;
+            if (var7.x != -1) {
+               var15 = (float)var2 / 256.0F;
+               float var16 = (float)var3 / 256.0F;
+               var5.startRun(var5.FORMAT_PositionColorUV);
+               var5.setShaderProgram(var7.shader.getShaderProgram());
+               var5.setMode(7);
+               float var17 = 0.0F;
+               var5.addQuad((float)var7.x * var15, (float)var7.y * var16, var17, 0.0F, 1.0F, (float)var7.x * var15, (float)(var7.y + var7.h) * var16, var17, 0.0F, 0.0F, (float)(var7.x + var7.w) * var15, (float)(var7.y + var7.h) * var16, var17, 1.0F, 0.0F, (float)(var7.x + var7.w) * var15, (float)var7.y * var16, var17, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F);
+               var5.endRun();
+               var5.flush();
+            } else {
+               var5.startRun(var5.FORMAT_PositionColorUV);
+               var5.setShaderProgram(var7.shader.getShaderProgram());
+               var5.setMode(7);
+               var15 = 0.0F;
+               var5.addQuad(0.0F, 0.0F, var15, 0.0F, 1.0F, 0.0F, (float)var3, var15, 0.0F, 0.0F, (float)var2, (float)var3, var15, 1.0F, 0.0F, (float)var2, 0.0F, var15, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F);
+               var5.endRun();
+               var5.flush();
             }
-         }
 
-         GL14.glBlendFuncSeparate(var6.blendSrc, var6.blendDest, var6.blendSrcA, var6.blendDestA);
-         if (var6.x != -1) {
-            float var13 = (float)var2 / 256.0F;
-            float var14 = (float)var3 / 256.0F;
-            GL13.glBegin(7);
-            GL13.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-            GL13.glTexCoord2f(0.0F, 1.0F);
-            GL13.glVertex2d((double)((float)var6.x * var13), (double)((float)var6.y * var14));
-            GL13.glTexCoord2f(0.0F, 0.0F);
-            GL13.glVertex2d((double)((float)var6.x * var13), (double)((float)(var6.y + var6.h) * var14));
-            GL13.glTexCoord2f(1.0F, 0.0F);
-            GL13.glVertex2d((double)((float)(var6.x + var6.w) * var13), (double)((float)(var6.y + var6.h) * var14));
-            GL13.glTexCoord2f(1.0F, 1.0F);
-            GL13.glVertex2d((double)((float)(var6.x + var6.w) * var13), (double)((float)var6.y * var14));
-            GL13.glEnd();
+            if (var7.shader != null) {
+               var7.shader.End();
+            }
+
+            PZGLUtil.checkGLErrorThrow("TextureCombinerCommand[%d}: %s", var6, var7);
          } else {
-            GL13.glBegin(7);
-            GL13.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-            GL13.glTexCoord2f(0.0F, 1.0F);
-            GL13.glVertex2d(0.0, 0.0);
-            GL13.glTexCoord2f(0.0F, 0.0F);
-            GL13.glVertex2d(0.0, (double)var3);
-            GL13.glTexCoord2f(1.0F, 0.0F);
-            GL13.glVertex2d((double)var2, (double)var3);
-            GL13.glTexCoord2f(1.0F, 1.0F);
-            GL13.glVertex2d((double)var2, 0.0);
-            GL13.glEnd();
+            boolean var8 = true;
          }
-
-         if (var6.shader != null) {
-            var6.shader.End();
-         }
-
-         PZGLUtil.checkGLErrorThrow("TextureCombinerCommand[%d}: %s", var5, var6);
       }
 
       Core.getInstance().DoEndFrameStuffFx(var2, var3, -1);
       this.fbo.releaseTexture();
       this.fbo.endDrawing();
       PZGLUtil.checkGLErrorThrow("FBO.endDrawing: %s", this.fbo);
-      GL11.glMatrixMode(5888);
-      GL11.glPopMatrix();
       GL13.glBlendFunc(770, 771);
       GL13.glActiveTexture(33985);
       GL13.glDisable(3553);
-      if (Core.OptionModelTextureMipmaps) {
+      if (Core.getInstance().getOptionModelTextureMipmaps()) {
       }
 
       GL13.glActiveTexture(33984);
@@ -290,6 +285,7 @@ public final class TextureCombiner {
       GL13.glBindTexture(3553, 0);
       SpriteRenderer.ringBuffer.restoreBoundTextures = true;
       GL13.glPopAttrib();
+      GLStateRenderThread.restore();
       PZGLUtil.checkGLErrorThrow("Exit.");
       return var4;
    }

@@ -1,6 +1,7 @@
 package zombie.iso;
 
 import zombie.GameTime;
+import zombie.characters.IsoDummyCameraCharacter;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
@@ -9,17 +10,16 @@ import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.ui.MoodlesUI;
 import zombie.ui.UIManager;
+import zombie.vehicles.BaseVehicle;
 
 public class IsoCamera {
+   public static final FrameState frameState = new FrameState();
    public static final PlayerCamera[] cameras = new PlayerCamera[4];
-   public static IsoGameCharacter CamCharacter;
-   public static Vector2 FakePos;
-   public static Vector2 FakePosVec;
-   public static int TargetTileX;
-   public static int TargetTileY;
+   private static IsoGameCharacter isoCameraGameCharacter;
+   private static int TargetTileX;
+   private static int TargetTileY;
    public static int PLAYER_OFFSET_X;
    public static int PLAYER_OFFSET_Y;
-   public static final FrameState frameState;
 
    public IsoCamera() {
    }
@@ -37,7 +37,7 @@ public class IsoCamera {
       for(int var0 = 0; var0 < 4; ++var0) {
          IsoPlayer var1 = IsoPlayer.players[var0];
          if (var1 != null) {
-            CamCharacter = var1;
+            setCameraCharacter(var1);
             cameras[var0].update();
          }
       }
@@ -46,12 +46,12 @@ public class IsoCamera {
 
    public static void SetCharacterToFollow(IsoGameCharacter var0) {
       if (!GameClient.bClient && !GameServer.bServer) {
-         CamCharacter = var0;
-         if (CamCharacter instanceof IsoPlayer && ((IsoPlayer)CamCharacter).isLocalPlayer() && UIManager.getMoodleUI((double)((IsoPlayer)CamCharacter).getPlayerNum()) != null) {
-            int var1 = ((IsoPlayer)CamCharacter).getPlayerNum();
+         isoCameraGameCharacter = var0;
+         if (isoCameraGameCharacter instanceof IsoPlayer && ((IsoPlayer)isoCameraGameCharacter).isLocalPlayer() && UIManager.getMoodleUI((double)((IsoPlayer)isoCameraGameCharacter).getPlayerNum()) != null) {
+            int var1 = ((IsoPlayer)isoCameraGameCharacter).getPlayerNum();
             UIManager.getUI().remove(UIManager.getMoodleUI((double)var1));
             UIManager.setMoodleUI((double)var1, new MoodlesUI());
-            UIManager.getMoodleUI((double)var1).setCharacter(CamCharacter);
+            UIManager.getMoodleUI((double)var1).setCharacter(isoCameraGameCharacter);
             UIManager.getUI().add(UIManager.getMoodleUI((double)var1));
          }
       }
@@ -106,36 +106,25 @@ public class IsoCamera {
       cameras[IsoPlayer.getPlayerIndex()].lastOffY = var0;
    }
 
-   public static IsoGameCharacter getCamCharacter() {
-      return CamCharacter;
+   public static IsoGameCharacter getCameraCharacter() {
+      return isoCameraGameCharacter;
    }
 
-   public static void setCamCharacter(IsoGameCharacter var0) {
-      CamCharacter = var0;
+   public static float getCameraCharacterZ() {
+      return isoCameraGameCharacter.getZ();
    }
 
-   public static Vector2 getFakePos() {
-      return FakePos;
+   public static boolean setCameraCharacter(IsoGameCharacter var0) {
+      if (var0 instanceof IsoDummyCameraCharacter) {
+         return false;
+      } else {
+         isoCameraGameCharacter = var0;
+         return true;
+      }
    }
 
-   public static void setFakePos(Vector2 var0) {
-      FakePos = var0;
-   }
-
-   public static Vector2 getFakePosVec() {
-      return FakePosVec;
-   }
-
-   public static void setFakePosVec(Vector2 var0) {
-      FakePosVec = var0;
-   }
-
-   public static int getTargetTileX() {
-      return TargetTileX;
-   }
-
-   public static void setTargetTileX(int var0) {
-      TargetTileX = var0;
+   public static void clearCameraCharacter() {
+      isoCameraGameCharacter = null;
    }
 
    public static int getTargetTileY() {
@@ -183,18 +172,16 @@ public class IsoCamera {
          cameras[var0] = new PlayerCamera(var0);
       }
 
-      CamCharacter = null;
-      FakePos = new Vector2();
-      FakePosVec = new Vector2();
+      isoCameraGameCharacter = null;
       TargetTileX = 0;
       TargetTileY = 0;
       PLAYER_OFFSET_X = 0;
       PLAYER_OFFSET_Y = -56 / (2 / Core.TileScale);
-      frameState = new FrameState();
    }
 
-   public static class FrameState {
+   public static final class FrameState {
       public int frameCount;
+      public float unPausedAccumulator;
       public boolean Paused;
       public int playerIndex;
       public float CamCharacterX;
@@ -207,6 +194,7 @@ public class IsoCamera {
       public float OffY;
       public int OffscreenWidth;
       public int OffscreenHeight;
+      public float zoom;
 
       public FrameState() {
       }
@@ -217,13 +205,33 @@ public class IsoCamera {
          this.CamCharacter = IsoPlayer.players[var1];
          this.CamCharacterX = this.CamCharacter.getX();
          this.CamCharacterY = this.CamCharacter.getY();
-         this.CamCharacterZ = this.CamCharacter.getZ();
+         this.CamCharacterZ = this.calculateCameraZ(this.CamCharacter);
          this.CamCharacterSquare = this.CamCharacter.getCurrentSquare();
          this.CamCharacterRoom = this.CamCharacterSquare == null ? null : this.CamCharacterSquare.getRoom();
          this.OffX = IsoCamera.getOffX();
          this.OffY = IsoCamera.getOffY();
          this.OffscreenWidth = IsoCamera.getOffscreenWidth(var1);
          this.OffscreenHeight = IsoCamera.getOffscreenHeight(var1);
+         this.zoom = Core.getInstance().getZoom(var1);
+      }
+
+      public float calculateCameraZ(IsoGameCharacter var1) {
+         if (var1 == null) {
+            return 0.0F;
+         } else {
+            BaseVehicle var2 = var1.getVehicle();
+            return var2 == null ? var1.getZ() : var2.jniTransform.origin.y / 2.44949F;
+         }
+      }
+
+      public void updateUnPausedAccumulator() {
+         if (!GameTime.isGamePaused()) {
+            this.unPausedAccumulator += GameTime.getInstance().getMultiplier();
+            if (Float.compare(this.unPausedAccumulator, 3.4028235E38F) >= 0) {
+               this.unPausedAccumulator = 0.0F;
+            }
+
+         }
       }
    }
 }

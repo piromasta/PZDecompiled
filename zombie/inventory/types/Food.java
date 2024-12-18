@@ -4,6 +4,7 @@ import fmod.fmod.FMODManager;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import zombie.GameTime;
@@ -12,12 +13,16 @@ import zombie.SandboxOptions;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
 import zombie.audio.BaseSoundEmitter;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.animals.AnimalDefinitions;
+import zombie.characters.animals.AnimalGene;
+import zombie.characters.animals.IsoAnimal;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.Translator;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
@@ -33,16 +38,22 @@ import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoCompost;
 import zombie.iso.objects.IsoFireManager;
 import zombie.iso.objects.IsoFireplace;
+import zombie.iso.objects.IsoHutch;
 import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
+import zombie.scripting.objects.ModelScript;
 import zombie.ui.ObjectTooltip;
 import zombie.util.StringUtils;
+import zombie.util.Type;
 import zombie.util.io.BitHeader;
 import zombie.util.io.BitHeaderRead;
 import zombie.util.io.BitHeaderWrite;
+import zombie.vehicles.BaseVehicle;
 
 public final class Food extends InventoryItem {
    protected boolean bBadCold = false;
@@ -62,6 +73,7 @@ public final class Food extends InventoryItem {
    private float baseHunger = 0.0F;
    public ArrayList<String> spices = null;
    private boolean isSpice = false;
+   private boolean isTainted = false;
    private int poisonDetectionLevel = -1;
    private Integer PoisonLevelForRecipe = 0;
    private int UseForPoison = 0;
@@ -87,7 +99,7 @@ public final class Food extends InventoryItem {
    private boolean frozen = false;
    private boolean canBeFrozen = true;
    protected float LastFrozenUpdate = -1.0F;
-   public static final float FreezerAgeMultiplier = 0.02F;
+   public static final float FreezerAgeMultiplier = 0.0F;
    private String replaceOnRotten = null;
    private boolean forceFoodTypeAsName = false;
    private float rottenTime = 0.0F;
@@ -97,6 +109,17 @@ public final class Food extends InventoryItem {
    private boolean cookedInMicrowave = false;
    private long m_cookingSound = 0L;
    private int m_cookingParameter = -1;
+   private int milkQty = 0;
+   private String milkType = null;
+   private boolean fertilized = false;
+   private int fertilizedTime = 0;
+   private int timeToHatch = 0;
+   private String animalHatch = null;
+   private String animalHatchBreed = null;
+   private long lastEggTimeCheck = 0L;
+   public int motherID = 0;
+   public HashMap<String, AnimalGene> eggGenome = null;
+   private long lastUpdateTime;
    private static final int COOKING_STATE_COOKING = 0;
    private static final int COOKING_STATE_BURNING = 1;
 
@@ -108,21 +131,43 @@ public final class Food extends InventoryItem {
       super(var1, var2, var3, var4);
       Texture.WarnFailFindTexture = false;
       this.texturerotten = Texture.trygetTexture(var4 + "Rotten");
-      this.textureCooked = Texture.trygetTexture(var4 + "Cooked");
-      this.textureBurnt = Texture.trygetTexture(var4 + "Overdone");
-      String var5 = "Overdone.png";
-      if (this.textureBurnt == null) {
-         this.textureBurnt = Texture.trygetTexture(var4 + "Burnt");
-         if (this.textureBurnt != null) {
-            var5 = "Burnt.png";
-         }
-      }
-
-      String var6 = "Rotten.png";
+      String var5 = "Rotten.png";
       if (this.texturerotten == null) {
          this.texturerotten = Texture.trygetTexture(var4 + "Spoiled");
          if (this.texturerotten != null) {
-            var6 = "Spoiled.png";
+            var5 = "Spoiled.png";
+         }
+      }
+
+      if (this.texturerotten == null) {
+         this.texturerotten = Texture.trygetTexture(var4 + "_Rotten");
+         if (this.texturerotten != null) {
+            var5 = "_Rotten.png";
+         }
+      }
+
+      this.textureCooked = Texture.trygetTexture(var4 + "Cooked");
+      String var6 = "Cooked.png";
+      if (this.textureCooked == null) {
+         this.textureCooked = Texture.trygetTexture(var4 + "_Cooked");
+         if (this.textureCooked != null) {
+            var6 = "_Cooked.png";
+         }
+      }
+
+      this.textureBurnt = Texture.trygetTexture(var4 + "Overdone");
+      String var7 = "Overdone.png";
+      if (this.textureBurnt == null) {
+         this.textureBurnt = Texture.trygetTexture(var4 + "Burnt");
+         if (this.textureBurnt != null) {
+            var7 = "Burnt.png";
+         }
+      }
+
+      if (this.textureBurnt == null) {
+         this.textureBurnt = Texture.trygetTexture(var4 + "_Burnt");
+         if (this.textureBurnt != null) {
+            var7 = "_Burnt.png";
          }
       }
 
@@ -139,10 +184,11 @@ public final class Food extends InventoryItem {
          this.textureBurnt = this.texture;
       }
 
-      this.WorldTextureCooked = this.WorldTexture.replace(".png", "Cooked.png");
-      this.WorldTextureOverdone = this.WorldTexture.replace(".png", var5);
-      this.WorldTextureRotten = this.WorldTexture.replace(".png", var6);
+      this.WorldTextureCooked = this.WorldTexture.replace(".png", var6);
+      this.WorldTextureOverdone = this.WorldTexture.replace(".png", var7);
+      this.WorldTextureRotten = this.WorldTexture.replace(".png", var5);
       this.cat = ItemType.Food;
+      this.lastUpdateTime = System.currentTimeMillis();
    }
 
    public Food(String var1, String var2, String var3, Item var4) {
@@ -192,6 +238,7 @@ public final class Food extends InventoryItem {
       }
 
       this.cat = ItemType.Food;
+      this.lastUpdateTime = System.currentTimeMillis();
    }
 
    public boolean IsFood() {
@@ -202,20 +249,105 @@ public final class Food extends InventoryItem {
       return Item.Type.Food.ordinal();
    }
 
+   public boolean checkEggHatch(IsoHutch var1) {
+      if (!this.isFertilized()) {
+         return false;
+      } else {
+         int var2 = 0;
+         int var3 = 0;
+         int var4 = 0;
+         if (!StringUtils.isNullOrEmpty(this.animalHatch)) {
+            if (this.lastEggTimeCheck != (long)GameTime.getInstance().getHour()) {
+               ++this.fertilizedTime;
+            }
+
+            if (this.fertilizedTime >= this.timeToHatch) {
+               this.fertilizedTime = 0;
+               boolean var5 = false;
+               boolean var6 = false;
+               if (var1 == null) {
+                  if (this.getWorldItem() != null) {
+                     var2 = (int)this.getWorldItem().getX();
+                     var3 = (int)this.getWorldItem().getY();
+                     var4 = (int)this.getWorldItem().getZ();
+                  }
+
+                  if (this.getContainer() != null) {
+                     var5 = true;
+                  }
+
+                  if (this.getContainer() != null && this.getContainer().getParent() instanceof BaseVehicle && ((BaseVehicle)this.getContainer().getParent()).getAnimalTrailerSize() > 0.0F) {
+                     var2 = (int)this.getContainer().getParent().getX();
+                     var3 = (int)this.getContainer().getParent().getY();
+                     var4 = (int)this.getContainer().getParent().getZ();
+                     var6 = true;
+                  }
+
+                  if (this.getContainer() != null && this.getContainer().getParent() != null && this.getContainer().getParent() instanceof IsoPlayer) {
+                     var2 = (int)this.getContainer().getParent().getX();
+                     var3 = (int)this.getContainer().getParent().getY();
+                     var4 = (int)this.getContainer().getParent().getZ();
+                     var5 = true;
+                  }
+
+                  if (var2 == 0 && var3 == 0 && !var5) {
+                     return false;
+                  }
+               }
+
+               AnimalDefinitions var7 = AnimalDefinitions.getDef(this.animalHatch);
+               IsoAnimal var8 = new IsoAnimal(IsoWorld.instance.getCell(), var2, var3, var4, this.animalHatch, var7.getBreedByName(this.animalHatchBreed));
+               var8.fullGenome = this.eggGenome;
+               var8.attachBackToMother = this.motherID;
+               AnimalGene.checkGeneticDisorder(var8);
+               if (var5) {
+                  AnimalInventoryItem var9 = (AnimalInventoryItem)InventoryItemFactory.CreateItem("Base.Animal");
+                  var9.setAnimal(var8);
+                  var8.removeFromWorld();
+                  var8.removeFromSquare();
+                  this.getContainer().AddItem((InventoryItem)var9);
+                  this.getContainer().Remove((InventoryItem)this);
+               } else if (var1 != null) {
+                  var1.addAnimalInside(var8);
+               } else if (var6) {
+                  ((BaseVehicle)this.getContainer().getParent()).addAnimalInTrailer(var8);
+                  this.getContainer().Remove((InventoryItem)this);
+               } else {
+                  var8.addToWorld();
+                  this.getWorldItem().removeFromWorld();
+                  this.getWorldItem().removeFromSquare();
+               }
+
+               return true;
+            }
+
+            this.lastEggTimeCheck = (long)GameTime.getInstance().getHour();
+         }
+
+         return false;
+      }
+   }
+
    public void update() {
       if (this.hasTag("AlreadyCooked")) {
          this.setCooked(true);
       }
 
       this.updateTemperature();
+      this.checkEggHatch((IsoHutch)null);
       ItemContainer var1 = this.getOutermostContainer();
       if (var1 != null) {
          int var2;
          float var3;
          if (this.IsCookable && !this.isFrozen()) {
             if (this.Heat > 1.6F) {
+               this.setFertilized(false);
                var2 = GameTime.getInstance().getMinutes();
                if (var2 != this.LastCookMinute) {
+                  if (GameServer.bServer) {
+                     GameServer.sendItemStats(this);
+                  }
+
                   this.LastCookMinute = var2;
                   var3 = this.Heat / 1.5F;
                   if (var1.getTemprature() <= 1.6F) {
@@ -227,20 +359,13 @@ public final class Food extends InventoryItem {
                      ItemSoundManager.addItem(this);
                   }
 
-                  if (this.isTaintedWater() && this.CookingTime > Math.min(this.MinutesToCook, 10.0F)) {
-                     this.setTaintedWater(false);
+                  if (this.isTainted && this.CookingTime > Math.min(this.MinutesToCook, 10.0F)) {
+                     this.isTainted = false;
                   }
 
-                  if (!this.isCooked() && !this.Burnt && this.CookingTime > this.MinutesToCook) {
+                  if (!this.isCooked() && !this.Burnt && (this.CookingTime > this.MinutesToCook || this.CookingTime > this.MinutesToBurn)) {
                      int var4;
                      if (this.getReplaceOnCooked() != null && !this.isRotten()) {
-                        if (GameClient.bClient) {
-                           GameClient.instance.sendReplaceOnCooked(this);
-                           this.container.Remove((InventoryItem)this);
-                           IsoWorld.instance.CurrentCell.addToProcessItemsRemove((InventoryItem)this);
-                           return;
-                        }
-
                         for(var4 = 0; var4 < this.getReplaceOnCooked().size(); ++var4) {
                            InventoryItem var7 = this.container.AddItem((String)this.getReplaceOnCooked().get(var4));
                            if (var7 != null) {
@@ -300,7 +425,11 @@ public final class Food extends InventoryItem {
                         for(var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
                            IsoPlayer var5 = IsoPlayer.players[var4];
                            if (var5 != null && !var5.isDead() && this.Chef.equals(var5.getFullName())) {
-                              var5.getXp().AddXP(PerkFactory.Perks.Cooking, 10.0F);
+                              if (GameServer.bServer) {
+                                 GameServer.addXp(var5, PerkFactory.Perks.Cooking, 10.0F);
+                              } else if (!GameClient.bClient) {
+                                 var5.getXp().AddXP(PerkFactory.Perks.Cooking, 10.0F);
+                              }
                               break;
                            }
                         }
@@ -310,6 +439,10 @@ public final class Food extends InventoryItem {
                   if (this.CookingTime > this.MinutesToBurn) {
                      this.Burnt = true;
                      this.setCooked(false);
+                  }
+
+                  if (GameServer.bServer) {
+                     GameServer.sendItemStats(this);
                   }
 
                   if (IsoWorld.instance.isHydroPowerOn() && this.Burnt && this.CookingTime >= 50.0F && this.CookingTime >= this.MinutesToCook * 2.0F + this.MinutesToBurn / 2.0F && Rand.Next(Rand.AdjustForFramerate(200)) == 0) {
@@ -325,24 +458,35 @@ public final class Food extends InventoryItem {
                   }
                }
             }
-         } else if (this.isTaintedWater() && this.Heat > 1.6F && !this.isFrozen()) {
-            var2 = GameTime.getInstance().getMinutes();
-            if (var2 != this.LastCookMinute) {
-               this.LastCookMinute = var2;
-               var3 = 1.0F;
-               if (var1.getTemprature() <= 1.6F) {
-                  var3 = (float)((double)var3 * 0.2);
-               }
+         } else {
+            if (GameServer.bServer) {
+               this.updateAge(false);
+            }
 
-               this.CookingTime += var3;
-               if (this.CookingTime > 10.0F) {
-                  this.setTaintedWater(false);
+            if (this.isTainted && this.Heat > 1.6F && !this.isFrozen()) {
+               var2 = GameTime.getInstance().getMinutes();
+               if (var2 != this.LastCookMinute) {
+                  this.LastCookMinute = var2;
+                  var3 = 1.0F;
+                  if (var1.getTemprature() <= 1.6F) {
+                     var3 = (float)((double)var3 * 0.2);
+                  }
+
+                  this.CookingTime += var3;
+                  if (this.CookingTime > 10.0F) {
+                     this.isTainted = false;
+                  }
+
+                  if (GameServer.bServer) {
+                     GameServer.sendItemStats(this);
+                  }
                }
             }
          }
       }
 
       this.updateRotting(var1);
+      this.lastUpdateTime = System.currentTimeMillis();
    }
 
    public void updateSound(BaseSoundEmitter var1) {
@@ -392,19 +536,20 @@ public final class Food extends InventoryItem {
    }
 
    private void updateTemperature() {
-      ItemContainer var1 = this.getOutermostContainer();
-      float var2 = var1 == null ? 1.0F : var1.getTemprature();
-      if (this.Heat > var2) {
-         this.Heat -= 0.001F * GameTime.instance.getMultiplier();
-         if (this.Heat < Math.max(0.2F, var2)) {
-            this.Heat = Math.max(0.2F, var2);
+      float var1 = GameServer.bServer ? (float)(System.currentTimeMillis() - this.lastUpdateTime) / 50.0F : 1.0F;
+      ItemContainer var2 = this.getOutermostContainer();
+      float var3 = var2 == null ? 1.0F : var2.getTemprature();
+      if (this.Heat > var3) {
+         this.Heat -= 0.001F * var1 * GameTime.instance.getMultiplier();
+         if (this.Heat < Math.max(0.2F, var3)) {
+            this.Heat = Math.max(0.2F, var3);
          }
       }
 
-      if (this.Heat < var2) {
-         this.Heat += var2 / 1000.0F * GameTime.instance.getMultiplier();
-         if (this.Heat > Math.min(3.0F, var2)) {
-            this.Heat = Math.min(3.0F, var2);
+      if (this.Heat < var3) {
+         this.Heat += var3 / 1000.0F * var1 * GameTime.instance.getMultiplier();
+         if (this.Heat > Math.min(3.0F, var3)) {
+            this.Heat = Math.min(3.0F, var3);
          }
       }
 
@@ -412,135 +557,180 @@ public final class Food extends InventoryItem {
 
    private void updateRotting(ItemContainer var1) {
       if ((double)this.OffAgeMax != 1.0E9) {
-         if (!GameClient.bClient || this.isInLocalPlayerInventory()) {
-            if (!GameServer.bServer || this.container == null || this.getOutermostContainer() == this.container) {
-               if (this.replaceOnRotten != null && !this.replaceOnRotten.isEmpty()) {
-                  this.updateAge();
-                  if (this.isRotten()) {
-                     InventoryItem var2 = InventoryItemFactory.CreateItem(this.getModule() + "." + this.replaceOnRotten, this);
-                     if (var2 == null) {
-                        String var10001 = this.replaceOnRotten;
-                        DebugLog.General.warn("ReplaceOnRotten = " + var10001 + " doesn't exist for " + this.getFullType());
-                        this.destroyThisItem();
+         if (!GameClient.bClient) {
+            if (this.replaceOnRotten != null && !this.replaceOnRotten.isEmpty()) {
+               this.updateAge();
+               if (this.isRotten()) {
+                  InventoryItem var2 = InventoryItemFactory.CreateItem(this.getModule() + "." + this.replaceOnRotten, this);
+                  if (var2 == null) {
+                     String var10001 = this.replaceOnRotten;
+                     DebugLog.General.warn("ReplaceOnRotten = " + var10001 + " doesn't exist for " + this.getFullType());
+                     this.destroyThisItem();
+                     return;
+                  }
+
+                  var2.setAge(this.getAge());
+                  IsoWorldInventoryObject var3 = this.getWorldItem();
+                  if (var3 != null && var3.getSquare() != null) {
+                     IsoGridSquare var4 = var3.getSquare();
+                     if (!GameServer.bServer) {
+                        var3.item = var2;
+                        var2.setWorldItem(var3);
+                        var3.updateSprite();
+                        IsoWorld.instance.CurrentCell.addToProcessItemsRemove((InventoryItem)this);
+                        LuaEventManager.triggerEvent("OnContainerUpdate");
                         return;
                      }
 
-                     var2.setAge(this.getAge());
-                     IsoWorldInventoryObject var3 = this.getWorldItem();
-                     if (var3 != null && var3.getSquare() != null) {
-                        IsoGridSquare var4 = var3.getSquare();
-                        if (!GameServer.bServer) {
-                           var3.item = var2;
-                           var2.setWorldItem(var3);
-                           var3.updateSprite();
-                           IsoWorld.instance.CurrentCell.addToProcessItemsRemove((InventoryItem)this);
-                           LuaEventManager.triggerEvent("OnContainerUpdate");
-                           return;
-                        }
-
-                        var4.AddWorldInventoryItem(var2, var3.xoff, var3.yoff, var3.zoff, true);
-                     } else if (this.container != null) {
-                        this.container.AddItem(var2);
-                        if (GameServer.bServer) {
-                           GameServer.sendAddItemToContainer(this.container, var2);
-                        }
+                     var4.AddWorldInventoryItem(var2, var3.xoff, var3.yoff, var3.zoff, true);
+                  } else if (this.container != null) {
+                     this.container.AddItem(var2);
+                     if (GameServer.bServer) {
+                        GameServer.sendAddItemToContainer(this.container, var2);
                      }
-
-                     this.destroyThisItem();
-                     return;
                   }
+
+                  this.destroyThisItem();
+                  return;
                }
-
-               if (SandboxOptions.instance.DaysForRottenFoodRemoval.getValue() >= 0) {
-                  if (var1 != null && var1.parent instanceof IsoCompost) {
-                     return;
-                  }
-
-                  this.updateAge();
-                  if (this.getAge() > (float)(this.getOffAgeMax() + SandboxOptions.instance.DaysForRottenFoodRemoval.getValue())) {
-                     this.destroyThisItem();
-                     return;
-                  }
-               }
-
             }
+
+            if (SandboxOptions.instance.DaysForRottenFoodRemoval.getValue() >= 0) {
+               if (var1 != null && var1.parent instanceof IsoCompost) {
+                  return;
+               }
+
+               this.updateAge();
+               if (this.getAge() > (float)(this.getOffAgeMax() + SandboxOptions.instance.DaysForRottenFoodRemoval.getValue())) {
+                  this.destroyThisItem();
+                  return;
+               }
+            }
+
          }
       }
    }
 
-   public void updateAge() {
-      ItemContainer var1 = this.getOutermostContainer();
-      this.updateFreezing(var1);
-      boolean var2 = false;
-      if (var1 != null && var1.getSourceGrid() != null && var1.getSourceGrid().haveElectricity()) {
-         var2 = true;
+   private float getFridgeFactor() {
+      float var10000;
+      switch (SandboxOptions.instance.FridgeFactor.getValue()) {
+         case 1:
+            var10000 = 0.4F;
+            break;
+         case 2:
+            var10000 = 0.3F;
+            break;
+         case 3:
+         default:
+            var10000 = 0.2F;
+            break;
+         case 4:
+            var10000 = 0.1F;
+            break;
+         case 5:
+            var10000 = 0.03F;
+            break;
+         case 6:
+            var10000 = 0.0F;
       }
 
-      float var3 = (float)GameTime.getInstance().getWorldAgeHours();
-      float var4 = 0.2F;
+      return var10000;
+   }
+
+   private float getFoodRotSpeed() {
+      float var10000;
+      switch (SandboxOptions.instance.FoodRotSpeed.getValue()) {
+         case 1:
+            var10000 = 1.7F;
+            break;
+         case 2:
+            var10000 = 1.4F;
+            break;
+         case 3:
+         default:
+            var10000 = 1.0F;
+            break;
+         case 4:
+            var10000 = 0.7F;
+            break;
+         case 5:
+            var10000 = 0.4F;
+      }
+
+      return var10000;
+   }
+
+   public void updateAge() {
+      this.updateAge(true);
+   }
+
+   public void updateAge(boolean var1) {
+      float var2 = (float)GameTime.getInstance().getWorldAgeHours();
+      ItemContainer var3 = this.getOutermostContainer();
+      this.updateFreezing(var3, var2);
+      boolean var4 = false;
+      if (var3 != null && var3.getSourceGrid() != null && var3.getSourceGrid().haveElectricity()) {
+         var4 = true;
+      }
+
+      float var5 = 0.2F;
       if (SandboxOptions.instance.FridgeFactor.getValue() == 1) {
-         var4 = 0.4F;
+         var5 = 0.4F;
       } else if (SandboxOptions.instance.FridgeFactor.getValue() == 2) {
-         var4 = 0.3F;
+         var5 = 0.3F;
       } else if (SandboxOptions.instance.FridgeFactor.getValue() == 4) {
-         var4 = 0.1F;
+         var5 = 0.1F;
       } else if (SandboxOptions.instance.FridgeFactor.getValue() == 5) {
-         var4 = 0.03F;
+         var5 = 0.03F;
+      } else if (SandboxOptions.instance.FridgeFactor.getValue() == 6) {
+         var5 = 0.0F;
       }
 
       if (this.LastAged < 0.0F) {
-         this.LastAged = var3;
-      } else if (this.LastAged > var3) {
-         this.LastAged = var3;
+         this.LastAged = var2;
+      } else if (this.LastAged > var2) {
+         this.LastAged = var2;
       }
 
-      if (var3 > this.LastAged) {
-         double var5 = (double)(var3 - this.LastAged);
-         if (var1 != null && this.Heat != var1.getTemprature()) {
-            if (var5 < 0.3333333432674408) {
+      if (var2 > this.LastAged) {
+         double var6 = (double)(var2 - this.LastAged);
+         if (var3 != null && this.Heat != var3.getTemprature()) {
+            if (var6 < 0.3333333432674408) {
                if (!IsoWorld.instance.getCell().getProcessItems().contains(this)) {
-                  this.Heat = GameTime.instance.Lerp(this.Heat, var1.getTemprature(), (float)var5 / 0.33333334F);
+                  this.Heat = GameTime.instance.Lerp(this.Heat, var3.getTemprature(), (float)var6 / 0.33333334F);
                   IsoWorld.instance.getCell().addToProcessItems((InventoryItem)this);
                }
             } else {
-               this.Heat = var1.getTemprature();
+               this.Heat = var3.getTemprature();
             }
          }
 
-         float var7;
          if (this.isFrozen()) {
-            var5 *= 0.019999999552965164;
-         } else if (var1 != null && (var1.getType().equals("fridge") || var1.getType().equals("freezer"))) {
-            if (var2) {
-               var5 *= (double)var4;
+            var6 *= 0.0;
+         } else if (var3 != null && (var3.getType().equals("fridge") || var3.getType().equals("freezer"))) {
+            if (var3.getSourceGrid() != null && var3.getSourceGrid().haveElectricity()) {
+               var6 *= (double)this.getFridgeFactor();
             } else if (SandboxOptions.instance.getElecShutModifier() > -1 && this.LastAged < (float)(SandboxOptions.instance.getElecShutModifier() * 24)) {
-               var7 = Math.min((float)(SandboxOptions.instance.getElecShutModifier() * 24), var3);
-               var5 = (double)((var7 - this.LastAged) * var4);
-               if (var3 > (float)(SandboxOptions.instance.getElecShutModifier() * 24)) {
-                  var5 += (double)(var3 - (float)(SandboxOptions.instance.getElecShutModifier() * 24));
+               float var8 = Math.min((float)(SandboxOptions.instance.getElecShutModifier() * 24), var2);
+               var6 = (double)((var8 - this.LastAged) * this.getFridgeFactor());
+               if (var2 > (float)(SandboxOptions.instance.getElecShutModifier() * 24)) {
+                  var6 += (double)(var2 - (float)(SandboxOptions.instance.getElecShutModifier() * 24));
                }
             }
          }
 
-         var7 = 1.0F;
-         if (SandboxOptions.instance.FoodRotSpeed.getValue() == 1) {
-            var7 = 1.7F;
-         } else if (SandboxOptions.instance.FoodRotSpeed.getValue() == 2) {
-            var7 = 1.4F;
-         } else if (SandboxOptions.instance.FoodRotSpeed.getValue() == 4) {
-            var7 = 0.7F;
-         } else if (SandboxOptions.instance.FoodRotSpeed.getValue() == 5) {
-            var7 = 0.4F;
-         }
-
-         boolean var8 = !this.Burnt && this.OffAge < 1000000000 && this.Age < (float)this.OffAge;
+         boolean var12 = !this.Burnt && this.OffAge < 1000000000 && this.Age < (float)this.OffAge;
          boolean var9 = !this.Burnt && this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAgeMax;
-         this.Age = (float)((double)this.Age + var5 * (double)var7 / 24.0);
-         this.LastAged = var3;
+         this.Age = (float)((double)this.Age + var6 * (double)this.getFoodRotSpeed() / 24.0);
+         this.LastAged = var2;
          boolean var10 = !this.Burnt && this.OffAge < 1000000000 && this.Age < (float)this.OffAge;
          boolean var11 = !this.Burnt && this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAgeMax;
-         if (!GameServer.bServer && (var8 != var10 || var9 != var11)) {
+         if (!GameServer.bServer && (var12 != var10 || var9 != var11)) {
             LuaEventManager.triggerEvent("OnContainerUpdate", this);
+         }
+
+         if (var1 && GameServer.bServer) {
+            GameServer.sendItemStats(this);
          }
       }
 
@@ -556,12 +746,10 @@ public final class Food extends InventoryItem {
          var4 = var1.getParent().getSprite().getProperties().Is("IsFridge");
       }
 
-      int var5;
-      float var6;
       if (var1 != null && (var4 || var1.getType().equals("fridge") || var1.getType().equals("freezer"))) {
-         var5 = SandboxOptions.instance.ElecShutModifier.getValue();
+         int var5 = SandboxOptions.instance.ElecShutModifier.getValue();
          if (var5 > -1) {
-            var6 = Math.min((float)var5, var2);
+            float var6 = Math.min((float)var5, var2);
             int var7 = SandboxOptions.instance.FridgeFactor.getValue();
             float var8 = 0.2F;
             if (var7 == 1) {
@@ -572,6 +760,8 @@ public final class Food extends InventoryItem {
                var8 = 0.1F;
             } else if (var7 == 5) {
                var8 = 0.03F;
+            } else if (var7 == 6) {
+               var8 = 0.0F;
             }
 
             if (!var1.getType().equals("fridge") && this.canBeFrozen() && !var4) {
@@ -592,28 +782,16 @@ public final class Food extends InventoryItem {
                }
 
                var3 = var2 - var9;
-               var3 += var9 * 0.02F;
+               var3 += var9 * 0.0F;
                this.setFreezingTime(var10);
             } else {
                var3 = var2 - var6;
-               var3 += var6 * var8;
+               var3 += var6 * this.getFridgeFactor();
             }
          }
       }
 
-      var5 = SandboxOptions.instance.FoodRotSpeed.getValue();
-      var6 = 1.0F;
-      if (var5 == 1) {
-         var6 = 1.7F;
-      } else if (var5 == 2) {
-         var6 = 1.4F;
-      } else if (var5 == 4) {
-         var6 = 0.7F;
-      } else if (var5 == 5) {
-         var6 = 0.4F;
-      }
-
-      this.Age = var3 * var6;
+      this.Age = var3 * this.getFoodRotSpeed();
       this.LastAged = (float)GameTime.getInstance().getWorldAgeHours();
       this.LastFrozenUpdate = this.LastAged;
       if (var1 != null) {
@@ -622,8 +800,7 @@ public final class Food extends InventoryItem {
 
    }
 
-   public void updateFreezing(ItemContainer var1) {
-      float var2 = (float)GameTime.getInstance().getWorldAgeHours();
+   private void updateFreezing(ItemContainer var1, float var2) {
       if (this.LastFrozenUpdate < 0.0F) {
          this.LastFrozenUpdate = var2;
       } else if (this.LastFrozenUpdate > var2) {
@@ -635,6 +812,7 @@ public final class Food extends InventoryItem {
          float var4 = 4.0F;
          float var5 = 1.5F;
          if (this.isFreezing()) {
+            this.setFertilized(false);
             this.setFreezingTime(this.getFreezingTime() + var3 / var4 * 100.0F);
          }
 
@@ -880,6 +1058,29 @@ public final class Food extends InventoryItem {
          var1.putFloat(this.endChange);
       }
 
+      if (this.milkQty > 0) {
+         var4.addFlags(67108864);
+         var1.putInt(this.milkQty);
+         GameWindow.WriteString(var1, this.milkType);
+      }
+
+      if (this.isFertilized()) {
+         var4.addFlags(134217728);
+         var1.putInt(this.timeToHatch);
+         var1.putInt(this.fertilizedTime);
+         GameWindow.WriteString(var1, this.animalHatch);
+         GameWindow.WriteString(var1, this.animalHatchBreed);
+         ArrayList var8 = new ArrayList(this.eggGenome.keySet());
+         var1.putInt(this.eggGenome.size());
+
+         for(int var9 = 0; var9 < var8.size(); ++var9) {
+            String var7 = (String)var8.get(var9);
+            ((AnimalGene)this.eggGenome.get(var7)).save(var1, false);
+         }
+
+         var1.putInt(this.motherID);
+      }
+
       if (!var4.equals(0)) {
          var3.addFlags(64);
          var4.write();
@@ -982,11 +1183,13 @@ public final class Food extends InventoryItem {
                this.poisonDetectionLevel = var1.get();
             }
 
+            int var5;
+            int var6;
             if (var4.hasFlags(256)) {
                this.spices = new ArrayList();
-               byte var5 = var1.get();
+               var5 = var1.get();
 
-               for(int var6 = 0; var6 < var5; ++var6) {
+               for(var6 = 0; var6 < var5; ++var6) {
                   String var7 = GameWindow.ReadString(var1);
                   this.spices.add(var7);
                }
@@ -1051,6 +1254,29 @@ public final class Food extends InventoryItem {
                this.endChange = var1.getFloat();
             }
 
+            if (var4.hasFlags(67108864)) {
+               this.milkQty = var1.getInt();
+               this.milkType = GameWindow.ReadString(var1);
+            }
+
+            if (var4.hasFlags(134217728)) {
+               this.timeToHatch = var1.getInt();
+               this.fertilizedTime = var1.getInt();
+               this.animalHatch = GameWindow.ReadString(var1);
+               this.animalHatchBreed = GameWindow.ReadString(var1);
+               var5 = var1.getInt();
+               this.eggGenome = new HashMap();
+
+               for(var6 = 0; var6 < var5; ++var6) {
+                  AnimalGene var8 = new AnimalGene();
+                  var8.load(var1, var2, false);
+                  this.eggGenome.put(var8.name, var8);
+               }
+
+               this.motherID = var1.getInt();
+               this.setFertilized(true);
+            }
+
             var4.release();
          }
       }
@@ -1069,7 +1295,7 @@ public final class Food extends InventoryItem {
          return false;
       } else if (this.container != null && (this.Heat != this.container.getTemprature() || this.container.isTemperatureChanging())) {
          return false;
-      } else if (this.isTaintedWater() && this.container != null && this.container.getTemprature() > 1.0F) {
+      } else if (this.isTainted && this.container != null && this.container.getTemprature() > 1.0F) {
          return false;
       } else {
          if ((!GameClient.bClient || this.isInLocalPlayerInventory()) && (double)this.OffAgeMax != 1.0E9) {
@@ -1097,29 +1323,43 @@ public final class Food extends InventoryItem {
          }
       }
 
-      return this.getHeat() != 1.0F;
+      if (this.getHeat() != 1.0F) {
+         return true;
+      } else {
+         return !GameClient.bClient && this.isFertilized();
+      }
    }
 
    public String getName() {
       String var1 = "";
       if (this.Burnt) {
-         var1 = var1 + this.BurntString + " ";
-      } else if (this.OffAge < 1000000000 && this.Age < (float)this.OffAge) {
-         var1 = var1 + this.FreshString + " ";
+         var1 = var1 + this.BurntString + ", ";
+      } else if (this.OffAge < 1000000000 && this.Age < (float)this.OffAge && !this.hasTag("HideFresh")) {
+         var1 = var1 + this.FreshString + ", ";
       } else if (this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAgeMax) {
-         var1 = var1 + this.OffString + " ";
+         var1 = var1 + this.OffString + ", ";
       } else if (this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAge) {
-         var1 = var1 + this.StaleString + " ";
+         var1 = var1 + this.StaleString + ", ";
       }
 
       if (this.isCooked() && !this.Burnt && !this.hasTag("HideCooked")) {
-         var1 = var1 + this.CookedString + " ";
-      } else if (this.IsCookable && !this.Burnt && !this.hasTag("HideCooked")) {
-         var1 = var1 + this.UnCookedString + " ";
+         if (this.hasTag("Grilled")) {
+            var1 = var1 + this.GrilledString + ", ";
+         } else if (this.hasTag("Toastable")) {
+            var1 = var1 + this.ToastedString + ", ";
+         } else {
+            var1 = var1 + this.CookedString + ", ";
+         }
+      } else if (this.IsCookable && !this.Burnt && !this.hasTag("HideCooked") && !this.hasTag("HideUncooked")) {
+         var1 = var1 + this.UnCookedString + ", ";
       }
 
       if (this.isFrozen()) {
-         var1 = var1 + this.FrozenString + " ";
+         var1 = var1 + this.FrozenString + ", ";
+      }
+
+      if (var1.length() > 2) {
+         var1 = var1.substring(0, var1.length() - 2);
       }
 
       var1 = var1.trim();
@@ -1127,103 +1367,142 @@ public final class Food extends InventoryItem {
    }
 
    public void DoTooltip(ObjectTooltip var1, ObjectTooltip.Layout var2) {
+      ColorInfo var4 = new ColorInfo();
+      ColorInfo var5 = Core.getInstance().getGoodHighlitedColor();
+      ColorInfo var6 = Core.getInstance().getBadHighlitedColor();
+      float var7 = var5.getR();
+      float var8 = var5.getG();
+      float var9 = var5.getB();
+      float var10 = var6.getR();
+      float var11 = var6.getG();
+      float var12 = var6.getB();
       ObjectTooltip.LayoutItem var3;
-      int var4;
-      if (this.getHungerChange() != 0.0F) {
+      int var13;
+      if (this.getHungerChange() != 0.0F && !this.hasTag("HideHungerChange")) {
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_food_Hunger") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var4 = (int)(this.getHungerChange() * 100.0F);
-         var3.setValueRight(var4, false);
+         var13 = (int)(this.getHungerChange() * 100.0F);
+         var3.setValueRight(var13, false);
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), (float)var13, var4);
       }
 
+      float var26;
       if (this.getThirstChange() != 0.0F) {
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_food_Thirst") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var4 = (int)(this.getThirstChange() * 100.0F);
-         var3.setValueRight(var4, false);
+         var26 = this.getThirstChange() * -2.0F;
+         if (var26 > 0.0F) {
+            var3.setProgress(var26, var7, var8, var9, 1.0F);
+         } else {
+            var3.setProgress(var26 * -1.0F, var10, var11, var12, 1.0F);
+         }
       }
 
       if (this.getEnduranceChange() != 0.0F) {
          var3 = var2.addItem();
-         var4 = (int)(this.getEnduranceChange() * 100.0F);
+         var13 = (int)(this.getEnduranceChange() * 100.0F);
          var3.setLabel(Translator.getText("Tooltip_food_Endurance") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, true);
+         var3.setValueRight(var13, true);
       }
 
       if (this.getStressChange() != 0.0F) {
          var3 = var2.addItem();
-         var4 = (int)(this.getStressChange() * 100.0F);
+         var13 = (int)(this.getStressChange() * 100.0F);
          var3.setLabel(Translator.getText("Tooltip_food_Stress") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, false);
+         var3.setValueRight(var13, false);
       }
 
       if (this.getBoredomChange() != 0.0F) {
          var3 = var2.addItem();
-         var4 = (int)this.getBoredomChange();
+         var26 = this.getBoredomChange() * -0.02F;
          var3.setLabel(Translator.getText("Tooltip_food_Boredom") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, false);
+         if (var26 > 0.0F) {
+            var3.setProgress(var26, var7, var8, var9, 1.0F);
+         } else {
+            var3.setProgress(var26 * -1.0F, var10, var11, var12, 1.0F);
+         }
       }
 
       if (this.getUnhappyChange() != 0.0F) {
          var3 = var2.addItem();
-         var4 = (int)this.getUnhappyChange();
+         var26 = this.getUnhappyChange() * -0.02F;
          var3.setLabel(Translator.getText("Tooltip_food_Unhappiness") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, false);
+         if (var26 > 0.0F) {
+            var3.setProgress(var26, var7, var8, var9, 1.0F);
+         } else {
+            var3.setProgress(var26 * -1.0F, var10, var11, var12, 1.0F);
+         }
       }
 
-      float var5;
-      float var6;
-      float var7;
-      float var9;
-      float var10;
-      float var11;
-      float var17;
+      float var14;
+      float var15;
+      float var16;
+      float var18;
+      float var19;
+      float var20;
       if (this.isIsCookable() && !this.isFrozen() && !this.Burnt && (double)this.getHeat() > 1.6) {
-         var17 = this.getCookingTime();
-         var5 = this.getMinutesToCook();
-         var6 = this.getMinutesToBurn();
-         var7 = var17 / var5;
-         ColorInfo var8 = Core.getInstance().getGoodHighlitedColor();
-         var9 = var8.getR();
-         var10 = var8.getG();
-         var11 = var8.getB();
-         float var12 = 1.0F;
-         float var13 = var8.getR();
-         float var14 = var8.getG();
-         float var15 = var8.getB();
-         String var16 = Translator.getText("IGUI_invpanel_Cooking");
-         if (var17 > var5) {
-            var8 = Core.getInstance().getBadHighlitedColor();
-            var16 = Translator.getText("IGUI_invpanel_Burning");
-            var13 = var8.getR();
-            var14 = var8.getG();
-            var15 = var8.getB();
-            var7 = (var17 - var5) / (var6 - var5);
-            var9 = var8.getR();
-            var10 = var8.getG();
-            var11 = var8.getB();
+         var26 = this.getCookingTime();
+         var14 = this.getMinutesToCook();
+         var15 = this.getMinutesToBurn();
+         var16 = var26 / var14;
+         ColorInfo var17 = Core.getInstance().getGoodHighlitedColor();
+         var18 = var17.getR();
+         var19 = var17.getG();
+         var20 = var17.getB();
+         float var21 = 1.0F;
+         float var22 = var17.getR();
+         float var23 = var17.getG();
+         float var24 = var17.getB();
+         String var25 = Translator.getText("IGUI_invpanel_Cooking");
+         if (var26 > var14) {
+            var17 = Core.getInstance().getBadHighlitedColor();
+            var25 = Translator.getText("IGUI_invpanel_Burning");
+            var22 = var17.getR();
+            var23 = var17.getG();
+            var24 = var17.getB();
+            var16 = (var26 - var14) / (var15 - var14);
+            var18 = var17.getR();
+            var19 = var17.getG();
+            var20 = var17.getB();
          }
 
          var3 = var2.addItem();
-         var3.setLabel(var16 + ": ", var13, var14, var15, 1.0F);
-         var3.setProgress(var7, var9, var10, var11, var12);
+         var3.setLabel(var25 + ": ", var22, var23, var24, 1.0F);
+         var3.setProgress(var16, var18, var19, var20, var21);
       }
 
       if (this.getFreezingTime() < 100.0F && this.getFreezingTime() > 0.0F) {
-         var17 = this.getFreezingTime() / 100.0F;
-         var5 = 0.0F;
-         var6 = 0.6F;
-         var7 = 0.0F;
-         float var18 = 0.7F;
-         var9 = 1.0F;
-         var10 = 1.0F;
-         var11 = 0.8F;
+         var26 = this.getFreezingTime() / 100.0F;
+         var14 = 0.0F;
+         var15 = 0.6F;
+         var16 = 0.0F;
+         float var31 = 0.7F;
+         var18 = 1.0F;
+         var19 = 1.0F;
+         var20 = 0.8F;
          var3 = var2.addItem();
-         var3.setLabel(Translator.getText("IGUI_invpanel_FreezingTime") + ": ", var9, var10, var11, 1.0F);
-         var3.setProgress(var17, var5, var6, var7, var18);
+         var3.setLabel(Translator.getText("IGUI_invpanel_FreezingTime") + ": ", var18, var19, var20, 1.0F);
+         var3.setProgress(var26, var14, var15, var16, var31);
       }
 
-      if (Core.bDebug && DebugOptions.instance.TooltipInfo.getValue() || this.isPackaged() || var1.getCharacter() != null && (var1.getCharacter().Traits.Nutritionist.isSet() || var1.getCharacter().Traits.Nutritionist2.isSet())) {
+      if (Core.bDebug && this.isFertilized()) {
+         var3 = var2.addItem();
+         var3.setLabel("Fertilized :", 1.0F, 1.0F, 0.8F, 1.0F);
+         var3.setValue(this.fertilizedTime + "/" + this.timeToHatch, 1.0F, 1.0F, 1.0F, 1.0F);
+      } else if (this.isFertilized() && Double.valueOf((double)this.timeToHatch) / Double.valueOf((double)this.fertilizedTime) < 4.0) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_food_fertilized"), 0.5F, 1.0F, 0.4F, 1.0F);
+      }
+
+      IsoGameCharacter var28 = var1.getCharacter();
+      IsoPlayer var27 = (IsoPlayer)Type.tryCastTo(var28, IsoPlayer.class);
+      boolean var29 = var28 != null && var28.Traits.Illiterate.isSet();
+      boolean var30 = var27 != null && var27.tooDarkToRead();
+      boolean var32 = this.getModData().rawget("NoLabel") != null;
+      boolean var33 = this.isPackaged() && var28 != null && !var29 && !var30 && !var32;
+      if (Core.bDebug && DebugOptions.instance.TooltipInfo.getValue() || var33 || var28 != null && (var28.Traits.Nutritionist.isSet() || var28.Traits.Nutritionist2.isSet())) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_food_Nutrition") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_food_Calories") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
          var3.setValueRightNoPlus(this.getCalories());
@@ -1236,6 +1515,16 @@ public final class Food extends InventoryItem {
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_food_Fat") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
          var3.setValueRightNoPlus(this.getLipids());
+      } else if (this.isPackaged() && var29) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_food_Nutrition") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("ContextMenu_Illiterate"), 1.0F, 1.0F, 0.8F, 1.0F);
+      } else if (this.isPackaged() && var30) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_food_Nutrition") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("ContextMenu_TooDark"), 1.0F, 1.0F, 0.8F, 1.0F);
       }
 
       if (this.isbDangerousUncooked() && !this.isCooked() && !this.isBurnt()) {
@@ -1246,7 +1535,7 @@ public final class Food extends InventoryItem {
          }
       }
 
-      if (this.getScriptItem().RemoveUnhappinessWhenCooked && !this.isCooked()) {
+      if (this.getScriptItem().RemoveUnhappinessWhenCooked && !this.isCooked() && !this.isBurnt()) {
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_food_CookToRemoveUnhappiness"), Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
       }
@@ -1259,6 +1548,12 @@ public final class Food extends InventoryItem {
       if (this.cookedInMicrowave) {
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_food_CookedInMicrowave"), 1.0F, 0.9F, 0.9F, 1.0F);
+      }
+
+      if (!StringUtils.isNullOrEmpty(this.getMilkType())) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_food_MilkType") + ": ", 1.0F, 0.9F, 0.9F, 1.0F);
+         var3.setValue(Translator.getText("Tooltip_food_" + this.getMilkType()), 1.0F, 0.9F, 0.9F, 1.0F);
       }
 
       if (Core.bDebug && DebugOptions.instance.TooltipInfo.getValue()) {
@@ -1358,15 +1653,27 @@ public final class Food extends InventoryItem {
 
    public float getHungerChange() {
       float var1 = this.hungChange;
-      if (this.Burnt) {
-         return var1 / 3.0F;
-      } else if (this.Age >= (float)this.OffAge && this.Age < (float)this.OffAgeMax) {
-         return var1 / 1.3F;
-      } else if (this.Age >= (float)this.OffAgeMax) {
-         return var1 / 2.2F;
-      } else {
-         return this.isCooked() ? var1 * 1.3F : var1;
+      if (var1 != 0.0F) {
+         if (this.isCooked()) {
+            return var1 * 1.3F;
+         }
+
+         float var2 = var1 < 0.0F ? -1.0F : 1.0F;
+         float var3 = Math.abs(var1);
+         if (this.Burnt) {
+            return Math.max(var3 / 3.0F, 0.01F) * var2;
+         }
+
+         if (this.Age >= (float)this.OffAge && this.Age < (float)this.OffAgeMax) {
+            return Math.max(var3 / 1.3F, 0.01F) * var2;
+         }
+
+         if (this.Age >= (float)this.OffAgeMax) {
+            return Math.max(var3 / 2.2F, 0.01F) * var2;
+         }
       }
+
+      return var1;
    }
 
    public float getStressChange() {
@@ -1474,11 +1781,19 @@ public final class Food extends InventoryItem {
    }
 
    public boolean isRotten() {
-      return this.Age >= (float)this.OffAgeMax;
+      if (this.isFertilized()) {
+         return false;
+      } else {
+         return this.Age >= (float)this.OffAgeMax;
+      }
    }
 
    public boolean isFresh() {
-      return this.Age < (float)this.OffAge;
+      if (this.isFertilized()) {
+         return true;
+      } else {
+         return this.Age < (float)this.OffAge;
+      }
    }
 
    public void setRotten(boolean var1) {
@@ -1667,8 +1982,42 @@ public final class Food extends InventoryItem {
       }
    }
 
+   public String getStaticModel() {
+      ModelScript var1;
+      if (this.isBurnt()) {
+         var1 = ScriptManager.instance.getModelScript(super.getStaticModel() + "Burnt");
+         if (var1 != null) {
+            return var1.getName();
+         }
+      }
+
+      if (this.isRotten()) {
+         var1 = ScriptManager.instance.getModelScript(super.getStaticModel() + "Rotten");
+         if (var1 != null) {
+            return var1.getName();
+         }
+      }
+
+      if (this.isCooked()) {
+         var1 = ScriptManager.instance.getModelScript(super.getStaticModel() + "Cooked");
+         if (var1 != null) {
+            return var1.getName();
+         }
+      }
+
+      return super.getStaticModel();
+   }
+
    public int getReduceFoodSickness() {
-      return this.ReduceFoodSickness;
+      if (this.Burnt) {
+         return (int)((float)this.ReduceFoodSickness / 3.0F);
+      } else if (this.Age >= (float)this.OffAge && this.Age < (float)this.OffAgeMax) {
+         return (int)((float)this.ReduceFoodSickness / 1.3F);
+      } else if (this.Age >= (float)this.OffAgeMax) {
+         return (int)((float)this.ReduceFoodSickness / 2.2F);
+      } else {
+         return this.isCooked() ? (int)((float)this.ReduceFoodSickness * 1.3F) : this.ReduceFoodSickness;
+      }
    }
 
    public void setReduceFoodSickness(int var1) {
@@ -1783,6 +2132,18 @@ public final class Food extends InventoryItem {
       }
    }
 
+   public void syncItemFields() {
+      ItemContainer var1 = this.getOutermostContainer();
+      if (var1 != null && var1.getParent() instanceof IsoPlayer) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.ItemStats, this.getContainer(), this);
+         } else if (GameServer.bServer) {
+            INetworkPacket.send((IsoPlayer)var1.getParent(), PacketTypes.PacketType.ItemStats, this.getContainer(), this);
+         }
+      }
+
+   }
+
    public String getReplaceOnRotten() {
       return this.replaceOnRotten;
    }
@@ -1806,6 +2167,7 @@ public final class Food extends InventoryItem {
       this.setCarbohydrates(this.getCarbohydrates() * var1);
       this.setProteins(this.getProteins() * var1);
       this.setLipids(this.getLipids() * var1);
+      this.setPoisonPower((int)((float)this.getPoisonPower() * var1));
    }
 
    public float getRottenTime() {
@@ -1840,6 +2202,14 @@ public final class Food extends InventoryItem {
       this.badInMicrowave = var1;
    }
 
+   public boolean isTainted() {
+      return this.isTainted;
+   }
+
+   public void setTainted(boolean var1) {
+      this.isTainted = var1;
+   }
+
    private void destroyThisItem() {
       IsoWorldInventoryObject var1 = this.getWorldItem();
       if (var1 != null && var1.getSquare() != null) {
@@ -1854,10 +2224,7 @@ public final class Food extends InventoryItem {
       } else if (this.container != null) {
          IsoObject var2 = this.container.getParent();
          if (GameServer.bServer) {
-            if (!this.isInPlayerInventory()) {
-               GameServer.sendRemoveItemFromContainer(this.container, this);
-            }
-
+            GameServer.sendRemoveItemFromContainer(this.container, this);
             this.container.Remove((InventoryItem)this);
          } else {
             this.container.Remove((InventoryItem)this);
@@ -1871,5 +2238,194 @@ public final class Food extends InventoryItem {
          LuaEventManager.triggerEvent("OnContainerUpdate");
       }
 
+   }
+
+   public void setMilkQty(int var1) {
+      this.milkQty = var1;
+   }
+
+   public int getMilkQty() {
+      return this.milkQty;
+   }
+
+   public void setMilkType(String var1) {
+      this.milkType = var1;
+   }
+
+   public String getMilkType() {
+      return this.milkType;
+   }
+
+   public boolean isFertilized() {
+      return this.fertilized;
+   }
+
+   public void setFertilized(boolean var1) {
+      this.fertilized = var1;
+   }
+
+   public String getAnimalHatch() {
+      return this.animalHatch;
+   }
+
+   public void setAnimalHatch(String var1) {
+      this.animalHatch = var1;
+   }
+
+   public String getAnimalHatchBreed() {
+      return this.animalHatchBreed;
+   }
+
+   public void setAnimalHatchBreed(String var1) {
+      this.animalHatchBreed = var1;
+   }
+
+   public int getTimeToHatch() {
+      return this.timeToHatch;
+   }
+
+   public void setTimeToHatch(int var1) {
+      float var2 = 1.0F;
+      switch (SandboxOptions.instance.AnimalEggHatch.getValue()) {
+         case 1:
+            var2 = 0.1F;
+            break;
+         case 2:
+            var2 = 0.5F;
+            break;
+         case 3:
+            var2 = 0.7F;
+         case 4:
+         default:
+            break;
+         case 5:
+            var2 = 2.5F;
+            break;
+         case 6:
+            var2 = 10.0F;
+      }
+
+      this.timeToHatch = (int)((float)var1 * var2);
+   }
+
+   public boolean isNormalAndFullFood() {
+      if (!this.isTainted() && !this.isRotten() && !this.isFertilized()) {
+         if (this.getSpices() != null) {
+            return false;
+         } else if (this.getCompostTime() != 0.0F) {
+            return false;
+         } else {
+            Item var1 = this.getScriptItem();
+            if (var1 == null) {
+               return false;
+            } else if ((float)this.getPoisonPower() != var1.getPoisonPower()) {
+               return false;
+            } else if (this.getPoisonDetectionLevel() != var1.getPoisonDetectionLevel()) {
+               return false;
+            } else {
+               return this.isWholeFoodItem() && this.isUncooked();
+            }
+         }
+      } else {
+         return false;
+      }
+   }
+
+   public boolean isWholeFoodItem() {
+      Item var1 = this.getScriptItem();
+      if (var1 == null) {
+         return false;
+      } else if (this.getHungerChange() != var1.getHungerChange()) {
+         return false;
+      } else if (this.getUnhappyChange() != var1.getUnhappyChange()) {
+         return false;
+      } else if (this.getBoredomChange() != var1.getBoredomChange()) {
+         return false;
+      } else if (this.getThirstChange() != var1.getThirstChange()) {
+         return false;
+      } else {
+         Food var2 = (Food)InventoryItemFactory.CreateItem(this.getFullType());
+         if (var2 == null) {
+            return false;
+         } else if (this.getCalories() != var2.getCalories()) {
+            return false;
+         } else if (this.getProteins() != var2.getProteins()) {
+            return false;
+         } else if (this.getLipids() != var2.getLipids()) {
+            return false;
+         } else if (this.getCarbohydrates() != var2.getCarbohydrates()) {
+            return false;
+         } else if (this.getPainReduction() != var2.getPainReduction()) {
+            return false;
+         } else if (this.getFluReduction() != var2.getFluReduction()) {
+            return false;
+         } else if (this.getReduceFoodSickness() != var2.getReduceFoodSickness()) {
+            return false;
+         } else {
+            return this.getFatigueChange() == var2.getFatigueChange();
+         }
+      }
+   }
+
+   public boolean isUncooked() {
+      return !this.isCooked() && !this.isBurnt();
+   }
+
+   public void OnAddedToContainer(ItemContainer var1) {
+      if (GameServer.bServer) {
+         this.updateAge();
+      }
+
+   }
+
+   public void OnBeforeRemoveFromContainer(ItemContainer var1) {
+      if (GameServer.bServer) {
+         this.updateAge();
+      }
+
+   }
+
+   public void setFertilizedTime(int var1) {
+      this.fertilizedTime = var1;
+   }
+
+   public void inheritFoodAgeFrom(InventoryItem var1) {
+      if (var1.isFood()) {
+         Food var2 = (Food)var1;
+         if (var2.canAge() && this.canAge()) {
+            float var3 = var2.getAge() / (float)var2.getOffAgeMax();
+            this.setAge((float)this.getOffAgeMax() * var3);
+         }
+
+      }
+   }
+
+   public void inheritOlderFoodAge(InventoryItem var1) {
+      if (var1.isFood()) {
+         Food var2 = (Food)var1;
+         if (var2.canAge() && this.canAge()) {
+            float var3 = var2.getAge() / (float)var2.getOffAgeMax();
+            if (var3 > (float)this.getOffAgeMax() * var3) {
+               this.inheritFoodAgeFrom(var2);
+            }
+         }
+
+      }
+   }
+
+   public boolean hasAnimalParts() {
+      return this.getModData().rawget("parts") != null ? (Boolean)this.getModData().rawget("parts") : false;
+   }
+
+   public boolean isAnimalSkeleton() {
+      return "true".equals(this.getModData().rawget("skeleton"));
+   }
+
+   public boolean canAge() {
+      return this.getOffAgeMax() != 1000000000;
+   }
+
+   public boolean isFood() {
+      return true;
    }
 }

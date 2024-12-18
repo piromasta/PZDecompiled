@@ -1,6 +1,7 @@
 package zombie.vehicles;
 
 import org.joml.Math;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import zombie.core.Core;
 import zombie.core.skinnedmodel.ModelCamera;
@@ -16,17 +17,16 @@ public final class VehicleModelCamera extends ModelCamera {
          Core.getInstance().DoPushIsoStuff(this.m_x, this.m_y, this.m_z, this.m_useAngle, true);
          GL11.glDepthMask(this.bDepthMask);
       } else {
-         GL11.glMatrixMode(5889);
-         GL11.glPushMatrix();
-         GL11.glLoadIdentity();
-         GL11.glOrtho(-192.0, 192.0, -192.0, 192.0, -1000.0, 1000.0);
-         float var1 = Math.sqrt(2048.0F);
-         GL11.glScalef(-var1, var1, var1);
-         GL11.glMatrixMode(5888);
-         GL11.glPushMatrix();
-         GL11.glLoadIdentity();
-         GL11.glRotatef(30.0F, 1.0F, 0.0F, 0.0F);
-         GL11.glRotatef(45.0F, 0.0F, 1.0F, 0.0F);
+         Matrix4f var1 = Core.getInstance().projectionMatrixStack.alloc();
+         var1.setOrtho(-192.0F, 192.0F, -192.0F, 192.0F, -1000.0F, 1000.0F);
+         float var2 = Math.sqrt(2048.0F);
+         var1.scale(-var2, var2, var2);
+         Core.getInstance().projectionMatrixStack.push(var1);
+         Matrix4f var3 = Core.getInstance().modelViewMatrixStack.alloc();
+         var3.identity();
+         var3.rotate(0.5235988F, 1.0F, 0.0F, 0.0F);
+         var3.rotate(0.7853982F, 0.0F, 1.0F, 0.0F);
+         Core.getInstance().modelViewMatrixStack.push(var3);
       }
    }
 
@@ -35,10 +35,8 @@ public final class VehicleModelCamera extends ModelCamera {
          Core.getInstance().DoPopIsoStuff();
       } else {
          GL11.glDepthFunc(519);
-         GL11.glMatrixMode(5889);
-         GL11.glPopMatrix();
-         GL11.glMatrixMode(5888);
-         GL11.glPopMatrix();
+         Core.getInstance().projectionMatrixStack.pop();
+         Core.getInstance().modelViewMatrixStack.pop();
       }
    }
 }

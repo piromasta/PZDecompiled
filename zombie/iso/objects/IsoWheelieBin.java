@@ -31,11 +31,11 @@ public class IsoWheelieBin extends IsoPushableObject {
 
    public IsoWheelieBin(IsoCell var1, int var2, int var3, int var4) {
       super(var1, var2, var3, var4);
-      this.x = (float)var2 + 0.5F;
-      this.y = (float)var3 + 0.5F;
-      this.z = (float)var4;
-      this.nx = this.x;
-      this.ny = this.y;
+      this.setX((float)var2 + 0.5F);
+      this.setY((float)var3 + 0.5F);
+      this.setZ((float)var4);
+      this.setNextX(this.getX());
+      this.setNextY(this.getY());
       this.offsetX = -26.0F;
       this.offsetY = -248.0F;
       this.weight = 6.0F;
@@ -53,8 +53,8 @@ public class IsoWheelieBin extends IsoPushableObject {
    }
 
    public void update() {
-      this.velx = this.getX() - this.getLx();
-      this.vely = this.getY() - this.getLy();
+      this.velx = this.getX() - this.getLastX();
+      this.vely = this.getY() - this.getLastY();
       float var1 = 1.0F - this.container.getContentsWeight() / 500.0F;
       if (var1 < 0.0F) {
          var1 = 0.0F;
@@ -66,11 +66,11 @@ public class IsoWheelieBin extends IsoPushableObject {
 
       if (IsoPlayer.getInstance() != null && IsoPlayer.getInstance().getDragObject() != this) {
          if (this.velx != 0.0F && this.vely == 0.0F && (this.dir == IsoDirections.E || this.dir == IsoDirections.W)) {
-            this.setNx(this.getNx() + this.velx * 0.65F * var1);
+            this.setNextX(this.getNextX() + this.velx * 0.65F * var1);
          }
 
          if (this.vely != 0.0F && this.velx == 0.0F && (this.dir == IsoDirections.N || this.dir == IsoDirections.S)) {
-            this.setNy(this.getNy() + this.vely * 0.65F * var1);
+            this.setNextY(this.getNextY() + this.vely * 0.65F * var1);
          }
       }
 

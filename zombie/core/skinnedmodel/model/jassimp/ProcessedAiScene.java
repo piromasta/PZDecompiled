@@ -5,12 +5,14 @@ import jassimp.AiMatrix4f;
 import jassimp.AiMesh;
 import jassimp.AiNode;
 import jassimp.AiScene;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import org.lwjgl.util.vector.Matrix4f;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
+import zombie.core.physics.PhysicsShape;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.core.skinnedmodel.animation.Keyframe;
@@ -24,16 +26,20 @@ import zombie.util.StringUtils;
 public final class ProcessedAiScene {
    private ImportedSkeleton skeleton;
    private ImportedSkinnedMesh skinnedMesh;
-   private ImportedStaticMesh staticMesh;
-   private Matrix4f transform = null;
+   private final ArrayList<ImportedStaticMesh> staticMeshes = new ArrayList();
 
    private ProcessedAiScene() {
    }
 
    public static ProcessedAiScene process(ProcessedAiSceneParams var0) {
       ProcessedAiScene var1 = new ProcessedAiScene();
-      var1.processAiScene(var0);
-      return var1;
+      if (var0.bAllMeshes) {
+         var1.processAllMeshes(var0);
+         return var1;
+      } else {
+         var1.processAiScene(var0);
+         return var1;
+      }
    }
 
    private void processAiScene(ProcessedAiSceneParams var1) {
@@ -45,29 +51,53 @@ public final class ProcessedAiScene {
          DebugLog.General.error("No such mesh \"%s\"", var4);
       } else {
          if (var3 != JAssImpImporter.LoadMode.StaticMesh && var5.hasBones()) {
-            ImportedSkeletonParams var6 = ImportedSkeletonParams.create(var1, var5);
-            this.skeleton = ImportedSkeleton.process(var6);
+            ImportedSkeletonParams var7 = ImportedSkeletonParams.create(var1, var5);
+            this.skeleton = ImportedSkeleton.process(var7);
             if (var3 != JAssImpImporter.LoadMode.AnimationOnly) {
                this.skinnedMesh = new ImportedSkinnedMesh(this.skeleton, var5);
+               this.skinnedMesh.transform = this.initMeshTransform(var2, var5);
             }
          } else {
-            this.staticMesh = new ImportedStaticMesh(var5);
+            ImportedStaticMesh var6 = new ImportedStaticMesh(var5);
+            var6.transform = this.initMeshTransform(var2, var5);
+            this.staticMeshes.add(var6);
          }
 
-         if (this.staticMesh != null || this.skinnedMesh != null) {
-            AiBuiltInWrapperProvider var11 = new AiBuiltInWrapperProvider();
-            AiNode var7 = (AiNode)var2.getSceneRoot(var11);
-            AiNode var8 = this.findParentNodeForMesh(var2.getMeshes().indexOf(var5), var7);
-            if (var8 != null) {
-               this.transform = JAssImpImporter.getMatrixFromAiMatrix((AiMatrix4f)var8.getTransform(var11));
+      }
+   }
 
-               for(AiNode var9 = var8.getParent(); var9 != null; var9 = var9.getParent()) {
-                  Matrix4f var10 = JAssImpImporter.getMatrixFromAiMatrix((AiMatrix4f)var9.getTransform(var11));
-                  Matrix4f.mul(var10, this.transform, this.transform);
-               }
+   private void processAllMeshes(ProcessedAiSceneParams var1) {
+      AiScene var2 = var1.scene;
+      JAssImpImporter.LoadMode var3 = var1.mode;
+      if (var3 == JAssImpImporter.LoadMode.StaticMesh) {
+         Iterator var4 = var2.getMeshes().iterator();
 
-            }
+         while(var4.hasNext()) {
+            AiMesh var5 = (AiMesh)var4.next();
+            ImportedStaticMesh var6 = new ImportedStaticMesh(var5);
+            var6.transform = this.initMeshTransform(var2, var5);
+            this.staticMeshes.add(var6);
          }
+
+      }
+   }
+
+   private Matrix4f initMeshTransform(AiScene var1, AiMesh var2) {
+      AiBuiltInWrapperProvider var3 = new AiBuiltInWrapperProvider();
+      AiNode var4 = (AiNode)var1.getSceneRoot(var3);
+      AiNode var5 = this.findParentNodeForMesh(var1.getMeshes().indexOf(var2), var4);
+      if (var5 == null) {
+         return null;
+      } else {
+         Matrix4f var6 = JAssImpImporter.getMatrixFromAiMatrix((AiMatrix4f)var5.getTransform(var3));
+         Matrix4f var7 = new Matrix4f();
+
+         for(AiNode var8 = var5.getParent(); var8 != null; var8 = var8.getParent()) {
+            JAssImpImporter.getMatrixFromAiMatrix((AiMatrix4f)var8.getTransform(var3), var7);
+            Matrix4f.mul(var7, var6, var6);
+         }
+
+         return var6;
       }
    }
 
@@ -137,25 +167,28 @@ public final class ProcessedAiScene {
 
    public void applyToMesh(ModelMesh var1, JAssImpImporter.LoadMode var2, boolean var3, SkinningData var4) {
       var1.m_transform = null;
-      if (this.transform != null) {
-         var1.m_transform = PZMath.convertMatrix(this.transform, new org.joml.Matrix4f());
-      }
+      ImportedStaticMesh var5 = this.staticMeshes.isEmpty() ? null : (ImportedStaticMesh)this.staticMeshes.get(0);
+      VertexBufferObject.VertexArray var6;
+      int[] var7;
+      if (var5 != null) {
+         var1.minXYZ.set(var5.minXYZ);
+         var1.maxXYZ.set(var5.maxXYZ);
+         if (var5.transform != null) {
+            var1.m_transform = PZMath.convertMatrix(var5.transform, new org.joml.Matrix4f());
+         }
 
-      VertexBufferObject.VertexArray var5;
-      int[] var6;
-      if (this.staticMesh != null && !ModelManager.NoOpenGL) {
-         var1.minXYZ.set(this.staticMesh.minXYZ);
-         var1.maxXYZ.set(this.staticMesh.maxXYZ);
-         var1.m_bHasVBO = true;
-         var5 = this.staticMesh.verticesUnskinned;
-         var6 = this.staticMesh.elements;
-         RenderThread.queueInvokeOnRenderContext(() -> {
-            var1.SetVertexBuffer(new VertexBufferObject(var5, var6));
-            if (ModelManager.instance.bCreateSoftwareMeshes) {
-               var1.softwareMesh.vb = var1.vb;
-            }
+         if (!ModelManager.NoOpenGL) {
+            var1.m_bHasVBO = true;
+            var6 = var5.verticesUnskinned;
+            var7 = var5.elements;
+            RenderThread.queueInvokeOnRenderContext(() -> {
+               var1.SetVertexBuffer(new VertexBufferObject(var6, var7));
+               if (ModelManager.instance.bCreateSoftwareMeshes) {
+                  var1.softwareMesh.vb = var1.vb;
+               }
 
-         });
+            });
+         }
       }
 
       if (var1.skinningData != null) {
@@ -172,33 +205,75 @@ public final class ProcessedAiScene {
       }
 
       if (this.skeleton != null) {
-         ImportedSkeleton var7 = this.skeleton;
-         HashMap var8 = var7.clips;
+         ImportedSkeleton var8 = this.skeleton;
+         HashMap var9 = var8.clips;
+         var1.meshAnimationClips.clear();
+         var1.meshAnimationClips.putAll(var9);
          if (var4 != null) {
-            var7.clips.clear();
-            var8 = var4.AnimationClips;
+            var8.clips.clear();
+            var9 = var4.AnimationClips;
          }
 
-         JAssImpImporter.replaceHashMapKeys(var7.boneIndices, "SkinningData.boneIndices");
-         var1.skinningData = new SkinningData(var8, var7.bindPose, var7.invBindPose, var7.skinOffsetMatrices, var7.SkeletonHierarchy, var7.boneIndices);
+         JAssImpImporter.replaceHashMapKeys(var8.boneIndices, "SkinningData.boneIndices");
+         var1.skinningData = new SkinningData(var9, var8.bindPose, var8.invBindPose, var8.skinOffsetMatrices, var8.SkeletonHierarchy, var8.boneIndices);
       }
 
-      if (this.skinnedMesh != null && !ModelManager.NoOpenGL) {
-         var1.m_bHasVBO = true;
-         var5 = this.skinnedMesh.vertices;
-         var6 = this.skinnedMesh.elements;
-         RenderThread.queueInvokeOnRenderContext(() -> {
-            var1.SetVertexBuffer(new VertexBufferObject(var5, var6, var3));
-            if (ModelManager.instance.bCreateSoftwareMeshes) {
-               var1.softwareMesh.vb = var1.vb;
-            }
+      if (this.skinnedMesh != null) {
+         if (this.skinnedMesh.transform != null) {
+            var1.m_transform = PZMath.convertMatrix(this.skinnedMesh.transform, new org.joml.Matrix4f());
+         }
 
-         });
+         if (!ModelManager.NoOpenGL) {
+            var1.m_bHasVBO = true;
+            var6 = this.skinnedMesh.vertices;
+            var7 = this.skinnedMesh.elements;
+            RenderThread.queueInvokeOnRenderContext(() -> {
+               var1.SetVertexBuffer(new VertexBufferObject(var6, var7, var3));
+               if (ModelManager.instance.bCreateSoftwareMeshes) {
+                  var1.softwareMesh.vb = var1.vb;
+               }
+
+            });
+         }
       }
 
       this.skeleton = null;
       this.skinnedMesh = null;
-      this.staticMesh = null;
+      this.staticMeshes.clear();
+   }
+
+   public void applyToPhysicsShape(PhysicsShape var1) {
+      for(int var2 = 0; var2 < this.staticMeshes.size(); ++var2) {
+         ImportedStaticMesh var3 = (ImportedStaticMesh)this.staticMeshes.get(var2);
+         PhysicsShape.OneMesh var4 = new PhysicsShape.OneMesh();
+         var4.m_transform = null;
+         if (var3.transform != null) {
+            var4.m_transform = PZMath.convertMatrix(var3.transform, new org.joml.Matrix4f());
+         }
+
+         var4.minXYZ.set(var3.minXYZ);
+         var4.maxXYZ.set(var3.maxXYZ);
+         VertexBufferObject.VertexArray var5 = var3.verticesUnskinned;
+         int var6 = var5.m_format.indexOf(VertexBufferObject.VertexType.VertexArray);
+         if (var6 != -1) {
+            var4.m_points = new float[var5.m_numVertices * 3];
+
+            for(int var7 = 0; var7 < var5.m_numVertices; ++var7) {
+               float var8 = var5.getElementFloat(var7, var6, 0);
+               float var9 = var5.getElementFloat(var7, var6, 1);
+               float var10 = var5.getElementFloat(var7, var6, 2);
+               var4.m_points[var7 * 3] = var8;
+               var4.m_points[var7 * 3 + 1] = var9;
+               var4.m_points[var7 * 3 + 2] = var10;
+            }
+
+            var1.meshes.add(var4);
+         }
+      }
+
+      this.skeleton = null;
+      this.skinnedMesh = null;
+      this.staticMeshes.clear();
    }
 
    public void applyToAnimation(AnimationAsset var1) {

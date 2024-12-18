@@ -11,9 +11,14 @@ import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.Moodles.MoodleType;
 import zombie.characters.skills.PerkFactory;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
+import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 
 public final class Fitness {
    private IsoGameCharacter parent = null;
@@ -50,8 +55,9 @@ public final class Fitness {
          this.decreaseRegularity();
          Iterator var3 = this.stiffnessTimerMap.keySet().iterator();
 
+         String var4;
          while(var3.hasNext()) {
-            String var4 = (String)var3.next();
+            var4 = (String)var3.next();
             Integer var5 = (Integer)this.stiffnessTimerMap.get(var4);
             var5 = var5 - 1;
             if (var5 <= 0) {
@@ -62,30 +68,30 @@ public final class Fitness {
             }
          }
 
-         int var8;
-         for(var8 = 0; var8 < var2.size(); ++var8) {
-            this.stiffnessTimerMap.remove(var2.get(var8));
+         int var7;
+         for(var7 = 0; var7 < var2.size(); ++var7) {
+            this.stiffnessTimerMap.remove(var2.get(var7));
          }
 
-         for(var8 = 0; var8 < this.bodypartToIncStiffness.size(); ++var8) {
-            String var9 = (String)this.bodypartToIncStiffness.get(var8);
-            Float var6 = (Float)this.stiffnessIncMap.get(var9);
-            if (var6 == null) {
+         for(var7 = 0; var7 < this.bodypartToIncStiffness.size(); ++var7) {
+            var4 = (String)this.bodypartToIncStiffness.get(var7);
+            Float var8 = (Float)this.stiffnessIncMap.get(var4);
+            if (var8 == null) {
                return;
             }
 
-            var6 = var6 - 1.0F;
-            this.increasePain(var9);
-            if (var6 <= 0.0F) {
-               this.bodypartToIncStiffness.remove(var8);
-               this.stiffnessIncMap.remove(var9);
-               --var8;
+            var8 = var8 - 1.0F;
+            this.increasePain(var4);
+            if (var8 <= 0.0F) {
+               this.bodypartToIncStiffness.remove(var7);
+               this.stiffnessIncMap.remove(var4);
+               --var7;
             } else {
-               this.stiffnessIncMap.put(var9, var6);
+               this.stiffnessIncMap.put(var4, var8);
             }
          }
-      }
 
+      }
    }
 
    private void decreaseRegularity() {
@@ -180,7 +186,14 @@ public final class Fitness {
       }
 
       var1 *= (float)(1 + this.parent.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) / 3);
-      this.parent.getStats().setEndurance(this.parent.getStats().getEndurance() - var1);
+      if (!GameClient.bClient) {
+         this.parent.getStats().setEndurance(this.parent.getStats().getEndurance() - var1);
+      }
+
+      if (GameServer.bServer && this.parent instanceof IsoPlayer) {
+         INetworkPacket.send((IsoPlayer)this.parent, PacketTypes.PacketType.SyncPlayerStats, this.parent, 2);
+      }
+
    }
 
    public void incFutureStiffness() {
@@ -247,8 +260,16 @@ public final class Fitness {
 
       var1 *= this.currentExe.xpModifier;
       var2 *= this.currentExe.xpModifier;
-      this.parent.getXp().AddXP(PerkFactory.Perks.Strength, var1);
-      this.parent.getXp().AddXP(PerkFactory.Perks.Fitness, var2);
+      if (GameServer.bServer) {
+         if (this.parent instanceof IsoPlayer) {
+            GameServer.addXp((IsoPlayer)this.parent, PerkFactory.Perks.Strength, (float)((int)var1));
+            GameServer.addXp((IsoPlayer)this.parent, PerkFactory.Perks.Fitness, (float)((int)var2));
+         }
+      } else if (!GameClient.bClient) {
+         this.parent.getXp().AddXP(PerkFactory.Perks.Strength, var1);
+         this.parent.getXp().AddXP(PerkFactory.Perks.Fitness, var2);
+      }
+
    }
 
    public void resetValues() {
@@ -309,46 +330,42 @@ public final class Fitness {
    }
 
    public void load(ByteBuffer var1, int var2) {
-      if (var2 >= 167) {
-         int var3 = var1.getInt();
-         int var4;
-         if (var3 > 0) {
-            for(var4 = 0; var4 < var3; ++var4) {
-               this.stiffnessIncMap.put(GameWindow.ReadString(var1), var1.getFloat());
-            }
-         }
-
-         var3 = var1.getInt();
-         if (var3 > 0) {
-            for(var4 = 0; var4 < var3; ++var4) {
-               this.stiffnessTimerMap.put(GameWindow.ReadString(var1), var1.getInt());
-            }
-         }
-
-         var3 = var1.getInt();
-         if (var3 > 0) {
-            for(var4 = 0; var4 < var3; ++var4) {
-               this.regularityMap.put(GameWindow.ReadString(var1), var1.getFloat());
-            }
-         }
-
-         var3 = var1.getInt();
-         if (var3 > 0) {
-            for(var4 = 0; var4 < var3; ++var4) {
-               this.bodypartToIncStiffness.add(GameWindow.ReadString(var1));
-            }
-         }
-
-         if (var2 >= 169) {
-            var3 = var1.getInt();
-            if (var3 > 0) {
-               for(var4 = 0; var4 < var3; ++var4) {
-                  this.exeTimer.put(GameWindow.ReadString(var1), var1.getLong());
-               }
-            }
-
+      int var3 = var1.getInt();
+      int var4;
+      if (var3 > 0) {
+         for(var4 = 0; var4 < var3; ++var4) {
+            this.stiffnessIncMap.put(GameWindow.ReadString(var1), var1.getFloat());
          }
       }
+
+      var3 = var1.getInt();
+      if (var3 > 0) {
+         for(var4 = 0; var4 < var3; ++var4) {
+            this.stiffnessTimerMap.put(GameWindow.ReadString(var1), var1.getInt());
+         }
+      }
+
+      var3 = var1.getInt();
+      if (var3 > 0) {
+         for(var4 = 0; var4 < var3; ++var4) {
+            this.regularityMap.put(GameWindow.ReadString(var1), var1.getFloat());
+         }
+      }
+
+      var3 = var1.getInt();
+      if (var3 > 0) {
+         for(var4 = 0; var4 < var3; ++var4) {
+            this.bodypartToIncStiffness.add(GameWindow.ReadString(var1));
+         }
+      }
+
+      var3 = var1.getInt();
+      if (var3 > 0) {
+         for(var4 = 0; var4 < var3; ++var4) {
+            this.exeTimer.put(GameWindow.ReadString(var1), var1.getLong());
+         }
+      }
+
    }
 
    public boolean onGoingStiffness() {
@@ -393,15 +410,19 @@ public final class Fitness {
    public void init() {
       if (this.exercises.isEmpty()) {
          KahluaTableImpl var1 = (KahluaTableImpl)LuaManager.env.rawget("FitnessExercises");
-         KahluaTableImpl var2 = (KahluaTableImpl)var1.rawget("exercisesType");
-         Iterator var3 = var2.delegate.entrySet().iterator();
+         if (var1 != null) {
+            KahluaTableImpl var2 = (KahluaTableImpl)var1.rawget("exercisesType");
+            if (var2 != null) {
+               Iterator var3 = var2.delegate.entrySet().iterator();
 
-         while(var3.hasNext()) {
-            Map.Entry var4 = (Map.Entry)var3.next();
-            this.exercises.put((String)var4.getKey(), new FitnessExercise((KahluaTableImpl)var4.getValue()));
+               while(var3.hasNext()) {
+                  Map.Entry var4 = (Map.Entry)var3.next();
+                  this.exercises.put((String)var4.getKey(), new FitnessExercise((KahluaTableImpl)var4.getValue()));
+               }
+
+               this.initRegularityMapProfession();
+            }
          }
-
-         this.initRegularityMapProfession();
       }
    }
 
@@ -423,15 +444,15 @@ public final class Fitness {
          }
 
          if (var1 || var2 || var3) {
-            float var5;
-            for(Iterator var4 = this.exercises.keySet().iterator(); var4.hasNext(); this.regularityMap.put((String)var4.next(), var5)) {
-               var5 = (float)Rand.Next(7, 12);
+            String var5;
+            float var6;
+            for(Iterator var4 = this.exercises.keySet().iterator(); var4.hasNext(); this.regularityMap.put(var5, var6)) {
+               var5 = (String)var4.next();
+               var6 = (float)Rand.Next(7, 12);
                if (var1) {
-                  var5 = (float)Rand.Next(10, 20);
-               }
-
-               if (var2) {
-                  var5 = (float)Rand.Next(40, 60);
+                  var6 = (float)Rand.Next(10, 20);
+               } else if (var2) {
+                  var6 = (float)Rand.Next(40, 60);
                }
             }
 
@@ -440,9 +461,9 @@ public final class Fitness {
    }
 
    public static final class FitnessExercise {
-      String type = null;
-      Metabolics metabolics = null;
-      ArrayList<String> stiffnessInc = null;
+      String type;
+      Metabolics metabolics;
+      ArrayList<String> stiffnessInc;
       float xpModifier = 1.0F;
 
       public FitnessExercise(KahluaTableImpl var1) {

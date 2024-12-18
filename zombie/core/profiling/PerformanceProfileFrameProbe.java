@@ -7,13 +7,13 @@ public class PerformanceProfileFrameProbe extends PerformanceProfileProbe {
       super(var1);
    }
 
-   protected void onStart() {
+   public void start() {
       GameProfiler.getInstance().startFrame(this.Name);
-      super.onStart();
+      super.start();
    }
 
-   protected void onEnd() {
-      super.onEnd();
+   public void end() {
+      super.end();
       GameProfiler.getInstance().endFrame();
    }
 }

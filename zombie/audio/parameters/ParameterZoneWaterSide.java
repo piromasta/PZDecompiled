@@ -22,14 +22,14 @@ public final class ParameterZoneWaterSide extends FMODGlobalParameter {
       if (var1 == null) {
          return 40.0F;
       } else {
-         int var2 = (int)var1.getX();
-         int var3 = (int)var1.getY();
+         int var2 = PZMath.fastfloor(var1.getX());
+         int var3 = PZMath.fastfloor(var1.getY());
          if (var2 != this.m_playerX || var3 != this.m_playerY) {
             this.m_playerX = var2;
             this.m_playerY = var3;
             this.m_distance = this.calculate(var1);
             if (this.m_distance < 40) {
-               this.m_distance = PZMath.clamp(this.m_distance - 5, 0, 40);
+               this.m_distance = PZMath.clamp(this.m_distance - 4, 0, 40);
             }
          }
 
@@ -45,11 +45,11 @@ public final class ParameterZoneWaterSide extends FMODGlobalParameter {
          for(int var4 = 0; var4 < IsoChunkMap.ChunkGridWidth; ++var4) {
             for(int var5 = 0; var5 < IsoChunkMap.ChunkGridWidth; ++var5) {
                IsoChunk var6 = var2.getChunk(var5, var4);
-               if (var6 != null && var6.getNumberOfWaterTiles() == 100) {
-                  float var7 = (float)(var6.wx * 10) + 5.0F;
-                  float var8 = (float)(var6.wy * 10) + 5.0F;
-                  float var9 = var1.x - var7;
-                  float var10 = var1.y - var8;
+               if (var6 != null && var6.getNumberOfWaterTiles() == 64) {
+                  float var7 = (float)(var6.wx * 8) + 4.0F;
+                  float var8 = (float)(var6.wy * 8) + 4.0F;
+                  float var9 = var1.getX() - var7;
+                  float var10 = var1.getY() - var8;
                   if (var9 * var9 + var10 * var10 < var3) {
                      var3 = var9 * var9 + var10 * var10;
                   }

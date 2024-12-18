@@ -8,17 +8,18 @@ import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.MapCollisionData;
 import zombie.SoundManager;
-import zombie.core.Rand;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItemFactory;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.areas.isoregion.IsoRegions;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.network.GameServer;
+import zombie.pathfind.PolygonalMap2;
 import zombie.util.list.PZArrayUtil;
-import zombie.vehicles.PolygonalMap2;
 
 public class BrokenFences {
    private static final BrokenFences instance = new BrokenFences();
@@ -136,6 +137,7 @@ public class BrokenFences {
             MapCollisionData.instance.squareChanged(var1.getSquare());
             PolygonalMap2.instance.squareChanged(var1.getSquare());
             IsoRegions.squareChanged(var1.getSquare());
+            var1.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          }
 
       }
@@ -205,6 +207,7 @@ public class BrokenFences {
          MapCollisionData.instance.squareChanged(var3);
          PolygonalMap2.instance.squareChanged(var3);
          IsoRegions.squareChanged(var3);
+         var3.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_REMOVE | FBORenderChunk.DIRTY_OBJECT_MODIFY);
       }
    }
 
@@ -242,9 +245,9 @@ public class BrokenFences {
          String var5 = var3.Val("Material2");
          String var6 = var3.Val("Material3");
          if ("Wood".equals(var4) || "Wood".equals(var5) || "Wood".equals(var6)) {
-            var2.AddWorldInventoryItem(InventoryItemFactory.CreateItem("Base.Plank"), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+            var2.AddWorldInventoryItem(InventoryItemFactory.CreateItem("Base.UnusableWood"), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
             if (Rand.NextBool(5)) {
-               var2.AddWorldInventoryItem(InventoryItemFactory.CreateItem("Base.Plank"), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+               var2.AddWorldInventoryItem(InventoryItemFactory.CreateItem("Base.UnusableWood"), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
             }
          }
 

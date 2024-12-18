@@ -131,9 +131,15 @@ public class WorldMapStyleV1 {
       public void setFilter(String var1, String var2) {
          this.m_polygonStyle.m_filterKey = var1;
          this.m_polygonStyle.m_filterValue = var2;
-         this.m_polygonStyle.m_filter = (var2x, var3) -> {
-            return var2x.hasPolygon() && var2.equals(var2x.m_properties.get(var1));
-         };
+         if ("*".equals(var2)) {
+            this.m_polygonStyle.m_filter = (var1x, var2x) -> {
+               return var1x.hasPolygon() && var1x.m_properties.containsKey(var1);
+            };
+         } else {
+            this.m_polygonStyle.m_filter = (var2x, var3) -> {
+               return var2x.hasPolygon() && var2.equals(var2x.m_properties.get(var1));
+            };
+         }
       }
 
       public String getFilterKey() {
@@ -156,8 +162,16 @@ public class WorldMapStyleV1 {
          this.m_polygonStyle.m_texture.add(new WorldMapStyleLayer.TextureStop(var1, var2));
       }
 
+      public void addTexture(float var1, String var2, String var3) {
+         this.m_polygonStyle.m_texture.add(new WorldMapStyleLayer.TextureStop(var1, var2, var3));
+      }
+
       public void removeFill(int var1) {
          this.m_polygonStyle.m_fill.remove(var1);
+      }
+
+      public void removeScale(int var1) {
+         this.m_polygonStyle.m_scale.remove(var1);
       }
 
       public void removeTexture(int var1) {
@@ -167,6 +181,11 @@ public class WorldMapStyleV1 {
       public void moveFill(int var1, int var2) {
          WorldMapStyleLayer.ColorStop var3 = (WorldMapStyleLayer.ColorStop)this.m_polygonStyle.m_fill.remove(var1);
          this.m_polygonStyle.m_fill.add(var2, var3);
+      }
+
+      public void moveScale(int var1, int var2) {
+         WorldMapStyleLayer.FloatStop var3 = (WorldMapStyleLayer.FloatStop)this.m_polygonStyle.m_scale.remove(var1);
+         this.m_polygonStyle.m_scale.add(var2, var3);
       }
 
       public void moveTexture(int var1, int var2) {
@@ -209,6 +228,18 @@ public class WorldMapStyleV1 {
          return ((WorldMapStyleLayer.ColorStop)this.m_polygonStyle.m_fill.get(var1)).a;
       }
 
+      public int getScaleStops() {
+         return this.m_polygonStyle.m_scale.size();
+      }
+
+      public void setScaleZoom(int var1, float var2) {
+         ((WorldMapStyleLayer.FloatStop)this.m_polygonStyle.m_scale.get(var1)).m_zoom = PZMath.clamp(var2, 0.0F, 24.0F);
+      }
+
+      public void setScaleValue(int var1, int var2) {
+         ((WorldMapStyleLayer.FloatStop)this.m_polygonStyle.m_scale.get(var1)).f = PZMath.clamp((float)var2, 0.0F, 3.4028235E38F);
+      }
+
       public int getTextureStops() {
          return this.m_polygonStyle.m_texture.size();
       }
@@ -232,6 +263,14 @@ public class WorldMapStyleV1 {
 
       public Texture getTexture(int var1) {
          return ((WorldMapStyleLayer.TextureStop)this.m_polygonStyle.m_texture.get(var1)).texture;
+      }
+
+      public void setTextureScaling(int var1, String var2) {
+         ((WorldMapStyleLayer.TextureStop)this.m_polygonStyle.m_texture.get(var1)).scaling = WorldMapStyleLayer.TextureScaling.valueOf(var2);
+      }
+
+      public String getTextureScaling(int var1) {
+         return ((WorldMapStyleLayer.TextureStop)this.m_polygonStyle.m_texture.get(var1)).scaling.name();
       }
    }
 

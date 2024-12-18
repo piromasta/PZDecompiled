@@ -1,12 +1,14 @@
 package zombie.commands.serverCommands;
 
 import java.sql.SQLException;
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.commands.AltCommandArgs;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
 import zombie.core.raknet.UdpConnection;
@@ -35,8 +37,8 @@ import zombie.network.Userlog;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_BanUser"
 )
-@RequiredRight(
-   requiredRights = 48
+@RequiredCapability(
+   requiredCapability = Capability.BanUnbanUser
 )
 public class BanUserCommand extends CommandBase {
    private String reason = "";
@@ -45,7 +47,7 @@ public class BanUserCommand extends CommandBase {
    public static final String banWithReason = "Ban User And Supply Reason";
    public static final String banWithReasonIP = "Ban User And IP And Supply Reason";
 
-   public BanUserCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public BanUserCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -86,7 +88,7 @@ public class BanUserCommand extends CommandBase {
                   if ("".equals(this.reason)) {
                      GameServer.kick(var6, "UI_Policy_Ban", (String)null);
                   } else {
-                     GameServer.kick(var6, "You have been banned from this server for the following reason: " + this.reason, (String)null);
+                     GameServer.kick(var6, "UI_Policy_BanReason", this.reason);
                   }
 
                   var6.forceDisconnect("command-ban-ip");

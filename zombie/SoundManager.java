@@ -21,15 +21,19 @@ import zombie.audio.FMODParameter;
 import zombie.audio.FMODParameterList;
 import zombie.audio.GameSound;
 import zombie.audio.GameSoundClip;
+import zombie.audio.parameters.ParameterBulletHitSurface;
 import zombie.audio.parameters.ParameterMusicActionStyle;
+import zombie.audio.parameters.ParameterMusicIntensity;
 import zombie.audio.parameters.ParameterMusicLibrary;
 import zombie.audio.parameters.ParameterMusicState;
+import zombie.audio.parameters.ParameterMusicThreat;
 import zombie.audio.parameters.ParameterMusicWakeState;
 import zombie.audio.parameters.ParameterMusicZombiesTargeting;
 import zombie.audio.parameters.ParameterMusicZombiesVisible;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.gameStates.MainScreenState;
 import zombie.input.GameKeyboard;
@@ -37,6 +41,7 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
+import zombie.iso.enums.MaterialType;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
@@ -51,6 +56,8 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
    public float AmbientVolume = 0.8F;
    public float VehicleEngineVolume = 0.5F;
    private final ParameterMusicActionStyle parameterMusicActionStyle = new ParameterMusicActionStyle();
+   private final ParameterMusicIntensity parameterMusicIntensity = new ParameterMusicIntensity();
+   private final ParameterMusicThreat parameterMusicThreat = new ParameterMusicThreat();
    private final ParameterMusicLibrary parameterMusicLibrary = new ParameterMusicLibrary();
    private final ParameterMusicState parameterMusicState = new ParameterMusicState();
    private final ParameterMusicWakeState parameterMusicWakeState = new ParameterMusicWakeState();
@@ -63,6 +70,8 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
    private FMODSoundEmitter musicEmitter = null;
    private long musicCombinedEvent = 0L;
    private FMODSoundEmitter uiEmitter = null;
+   private final String bulletImpactSound = "BulletImpact";
+   private final String bulletHitSurfaceSound = "BulletHitSurface";
    private final Music music = new Music();
    public ArrayList<Audio> ambientPieces = new ArrayList();
    private boolean muted = false;
@@ -155,6 +164,19 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
       if (var2 != null && !var2.clips.isEmpty()) {
          GameSoundClip var3 = var2.getRandomClip();
          long var4 = this.uiEmitter.playClip(var3, (IsoObject)null);
+         if (var4 != 0L && IsoPlayer.getInstance() != null) {
+            if (IsoPlayer.getInstance().getReanimatedCorpse() != null) {
+               this.uiEmitter.setPos(IsoPlayer.getInstance().getReanimatedCorpse().getX(), IsoPlayer.getInstance().getReanimatedCorpse().getY(), IsoPlayer.getInstance().getReanimatedCorpse().getZ());
+            } else {
+               this.uiEmitter.setPos(IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY(), IsoPlayer.getInstance().getZ());
+            }
+
+            this.uiEmitter.setParameterValue(var4, FMODManager.instance.getParameterDescription("FootstepMaterial"), 2.0F);
+            this.uiEmitter.setParameterValue(var4, FMODManager.instance.getParameterDescription("FootstepMaterial2"), 0.0F);
+            this.uiEmitter.setParameterValue(var4, FMODManager.instance.getParameterDescription("Inside"), 0.0F);
+            this.uiEmitter.setParameterValue(var4, FMODManager.instance.getParameterDescription("RainIntensity"), 0.0F);
+         }
+
          this.uiEmitter.tick();
          javafmod.FMOD_System_Update();
          return var4;
@@ -329,7 +351,7 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
 
          while(var1.hasNext()) {
             ScriptModule var2 = (ScriptModule)var1.next();
-            Iterator var3 = var2.ItemMap.values().iterator();
+            Iterator var3 = var2.items.getScriptMap().values().iterator();
 
             while(var3.hasNext()) {
                Item var4 = (Item)var3.next();
@@ -373,7 +395,7 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
       } else {
          for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
             IsoPlayer var5 = IsoPlayer.players[var4];
-            if (var5 != null && !var5.Traits.Deaf.isSet() && IsoUtils.DistanceToSquared(var5.x, var5.y, var1, var2) < var3 * var3) {
+            if (var5 != null && !var5.Traits.Deaf.isSet() && IsoUtils.DistanceToSquared(var5.getX(), var5.getY(), var1, var2) < var3 * var3) {
                return true;
             }
          }
@@ -383,7 +405,7 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
    }
 
    public void playNightAmbient(String var1) {
-      DebugLog.log("playNightAmbient: " + var1);
+      DebugLog.Sound.println("playNightAmbient: " + var1);
 
       for(int var2 = 0; var2 < ambientSoundEffects.size(); ++var2) {
          AmbientSoundEffect var3 = (AmbientSoundEffect)ambientSoundEffects.get(var2);
@@ -635,12 +657,16 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
          this.unregisterEmitter(this.musicEmitter);
          this.musicEmitter.parameterUpdater = this;
          this.fmodParameters.add(this.parameterMusicActionStyle);
+         this.fmodParameters.add(this.parameterMusicIntensity);
+         this.fmodParameters.add(this.parameterMusicThreat);
          this.fmodParameters.add(this.parameterMusicLibrary);
          this.fmodParameters.add(this.parameterMusicState);
          this.fmodParameters.add(this.parameterMusicWakeState);
          this.fmodParameters.add(this.parameterMusicZombiesTargeting);
          this.fmodParameters.add(this.parameterMusicZombiesVisible);
-         this.uiEmitter = new FMODSoundEmitter();
+         if (this.uiEmitter == null) {
+            this.uiEmitter = new FMODSoundEmitter();
+         }
       }
 
       FMODSoundEmitter.update();
@@ -720,6 +746,11 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
 
    public void setSoundVolume(float var1) {
       this.SoundVolume = var1;
+      long var2 = javafmodJNI.FMOD_Studio_System_GetVCA("vca:/Settings_Sfx");
+      if (var2 != 0L) {
+         javafmodJNI.FMOD_Studio_VCA_SetVolume(var2, var1);
+      }
+
    }
 
    public float getSoundVolume() {
@@ -727,18 +758,26 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
    }
 
    public void setAmbientVolume(float var1) {
+      var1 = 1.0F;
       this.AmbientVolume = var1;
+      long var2 = javafmodJNI.FMOD_Studio_System_GetVCA("vca:/Settings_Ambience");
+      if (var2 != 0L) {
+         javafmodJNI.FMOD_Studio_VCA_SetVolume(var2, var1);
+      }
+
    }
 
    public float getAmbientVolume() {
-      return this.AmbientVolume;
+      return 1.0F;
    }
 
    public void setMusicVolume(float var1) {
       this.MusicVolume = var1;
-      if (!this.muted) {
-         ;
+      long var2 = javafmodJNI.FMOD_Studio_System_GetVCA("vca:/Settings_Music");
+      if (var2 != 0L) {
+         javafmodJNI.FMOD_Studio_VCA_SetVolume(var2, var1);
       }
+
    }
 
    public float getMusicVolume() {
@@ -747,6 +786,11 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
 
    public void setVehicleEngineVolume(float var1) {
       this.VehicleEngineVolume = var1;
+      long var2 = javafmodJNI.FMOD_Studio_System_GetVCA("vca:/Settings_VehicleEngines");
+      if (var2 != 0L) {
+         javafmodJNI.FMOD_Studio_VCA_SetVolume(var2, var1);
+      }
+
    }
 
    public float getVehicleEngineVolume() {
@@ -763,7 +807,7 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
 
    private void updateMusic() {
       this.fmodParameters.update();
-      if (GameKeyboard.isKeyPressed(Core.getInstance().getKey("Toggle Music"))) {
+      if (GameKeyboard.isKeyPressed("Toggle Music")) {
          this.AllowMusic = !this.AllowMusic;
          if (!this.AllowMusic) {
             this.StopMusic();
@@ -773,7 +817,7 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
 
       if (!this.musicEmitter.isPlaying(this.musicCombinedEvent)) {
          this.musicCombinedEvent = this.musicEmitter.playSoundImpl("MusicCombined", (IsoObject)null);
-         if (this.musicCombinedEvent != 0L && !System.getProperty("os.name").contains("OS X")) {
+         if (this.musicCombinedEvent != 0L) {
             javafmod.FMOD_Studio_EventInstance_SetCallback(this.musicCombinedEvent, this.musicEventCallback, FMOD_STUDIO_EVENT_CALLBACK_TYPE.FMOD_STUDIO_EVENT_CALLBACK_TIMELINE_MARKER.bit);
          }
       }
@@ -783,6 +827,46 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
       }
 
       this.musicEmitter.tick();
+   }
+
+   public FMODSoundEmitter getUIEmitter() {
+      if (this.uiEmitter == null) {
+         this.uiEmitter = new FMODSoundEmitter();
+      }
+
+      return this.uiEmitter;
+   }
+
+   public void playImpactSound(IsoGridSquare var1) {
+      PropertyContainer var2 = var1.getProperties();
+      String var3 = var2.Val("MaterialType");
+      this.playImpactSound(var1, var3);
+   }
+
+   public void playImpactSound(IsoGridSquare var1, MaterialType var2) {
+      String var3 = var2.toString();
+      this.playImpactSound(var1, var3);
+   }
+
+   private void playImpactSound(IsoGridSquare var1, String var2) {
+      if (!StringUtils.isNullOrWhitespace(var2)) {
+         if (StringUtils.isNullOrWhitespace(var2)) {
+            DebugLog.Sound.debugln("MaterialType not defined for : " + var2);
+            var2 = MaterialType.Concrete.toString();
+         }
+
+         BaseSoundEmitter var3 = IsoWorld.instance.getFreeEmitter();
+         long var4 = var3.playSound("BulletImpact", var1);
+
+         float var6;
+         try {
+            var6 = (float)ParameterBulletHitSurface.Material.valueOf(var2).label;
+         } catch (IllegalArgumentException var8) {
+            var6 = (float)ParameterBulletHitSurface.Material.Default.label;
+         }
+
+         var3.setParameterValueByName(var4, "BulletHitSurface", var6);
+      }
    }
 
    private static final class Music {
@@ -890,7 +974,7 @@ public final class SoundManager extends BaseSoundManager implements IFMODParamet
       }
 
       public void stop() {
-         DebugLog.log("stop ambient " + this.name);
+         DebugLog.Sound.println("stop ambient " + this.name);
          if (this.eventInstance > 0L) {
             javafmod.FMOD_Studio_EventInstance_Stop(this.eventInstance, false);
          }

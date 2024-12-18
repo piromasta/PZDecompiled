@@ -30,6 +30,8 @@ public class ClothingItemAssetManager extends AssetManager {
       if (var2 instanceof ClothingItemXML var4) {
          var1.m_MaleModel = this.fixPath(var4.m_MaleModel);
          var1.m_FemaleModel = this.fixPath(var4.m_FemaleModel);
+         var1.m_AltMaleModel = this.fixPath(var4.m_AltMaleModel);
+         var1.m_AltFemaleModel = this.fixPath(var4.m_AltFemaleModel);
          var1.m_Static = var4.m_Static;
          PZArrayUtil.arrayCopy((List)var1.m_BaseTextures, (List)this.fixPaths(var4.m_BaseTextures));
          var1.m_AttachBone = var4.m_AttachBone;
@@ -42,6 +44,7 @@ public class ClothingItemAssetManager extends AssetManager {
          var1.m_DecalGroup = var4.m_DecalGroup;
          var1.m_Shader = var4.m_Shader;
          var1.m_HatCategory = var4.m_HatCategory;
+         PZArrayUtil.arrayCopy((List)var1.m_SpawnWith, (List)this.fixPaths(var4.m_SpawnWith));
          this.onLoadingSucceeded(var1);
       } else {
          this.onLoadingFailed(var1);

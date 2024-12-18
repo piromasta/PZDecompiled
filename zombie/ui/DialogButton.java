@@ -69,8 +69,8 @@ public final class DialogButton extends UIElement {
       if (!this.isVisible()) {
          return false;
       } else {
-         if (this.getTable() != null && this.getTable().rawget("onMouseDown") != null) {
-            Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onMouseDown"), new Object[]{this.table, var1, var3});
+         if (this.getTable() != null && UIManager.tableget(this.table, "onMouseDown") != null) {
+            Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onMouseDown"), new Object[]{this.table, var1, var3});
          }
 
          this.clicked = true;
@@ -80,8 +80,8 @@ public final class DialogButton extends UIElement {
 
    public Boolean onMouseMove(double var1, double var3) {
       this.mouseOver = true;
-      if (this.getTable() != null && this.getTable().rawget("onMouseMove") != null) {
-         Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onMouseMove"), new Object[]{this.table, var1, var3});
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseMove") != null) {
+         Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onMouseMove"), new Object[]{this.table, var1, var3});
       }
 
       return Boolean.TRUE;
@@ -89,16 +89,16 @@ public final class DialogButton extends UIElement {
 
    public void onMouseMoveOutside(double var1, double var3) {
       this.clicked = false;
-      if (this.getTable() != null && this.getTable().rawget("onMouseMoveOutside") != null) {
-         Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onMouseMoveOutside"), new Object[]{this.table, var1, var3});
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseMoveOutside") != null) {
+         Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onMouseMoveOutside"), new Object[]{this.table, var1, var3});
       }
 
       this.mouseOver = false;
    }
 
    public Boolean onMouseUp(double var1, double var3) {
-      if (this.getTable() != null && this.getTable().rawget("onMouseUp") != null) {
-         Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onMouseUp"), new Object[]{this.table, var1, var3});
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseUp") != null) {
+         Object[] var5 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onMouseUp"), new Object[]{this.table, var1, var3});
       }
 
       if (this.clicked) {

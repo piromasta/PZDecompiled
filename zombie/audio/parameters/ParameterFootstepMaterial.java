@@ -4,9 +4,11 @@ import fmod.fmod.FMODManager;
 import zombie.audio.FMODLocalParameter;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.core.properties.PropertyContainer;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
+import zombie.iso.IsoWorld;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.util.list.PZArrayList;
@@ -28,7 +30,7 @@ public final class ParameterFootstepMaterial extends FMODLocalParameter {
          for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
             IsoPlayer var2 = IsoPlayer.players[var1];
             if (var2 != null && var2 != this.character && !var2.Traits.Deaf.isSet()) {
-               if ((int)var2.getZ() < (int)this.character.getZ()) {
+               if (PZMath.fastfloor(var2.getZ()) < PZMath.fastfloor(this.character.getZ())) {
                   return ParameterFootstepMaterial.FootstepMaterial.Upstairs;
                }
                break;
@@ -36,39 +38,48 @@ public final class ParameterFootstepMaterial extends FMODLocalParameter {
          }
       }
 
-      Object var9 = null;
-      IsoObject var10 = null;
-      IsoGridSquare var3 = this.character.getCurrentSquare();
-      if (var3 != null) {
-         PZArrayList var4 = var3.getObjects();
+      Object var10 = null;
+      IsoObject var11 = null;
+      IsoObject var3 = null;
+      IsoGridSquare var4 = this.character.getCurrentSquare();
+      if (var4 != null) {
+         if (IsoWorld.instance.CurrentCell.gridSquareIsSnow(var4.x, var4.y, var4.z)) {
+            return ParameterFootstepMaterial.FootstepMaterial.Snow;
+         }
 
-         for(int var5 = 0; var5 < var4.size(); ++var5) {
-            IsoObject var6 = (IsoObject)var4.get(var5);
-            if (!(var6 instanceof IsoWorldInventoryObject)) {
-               PropertyContainer var7 = var6.getProperties();
-               if (var7 != null) {
-                  if (var7.Is(IsoFlagType.solidfloor)) {
+         PZArrayList var5 = var4.getObjects();
+
+         for(int var6 = 0; var6 < var5.size(); ++var6) {
+            IsoObject var7 = (IsoObject)var5.get(var6);
+            if (!(var7 instanceof IsoWorldInventoryObject)) {
+               PropertyContainer var8 = var7.getProperties();
+               if (var8 != null) {
+                  if (var8.Is(IsoFlagType.solidfloor)) {
                      ;
                   }
 
-                  if (var7.Is("FootstepMaterial")) {
-                     var10 = var6;
+                  if (var7.isStairsObject()) {
+                     var11 = var7;
+                  }
+
+                  if (var8.Is("FootstepMaterial")) {
+                     var3 = var7;
                   }
                }
             }
          }
       }
 
-      if (var10 != null) {
+      if (var3 != null) {
          try {
-            String var11 = var10.getProperties().Val("FootstepMaterial");
-            return ParameterFootstepMaterial.FootstepMaterial.valueOf(var11);
-         } catch (IllegalArgumentException var8) {
-            boolean var12 = true;
+            String var12 = var3.getProperties().Val("FootstepMaterial");
+            return ParameterFootstepMaterial.FootstepMaterial.valueOf(var12);
+         } catch (IllegalArgumentException var9) {
+            boolean var13 = true;
          }
       }
 
-      return ParameterFootstepMaterial.FootstepMaterial.Concrete;
+      return var11 != null ? ParameterFootstepMaterial.FootstepMaterial.Wood : ParameterFootstepMaterial.FootstepMaterial.Concrete;
    }
 
    static enum FootstepMaterial {

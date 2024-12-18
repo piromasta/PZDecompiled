@@ -16,6 +16,9 @@ public final class Mask implements Serializable, Cloneable {
    private int height;
    BooleanGrid mask;
    private int width;
+   private boolean bSubMask = false;
+   private int offsetX;
+   private int offsetY;
 
    protected Mask() {
    }
@@ -69,17 +72,13 @@ public final class Mask implements Serializable, Cloneable {
 
    }
 
-   public Mask(BooleanGrid var1, int var2, int var3, int var4, int var5, int var6, int var7) {
-      this.width = var6;
-      this.height = var7;
-      this.mask = new BooleanGrid(var6, var7);
-
-      for(int var8 = 0; var8 < var6; ++var8) {
-         for(int var9 = 0; var9 < var7; ++var9) {
-            this.mask.setValue(var8, var9, var1.getValue(var4 + var8, var5 + var9));
-         }
-      }
-
+   public Mask(BooleanGrid var1, int var2, int var3, int var4, int var5) {
+      this.bSubMask = true;
+      this.offsetX = var2;
+      this.offsetY = var3;
+      this.width = var4;
+      this.height = var5;
+      this.mask = var1;
    }
 
    protected Mask(Texture var1, WrappedBuffer var2) {
@@ -204,16 +203,42 @@ public final class Mask implements Serializable, Cloneable {
    }
 
    public Mask(Mask var1) {
+      this.bSubMask = var1.bSubMask;
+      this.offsetX = var1.offsetX;
+      this.offsetY = var1.offsetY;
       this.width = var1.width;
       this.height = var1.height;
       this.full = var1.full;
+      if (this.bSubMask) {
+         this.mask = var1.mask;
+      } else {
+         try {
+            this.mask = var1.mask.clone();
+         } catch (CloneNotSupportedException var3) {
+            var3.printStackTrace(System.err);
+         }
 
-      try {
-         this.mask = var1.mask.clone();
-      } catch (CloneNotSupportedException var3) {
-         var3.printStackTrace(System.err);
       }
+   }
 
+   public int getWidth() {
+      return this.width;
+   }
+
+   public int getHeight() {
+      return this.height;
+   }
+
+   public boolean isSubMask() {
+      return this.bSubMask;
+   }
+
+   public int getOffsetX() {
+      return this.isSubMask() ? this.offsetX : 0;
+   }
+
+   public int getOffsetY() {
+      return this.isSubMask() ? this.offsetY : 0;
    }
 
    public Object clone() {
@@ -226,15 +251,37 @@ public final class Mask implements Serializable, Cloneable {
    }
 
    public void set(int var1, int var2, boolean var3) {
-      this.mask.setValue(var1, var2, var3);
-      if (!var3 && this.full) {
-         this.full = false;
-      }
+      if (this.isSubMask()) {
+         if (var1 >= 0 && var1 < this.width) {
+            if (var2 >= 0 && var2 < this.height) {
+               this.mask.setValue(this.offsetX + var1, this.offsetY + var2, var3);
+               if (!var3 && this.full) {
+                  this.full = false;
+               }
 
+            }
+         }
+      } else {
+         this.mask.setValue(var1, var2, var3);
+         if (!var3 && this.full) {
+            this.full = false;
+         }
+
+      }
    }
 
    public boolean get(int var1, int var2) {
-      return this.full ? true : this.mask.getValue(var1, var2);
+      if (this.full) {
+         return true;
+      } else if (this.isSubMask()) {
+         if (var1 >= 0 && var1 < this.width) {
+            return var2 >= 0 && var2 < this.height ? this.mask.getValue(this.offsetX + var1, this.offsetY + var2) : false;
+         } else {
+            return false;
+         }
+      } else {
+         return this.mask.getValue(var1, var2);
+      }
    }
 
    private void readObject(ObjectInputStream var1) throws IOException, ClassNotFoundException {

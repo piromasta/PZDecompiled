@@ -4,63 +4,678 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.TreeMap;
-import zombie.core.logger.ExceptionLogger;
+import zombie.GameSounds;
 import zombie.core.math.PZMath;
 import zombie.core.skinnedmodel.runtime.RuntimeAnimationScript;
 import zombie.debug.DebugLog;
 import zombie.iso.MultiStageBuilding;
+import zombie.iso.SpriteModel;
 import zombie.scripting.IScriptObjectStore;
+import zombie.scripting.ScriptBucket;
+import zombie.scripting.ScriptLoadMode;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
+import zombie.scripting.entity.GameEntityScript;
+import zombie.scripting.entity.GameEntityTemplate;
+import zombie.scripting.entity.components.crafting.CraftRecipe;
+import zombie.scripting.itemConfig.ItemConfig;
+import zombie.scripting.ui.XuiScriptType;
 import zombie.vehicles.VehicleEngineRPM;
 
-public final class ScriptModule extends BaseScriptObject implements IScriptObjectStore {
+public final class ScriptModule implements IScriptObjectStore {
    public String name;
    public String value;
-   public final HashMap<String, Item> ItemMap = new HashMap();
-   public final HashMap<String, GameSoundScript> GameSoundMap = new HashMap();
-   public final ArrayList<GameSoundScript> GameSoundList = new ArrayList();
-   public final HashMap<String, AnimationsMesh> AnimationsMeshMap = new HashMap();
-   public final HashMap<String, MannequinScript> MannequinScriptMap = new HashMap();
-   public final TreeMap<String, ModelScript> ModelScriptMap;
-   public final HashMap<String, RuntimeAnimationScript> RuntimeAnimationScriptMap;
-   public final HashMap<String, SoundTimelineScript> SoundTimelineMap;
-   public final HashMap<String, VehicleScript> VehicleMap;
-   public final HashMap<String, VehicleTemplate> VehicleTemplateMap;
-   public final HashMap<String, VehicleEngineRPM> VehicleEngineRPMMap;
-   public final ArrayList<Recipe> RecipeMap;
-   public final HashMap<String, Recipe> RecipeByName;
-   public final HashMap<String, Recipe> RecipesWithDotInName;
-   public final ArrayList<EvolvedRecipe> EvolvedRecipeMap;
-   public final ArrayList<UniqueRecipe> UniqueRecipeMap;
-   public final HashMap<String, Fixing> FixingMap;
-   public final ArrayList<String> Imports;
-   public boolean disabled;
+   public final ArrayList<String> Imports = new ArrayList();
+   public boolean disabled = false;
+   private final ArrayList<ScriptBucket<?>> scriptBucketList = new ArrayList();
+   private final HashMap<ScriptType, ScriptBucket<?>> scriptBucketMap = new HashMap();
+   public final ScriptBucket.Template<VehicleTemplate> vehicleTemplates;
+   public final ScriptBucket.Template<GameEntityTemplate> entityTemplates;
+   public final ScriptBucket<Item> items;
+   public final ScriptBucket<Recipe> recipes;
+   public final ScriptBucket<UniqueRecipe> uniqueRecipes;
+   public final ScriptBucket<EvolvedRecipe> evolvedRecipes;
+   public final ScriptBucket<Fixing> fixings;
+   public final ScriptBucket<AnimationsMesh> animationMeshes;
+   public final ScriptBucket<MannequinScript> mannequins;
+   public final ScriptBucket<ModelScript> models;
+   public final ScriptBucket<PhysicsShapeScript> physicsShapes;
+   public final ScriptBucket<SpriteModel> spriteModels;
+   public final ScriptBucket<GameSoundScript> gameSounds;
+   public final ScriptBucket<SoundTimelineScript> soundTimelines;
+   public final ScriptBucket<VehicleScript> vehicles;
+   public final ScriptBucket<RuntimeAnimationScript> animations;
+   public final ScriptBucket<VehicleEngineRPM> vehicleEngineRPMs;
+   public final ScriptBucket<ItemConfig> itemConfigs;
+   public final ScriptBucket<GameEntityScript> entities;
+   public final ScriptBucket<XuiConfigScript> xuiConfigScripts;
+   public final ScriptBucket<XuiLayoutScript> xuiLayouts;
+   public final ScriptBucket<XuiLayoutScript> xuiStyles;
+   public final ScriptBucket<XuiLayoutScript> xuiDefaultStyles;
+   public final ScriptBucket<XuiColorsScript> xuiGlobalColors;
+   public final ScriptBucket<XuiSkinScript> xuiSkinScripts;
+   public final ScriptBucket<ItemFilterScript> itemFilters;
+   public final ScriptBucket<FluidFilterScript> fluidFilters;
+   public final ScriptBucket<CraftRecipe> craftRecipes;
+   public final ScriptBucket<StringListScript> stringLists;
+   public final ScriptBucket<EnergyDefinitionScript> energyDefinitionScripts;
+   public final ScriptBucket<FluidDefinitionScript> fluidDefinitionScripts;
+   public final ScriptBucket<TimedActionScript> timedActionScripts;
+   public final ScriptBucket<RagdollScript> ragdollScripts;
 
-   public ScriptModule() {
-      this.ModelScriptMap = new TreeMap(String.CASE_INSENSITIVE_ORDER);
-      this.RuntimeAnimationScriptMap = new HashMap();
-      this.SoundTimelineMap = new HashMap();
-      this.VehicleMap = new HashMap();
-      this.VehicleTemplateMap = new HashMap();
-      this.VehicleEngineRPMMap = new HashMap();
-      this.RecipeMap = new ArrayList();
-      this.RecipeByName = new HashMap();
-      this.RecipesWithDotInName = new HashMap();
-      this.EvolvedRecipeMap = new ArrayList();
-      this.UniqueRecipeMap = new ArrayList();
-      this.FixingMap = new HashMap();
-      this.Imports = new ArrayList();
-      this.disabled = false;
+   private <T extends BaseScriptObject> ScriptBucket<T> addBucket(ScriptBucket<T> var1) {
+      if (this.scriptBucketMap.containsKey(var1.getScriptType())) {
+         throw new RuntimeException("ScriptType bucket already added.");
+      } else {
+         this.scriptBucketMap.put(var1.getScriptType(), var1);
+         this.scriptBucketList.add(var1);
+         return var1;
+      }
    }
 
-   public void Load(String var1, String var2) {
-      this.name = var1;
-      this.value = var2.trim();
+   private <T extends BaseScriptObject> ScriptBucket.Template<T> addBucket(ScriptBucket.Template<T> var1) {
+      if (this.scriptBucketMap.containsKey(var1.getScriptType())) {
+         throw new RuntimeException("ScriptType bucket already added.");
+      } else {
+         this.scriptBucketMap.put(var1.getScriptType(), var1);
+         this.scriptBucketList.add(var1);
+         return var1;
+      }
+   }
+
+   public VehicleTemplate getVehicleTemplate(String var1) {
+      return (VehicleTemplate)this.vehicleTemplates.get(var1);
+   }
+
+   public GameEntityTemplate getGameEntityTemplate(String var1) {
+      return (GameEntityTemplate)this.entityTemplates.get(var1);
+   }
+
+   public Item getItem(String var1) {
+      return (Item)this.items.get(var1);
+   }
+
+   public Recipe getRecipe(String var1) {
+      return (Recipe)this.recipes.get(var1);
+   }
+
+   public UniqueRecipe getUniqueRecipe(String var1) {
+      return (UniqueRecipe)this.uniqueRecipes.get(var1);
+   }
+
+   public EvolvedRecipe getEvolvedRecipe(String var1) {
+      return (EvolvedRecipe)this.evolvedRecipes.get(var1);
+   }
+
+   public Fixing getFixing(String var1) {
+      return (Fixing)this.fixings.get(var1);
+   }
+
+   public AnimationsMesh getAnimationsMesh(String var1) {
+      return (AnimationsMesh)this.animationMeshes.get(var1);
+   }
+
+   public MannequinScript getMannequinScript(String var1) {
+      return (MannequinScript)this.mannequins.get(var1);
+   }
+
+   public ModelScript getModelScript(String var1) {
+      return (ModelScript)this.models.get(var1);
+   }
+
+   public PhysicsShapeScript getPhysicsShape(String var1) {
+      return (PhysicsShapeScript)this.physicsShapes.get(var1);
+   }
+
+   public SpriteModel getSpriteModel(String var1) {
+      return (SpriteModel)this.spriteModels.get(var1);
+   }
+
+   public GameSoundScript getGameSound(String var1) {
+      return (GameSoundScript)this.gameSounds.get(var1);
+   }
+
+   public SoundTimelineScript getSoundTimeline(String var1) {
+      return (SoundTimelineScript)this.soundTimelines.get(var1);
+   }
+
+   public VehicleScript getVehicle(String var1) {
+      return (VehicleScript)this.vehicles.get(var1);
+   }
+
+   public RuntimeAnimationScript getAnimation(String var1) {
+      return (RuntimeAnimationScript)this.animations.get(var1);
+   }
+
+   public VehicleEngineRPM getVehicleEngineRPM(String var1) {
+      return (VehicleEngineRPM)this.vehicleEngineRPMs.get(var1);
+   }
+
+   public ItemConfig getItemConfig(String var1) {
+      return (ItemConfig)this.itemConfigs.get(var1);
+   }
+
+   public GameEntityScript getGameEntityScript(String var1) {
+      return (GameEntityScript)this.entities.get(var1);
+   }
+
+   public XuiConfigScript getXuiConfigScript(String var1) {
+      return (XuiConfigScript)this.xuiConfigScripts.get(var1);
+   }
+
+   public XuiLayoutScript getXuiLayout(String var1) {
+      return (XuiLayoutScript)this.xuiLayouts.get(var1);
+   }
+
+   public XuiLayoutScript getXuiStyle(String var1) {
+      return (XuiLayoutScript)this.xuiStyles.get(var1);
+   }
+
+   public XuiLayoutScript getXuiDefaultStyle(String var1) {
+      return (XuiLayoutScript)this.xuiDefaultStyles.get(var1);
+   }
+
+   public XuiColorsScript getXuiGlobalColors(String var1) {
+      return (XuiColorsScript)this.xuiGlobalColors.get(var1);
+   }
+
+   public XuiSkinScript getXuiSkinScript(String var1) {
+      return (XuiSkinScript)this.xuiSkinScripts.get(var1);
+   }
+
+   public ItemFilterScript getItemFilter(String var1) {
+      return (ItemFilterScript)this.itemFilters.get(var1);
+   }
+
+   public FluidFilterScript getFluidFilter(String var1) {
+      return (FluidFilterScript)this.fluidFilters.get(var1);
+   }
+
+   public CraftRecipe getCraftRecipe(String var1) {
+      return (CraftRecipe)this.craftRecipes.get(var1);
+   }
+
+   public StringListScript getStringList(String var1) {
+      return (StringListScript)this.stringLists.get(var1);
+   }
+
+   public EnergyDefinitionScript getEnergyDefinitionScript(String var1) {
+      return (EnergyDefinitionScript)this.energyDefinitionScripts.get(var1);
+   }
+
+   public FluidDefinitionScript getFluidDefinitionScript(String var1) {
+      return (FluidDefinitionScript)this.fluidDefinitionScripts.get(var1);
+   }
+
+   public TimedActionScript getTimedActionScript(String var1) {
+      return (TimedActionScript)this.timedActionScripts.get(var1);
+   }
+
+   public RagdollScript getRagdollScript(String var1) {
+      return (RagdollScript)this.ragdollScripts.get(var1);
+   }
+
+   public ScriptModule() {
+      this.vehicleTemplates = this.addBucket(new ScriptBucket.Template<VehicleTemplate>(this, ScriptType.VehicleTemplate) {
+         public VehicleTemplate createInstance(ScriptModule var1, String var2, String var3) {
+            return new VehicleTemplate(var1, var2, var3);
+         }
+
+         protected VehicleTemplate getFromManager(String var1) {
+            return ScriptManager.instance.getVehicleTemplate(var1);
+         }
+
+         protected VehicleTemplate getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getVehicleTemplate(var1) : null;
+         }
+      });
+      this.entityTemplates = this.addBucket(new ScriptBucket.Template<GameEntityTemplate>(this, ScriptType.EntityTemplate) {
+         public GameEntityTemplate createInstance(ScriptModule var1, String var2, String var3) {
+            return new GameEntityTemplate(var1, var2, var3);
+         }
+
+         protected GameEntityTemplate getFromManager(String var1) {
+            return ScriptManager.instance.getGameEntityTemplate(var1);
+         }
+
+         protected GameEntityTemplate getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getGameEntityTemplate(var1) : null;
+         }
+      });
+      this.items = this.addBucket(new ScriptBucket<Item>(this, ScriptType.Item) {
+         public Item createInstance(ScriptModule var1, String var2, String var3) {
+            return new Item();
+         }
+
+         protected Item getFromManager(String var1) {
+            return ScriptManager.instance.getItem(var1);
+         }
+
+         protected Item getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getItem(var1) : null;
+         }
+      });
+      this.recipes = this.addBucket(new ScriptBucket<Recipe>(this, ScriptType.Recipe) {
+         public Recipe createInstance(ScriptModule var1, String var2, String var3) {
+            return new Recipe();
+         }
+
+         protected Recipe getFromManager(String var1) {
+            return ScriptManager.instance.getRecipe(var1);
+         }
+
+         protected Recipe getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getRecipe(var1) : null;
+         }
+      });
+      this.uniqueRecipes = this.addBucket(new ScriptBucket<UniqueRecipe>(this, ScriptType.UniqueRecipe) {
+         public UniqueRecipe createInstance(ScriptModule var1, String var2, String var3) {
+            return new UniqueRecipe(var2);
+         }
+
+         protected UniqueRecipe getFromManager(String var1) {
+            return ScriptManager.instance.getUniqueRecipe(var1);
+         }
+
+         protected UniqueRecipe getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getUniqueRecipe(var1) : null;
+         }
+      });
+      this.evolvedRecipes = this.addBucket(new ScriptBucket<EvolvedRecipe>(this, ScriptType.EvolvedRecipe) {
+         public EvolvedRecipe createInstance(ScriptModule var1, String var2, String var3) {
+            return new EvolvedRecipe(var2);
+         }
+
+         protected EvolvedRecipe getFromManager(String var1) {
+            return ScriptManager.instance.getEvolvedRecipe(var1);
+         }
+
+         protected EvolvedRecipe getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getEvolvedRecipe(var1) : null;
+         }
+      });
+      this.fixings = this.addBucket(new ScriptBucket<Fixing>(this, ScriptType.Fixing) {
+         public Fixing createInstance(ScriptModule var1, String var2, String var3) {
+            return new Fixing();
+         }
+
+         protected Fixing getFromManager(String var1) {
+            return ScriptManager.instance.getFixing(var1);
+         }
+
+         protected Fixing getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getFixing(var1) : null;
+         }
+      });
+      this.animationMeshes = this.addBucket(new ScriptBucket<AnimationsMesh>(this, ScriptType.AnimationMesh) {
+         public AnimationsMesh createInstance(ScriptModule var1, String var2, String var3) {
+            return new AnimationsMesh();
+         }
+
+         protected AnimationsMesh getFromManager(String var1) {
+            return ScriptManager.instance.getAnimationsMesh(var1);
+         }
+
+         protected AnimationsMesh getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getAnimationsMesh(var1) : null;
+         }
+      });
+      this.mannequins = this.addBucket(new ScriptBucket<MannequinScript>(this, ScriptType.Mannequin) {
+         public MannequinScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new MannequinScript();
+         }
+
+         protected MannequinScript getFromManager(String var1) {
+            return ScriptManager.instance.getMannequinScript(var1);
+         }
+
+         protected MannequinScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getMannequinScript(var1) : null;
+         }
+      });
+      this.models = this.addBucket(new ScriptBucket<ModelScript>(this, ScriptType.Model) {
+         public ModelScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new ModelScript();
+         }
+
+         protected ModelScript getFromManager(String var1) {
+            return ScriptManager.instance.getModelScript(var1);
+         }
+
+         protected ModelScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getModelScript(var1) : null;
+         }
+      });
+      this.physicsShapes = this.addBucket(new ScriptBucket<PhysicsShapeScript>(this, ScriptType.PhysicsShape) {
+         public PhysicsShapeScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new PhysicsShapeScript();
+         }
+
+         protected PhysicsShapeScript getFromManager(String var1) {
+            return ScriptManager.instance.getPhysicsShape(var1);
+         }
+
+         protected PhysicsShapeScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getPhysicsShape(var1) : null;
+         }
+      });
+      this.spriteModels = this.addBucket(new ScriptBucket<SpriteModel>(this, ScriptType.SpriteModel) {
+         public SpriteModel createInstance(ScriptModule var1, String var2, String var3) {
+            return new SpriteModel();
+         }
+
+         protected SpriteModel getFromManager(String var1) {
+            return ScriptManager.instance.getSpriteModel(var1);
+         }
+
+         protected SpriteModel getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getSpriteModel(var1) : null;
+         }
+      });
+      this.gameSounds = this.addBucket(new ScriptBucket<GameSoundScript>(this, ScriptType.Sound) {
+         public GameSoundScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new GameSoundScript();
+         }
+
+         protected GameSoundScript getFromManager(String var1) {
+            return ScriptManager.instance.getGameSound(var1);
+         }
+
+         protected GameSoundScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getGameSound(var1) : null;
+         }
+
+         protected void onScriptLoad(ScriptLoadMode var1, GameSoundScript var2) {
+            if (var1 == ScriptLoadMode.Reload) {
+               GameSounds.OnReloadSound(var2);
+            }
+
+         }
+      });
+      this.soundTimelines = this.addBucket(new ScriptBucket<SoundTimelineScript>(this, ScriptType.SoundTimeline) {
+         public SoundTimelineScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new SoundTimelineScript();
+         }
+
+         protected SoundTimelineScript getFromManager(String var1) {
+            return ScriptManager.instance.getSoundTimeline(var1);
+         }
+
+         protected SoundTimelineScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getSoundTimeline(var1) : null;
+         }
+      });
+      this.vehicles = this.addBucket(new ScriptBucket<VehicleScript>(this, ScriptType.Vehicle) {
+         public VehicleScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new VehicleScript();
+         }
+
+         protected VehicleScript getFromManager(String var1) {
+            return ScriptManager.instance.getVehicle(var1);
+         }
+
+         protected VehicleScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getVehicle(var1) : null;
+         }
+
+         protected void onScriptLoad(ScriptLoadMode var1, VehicleScript var2) {
+            var2.Loaded();
+         }
+      });
+      this.animations = this.addBucket(new ScriptBucket<RuntimeAnimationScript>(this, ScriptType.RuntimeAnimation, new TreeMap(String.CASE_INSENSITIVE_ORDER)) {
+         public RuntimeAnimationScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new RuntimeAnimationScript();
+         }
+
+         protected RuntimeAnimationScript getFromManager(String var1) {
+            return ScriptManager.instance.getRuntimeAnimationScript(var1);
+         }
+
+         protected RuntimeAnimationScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getAnimation(var1) : null;
+         }
+      });
+      this.vehicleEngineRPMs = this.addBucket(new ScriptBucket<VehicleEngineRPM>(this, ScriptType.VehicleEngineRPM) {
+         public VehicleEngineRPM createInstance(ScriptModule var1, String var2, String var3) {
+            return new VehicleEngineRPM();
+         }
+
+         protected VehicleEngineRPM getFromManager(String var1) {
+            return ScriptManager.instance.getVehicleEngineRPM(var1);
+         }
+
+         protected VehicleEngineRPM getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getVehicleEngineRPM(var1) : null;
+         }
+      });
+      this.itemConfigs = this.addBucket(new ScriptBucket<ItemConfig>(this, ScriptType.ItemConfig) {
+         public ItemConfig createInstance(ScriptModule var1, String var2, String var3) {
+            return new ItemConfig();
+         }
+
+         protected ItemConfig getFromManager(String var1) {
+            return ScriptManager.instance.getItemConfig(var1);
+         }
+
+         protected ItemConfig getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getItemConfig(var1) : null;
+         }
+      });
+      this.entities = this.addBucket(new ScriptBucket<GameEntityScript>(this, ScriptType.Entity) {
+         public GameEntityScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new GameEntityScript();
+         }
+
+         protected GameEntityScript getFromManager(String var1) {
+            return ScriptManager.instance.getGameEntityScript(var1);
+         }
+
+         protected GameEntityScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getGameEntityScript(var1) : null;
+         }
+      });
+      this.xuiConfigScripts = this.addBucket(new ScriptBucket<XuiConfigScript>(this, ScriptType.XuiConfig) {
+         public XuiConfigScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new XuiConfigScript();
+         }
+
+         protected XuiConfigScript getFromManager(String var1) {
+            return ScriptManager.instance.getXuiConfigScript(var1);
+         }
+
+         protected XuiConfigScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getXuiConfigScript(var1) : null;
+         }
+      });
+      this.xuiLayouts = this.addBucket(new ScriptBucket<XuiLayoutScript>(this, ScriptType.XuiLayout) {
+         public XuiLayoutScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new XuiLayoutScript(this.getScriptType(), XuiScriptType.Layout);
+         }
+
+         protected XuiLayoutScript getFromManager(String var1) {
+            return ScriptManager.instance.getXuiLayout(var1);
+         }
+
+         protected XuiLayoutScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getXuiLayout(var1) : null;
+         }
+      });
+      this.xuiStyles = this.addBucket(new ScriptBucket<XuiLayoutScript>(this, ScriptType.XuiStyle) {
+         public XuiLayoutScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new XuiLayoutScript(this.getScriptType(), XuiScriptType.Style);
+         }
+
+         protected XuiLayoutScript getFromManager(String var1) {
+            return ScriptManager.instance.getXuiStyle(var1);
+         }
+
+         protected XuiLayoutScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getXuiStyle(var1) : null;
+         }
+      });
+      this.xuiDefaultStyles = this.addBucket(new ScriptBucket<XuiLayoutScript>(this, ScriptType.XuiDefaultStyle) {
+         public XuiLayoutScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new XuiLayoutScript(this.getScriptType(), XuiScriptType.DefaultStyle);
+         }
+
+         protected XuiLayoutScript getFromManager(String var1) {
+            return ScriptManager.instance.getXuiDefaultStyle(var1);
+         }
+
+         protected XuiLayoutScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getXuiDefaultStyle(var1) : null;
+         }
+      });
+      this.xuiGlobalColors = this.addBucket(new ScriptBucket<XuiColorsScript>(this, ScriptType.XuiColor) {
+         public XuiColorsScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new XuiColorsScript();
+         }
+
+         protected XuiColorsScript getFromManager(String var1) {
+            return ScriptManager.instance.getXuiColor(var1);
+         }
+
+         protected XuiColorsScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getXuiGlobalColors(var1) : null;
+         }
+      });
+      this.xuiSkinScripts = this.addBucket(new ScriptBucket<XuiSkinScript>(this, ScriptType.XuiSkin) {
+         public XuiSkinScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new XuiSkinScript();
+         }
+
+         protected XuiSkinScript getFromManager(String var1) {
+            return ScriptManager.instance.getXuiSkinScript(var1);
+         }
+
+         protected XuiSkinScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getXuiSkinScript(var1) : null;
+         }
+      });
+      this.itemFilters = this.addBucket(new ScriptBucket<ItemFilterScript>(this, ScriptType.ItemFilter) {
+         public ItemFilterScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new ItemFilterScript();
+         }
+
+         protected ItemFilterScript getFromManager(String var1) {
+            return ScriptManager.instance.getItemFilter(var1);
+         }
+
+         protected ItemFilterScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getItemFilter(var1) : null;
+         }
+      });
+      this.fluidFilters = this.addBucket(new ScriptBucket<FluidFilterScript>(this, ScriptType.FluidFilter) {
+         public FluidFilterScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new FluidFilterScript();
+         }
+
+         protected FluidFilterScript getFromManager(String var1) {
+            return ScriptManager.instance.getFluidFilter(var1);
+         }
+
+         protected FluidFilterScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getFluidFilter(var1) : null;
+         }
+      });
+      this.craftRecipes = this.addBucket(new ScriptBucket<CraftRecipe>(this, ScriptType.CraftRecipe) {
+         public CraftRecipe createInstance(ScriptModule var1, String var2, String var3) {
+            return new CraftRecipe();
+         }
+
+         protected CraftRecipe getFromManager(String var1) {
+            return ScriptManager.instance.getCraftRecipe(var1);
+         }
+
+         protected CraftRecipe getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getCraftRecipe(var1) : null;
+         }
+      });
+      this.stringLists = this.addBucket(new ScriptBucket<StringListScript>(this, ScriptType.StringList) {
+         public StringListScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new StringListScript();
+         }
+
+         protected StringListScript getFromManager(String var1) {
+            return ScriptManager.instance.getStringList(var1);
+         }
+
+         protected StringListScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getStringList(var1) : null;
+         }
+      });
+      this.energyDefinitionScripts = this.addBucket(new ScriptBucket<EnergyDefinitionScript>(this, ScriptType.EnergyDefinition) {
+         public EnergyDefinitionScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new EnergyDefinitionScript();
+         }
+
+         protected EnergyDefinitionScript getFromManager(String var1) {
+            return ScriptManager.instance.getEnergyDefinitionScript(var1);
+         }
+
+         protected EnergyDefinitionScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getEnergyDefinitionScript(var1) : null;
+         }
+      });
+      this.fluidDefinitionScripts = this.addBucket(new ScriptBucket<FluidDefinitionScript>(this, ScriptType.FluidDefinition) {
+         public FluidDefinitionScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new FluidDefinitionScript();
+         }
+
+         protected FluidDefinitionScript getFromManager(String var1) {
+            return ScriptManager.instance.getFluidDefinitionScript(var1);
+         }
+
+         protected FluidDefinitionScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getFluidDefinitionScript(var1) : null;
+         }
+      });
+      this.timedActionScripts = this.addBucket(new ScriptBucket<TimedActionScript>(this, ScriptType.TimedAction) {
+         public TimedActionScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new TimedActionScript();
+         }
+
+         protected TimedActionScript getFromManager(String var1) {
+            return ScriptManager.instance.getTimedActionScript(var1);
+         }
+
+         protected TimedActionScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getTimedActionScript(var1) : null;
+         }
+      });
+      this.ragdollScripts = this.addBucket(new ScriptBucket<RagdollScript>(this, ScriptType.Ragdoll) {
+         public RagdollScript createInstance(ScriptModule var1, String var2, String var3) {
+            return new RagdollScript();
+         }
+
+         protected RagdollScript getFromManager(String var1) {
+            return ScriptManager.instance.getRagdollScript(var1);
+         }
+
+         protected RagdollScript getFromModule(String var1, ScriptModule var2) {
+            return var2 != null ? var2.getRagdollScript(var1) : null;
+         }
+      });
+      this.xuiLayouts.setVerbose(false);
+   }
+
+   public void Load(ScriptLoadMode var1, String var2, String var3) {
+      this.name = var2;
+      this.value = var3.trim();
       ScriptManager.instance.CurrentLoadingModule = this;
-      this.ParseScriptPP(this.value);
-      this.ParseScript(this.value);
+      this.ParseScriptPP(var1, this.value);
       this.value = "";
+   }
+
+   public void ParseScriptPP(ScriptLoadMode var1, String var2) {
+      ArrayList var3 = ScriptParser.parseTokens(var2);
+
+      for(int var4 = 0; var4 < var3.size(); ++var4) {
+         String var5 = (String)var3.get(var4);
+         this.CreateFromTokenPP(var1, var5);
+      }
+
    }
 
    private String GetTokenType(String var1) {
@@ -81,480 +696,52 @@ public final class ScriptModule extends BaseScriptObject implements IScriptObjec
       }
    }
 
-   private void CreateFromTokenPP(String var1) {
-      var1 = var1.trim();
-      String var2 = this.GetTokenType(var1);
-      if (var2 != null) {
-         String[] var3;
-         String var4;
-         if ("item".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("item", "");
-            var4 = var4.trim();
-            Item var5 = new Item();
-            this.ItemMap.put(var4, var5);
-         } else if ("animationsMesh".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("animationsMesh", "");
-            var4 = var4.trim();
-            AnimationsMesh var9;
-            if (this.AnimationsMeshMap.containsKey(var4)) {
-               var9 = (AnimationsMesh)this.AnimationsMeshMap.get(var4);
-               var9.reset();
-            } else {
-               var9 = new AnimationsMesh();
-               this.AnimationsMeshMap.put(var4, var9);
-            }
-         } else if ("mannequin".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("mannequin", "");
-            var4 = var4.trim();
-            MannequinScript var10;
-            if (this.MannequinScriptMap.containsKey(var4)) {
-               var10 = (MannequinScript)this.MannequinScriptMap.get(var4);
-               var10.reset();
-            } else {
-               var10 = new MannequinScript();
-               this.MannequinScriptMap.put(var4, var10);
-            }
-         } else if ("model".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("model", "");
-            var4 = var4.trim();
-            ModelScript var11;
-            if (this.ModelScriptMap.containsKey(var4)) {
-               var11 = (ModelScript)this.ModelScriptMap.get(var4);
-               var11.reset();
-            } else {
-               var11 = new ModelScript();
-               this.ModelScriptMap.put(var4, var11);
-            }
-         } else if ("sound".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("sound", "");
-            var4 = var4.trim();
-            GameSoundScript var12;
-            if (this.GameSoundMap.containsKey(var4)) {
-               var12 = (GameSoundScript)this.GameSoundMap.get(var4);
-               var12.reset();
-            } else {
-               var12 = new GameSoundScript();
-               this.GameSoundMap.put(var4, var12);
-               this.GameSoundList.add(var12);
-            }
-         } else if ("soundTimeline".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("soundTimeline", "");
-            var4 = var4.trim();
-            SoundTimelineScript var13;
-            if (this.SoundTimelineMap.containsKey(var4)) {
-               var13 = (SoundTimelineScript)this.SoundTimelineMap.get(var4);
-               var13.reset();
-            } else {
-               var13 = new SoundTimelineScript();
-               this.SoundTimelineMap.put(var4, var13);
-            }
-         } else if ("vehicle".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("vehicle", "");
-            var4 = var4.trim();
-            VehicleScript var14 = new VehicleScript();
-            this.VehicleMap.put(var4, var14);
-         } else if ("template".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("template", "");
-            String[] var15 = var4.trim().split("\\s+");
-            if (var15.length == 2) {
-               String var6 = var15[0].trim();
-               String var7 = var15[1].trim();
-               if ("vehicle".equals(var6)) {
-                  VehicleTemplate var8 = new VehicleTemplate(this, var7, var1);
-                  var8.module = this;
-                  this.VehicleTemplateMap.put(var7, var8);
-               }
-            }
-         } else if ("animation".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("animation", "");
-            var4 = var4.trim();
-            RuntimeAnimationScript var16;
-            if (this.RuntimeAnimationScriptMap.containsKey(var4)) {
-               var16 = (RuntimeAnimationScript)this.RuntimeAnimationScriptMap.get(var4);
-               var16.reset();
-            } else {
-               var16 = new RuntimeAnimationScript();
-               this.RuntimeAnimationScriptMap.put(var4, var16);
-            }
-         } else if ("vehicleEngineRPM".equals(var2)) {
-            var3 = var1.split("[{}]");
-            var4 = var3[0];
-            var4 = var4.replace("vehicleEngineRPM", "");
-            var4 = var4.trim();
-            VehicleEngineRPM var17;
-            if (this.VehicleEngineRPMMap.containsKey(var4)) {
-               var17 = (VehicleEngineRPM)this.VehicleEngineRPMMap.get(var4);
-               var17.reset();
-            } else {
-               var17 = new VehicleEngineRPM();
-               this.VehicleEngineRPMMap.put(var4, var17);
-            }
-         }
+   private void CreateFromTokenPP(ScriptLoadMode var1, String var2) {
+      var2 = var2.trim();
+      String var3 = this.GetTokenType(var2);
+      if (var3 != null) {
+         String[] var4;
+         if ("imports".equals(var3)) {
+            var4 = var2.split("[{}]");
+            String[] var5 = var4[1].split(",");
 
-      }
-   }
-
-   private void CreateFromToken(String var1) {
-      var1 = var1.trim();
-      String var2 = this.GetTokenType(var1);
-      if (var2 != null) {
-         String[] var3;
-         if ("imports".equals(var2)) {
-            var3 = var1.split("[{}]");
-            String[] var4 = var3[1].split(",");
-
-            for(int var5 = 0; var5 < var4.length; ++var5) {
-               if (var4[var5].trim().length() > 0) {
-                  String var6 = var4[var5].trim();
-                  if (var6.equals(this.getName())) {
-                     DebugLog.log("ERROR: module \"" + this.getName() + "\" imports itself");
+            for(int var6 = 0; var6 < var5.length; ++var6) {
+               if (!var5[var6].trim().isEmpty()) {
+                  String var7 = var5[var6].trim();
+                  if (var7.equals(this.getName())) {
+                     DebugLog.Script.error("ERROR: module \"" + this.getName() + "\" imports itself");
                   } else {
-                     this.Imports.add(var6);
+                     this.Imports.add(var7);
                   }
                }
             }
+         } else if ("multistagebuild".equals(var3)) {
+            var4 = var2.split("[{}]");
+            String var9 = var4[0];
+            var9 = var9.replace("multistagebuild", "");
+            var9 = var9.trim();
+            String[] var11 = var4[1].split(",");
+            MultiStageBuilding.Stage var13 = new MultiStageBuilding().new Stage();
+            var13.Load(var9, var11);
+            MultiStageBuilding.addStage(var13);
          } else {
-            String var18;
-            String[] var19;
-            if ("item".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("item", "");
-               var18 = var18.trim();
-               var19 = var3[1].split(",");
-               Item var20 = (Item)this.ItemMap.get(var18);
-               var20.module = this;
+            boolean var8 = false;
+            Iterator var10 = this.scriptBucketList.iterator();
 
-               try {
-                  var20.Load(var18, var19);
-               } catch (Exception var17) {
-                  DebugLog.log((Object)var17);
+            while(var10.hasNext()) {
+               ScriptBucket var12 = (ScriptBucket)var10.next();
+               if (var12.CreateFromTokenPP(var1, var3, var2)) {
+                  var8 = true;
+                  break;
                }
-            } else if ("recipe".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("recipe", "");
-               var18 = var18.trim();
-               var19 = var3[1].split(",");
-               Recipe var21 = new Recipe();
-               this.RecipeMap.add(var21);
-               if (!this.RecipeByName.containsKey(var18)) {
-                  this.RecipeByName.put(var18, var21);
-               }
+            }
 
-               if (var18.contains(".")) {
-                  this.RecipesWithDotInName.put(var18, var21);
-               }
-
-               var21.module = this;
-               var21.Load(var18, var19);
-            } else if ("uniquerecipe".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("uniquerecipe", "");
-               var18 = var18.trim();
-               var19 = var3[1].split(",");
-               UniqueRecipe var22 = new UniqueRecipe(var18);
-               this.UniqueRecipeMap.add(var22);
-               var22.module = this;
-               var22.Load(var18, var19);
-            } else if ("evolvedrecipe".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("evolvedrecipe", "");
-               var18 = var18.trim();
-               var19 = var3[1].split(",");
-               boolean var23 = false;
-               Iterator var7 = this.EvolvedRecipeMap.iterator();
-
-               while(var7.hasNext()) {
-                  EvolvedRecipe var8 = (EvolvedRecipe)var7.next();
-                  if (var8.name.equals(var18)) {
-                     var8.Load(var18, var19);
-                     var8.module = this;
-                     var23 = true;
-                  }
-               }
-
-               if (!var23) {
-                  EvolvedRecipe var25 = new EvolvedRecipe(var18);
-                  this.EvolvedRecipeMap.add(var25);
-                  var25.module = this;
-                  var25.Load(var18, var19);
-               }
-            } else if ("fixing".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("fixing", "");
-               var18 = var18.trim();
-               var19 = var3[1].split(",");
-               Fixing var27 = new Fixing();
-               var27.module = this;
-               this.FixingMap.put(var18, var27);
-               var27.Load(var18, var19);
-            } else if ("animationsMesh".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("animationsMesh", "");
-               var18 = var18.trim();
-               AnimationsMesh var24 = (AnimationsMesh)this.AnimationsMeshMap.get(var18);
-               var24.module = this;
-
-               try {
-                  var24.Load(var18, var1);
-               } catch (Throwable var16) {
-                  ExceptionLogger.logException(var16);
-               }
-            } else if ("mannequin".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("mannequin", "");
-               var18 = var18.trim();
-               MannequinScript var26 = (MannequinScript)this.MannequinScriptMap.get(var18);
-               var26.module = this;
-
-               try {
-                  var26.Load(var18, var1);
-               } catch (Throwable var15) {
-                  ExceptionLogger.logException(var15);
-               }
-            } else if ("multistagebuild".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("multistagebuild", "");
-               var18 = var18.trim();
-               var19 = var3[1].split(",");
-               MultiStageBuilding.Stage var28 = new MultiStageBuilding().new Stage();
-               var28.Load(var18, var19);
-               MultiStageBuilding.addStage(var28);
-            } else if ("model".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("model", "");
-               var18 = var18.trim();
-               ModelScript var29 = (ModelScript)this.ModelScriptMap.get(var18);
-               var29.module = this;
-
-               try {
-                  var29.Load(var18, var1);
-               } catch (Throwable var14) {
-                  ExceptionLogger.logException(var14);
-               }
-            } else if ("sound".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("sound", "");
-               var18 = var18.trim();
-               GameSoundScript var30 = (GameSoundScript)this.GameSoundMap.get(var18);
-               var30.module = this;
-
-               try {
-                  var30.Load(var18, var1);
-               } catch (Throwable var13) {
-                  ExceptionLogger.logException(var13);
-               }
-            } else if ("soundTimeline".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("soundTimeline", "");
-               var18 = var18.trim();
-               SoundTimelineScript var31 = (SoundTimelineScript)this.SoundTimelineMap.get(var18);
-               var31.module = this;
-
-               try {
-                  var31.Load(var18, var1);
-               } catch (Throwable var12) {
-                  ExceptionLogger.logException(var12);
-               }
-            } else if ("vehicle".equals(var2)) {
-               var3 = var1.split("[{}]");
-               var18 = var3[0];
-               var18 = var18.replace("vehicle", "");
-               var18 = var18.trim();
-               VehicleScript var32 = (VehicleScript)this.VehicleMap.get(var18);
-               var32.module = this;
-
-               try {
-                  var32.Load(var18, var1);
-                  var32.Loaded();
-               } catch (Exception var11) {
-                  ExceptionLogger.logException(var11);
-               }
-            } else if (!"template".equals(var2)) {
-               if ("animation".equals(var2)) {
-                  var3 = var1.split("[{}]");
-                  var18 = var3[0];
-                  var18 = var18.replace("animation", "");
-                  var18 = var18.trim();
-                  RuntimeAnimationScript var33 = (RuntimeAnimationScript)this.RuntimeAnimationScriptMap.get(var18);
-                  var33.module = this;
-
-                  try {
-                     var33.Load(var18, var1);
-                  } catch (Throwable var10) {
-                     ExceptionLogger.logException(var10);
-                  }
-               } else if ("vehicleEngineRPM".equals(var2)) {
-                  var3 = var1.split("[{}]");
-                  var18 = var3[0];
-                  var18 = var18.replace("vehicleEngineRPM", "");
-                  var18 = var18.trim();
-                  VehicleEngineRPM var34 = (VehicleEngineRPM)this.VehicleEngineRPMMap.get(var18);
-                  var34.module = this;
-
-                  try {
-                     var34.Load(var18, var1);
-                  } catch (Throwable var9) {
-                     this.VehicleEngineRPMMap.remove(var18);
-                     ExceptionLogger.logException(var9);
-                  }
-               } else {
-                  DebugLog.Script.warn("unknown script object \"%s\"", var2);
-               }
+            if (!var8) {
+               DebugLog.Script.warn("unknown script object \"%s\" in '%s'", var3, ScriptManager.instance.currentFileName);
             }
          }
 
       }
-   }
-
-   public void ParseScript(String var1) {
-      ArrayList var2 = ScriptParser.parseTokens(var1);
-
-      for(int var3 = 0; var3 < var2.size(); ++var3) {
-         String var4 = (String)var2.get(var3);
-         this.CreateFromToken(var4);
-      }
-
-   }
-
-   public void ParseScriptPP(String var1) {
-      ArrayList var2 = ScriptParser.parseTokens(var1);
-
-      for(int var3 = 0; var3 < var2.size(); ++var3) {
-         String var4 = (String)var2.get(var3);
-         this.CreateFromTokenPP(var4);
-      }
-
-   }
-
-   public Item getItem(String var1) {
-      if (var1.contains(".")) {
-         return ScriptManager.instance.getItem(var1);
-      } else if (!this.ItemMap.containsKey(var1)) {
-         for(int var2 = 0; var2 < this.Imports.size(); ++var2) {
-            String var3 = (String)this.Imports.get(var2);
-            ScriptModule var4 = ScriptManager.instance.getModule(var3);
-            Item var5 = var4.getItem(var1);
-            if (var5 != null) {
-               return var5;
-            }
-         }
-
-         return null;
-      } else {
-         return (Item)this.ItemMap.get(var1);
-      }
-   }
-
-   public ModelScript getModelScript(String var1) {
-      if (var1.contains(".")) {
-         return ScriptManager.instance.getModelScript(var1);
-      } else {
-         ModelScript var2 = (ModelScript)this.ModelScriptMap.get(var1);
-         if (var2 == null) {
-            for(int var3 = 0; var3 < this.Imports.size(); ++var3) {
-               String var4 = (String)this.Imports.get(var3);
-               ScriptModule var5 = ScriptManager.instance.getModule(var4);
-               var2 = var5.getModelScript(var1);
-               if (var2 != null) {
-                  return var2;
-               }
-            }
-
-            return null;
-         } else {
-            return var2;
-         }
-      }
-   }
-
-   public Recipe getRecipe(String var1) {
-      if (var1.contains(".") && !this.RecipesWithDotInName.containsKey(var1)) {
-         return ScriptManager.instance.getRecipe(var1);
-      } else {
-         Recipe var2 = (Recipe)this.RecipeByName.get(var1);
-         if (var2 != null) {
-            return var2;
-         } else {
-            for(int var3 = 0; var3 < this.Imports.size(); ++var3) {
-               ScriptModule var4 = ScriptManager.instance.getModule((String)this.Imports.get(var3));
-               if (var4 != null) {
-                  var2 = var4.getRecipe(var1);
-                  if (var2 != null) {
-                     return var2;
-                  }
-               }
-            }
-
-            return null;
-         }
-      }
-   }
-
-   public VehicleScript getVehicle(String var1) {
-      if (var1.contains(".")) {
-         return ScriptManager.instance.getVehicle(var1);
-      } else if (!this.VehicleMap.containsKey(var1)) {
-         for(int var2 = 0; var2 < this.Imports.size(); ++var2) {
-            VehicleScript var3 = ScriptManager.instance.getModule((String)this.Imports.get(var2)).getVehicle(var1);
-            if (var3 != null) {
-               return var3;
-            }
-         }
-
-         return null;
-      } else {
-         return (VehicleScript)this.VehicleMap.get(var1);
-      }
-   }
-
-   public VehicleTemplate getVehicleTemplate(String var1) {
-      if (var1.contains(".")) {
-         return ScriptManager.instance.getVehicleTemplate(var1);
-      } else if (!this.VehicleTemplateMap.containsKey(var1)) {
-         for(int var2 = 0; var2 < this.Imports.size(); ++var2) {
-            VehicleTemplate var3 = ScriptManager.instance.getModule((String)this.Imports.get(var2)).getVehicleTemplate(var1);
-            if (var3 != null) {
-               return var3;
-            }
-         }
-
-         return null;
-      } else {
-         return (VehicleTemplate)this.VehicleTemplateMap.get(var1);
-      }
-   }
-
-   public VehicleEngineRPM getVehicleEngineRPM(String var1) {
-      return var1.contains(".") ? ScriptManager.instance.getVehicleEngineRPM(var1) : (VehicleEngineRPM)this.VehicleEngineRPMMap.get(var1);
    }
 
    public boolean CheckExitPoints() {
@@ -566,27 +753,13 @@ public final class ScriptModule extends BaseScriptObject implements IScriptObjec
    }
 
    public void Reset() {
-      this.ItemMap.clear();
-      this.GameSoundMap.clear();
-      this.GameSoundList.clear();
-      this.AnimationsMeshMap.clear();
-      this.MannequinScriptMap.clear();
-      this.ModelScriptMap.clear();
-      this.RuntimeAnimationScriptMap.clear();
-      this.SoundTimelineMap.clear();
-      this.VehicleMap.clear();
-      this.VehicleTemplateMap.clear();
-      this.VehicleEngineRPMMap.clear();
-      this.RecipeMap.clear();
-      this.RecipeByName.clear();
-      this.RecipesWithDotInName.clear();
-      this.EvolvedRecipeMap.clear();
-      this.UniqueRecipeMap.clear();
-      this.FixingMap.clear();
       this.Imports.clear();
-   }
+      Iterator var1 = this.scriptBucketList.iterator();
 
-   public Item getSpecificItem(String var1) {
-      return (Item)this.ItemMap.get(var1);
+      while(var1.hasNext()) {
+         ScriptBucket var2 = (ScriptBucket)var1.next();
+         var2.reset();
+      }
+
    }
 }

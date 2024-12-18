@@ -8,8 +8,8 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.debug.DebugOptions;
 import zombie.iso.IsoDirections;
@@ -32,7 +32,7 @@ public final class OpenWindowState extends State {
       var1.setHideWeaponModel(true);
       HashMap var2 = var1.getStateMachineParams(this);
       IsoWindow var3 = (IsoWindow)var2.get(PARAM_WINDOW);
-      if (Core.bDebug && DebugOptions.instance.CheatWindowUnlock.getValue() && var3.getSprite() != null && !var3.getSprite().getProperties().Is("WindowLocked")) {
+      if (Core.bDebug && DebugOptions.instance.Cheat.Window.Unlock.getValue() && var3.getSprite() != null && !var3.getSprite().getProperties().Is("WindowLocked")) {
          var3.Locked = false;
          var3.PermaLocked = false;
       }
@@ -59,8 +59,8 @@ public final class OpenWindowState extends State {
          if (!var3.pressedMovement(false) && !var3.pressedCancelAction()) {
             IsoWindow var4 = (IsoWindow)var2.get(PARAM_WINDOW);
             if (var4 != null && var4.getObjectIndex() != -1) {
-               if (IsoPlayer.getInstance().ContextPanic > 5.0F) {
-                  IsoPlayer.getInstance().ContextPanic = 0.0F;
+               if (var3.ContextPanic > 5.0F) {
+                  var3.ContextPanic = 0.0F;
                   var1.setVariable("bOpenWindow", false);
                   var1.smashWindow(var4);
                   var1.getStateMachineParams(SmashWindowState.instance()).put(3, Boolean.TRUE);
@@ -80,11 +80,11 @@ public final class OpenWindowState extends State {
                   }
 
                   if (Core.bTutorial) {
-                     if (var1.x != var4.getX() + 0.5F && var4.north) {
+                     if (var1.getX() != var4.getX() + 0.5F && var4.north) {
                         this.slideX(var1, var4.getX() + 0.5F);
                      }
 
-                     if (var1.y != var4.getY() + 0.5F && !var4.north) {
+                     if (var1.getY() != var4.getY() + 0.5F && !var4.north) {
                         this.slideY(var1, var4.getY() + 0.5F);
                      }
                   }
@@ -197,15 +197,15 @@ public final class OpenWindowState extends State {
 
    private void onSuccess(IsoGameCharacter var1, IsoWindow var2) {
       var1.setVariable("StopAfterAnimLooped", "success");
-      IsoPlayer.getInstance().ContextPanic = 0.0F;
-      if (var2.getObjectIndex() != -1 && !var2.open) {
+      ((IsoPlayer)var1).ContextPanic = 0.0F;
+      if (var2.getObjectIndex() != -1 && !var2.open && ((IsoPlayer)var1).isLocalPlayer()) {
          var2.ToggleWindow(var1);
       }
 
    }
 
    private void exert(IsoGameCharacter var1) {
-      float var2 = GameTime.getInstance().getMultiplier() / 1.6F;
+      float var2 = GameTime.getInstance().getThirtyFPSMultiplier();
       switch (var1.getPerkLevel(PerkFactory.Perks.Fitness)) {
          case 1:
             var1.exert(0.01F * var2);
@@ -241,17 +241,17 @@ public final class OpenWindowState extends State {
    }
 
    private void slideX(IsoGameCharacter var1, float var2) {
-      float var3 = 0.05F * GameTime.getInstance().getMultiplier() / 1.6F;
-      var3 = var2 > var1.x ? Math.min(var3, var2 - var1.x) : Math.max(-var3, var2 - var1.x);
-      var1.x += var3;
-      var1.nx = var1.x;
+      float var3 = 0.05F * GameTime.getInstance().getThirtyFPSMultiplier();
+      var3 = var2 > var1.getX() ? Math.min(var3, var2 - var1.getX()) : Math.max(-var3, var2 - var1.getX());
+      var1.setX(var1.getX() + var3);
+      var1.setNextX(var1.getX());
    }
 
    private void slideY(IsoGameCharacter var1, float var2) {
-      float var3 = 0.05F * GameTime.getInstance().getMultiplier() / 1.6F;
-      var3 = var2 > var1.y ? Math.min(var3, var2 - var1.y) : Math.max(-var3, var2 - var1.y);
-      var1.y += var3;
-      var1.ny = var1.y;
+      float var3 = 0.05F * GameTime.getInstance().getThirtyFPSMultiplier();
+      var3 = var2 > var1.getY() ? Math.min(var3, var2 - var1.getY()) : Math.max(-var3, var2 - var1.getY());
+      var1.setY(var1.getY() + var3);
+      var1.setNextY(var1.getY());
    }
 
    public void setParams(IsoGameCharacter var1, IsoWindow var2) {

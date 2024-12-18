@@ -3,10 +3,12 @@ package zombie.core.skinnedmodel.advancedanimation;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import zombie.util.StringUtils;
 import zombie.util.list.PZArrayUtil;
 
-public class AnimationVariableSource implements IAnimationVariableMap {
+public class AnimationVariableSource implements IAnimationVariableMap, IAnimationVariableCallbackMap {
    private final Map<String, IAnimationVariableSlot> m_GameVariables;
    private IAnimationVariableSlot[] m_cachedGameVariableSlots;
 
@@ -61,19 +63,31 @@ public class AnimationVariableSource implements IAnimationVariableMap {
       }
    }
 
-   public IAnimationVariableSlot getOrCreateVariable(String var1) {
+   private IAnimationVariableSlot getOrCreateVariable(String var1, AnimationVariableSlotGenerator var2) {
       if (StringUtils.isNullOrWhitespace(var1)) {
          return null;
       } else {
-         String var2 = var1.trim();
-         Object var3 = (IAnimationVariableSlot)this.m_GameVariables.get(var2);
-         if (var3 == null) {
-            var3 = new AnimationVariableGenericSlot(var2.toLowerCase());
-            this.setVariable((IAnimationVariableSlot)var3);
+         String var3 = var1.trim();
+         IAnimationVariableSlot var4 = (IAnimationVariableSlot)this.m_GameVariables.get(var3);
+         if (var4 == null) {
+            var4 = var2.Create(var3.toLowerCase());
+            this.setVariable(var4);
          }
 
-         return (IAnimationVariableSlot)var3;
+         return var4;
       }
+   }
+
+   private IAnimationVariableSlot getOrCreateVariable_Bool(String var1) {
+      return this.getOrCreateVariable(var1, AnimationVariableSlotBool::new);
+   }
+
+   private IAnimationVariableSlot getOrCreateVariable_String(String var1) {
+      return this.getOrCreateVariable(var1, AnimationVariableSlotString::new);
+   }
+
+   private IAnimationVariableSlot getOrCreateVariable_Float(String var1) {
+      return this.getOrCreateVariable(var1, AnimationVariableSlotFloat::new);
    }
 
    public void setVariable(IAnimationVariableSlot var1) {
@@ -144,16 +158,24 @@ public class AnimationVariableSource implements IAnimationVariableMap {
       this.setVariable(new AnimationVariableSlotCallbackInt(var1, var2, var3, var4));
    }
 
+   public <EnumType extends Enum<EnumType>> void setVariable(String var1, Class<EnumType> var2, Supplier<EnumType> var3) {
+      this.setVariable(new AnimationVariableSlotCallbackEnum(var2, var1, (Enum)var3.get(), var3));
+   }
+
+   public <EnumType extends Enum<EnumType>> void setVariable(String var1, Class<EnumType> var2, Supplier<EnumType> var3, Consumer<EnumType> var4) {
+      this.setVariable(new AnimationVariableSlotCallbackEnum(var2, var1, (Enum)var3.get(), var3, var4));
+   }
+
    public void setVariable(String var1, String var2) {
-      this.getOrCreateVariable(var1).setValue(var2);
+      this.getOrCreateVariable_String(var1).setValue(var2);
    }
 
    public void setVariable(String var1, boolean var2) {
-      this.getOrCreateVariable(var1).setValue(var2);
+      this.getOrCreateVariable_Bool(var1).setValue(var2);
    }
 
    public void setVariable(String var1, float var2) {
-      this.getOrCreateVariable(var1).setValue(var2);
+      this.getOrCreateVariable_Float(var1).setValue(var2);
    }
 
    public void clearVariable(String var1) {
@@ -209,5 +231,9 @@ public class AnimationVariableSource implements IAnimationVariableMap {
          String var2 = var1.trim();
          return this.m_GameVariables.containsKey(var2);
       }
+   }
+
+   public interface AnimationVariableSlotGenerator {
+      IAnimationVariableSlot Create(String var1);
    }
 }

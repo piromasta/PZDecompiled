@@ -6,10 +6,13 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import zombie.GameWindow;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.professions.ProfessionFactory;
 import zombie.characters.traits.TraitCollection;
 import zombie.characters.traits.TraitFactory;
+import zombie.core.Core;
 import zombie.core.Translator;
+import zombie.core.textures.ColorInfo;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemType;
 import zombie.scripting.objects.Item;
@@ -78,46 +81,66 @@ public final class Literature extends InventoryItem {
    }
 
    public void DoTooltip(ObjectTooltip var1, ObjectTooltip.Layout var2) {
+      ColorInfo var4 = Core.getInstance().getGoodHighlitedColor();
+      ColorInfo var5 = Core.getInstance().getBadHighlitedColor();
+      float var6 = var4.getR();
+      float var7 = var4.getG();
+      float var8 = var4.getB();
+      float var9 = var5.getR();
+      float var10 = var5.getG();
+      float var11 = var5.getB();
       ObjectTooltip.LayoutItem var3;
-      if (this.getLvlSkillTrained() != -1) {
-         var3 = var2.addItem();
-         var3.setLabel(Translator.getText("Tooltip_BookTitle") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValue(Translator.getText("Tooltip_BookTitle_" + this.getLvlSkillTrained(), Translator.getText("Tooltip_BookTitle_" + this.getSkillTrained())), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
+      int var23;
+      if (this.getModData().rawget("literatureTitle") == null || this.getModData().rawget("literatureTitle") != null && !var1.getCharacter().isLiteratureRead((String)this.getModData().rawget("literatureTitle"))) {
+         float var12;
+         if (this.getBoredomChange() != 0.0F) {
+            var3 = var2.addItem();
+            var12 = this.getBoredomChange() * -0.02F;
+            var3.setLabel(Translator.getText("Tooltip_food_Boredom") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+            if (var12 > 0.0F) {
+               var3.setProgress(var12, var6, var7, var8, 1.0F);
+            } else {
+               var3.setProgress(var12 * -1.0F, var9, var10, var11, 1.0F);
+            }
+         }
 
-      int var4;
-      if (this.getBoredomChange() != 0.0F) {
-         var3 = var2.addItem();
-         var4 = (int)this.getBoredomChange();
-         var3.setLabel(Translator.getText("Tooltip_literature_Boredom_Reduction") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, false);
-      }
+         if (this.getStressChange() != 0.0F) {
+            var3 = var2.addItem();
+            var23 = (int)(this.getStressChange() * 100.0F);
+            float var13 = (float)var23 * -0.02F;
+            var3.setLabel(Translator.getText("Tooltip_literature_Stress_Reduction") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+            if (var13 > 0.0F) {
+               var3.setProgress(var13, var6, var7, var8, 1.0F);
+            } else {
+               var3.setProgress(var13 * -1.0F, var9, var10, var11, 1.0F);
+            }
+         }
 
-      if (this.getStressChange() != 0.0F) {
-         var3 = var2.addItem();
-         var4 = (int)(this.getStressChange() * 100.0F);
-         var3.setLabel(Translator.getText("Tooltip_literature_Stress_Reduction") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, false);
-      }
-
-      if (this.getUnhappyChange() != 0.0F) {
-         var3 = var2.addItem();
-         var4 = (int)this.getUnhappyChange();
-         var3.setLabel(Translator.getText("Tooltip_food_Unhappiness") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValueRight(var4, false);
+         if (this.getUnhappyChange() != 0.0F) {
+            var3 = var2.addItem();
+            var12 = this.getUnhappyChange() * -0.02F;
+            var3.setLabel(Translator.getText("Tooltip_food_Unhappiness") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+            if (var12 > 0.0F) {
+               var3.setProgress(var12, var6, var7, var8, 1.0F);
+            } else {
+               var3.setProgress(var12 * -1.0F, var9, var10, var11, 1.0F);
+            }
+         }
       }
 
       if (this.getNumberOfPages() != -1) {
          var3 = var2.addItem();
-         var4 = this.getAlreadyReadPages();
+         var23 = this.getAlreadyReadPages();
          if (var1.getCharacter() != null) {
-            var4 = var1.getCharacter().getAlreadyReadPages(this.getFullType());
+            var23 = var1.getCharacter().getAlreadyReadPages(this.getFullType());
          }
 
          var3.setLabel(Translator.getText("Tooltip_literature_Number_of_Pages") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var3.setValue("" + var4 + " / " + this.getNumberOfPages(), 1.0F, 1.0F, 1.0F, 1.0F);
+         var3.setValue("" + var23 + " / " + this.getNumberOfPages(), 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
+      IsoGameCharacter var25 = var1.getCharacter();
+      boolean var24 = var25 != null && var25.Traits.Illiterate.isSet();
       String var14;
       if (this.getLvlSkillTrained() != -1) {
          var3 = var2.addItem();
@@ -129,14 +152,19 @@ public final class Literature extends InventoryItem {
          var3.setLabel(Translator.getText("Tooltip_Literature_XpMultiplier", var14), 1.0F, 1.0F, 0.8F, 1.0F);
       }
 
-      if (this.getTeachedRecipes() != null) {
-         Iterator var16 = this.getTeachedRecipes().iterator();
+      String var15;
+      String var16;
+      int var19;
+      int var21;
+      TraitFactory.Trait var22;
+      if (this.getTeachedRecipes() != null && !var24) {
+         Iterator var26 = this.getTeachedRecipes().iterator();
 
-         while(var16.hasNext()) {
-            String var5 = (String)var16.next();
+         while(var26.hasNext()) {
+            var15 = (String)var26.next();
             var3 = var2.addItem();
-            String var6 = Translator.getRecipeName(var5);
-            var3.setLabel(Translator.getText("Tooltip_Literature_TeachedRecipes", var6), 1.0F, 1.0F, 0.8F, 1.0F);
+            var16 = Translator.getRecipeName(var15);
+            var3.setLabel(Translator.getText("Tooltip_Literature_TeachedRecipes", var16), 1.0F, 1.0F, 0.8F, 1.0F);
          }
 
          if (var1.getCharacter() != null) {
@@ -148,30 +176,88 @@ public final class Literature extends InventoryItem {
 
             var3.setLabel(var14, 1.0F, 1.0F, 0.8F, 1.0F);
             if (var1.getCharacter().getKnownRecipes().containsAll(this.getTeachedRecipes())) {
-               ProfessionFactory.Profession var13 = ProfessionFactory.getProfession(var1.getCharacter().getDescriptor().getProfession());
-               TraitCollection var15 = var1.getCharacter().getTraits();
-               int var7 = 0;
-               int var8 = 0;
+               ProfessionFactory.Profession var27 = ProfessionFactory.getProfession(var1.getCharacter().getDescriptor().getProfession());
+               TraitCollection var28 = var1.getCharacter().getTraits();
+               int var17 = 0;
+               int var18 = 0;
 
-               for(int var9 = 0; var9 < this.getTeachedRecipes().size(); ++var9) {
-                  String var10 = (String)this.getTeachedRecipes().get(var9);
-                  if (var13 != null && var13.getFreeRecipes().contains(var10)) {
-                     ++var7;
+               for(var19 = 0; var19 < this.getTeachedRecipes().size(); ++var19) {
+                  String var20 = (String)this.getTeachedRecipes().get(var19);
+                  if (var27 != null && var27.getFreeRecipes().contains(var20)) {
+                     ++var17;
                   }
 
-                  for(int var11 = 0; var11 < var15.size(); ++var11) {
-                     TraitFactory.Trait var12 = TraitFactory.getTrait(var15.get(var11));
-                     if (var12 != null && var12.getFreeRecipes().contains(var10)) {
-                        ++var8;
+                  for(var21 = 0; var21 < var28.size(); ++var21) {
+                     var22 = TraitFactory.getTrait(var28.get(var21));
+                     if (var22 != null && var22.getFreeRecipes().contains(var20)) {
+                        ++var18;
                      }
                   }
                }
 
-               if (var7 > 0 || var8 > 0) {
+               if (var17 > 0 || var18 > 0) {
                   var3 = var2.addItem();
                   var3.setLabel(Translator.getText("Tooltip_literature_AlreadyKnown"), 0.0F, 1.0F, 0.8F, 1.0F);
                }
             }
+         }
+      } else if (this.getTeachedRecipes() != null && var24) {
+         var3 = var2.addItem();
+         var14 = Translator.getText("ContextMenu_Illiterate");
+         var3.setLabel(Translator.getText("Tooltip_Literature_TeachedRecipes", var14), 1.0F, 1.0F, 0.8F, 1.0F);
+      }
+
+      if (this.getModData().rawget("teachedRecipe") != null && !var24) {
+         var14 = (String)this.getModData().rawget("teachedRecipe");
+         var3 = var2.addItem();
+         var15 = Translator.getRecipeName(var14);
+         var3.setLabel(Translator.getText("Tooltip_Literature_TeachedRecipes", var15), 1.0F, 1.0F, 0.8F, 1.0F);
+         if (var1.getCharacter() != null) {
+            var3 = var2.addItem();
+            var16 = Translator.getText("Tooltip_literature_NotBeenRead");
+            if (var1.getCharacter().getKnownRecipes().contains(var14)) {
+               var16 = Translator.getText("Tooltip_literature_HasBeenRead");
+            }
+
+            var3.setLabel(var16, 1.0F, 1.0F, 0.8F, 1.0F);
+            if (var1.getCharacter().getKnownRecipes().contains(var14)) {
+               ProfessionFactory.Profession var29 = ProfessionFactory.getProfession(var1.getCharacter().getDescriptor().getProfession());
+               TraitCollection var30 = var1.getCharacter().getTraits();
+               var19 = 0;
+               int var31 = 0;
+               if (var29 != null && var29.getFreeRecipes().contains(var14)) {
+                  ++var19;
+               }
+
+               for(var21 = 0; var21 < var30.size(); ++var21) {
+                  var22 = TraitFactory.getTrait(var30.get(var21));
+                  if (var22 != null && var22.getFreeRecipes().contains(var14)) {
+                     ++var31;
+                  }
+               }
+
+               if (var19 > 0 || var31 > 0) {
+                  var3 = var2.addItem();
+                  var3.setLabel(Translator.getText("Tooltip_literature_AlreadyKnown"), 0.0F, 1.0F, 0.8F, 1.0F);
+               }
+            }
+         }
+      } else if (this.getModData().rawget("teachedRecipe") != null && var24) {
+         var3 = var2.addItem();
+         var14 = Translator.getText("ContextMenu_Illiterate");
+         var3.setLabel(Translator.getText("Tooltip_Literature_TeachedRecipes", var14), 1.0F, 1.0F, 0.8F, 1.0F);
+      }
+
+      if (this.getModData().rawget("literatureTitle") != null) {
+         var14 = (String)this.getModData().rawget("literatureTitle");
+         if (var1.getCharacter().isLiteratureRead(var14)) {
+            var3 = var2.addItem();
+            var15 = Translator.getText("ContextMenu_RecentlyRead");
+            if (this.hasTag("Picture")) {
+               var15 = Translator.getText("ContextMenu_RecentlySeen");
+            }
+
+            var3.setLabel(var15, 1.0F, 1.0F, 0.8F, 1.0F);
          }
       }
 
@@ -393,6 +479,25 @@ public final class Literature extends InventoryItem {
       return (String)this.customPages.get(var1);
    }
 
+   public boolean isEmptyPages() {
+      if (this.customPages == null) {
+         return true;
+      } else {
+         Iterator var1 = this.customPages.values().iterator();
+
+         String var2;
+         do {
+            if (!var1.hasNext()) {
+               return true;
+            }
+
+            var2 = (String)var1.next();
+         } while(var2.equals(""));
+
+         return false;
+      }
+   }
+
    public String getLockedBy() {
       return this.lockedBy;
    }
@@ -415,5 +520,9 @@ public final class Literature extends InventoryItem {
 
    public void setTeachedRecipes(List<String> var1) {
       this.teachedRecipes = var1;
+   }
+
+   public String getReadType() {
+      return this.getScriptItem().readType;
    }
 }

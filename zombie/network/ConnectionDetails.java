@@ -19,7 +19,6 @@ import zombie.gameStates.ChooseGameInfo;
 import zombie.gameStates.ConnectToServerState;
 import zombie.gameStates.MainScreenState;
 import zombie.globalObjects.SGlobalObjects;
-import zombie.iso.Vector3;
 import zombie.world.WorldDictionary;
 
 public class ConnectionDetails {
@@ -50,7 +49,7 @@ public class ConnectionDetails {
    }
 
    public static void parse(ByteBuffer var0) {
-      ConnectionManager.log("receive-packet", "connection-details", (UdpConnection)null);
+      ConnectionManager.log("receive-packet", "connection-details", GameClient.connection);
       Calendar var1 = Calendar.getInstance();
       ConnectToServerState var2 = new ConnectToServerState(var0);
       var2.enter();
@@ -71,7 +70,7 @@ public class ConnectionDetails {
 
       int var3 = var1.playerIDs[0] / 4;
       var0.put((byte)var3);
-      GameWindow.WriteString(var0, var2.accessLevel);
+      var2.role.send(var0);
    }
 
    private static void writeGameMap(ByteBuffer var0) {
@@ -126,10 +125,9 @@ public class ConnectionDetails {
 
    private static void writeStartLocation(ByteBuffer var0) {
       Object var1 = null;
-      Vector3 var2 = ServerMap.instance.getStartLocation((ServerWorldDatabase.LogonResult)var1);
-      var0.putInt((int)var2.x);
-      var0.putInt((int)var2.y);
-      var0.putInt((int)var2.z);
+      var0.putInt(10745);
+      var0.putInt(9412);
+      var0.putInt(0);
    }
 
    private static void writeServerOptions(ByteBuffer var0) {

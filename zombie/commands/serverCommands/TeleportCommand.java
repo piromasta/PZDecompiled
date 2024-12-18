@@ -1,19 +1,19 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Role;
 import zombie.commands.AltCommandArgs;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
 import zombie.commands.CommandNames;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
-import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
 
 @CommandNames({@CommandName(
    name = "teleport"
@@ -30,8 +30,8 @@ import zombie.network.PacketTypes;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_Teleport"
 )
-@RequiredRight(
-   requiredRights = 62
+@RequiredCapability(
+   requiredCapability = Capability.TeleportToPlayer
 )
 public class TeleportCommand extends CommandBase {
    public static final String justToUser = "just port to user";
@@ -39,7 +39,7 @@ public class TeleportCommand extends CommandBase {
    private String username1;
    private String username2;
 
-   public TeleportCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public TeleportCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -63,18 +63,8 @@ public class TeleportCommand extends CommandBase {
       } else {
          IsoPlayer var1 = GameServer.getPlayerByUserNameForCommand(this.username1);
          if (var1 != null) {
+            GameServer.sendTeleport(this.connection.players[0], var1.getX(), var1.getY(), var1.getZ());
             this.username1 = var1.getDisplayName();
-            ByteBufferWriter var2 = this.connection.startPacket();
-            PacketTypes.PacketType.Teleport.doPacket(var2);
-            var2.putByte((byte)0);
-            var2.putFloat(var1.getX());
-            var2.putFloat(var1.getY());
-            var2.putFloat(var1.getZ());
-            PacketTypes.PacketType.Teleport.send(this.connection);
-            if (this.connection.players[0] != null && this.connection.players[0].getNetworkCharacterAI() != null) {
-               this.connection.players[0].getNetworkCharacterAI().resetSpeedLimiter();
-            }
-
             ZLogger var10000 = LoggerManager.getLogger("admin");
             String var10001 = this.getExecutorUsername();
             var10000.write(var10001 + " teleport to " + this.username1);
@@ -86,7 +76,7 @@ public class TeleportCommand extends CommandBase {
    }
 
    private String TeleportUser1ToUser2() {
-      if (this.getAccessLevel() == 2 && !this.username1.equals(this.getExecutorUsername())) {
+      if (!this.getRole().haveCapability(Capability.TeleportPlayerToAnotherPlayer) && !this.username1.equals(this.getExecutorUsername())) {
          return "An Observer can only teleport himself";
       } else {
          IsoPlayer var1 = GameServer.getPlayerByUserNameForCommand(this.username1);
@@ -102,17 +92,7 @@ public class TeleportCommand extends CommandBase {
             if (var3 == null) {
                return "No connection for player " + this.username1;
             } else {
-               ByteBufferWriter var4 = var3.startPacket();
-               PacketTypes.PacketType.Teleport.doPacket(var4);
-               var4.putByte((byte)var1.PlayerIndex);
-               var4.putFloat(var2.getX());
-               var4.putFloat(var2.getY());
-               var4.putFloat(var2.getZ());
-               PacketTypes.PacketType.Teleport.send(var3);
-               if (var1.getNetworkCharacterAI() != null) {
-                  var1.getNetworkCharacterAI().resetSpeedLimiter();
-               }
-
+               GameServer.sendTeleport(var1, var2.getX(), var2.getY(), var2.getZ());
                ZLogger var10000 = LoggerManager.getLogger("admin");
                String var10001 = this.getExecutorUsername();
                var10000.write(var10001 + " teleported " + this.username1 + " to " + this.username2);

@@ -7,7 +7,7 @@ import zombie.core.Core;
 import zombie.gameStates.GameState;
 import zombie.gameStates.GameStateMachine;
 import zombie.input.GameKeyboard;
-import zombie.ui.UIElement;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIManager;
 import zombie.vehicles.EditVehicleState;
 
@@ -15,8 +15,8 @@ public final class WorldMapEditorState extends GameState {
    public static WorldMapEditorState instance;
    private EditVehicleState.LuaEnvironment m_luaEnv;
    private boolean bExit = false;
-   private final ArrayList<UIElement> m_gameUI = new ArrayList();
-   private final ArrayList<UIElement> m_selfUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_gameUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_selfUI = new ArrayList();
    private boolean m_bSuspendUI;
    private KahluaTable m_table = null;
 
@@ -63,7 +63,7 @@ public final class WorldMapEditorState extends GameState {
       this.renderScene();
       Core.getInstance().EndFrame(var1);
       Core.getInstance().RenderOffScreenBuffer();
-      UIManager.useUIFBO = Core.getInstance().supportsFBO() && Core.OptionUIFBO;
+      UIManager.useUIFBO = Core.getInstance().supportsFBO() && Core.getInstance().getOptionUIFBO();
       if (Core.getInstance().StartFrameUI()) {
          this.renderUI();
       }

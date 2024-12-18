@@ -5,8 +5,8 @@ import java.util.ArrayList;
 import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.areas.SafeHouse;
+import zombie.iso.zones.Zone;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
@@ -35,7 +35,7 @@ public final class Meta {
 
    public void dealWithSquareSeenActual(IsoGridSquare var1) {
       if (!GameClient.bClient) {
-         IsoMetaGrid.Zone var2 = var1.zone;
+         Zone var2 = var1.zone;
          if (var2 != null) {
             var2.setHourSeenToCurrent();
          }

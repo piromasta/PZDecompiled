@@ -18,8 +18,9 @@ import zombie.GameWindow;
 import zombie.MovingObjectUpdateScheduler;
 import zombie.VirtualZombieManager;
 import zombie.Lua.LuaManager;
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
-import zombie.commands.PlayerType;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
 import zombie.core.raknet.RakVoice;
 import zombie.core.raknet.UdpConnection;
@@ -33,6 +34,8 @@ import zombie.iso.IsoWorld;
 import zombie.iso.WorldStreamer;
 import zombie.popman.NetworkZombieManager;
 import zombie.popman.NetworkZombieSimulator;
+import zombie.popman.animal.AnimalInstanceManager;
+import zombie.popman.animal.AnimalOwnershipManager;
 import zombie.util.StringUtils;
 
 public class MPStatistics {
@@ -54,6 +57,12 @@ public class MPStatistics {
    private static boolean serverStatisticsEnabled;
    private static int serverPlayers;
    private static int clientPlayers;
+   private static int clientAnimalObjects;
+   private static int clientAnimalInstances;
+   private static int clientAnimalOwned;
+   private static int serverAnimalObjects;
+   private static int serverAnimalInstances;
+   private static int serverAnimalOwned;
    private static int clientLastPing;
    private static int clientAvgPing;
    private static int clientMinPing;
@@ -127,8 +136,84 @@ public class MPStatistics {
    static long pingIntervalCount;
    static long pingLimitCount;
    static long maxPingToSum;
+   private static int zombiesKilledByFireToday;
+   private static int zombiesKilledToday;
+   private static int zombifiedPlayersToday;
+   private static int playersKilledByFireToday;
+   private static int playersKilledByZombieToday;
+   private static int playersKilledByPlayerToday;
+   private static int burnedCorpsesToday;
 
    public MPStatistics() {
+   }
+
+   public static void onNewDay() {
+      zombiesKilledByFireToday = 0;
+      zombiesKilledToday = 0;
+      zombifiedPlayersToday = 0;
+      playersKilledByFireToday = 0;
+      playersKilledByZombieToday = 0;
+      playersKilledByPlayerToday = 0;
+      burnedCorpsesToday = 0;
+   }
+
+   public static void onZombieWasKilled(boolean var0) {
+      ++zombiesKilledToday;
+      if (var0) {
+         ++zombiesKilledByFireToday;
+      }
+
+   }
+
+   public static void onPlayerWasKilled(boolean var0, boolean var1, boolean var2) {
+      if (var0) {
+         ++playersKilledByFireToday;
+      }
+
+      if (var2) {
+         ++playersKilledByZombieToday;
+      }
+
+      if (var1) {
+         ++playersKilledByPlayerToday;
+      }
+
+   }
+
+   public static void onPlayerWasZombified() {
+      ++zombifiedPlayersToday;
+   }
+
+   public static void onCorpseBurned() {
+      ++burnedCorpsesToday;
+   }
+
+   public static int getZombiesKilledByFireToday() {
+      return zombiesKilledByFireToday;
+   }
+
+   public static int getZombiesKilledToday() {
+      return zombiesKilledToday;
+   }
+
+   public static int getZombifiedPlayersToday() {
+      return zombifiedPlayersToday;
+   }
+
+   public static int getPlayersKilledByFireToday() {
+      return playersKilledByFireToday;
+   }
+
+   public static int getPlayersKilledByZombieToday() {
+      return playersKilledByZombieToday;
+   }
+
+   public static int getPlayersKilledByPlayerToday() {
+      return playersKilledByPlayerToday;
+   }
+
+   public static int getBurnedCorpsesToday() {
+      return burnedCorpsesToday;
    }
 
    private static boolean isClientStatisticsEnabled() {
@@ -145,6 +230,22 @@ public class MPStatistics {
       }
 
       return var0;
+   }
+
+   private static void getClientAnimalStatistics() {
+      clientAnimalObjects = (int)IsoWorld.instance.CurrentCell.getObjectList().stream().filter((var0) -> {
+         return var0 instanceof IsoAnimal;
+      }).count();
+      clientAnimalInstances = AnimalInstanceManager.getInstance().getAnimals().size();
+      clientAnimalOwned = AnimalOwnershipManager.getInstance().getOwned();
+   }
+
+   private static void getServerAnimalStatistics() {
+      serverAnimalObjects = (int)IsoWorld.instance.CurrentCell.getObjectList().stream().filter((var0) -> {
+         return var0 instanceof IsoAnimal;
+      }).count();
+      serverAnimalInstances = AnimalInstanceManager.getInstance().getAnimals().size();
+      serverAnimalOwned = AnimalOwnershipManager.getInstance().getOwned();
    }
 
    private static void getClientZombieStatistics() {
@@ -205,6 +306,12 @@ public class MPStatistics {
 
       serverPlayers = 0;
       clientPlayers = 0;
+      clientAnimalObjects = 0;
+      clientAnimalInstances = 0;
+      clientAnimalOwned = 0;
+      serverAnimalObjects = 0;
+      serverAnimalInstances = 0;
+      serverAnimalOwned = 0;
       clientVOIPSource = "";
       clientVOIPFreq = "";
       clientVOIPRX = 0L;
@@ -396,7 +503,6 @@ public class MPStatistics {
          if (doKick(var2, var3)) {
             GameServer.kick(var2, "UI_Policy_Kick", "UI_OnConnectFailed_Ping");
             var2.forceDisconnect("kick-ping-limit");
-            GameServer.addDisconnect(var2);
             DebugLog.Multiplayer.warn("Kick: player=\"%s\" type=\"%s\"", var2.username, "UI_OnConnectFailed_Ping");
             DebugLog.Multiplayer.debugln("Ping: limit=%d/%d average-%d=%d", var0, pingLimitCount, pingIntervalCount, var3);
             DebugLog.Multiplayer.debugln("Ping: last-%d: %s", 120L, var2.pingHistory.stream().map(Object::toString).collect(Collectors.joining(", ")));
@@ -411,7 +517,7 @@ public class MPStatistics {
 
    public static boolean doKickWhileLoading(UdpConnection var0, long var1) {
       int var3 = ServerOptions.instance.PingLimit.getValue();
-      return (double)var3 > ServerOptions.instance.PingLimit.getMin() && var1 > (long)var3 && !var0.preferredInQueue && !PlayerType.isPrivileged(var0.accessLevel);
+      return (double)var3 > ServerOptions.instance.PingLimit.getMin() && var1 > (long)var3 && !var0.role.haveCapability(Capability.CantBeKickedIfTooLaggy);
    }
 
    public static boolean doKick(UdpConnection var0, long var1) {
@@ -535,7 +641,7 @@ public class MPStatistics {
                      }, (Object)null);
                   }
 
-                  DebugLog.log(DebugType.Multiplayer, String.format("[%s] mem usage notification threshold=%s", MPStatistics.class.getSimpleName(), NumberFormat.getNumberInstance().format(var2)));
+                  DebugLog.log(DebugType.Multiplayer, String.format("MEM usage notification threshold %d", var2));
                   break;
                }
             }
@@ -557,7 +663,7 @@ public class MPStatistics {
    public static void Update() {
       if (GameClient.bClient) {
          if (ulPing.Check()) {
-            if (!isClientStatisticsEnabled() && !NetworkAIParams.isShowPingInfo()) {
+            if (!isClientStatisticsEnabled() && !NetworkAIParams.isShowServerInfo()) {
                resetPingCounters();
                resetServerHandledPingCounters();
             } else {
@@ -575,6 +681,7 @@ public class MPStatistics {
                getClientStatistics();
                getClientZombieStatistics();
                getClientChunkStatistics();
+               getClientAnimalStatistics();
             }
          } else {
             resetStatistic();
@@ -592,6 +699,7 @@ public class MPStatistics {
             if (ulStatistics.Check()) {
                getServerStatistics();
                getServerZombieStatistics();
+               getServerAnimalStatistics();
             }
          } else {
             resetStatistic();
@@ -647,7 +755,10 @@ public class MPStatistics {
       var1.putInt(serverZombiesReusable);
       var1.putInt(var0.playerDownloadServer.getWaitingRequests());
       var1.putInt(serverPlayers);
-      GameWindow.WriteString(var1, "");
+      var1.putInt(serverAnimalObjects);
+      var1.putInt(serverAnimalInstances);
+      var1.putInt(serverAnimalOwned);
+      GameWindow.WriteString(var1, "25057");
    }
 
    public static void parse(ByteBuffer var0) {
@@ -678,6 +789,9 @@ public class MPStatistics {
       serverZombiesReusable = var0.getInt();
       serverWaitingRequests = var0.getInt();
       serverPlayers = var0.getInt();
+      serverAnimalObjects = var0.getInt();
+      serverAnimalInstances = var0.getInt();
+      serverAnimalOwned = var0.getInt();
       serverRevision = GameWindow.ReadString(var0);
       serverHandledLossPingHistory.remove(var3);
       if (var3 >= serverHandledPingPeriodStart) {
@@ -691,11 +805,12 @@ public class MPStatistics {
       statusTable.wipe();
       if (GameClient.bClient) {
          statusTable.rawset("serverTime", NumberFormat.getNumberInstance().format(TimeUnit.NANOSECONDS.toSeconds(GameTime.getServerTime())));
-         statusTable.rawset("svnRevision", "");
-         statusTable.rawset("buildDate", "");
-         statusTable.rawset("buildTime", "");
+         statusTable.rawset("svnRevision", "25057");
+         statusTable.rawset("buildDate", "2024-12-17");
+         statusTable.rawset("buildTime", "17:38:44");
+         statusTable.rawset("position", String.format("( %.3f ; %.3f ; %.3f )", IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY(), IsoPlayer.getInstance().getZ()));
          statusTable.rawset("version", Core.getInstance().getVersion());
-         statusTable.rawset("lastPing", String.valueOf(clientLastPing));
+         statusTable.rawset("lastPing", String.format("%03d", clientLastPing));
          statusTable.rawset("avgPing", String.valueOf(clientAvgPing));
          statusTable.rawset("minPing", String.valueOf(clientMinPing));
       }
@@ -708,10 +823,16 @@ public class MPStatistics {
       if (GameClient.bClient) {
          statsTable.rawset("clientTime", String.valueOf(TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis())));
          statsTable.rawset("serverTime", NumberFormat.getNumberInstance().format(TimeUnit.NANOSECONDS.toSeconds(GameTime.getServerTime())));
-         statsTable.rawset("clientRevision", String.valueOf(""));
+         statsTable.rawset("clientRevision", String.valueOf("25057"));
          statsTable.rawset("serverRevision", String.valueOf(serverRevision));
          statsTable.rawset("clientPlayers", String.valueOf(clientPlayers));
          statsTable.rawset("serverPlayers", String.valueOf(serverPlayers));
+         statsTable.rawset("clientAnimalObjects", String.valueOf(clientAnimalObjects));
+         statsTable.rawset("clientAnimalInstances", String.valueOf(clientAnimalInstances));
+         statsTable.rawset("clientAnimalOwned", String.valueOf(clientAnimalOwned));
+         statsTable.rawset("serverAnimalObjects", String.valueOf(serverAnimalObjects));
+         statsTable.rawset("serverAnimalInstances", String.valueOf(serverAnimalInstances));
+         statsTable.rawset("serverAnimalOwned", String.valueOf(serverAnimalOwned));
          statsTable.rawset("clientVOIPSource", String.valueOf(clientVOIPSource));
          statsTable.rawset("clientVOIPFreq", String.valueOf(clientVOIPFreq));
          statsTable.rawset("clientVOIPRX", String.valueOf(clientVOIPRX));
@@ -787,6 +908,12 @@ public class MPStatistics {
       serverStatisticsEnabled = false;
       serverPlayers = 0;
       clientPlayers = 0;
+      clientAnimalObjects = 0;
+      clientAnimalInstances = 0;
+      clientAnimalOwned = 0;
+      serverAnimalObjects = 0;
+      serverAnimalInstances = 0;
+      serverAnimalOwned = 0;
       clientLastPing = -1;
       clientAvgPing = -1;
       clientMinPing = -1;
@@ -860,5 +987,12 @@ public class MPStatistics {
       pingIntervalCount = 60L;
       pingLimitCount = 20L;
       maxPingToSum = 1000L;
+      zombiesKilledByFireToday = 0;
+      zombiesKilledToday = 0;
+      zombifiedPlayersToday = 0;
+      playersKilledByFireToday = 0;
+      playersKilledByZombieToday = 0;
+      playersKilledByPlayerToday = 0;
+      burnedCorpsesToday = 0;
    }
 }

@@ -5,16 +5,17 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import zombie.GameTime;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
+import zombie.core.Core;
+import zombie.core.random.Rand;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoLightSource;
 import zombie.iso.IsoWorld;
 import zombie.iso.LightingJNI;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
-import zombie.radio.ZomboidRadio;
 
 public class IsoTelevision extends IsoWaveSignal {
    protected ArrayList<IsoSprite> screenSprites = new ArrayList();
@@ -108,7 +109,8 @@ public class IsoTelevision extends IsoWaveSignal {
 
       if (this.lightWasRemoved) {
          IsoWorld.instance.CurrentCell.addLamppost(this.lightSource);
-         IsoGridSquare.RecalcLightTime = -1;
+         IsoGridSquare.RecalcLightTime = -1.0F;
+         ++Core.dirtyGlobalLightsCount;
          GameTime.instance.lightSourceUpdate = 100.0F;
          this.lightWasRemoved = false;
       }
@@ -129,7 +131,7 @@ public class IsoTelevision extends IsoWaveSignal {
          float var4 = 0.58F + 0.25F * var3;
          float var5 = Rand.Next(0.65F, 0.85F);
          int var6 = 1 + (int)((float)(this.lightSourceRadius - 1) * var3);
-         IsoGridSquare.RecalcLightTime = -1;
+         IsoGridSquare.RecalcLightTime = -1.0F;
          GameTime.instance.lightSourceUpdate = 100.0F;
          this.lightSource.setRadius(var6);
          this.lightSource.setR(var4);
@@ -193,18 +195,19 @@ public class IsoTelevision extends IsoWaveSignal {
    }
 
    protected void updateTvScreen() {
+      IsoSprite var1 = this.overlaySprite;
       if (this.deviceData != null && this.deviceData.getIsTurnedOn() && this.screenSprites.size() > 0) {
          if (!this.deviceData.isReceivingSignal() && !this.deviceData.isPlayingMedia()) {
-            if (ZomboidRadio.POST_RADIO_SILENCE) {
-               this.setScreen(IsoTelevision.Screens.TESTSCREEN);
-            } else {
-               this.setScreen(IsoTelevision.Screens.DEFAULTSCREEN);
-            }
+            this.setScreen(IsoTelevision.Screens.TESTSCREEN);
          } else if (this.tickIsLightUpdate || this.currentScreen != IsoTelevision.Screens.ALTERNATESCREEN) {
             this.setScreen(IsoTelevision.Screens.ALTERNATESCREEN);
          }
       } else if (this.currentScreen != IsoTelevision.Screens.OFFSCREEN) {
          this.setScreen(IsoTelevision.Screens.OFFSCREEN);
+      }
+
+      if (var1 != this.overlaySprite) {
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
       }
 
    }
@@ -245,25 +248,25 @@ public class IsoTelevision extends IsoWaveSignal {
          } else {
             switch (this.facing) {
                case N:
-                  if (var1.y >= (float)this.square.y) {
+                  if (var1.getY() >= (float)this.square.y) {
                      return false;
                   }
 
                   return var1.dir == IsoDirections.SW || var1.dir == IsoDirections.S || var1.dir == IsoDirections.SE;
                case S:
-                  if (var1.y < (float)(this.square.y + 1)) {
+                  if (var1.getY() < (float)(this.square.y + 1)) {
                      return false;
                   }
 
                   return var1.dir == IsoDirections.NW || var1.dir == IsoDirections.N || var1.dir == IsoDirections.NE;
                case W:
-                  if (var1.x >= (float)this.square.x) {
+                  if (var1.getX() >= (float)this.square.x) {
                      return false;
                   }
 
                   return var1.dir == IsoDirections.SE || var1.dir == IsoDirections.E || var1.dir == IsoDirections.NE;
                case E:
-                  if (var1.x < (float)(this.square.x + 1)) {
+                  if (var1.getX() < (float)(this.square.x + 1)) {
                      return false;
                   }
 

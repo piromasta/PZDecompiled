@@ -1,5 +1,7 @@
 package zombie.core.math;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.lwjgl.util.vector.Matrix4f;
 import org.lwjgl.util.vector.Quaternion;
 import org.lwjgl.util.vector.Vector3f;
@@ -42,42 +44,35 @@ public final class PZMath {
    }
 
    public static float clamp(float var0, float var1, float var2) {
-      float var3 = var0;
       if (var0 < var1) {
-         var3 = var1;
+         return var1;
+      } else {
+         return var0 > var2 ? var2 : var0;
       }
-
-      if (var3 > var2) {
-         var3 = var2;
-      }
-
-      return var3;
    }
 
    public static long clamp(long var0, long var2, long var4) {
-      long var6 = var0;
       if (var0 < var2) {
-         var6 = var2;
+         return var2;
+      } else {
+         return var0 > var4 ? var4 : var0;
       }
-
-      if (var6 > var4) {
-         var6 = var4;
-      }
-
-      return var6;
    }
 
    public static int clamp(int var0, int var1, int var2) {
-      int var3 = var0;
       if (var0 < var1) {
-         var3 = var1;
+         return var1;
+      } else {
+         return var0 > var2 ? var2 : var0;
       }
+   }
 
-      if (var3 > var2) {
-         var3 = var2;
+   public static double clamp(double var0, double var2, double var4) {
+      if (var0 < var2) {
+         return var2;
+      } else {
+         return var0 > var4 ? var4 : var0;
       }
-
-      return var3;
    }
 
    public static float clampFloat(float var0, float var1, float var2) {
@@ -86,6 +81,23 @@ public final class PZMath {
 
    public static float clamp_01(float var0) {
       return clamp(var0, 0.0F, 1.0F);
+   }
+
+   public static double clampDouble_01(double var0) {
+      return clamp(var0, 0.0, 1.0);
+   }
+
+   public static Quaternion setFromAxisAngle(float var0, float var1, float var2, float var3, Quaternion var4) {
+      var4.x = var0;
+      var4.y = var1;
+      var4.z = var2;
+      float var5 = (float)Math.sqrt((double)(var4.x * var4.x + var4.y * var4.y + var4.z * var4.z));
+      float var6 = (float)(Math.sin(0.5 * (double)var3) / (double)var5);
+      var4.x *= var6;
+      var4.y *= var6;
+      var4.z *= var6;
+      var4.w = (float)Math.cos(0.5 * (double)var3);
+      return var4;
    }
 
    public static float lerp(float var0, float var1, float var2) {
@@ -99,6 +111,11 @@ public final class PZMath {
    }
 
    public static Vector3f lerp(Vector3f var0, Vector3f var1, Vector3f var2, float var3) {
+      var0.set(var1.x + (var2.x - var1.x) * var3, var1.y + (var2.y - var1.y) * var3, var1.z + (var2.z - var1.z) * var3);
+      return var0;
+   }
+
+   public static zombie.iso.Vector3 lerp(zombie.iso.Vector3 var0, zombie.iso.Vector3 var1, zombie.iso.Vector3 var2, float var3) {
       var0.set(var1.x + (var2.x - var1.x) * var3, var1.y + (var2.y - var1.y) * var3, var1.z + (var2.z - var1.z) * var3);
       return var0;
    }
@@ -200,6 +217,10 @@ public final class PZMath {
       }
    }
 
+   public static float pow(float var0, float var1) {
+      return (float)Math.pow((double)var0, (double)var1);
+   }
+
    public static float degToRad(float var0) {
       return 0.017453292F * var0;
    }
@@ -237,8 +258,24 @@ public final class PZMath {
       return var0 < (float)var1 ? var1 - 1 : var1;
    }
 
+   public static int coorddivision(int var0, int var1) {
+      return fastfloor((float)var0 / (float)var1);
+   }
+
+   public static int coordmodulo(int var0, int var1) {
+      return var0 - fastfloor((float)var0 / (float)var1) * var1;
+   }
+
+   public static float coordmodulof(float var0, int var1) {
+      return var0 - (float)(fastfloor(var0 / (float)var1) * var1);
+   }
+
    public static float floor(float var0) {
       return (float)fastfloor(var0);
+   }
+
+   public static double floor(double var0) {
+      return (double)fastfloor(var0);
    }
 
    public static float ceil(float var0) {
@@ -288,12 +325,36 @@ public final class PZMath {
       return var0 > var1 ? var0 : var1;
    }
 
+   public static float max(float var0, float var1, float var2) {
+      return max(var0, max(var1, var2));
+   }
+
+   public static float max(float var0, float var1, float var2, float var3) {
+      return max(var0, max(var1, max(var2, var3)));
+   }
+
+   public static float max(float var0, float var1, float var2, float var3, float var4) {
+      return max(var0, max(var1, max(var2, max(var3, var4))));
+   }
+
    public static int max(int var0, int var1) {
       return var0 > var1 ? var0 : var1;
    }
 
    public static float min(float var0, float var1) {
       return var0 > var1 ? var1 : var0;
+   }
+
+   public static float min(float var0, float var1, float var2) {
+      return min(var0, min(var1, var2));
+   }
+
+   public static float min(float var0, float var1, float var2, float var3) {
+      return min(var0, min(var1, min(var2, var3)));
+   }
+
+   public static float min(float var0, float var1, float var2, float var3, float var4) {
+      return min(var0, min(var1, min(var2, min(var3, var4))));
    }
 
    public static int min(int var0, int var1) {
@@ -354,9 +415,169 @@ public final class PZMath {
       }
    }
 
+   public static float angleBetween(Vector2 var0, Vector2 var1) {
+      float var2 = var0.x;
+      float var3 = var0.y;
+      float var4 = var1.x;
+      float var5 = var1.y;
+      return angleBetween(var2, var3, var4, var5);
+   }
+
+   public static float angleBetween(float var0, float var1, float var2, float var3) {
+      float var4 = sqrt(var0 * var0 + var1 * var1);
+      if (var4 == 0.0F) {
+         return 0.0F;
+      } else {
+         float var5 = sqrt(var2 * var2 + var3 * var3);
+         if (var5 == 0.0F) {
+            return 0.0F;
+         } else {
+            float var6 = var0 / var4;
+            float var7 = var1 / var4;
+            float var8 = var2 / var5;
+            float var9 = var3 / var5;
+            return angleBetweenNormalized(var6, var8, var7, var9);
+         }
+      }
+   }
+
+   public static float angleBetweenNormalized(float var0, float var1, float var2, float var3) {
+      float var4 = var0 * var1 + var2 * var3;
+      float var5 = acosf(var4);
+      float var6 = var0 * var3 - var2 * var1;
+      int var7 = sign(var6);
+      float var8 = var5 * (float)var7;
+      return var8;
+   }
+
+   public static float acosf(float var0) {
+      return (float)Math.acos((double)var0);
+   }
+
+   public static float calculateBearing(zombie.iso.Vector3 var0, Vector2 var1, zombie.iso.Vector3 var2) {
+      float var3 = var2.x - var0.x;
+      float var4 = var2.y - var0.y;
+      return angleBetween(var1.x, var1.y, var3, var4) * 57.295776F;
+   }
+
    public static SideOfLine testSideOfLine(float var0, float var1, float var2, float var3, float var4, float var5) {
       float var6 = (var4 - var0) * (var3 - var1) - (var5 - var1) * (var2 - var0);
       return var6 > 0.0F ? PZMath.SideOfLine.Left : (var6 < 0.0F ? PZMath.SideOfLine.Right : PZMath.SideOfLine.OnLine);
+   }
+
+   public static <E> void normalize(List<E> var0, FloatGet<E> var1, FloatSet<E> var2) {
+      float[] var3 = new float[var0.size()];
+
+      int var4;
+      for(var4 = 0; var4 < var0.size(); ++var4) {
+         var3[var4] = var1.get(var0.get(var4));
+      }
+
+      normalize(var3);
+
+      for(var4 = 0; var4 < var0.size(); ++var4) {
+         var2.set(var0.get(var4), var3[var4]);
+      }
+
+   }
+
+   public static <E> void normalize(E[] var0, FloatGet<E> var1, FloatSet<E> var2) {
+      float[] var3 = new float[var0.length];
+
+      int var4;
+      for(var4 = 0; var4 < var0.length; ++var4) {
+         var3[var4] = var1.get(var0[var4]);
+      }
+
+      normalize(var3);
+
+      for(var4 = 0; var4 < var0.length; ++var4) {
+         var2.set(var0[var4], var3[var4]);
+      }
+
+   }
+
+   public static float[] normalize(float[] var0) {
+      int var1 = var0.length;
+      float var2 = 0.0F;
+      int var3 = var1;
+
+      while(true) {
+         --var3;
+         if (var3 < 0) {
+            if (var2 != 0.0F) {
+               var3 = var1;
+
+               while(true) {
+                  --var3;
+                  if (var3 < 0) {
+                     break;
+                  }
+
+                  var0[var3] /= var2;
+               }
+            }
+
+            return var0;
+         }
+
+         var2 += var0[var3];
+      }
+   }
+
+   public static ArrayList<Double> normalize(ArrayList<Double> var0) {
+      float[] var1 = new float[var0.size()];
+
+      int var2;
+      for(var2 = 0; var2 < var0.size(); ++var2) {
+         var1[var2] = ((Double)var0.get(var2)).floatValue();
+      }
+
+      normalize(var1);
+      var0.clear();
+
+      for(var2 = 0; var2 < var1.length; ++var2) {
+         var0.add((double)var1[var2]);
+      }
+
+      return var0;
+   }
+
+   public static float roundFloatPos(float var0, int var1) {
+      int var2 = 10;
+
+      for(int var3 = 1; var3 < var1; ++var3) {
+         var2 *= 10;
+      }
+
+      float var4 = var0 * (float)var2;
+      return (float)((int)(var4 - (float)((int)var4) >= 0.5F ? var4 + 1.0F : var4)) / (float)var2;
+   }
+
+   public static float roundFloat(float var0, int var1) {
+      int var2 = 10;
+
+      for(int var3 = 1; var3 < var1; ++var3) {
+         var2 *= 10;
+      }
+
+      float var5 = var0 * (float)var2;
+      float var4 = var5 - (float)((int)var5);
+      return (float)((int)(var0 >= 0.0F ? (var4 >= 0.5F ? var5 + 1.0F : var5) : (var4 >= -0.5F ? var5 : var5 - 1.0F))) / (float)var2;
+   }
+
+   public static int nextPowerOfTwo(int var0) {
+      if (var0 == 0) {
+         return 1;
+      } else {
+         --var0;
+         var0 |= var0 >> 1;
+         var0 |= var0 >> 2;
+         var0 |= var0 >> 4;
+         var0 |= var0 >> 8;
+         var0 |= var0 >> 16;
+         return var0 + 1;
+      }
    }
 
    public static float roundToNearest(float var0) {
@@ -382,6 +603,26 @@ public final class PZMath {
       }
    }
 
+   public static zombie.iso.Vector3 closestVector3(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8) {
+      zombie.iso.Vector3 var9 = new zombie.iso.Vector3(var0, var1, var2);
+      zombie.iso.Vector3 var10 = new zombie.iso.Vector3(var3, var4, var5);
+      zombie.iso.Vector3 var11 = new zombie.iso.Vector3(var6, var7, var8);
+      float var12 = var10.x - var9.x;
+      float var13 = var10.y - var9.y;
+      float var14 = var10.z - var9.z;
+      float var15 = var11.x - var9.x;
+      float var16 = var11.y - var9.y;
+      float var17 = var11.z - var9.z;
+      float var18 = var15 * var12 + var16 * var13 + var17 * var14;
+      float var19 = var12 * var12 + var13 * var13 + var14 * var14;
+      float var20 = var18 / var19;
+      var20 = org.joml.Math.max(0.0F, org.joml.Math.min(1.0F, var20));
+      float var21 = var9.x + var20 * var12;
+      float var22 = var9.y + var20 * var13;
+      float var23 = var9.z + var20 * var14;
+      return new zombie.iso.Vector3(var21, var22, var23);
+   }
+
    static {
       PZMath.UnitTests.runAll();
    }
@@ -393,6 +634,14 @@ public final class PZMath {
 
       private SideOfLine() {
       }
+   }
+
+   public interface FloatGet<E> {
+      float get(E var1);
+   }
+
+   public interface FloatSet<E> {
+      void set(E var1, float var2);
    }
 
    private static final class UnitTests {
@@ -414,8 +663,8 @@ public final class PZMath {
          }
 
          private static void runUnitTest_direction() {
-            DebugLog.General.println("runUnitTest_direction");
-            DebugLog.General.println("x, y, angle, length, rdir.x, rdir.y, rangle, rlength, pass");
+            DebugLog.UnitTests.println("runUnitTest_direction");
+            DebugLog.UnitTests.println("x, y, angle, length, rdir.x, rdir.y, rangle, rlength, pass");
             checkDirection(1.0F, 0.0F);
             checkDirection(1.0F, 1.0F);
             checkDirection(0.0F, 1.0F);
@@ -424,7 +673,7 @@ public final class PZMath {
             checkDirection(-1.0F, -1.0F);
             checkDirection(0.0F, -1.0F);
             checkDirection(1.0F, -1.0F);
-            DebugLog.General.println("runUnitTest_direction. Complete");
+            DebugLog.UnitTests.println("runUnitTest_direction. Complete");
          }
 
          private static void checkDirection(float var0, float var1) {
@@ -435,7 +684,7 @@ public final class PZMath {
             float var6 = var5.getDirection();
             float var7 = var5.getLength();
             boolean var8 = PZMath.equal(var2.x, var5.x, 1.0E-4F) && PZMath.equal(var2.y, var5.y, 1.0E-4F) && PZMath.equal(var3, var6, 1.0E-4F) && PZMath.equal(var4, var7, 1.0E-4F);
-            DebugLog.General.println("%f, %f, %f, %f, %f, %f, %f, %f, %s", var0, var1, var3, var4, var5.x, var5.y, var6, var7, var8 ? "true" : "false");
+            DebugLog.UnitTests.println("%f, %f, %f, %f, %f, %f, %f, %f, %s", var0, var1, var3, var4, var5.x, var5.y, var6, var7, var8 ? "true" : "false");
          }
       }
 
@@ -444,8 +693,8 @@ public final class PZMath {
          }
 
          public static void run() {
-            DebugLog.General.println("runUnitTests_getClosestAngle");
-            DebugLog.General.println("a, b, result, expected, pass");
+            DebugLog.UnitTests.println("runUnitTests_getClosestAngle");
+            DebugLog.UnitTests.println("a, b, result, expected, pass");
             runUnitTest(0.0F, 0.0F, 0.0F);
             runUnitTest(0.0F, 15.0F, 15.0F);
             runUnitTest(15.0F, 0.0F, -15.0F);
@@ -463,7 +712,7 @@ public final class PZMath {
                }
             }
 
-            DebugLog.General.println("runUnitTests_getClosestAngle. Complete");
+            DebugLog.UnitTests.println("runUnitTests_getClosestAngle. Complete");
          }
 
          private static void runUnitTest_noexp(float var0, float var1) {
@@ -479,7 +728,7 @@ public final class PZMath {
          }
 
          private static void logResult(float var0, float var1, float var2, String var3, String var4) {
-            DebugLog.General.println("%f, %f, %f, %s, %s", var0, var1, var2, var3, var4);
+            DebugLog.UnitTests.println("%f, %f, %f, %s, %s", var0, var1, var2, var3, var4);
          }
       }
 
@@ -488,15 +737,15 @@ public final class PZMath {
          }
 
          public static void run() {
-            DebugLog.General.println("UnitTest_lerpFunctions");
-            DebugLog.General.println("x,Sqrt,EaseOutQuad,EaseInQuad,EaseOutInQuad");
+            DebugLog.UnitTests.println("UnitTest_lerpFunctions");
+            DebugLog.UnitTests.println("x,Sqrt,EaseOutQuad,EaseInQuad,EaseOutInQuad");
 
             for(int var0 = 0; var0 < 100; ++var0) {
                float var1 = (float)var0 / 100.0F;
-               DebugLog.General.println("%f,%f,%f,%f", var1, PZMath.lerpFunc_EaseOutQuad(var1), PZMath.lerpFunc_EaseInQuad(var1), PZMath.lerpFunc_EaseOutInQuad(var1));
+               DebugLog.UnitTests.println("%f,%f,%f,%f", var1, PZMath.lerpFunc_EaseOutQuad(var1), PZMath.lerpFunc_EaseInQuad(var1), PZMath.lerpFunc_EaseOutInQuad(var1));
             }
 
-            DebugLog.General.println("UnitTest_lerpFunctions. Complete");
+            DebugLog.UnitTests.println("UnitTest_lerpFunctions. Complete");
          }
       }
    }

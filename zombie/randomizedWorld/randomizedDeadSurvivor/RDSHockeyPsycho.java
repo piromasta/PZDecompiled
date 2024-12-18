@@ -3,7 +3,8 @@ package zombie.randomizedWorld.randomizedDeadSurvivor;
 import java.util.ArrayList;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoDirections;
 import zombie.iso.RoomDef;
@@ -32,9 +33,9 @@ public final class RDSHockeyPsycho extends RandomizedDeadSurvivorBase {
       for(int var6 = 0; var6 < 10; ++var6) {
          IsoDeadBody var7 = createRandomDeadBody(this.getRandomRoom(var1, 2), Rand.Next(5, 20));
          if (var7 != null) {
-            this.addTraitOfBlood(IsoDirections.getRandom(), 15, (int)var7.x, (int)var7.y, (int)var7.z);
-            this.addTraitOfBlood(IsoDirections.getRandom(), 15, (int)var7.x, (int)var7.y, (int)var7.z);
-            this.addTraitOfBlood(IsoDirections.getRandom(), 15, (int)var7.x, (int)var7.y, (int)var7.z);
+            this.addTraitOfBlood(IsoDirections.getRandom(), 15, PZMath.fastfloor(var7.getX()), PZMath.fastfloor(var7.getY()), PZMath.fastfloor(var7.getZ()));
+            this.addTraitOfBlood(IsoDirections.getRandom(), 15, PZMath.fastfloor(var7.getX()), PZMath.fastfloor(var7.getY()), PZMath.fastfloor(var7.getZ()));
+            this.addTraitOfBlood(IsoDirections.getRandom(), 15, PZMath.fastfloor(var7.getX()), PZMath.fastfloor(var7.getY()), PZMath.fastfloor(var7.getZ()));
          }
       }
 

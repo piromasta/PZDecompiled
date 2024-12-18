@@ -97,4 +97,10 @@ public class IntegerConfigOption extends ConfigOption {
    public String getTooltip() {
       return String.valueOf(this.value);
    }
+
+   public ConfigOption makeCopy() {
+      IntegerConfigOption var1 = new IntegerConfigOption(this.name, this.min, this.max, this.defaultValue);
+      var1.value = this.value;
+      return var1;
+   }
 }

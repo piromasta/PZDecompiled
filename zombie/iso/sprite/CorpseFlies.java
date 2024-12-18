@@ -3,7 +3,11 @@ package zombie.iso.sprite;
 import zombie.GameTime;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
+import zombie.core.textures.TextureDraw;
+import zombie.iso.IsoCamera;
+import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoUtils;
 import zombie.network.GameServer;
 
@@ -33,6 +37,11 @@ public final class CorpseFlies {
          float var7 = (float)(var5 * 128) / (float)TEXTURE.getHeight();
          float var8 = (float)((var4 + 1) * 128) / (float)TEXTURE.getWidth();
          float var9 = (float)((var5 + 1) * 128) / (float)TEXTURE.getHeight();
+         if (IsoSprite.globalOffsetX == -1.0F) {
+            IsoSprite.globalOffsetX = -IsoCamera.frameState.OffX;
+            IsoSprite.globalOffsetY = -IsoCamera.frameState.OffY;
+         }
+
          float var10 = IsoUtils.XToScreen((float)var0 + 0.5F, (float)var1 + 0.5F, (float)var2, 0) + IsoSprite.globalOffsetX;
          float var11 = IsoUtils.YToScreen((float)var0 + 0.5F, (float)var1 + 0.5F, (float)var2, 0) + IsoSprite.globalOffsetY;
          byte var12 = 64;
@@ -42,6 +51,8 @@ public final class CorpseFlies {
          if (Core.bDebug) {
          }
 
+         SpriteRenderer.instance.StartShader(0, IsoCamera.frameState.playerIndex);
+         TextureDraw.nextZ = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), (float)var0 + 0.75F, (float)var1 + 0.75F, (float)var2 + 0.25F).depthStart * 2.0F - 1.0F;
          SpriteRenderer.instance.render(TEXTURE, var10, var11, (float)var13, (float)var13, 1.0F, 1.0F, 1.0F, 1.0F, var6, var7, var8, var7, var8, var9, var6, var9);
       }
    }

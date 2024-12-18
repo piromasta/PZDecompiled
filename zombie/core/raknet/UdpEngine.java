@@ -1,25 +1,26 @@
 package zombie.core.raknet;
 
+import java.io.File;
 import java.net.ConnectException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import zombie.GameWindow;
 import zombie.Lua.LuaEventManager;
-import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.characters.IsoPlayer;
+import zombie.characters.SafetySystemManager;
 import zombie.core.ThreadGroups;
 import zombie.core.Translator;
+import zombie.core.logger.LoggerManager;
 import zombie.core.network.ByteBufferWriter;
+import zombie.core.random.Rand;
 import zombie.core.secure.PZcrypt;
 import zombie.core.znet.SteamUser;
 import zombie.core.znet.SteamUtils;
@@ -29,10 +30,11 @@ import zombie.network.ConnectionManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
-import zombie.network.PacketValidator;
 import zombie.network.RequestDataManager;
-import zombie.network.ServerOptions;
-import zombie.network.ServerWorldDatabase;
+import zombie.network.anticheats.AntiCheat;
+import zombie.network.packets.INetworkPacket;
+import zombie.network.packets.connection.ServerCustomizationPacket;
+import zombie.popman.NetworkZombieManager;
 
 public class UdpEngine {
    private int maxConnections = 0;
@@ -163,23 +165,26 @@ public class UdpEngine {
 
    public void connected() {
       VoiceManager.instance.VoiceConnectReq(GameClient.connection.getConnectedGUID());
-      ByteBufferWriter var1;
-      if (GameClient.bClient && !GameClient.askPing) {
-         GameClient.startAuth = Calendar.getInstance();
-         var1 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.Login.doPacket(var1);
-         var1.putUTF(GameClient.username);
-         var1.putUTF(PZcrypt.hash(ServerWorldDatabase.encrypt(GameClient.password)));
-         var1.putUTF(Core.getInstance().getVersion());
-         PacketTypes.PacketType.Login.send(GameClient.connection);
-         RequestDataManager.getInstance().clear();
-         ConnectionManager.log("send-packet", "login", GameClient.connection);
-      } else if (GameClient.bClient && GameClient.askPing) {
-         var1 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.Ping.doPacket(var1);
-         var1.putUTF(GameClient.ip);
-         PacketTypes.PacketType.Ping.send(GameClient.connection);
-         RequestDataManager.getInstance().clear();
+      if (GameClient.bClient) {
+         if (!GameClient.askPing && !GameClient.sendQR && !GameClient.askCustomizationData) {
+            GameClient.startAuth = Calendar.getInstance();
+            INetworkPacket.send(PacketTypes.PacketType.Login);
+            RequestDataManager.getInstance().clear();
+            ConnectionManager.log("send-packet", "login", GameClient.connection);
+         } else if (GameClient.askPing) {
+            ByteBufferWriter var1 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.Ping.doPacket(var1);
+            var1.putUTF(GameClient.ip);
+            PacketTypes.PacketType.Ping.send(GameClient.connection);
+            RequestDataManager.getInstance().clear();
+         } else if (GameClient.sendQR) {
+            INetworkPacket.send(PacketTypes.PacketType.GoogleAuthKey, "");
+         } else if (GameClient.askCustomizationData && !GameClient.ServerName.contains(File.separator)) {
+            INetworkPacket.send(PacketTypes.PacketType.ServerCustomization, GameClient.ServerName, ServerCustomizationPacket.Data.ServerImageIcon);
+            INetworkPacket.send(PacketTypes.PacketType.ServerCustomization, GameClient.ServerName, ServerCustomizationPacket.Data.ServerImageLoginScreen);
+            INetworkPacket.send(PacketTypes.PacketType.ServerCustomization, GameClient.ServerName, ServerCustomizationPacket.Data.ServerImageLoadingScreen);
+            INetworkPacket.send(PacketTypes.PacketType.ServerCustomization, GameClient.ServerName, ServerCustomizationPacket.Data.Done);
+         }
       }
 
    }
@@ -188,7 +193,8 @@ public class UdpEngine {
       int var2 = var1.get() & 255;
       int var3;
       long var4;
-      long var8;
+      UdpConnection var5;
+      long var7;
       switch (var2) {
          case 0:
          case 1:
@@ -227,8 +233,10 @@ public class UdpEngine {
             ConnectionManager.log("RakNet", "new-incoming-connection", this.connectionArray[var3]);
             break;
          case 20:
-            var3 = var1.get() & 255;
-            ConnectionManager.log("RakNet", "no-free-incoming-connections", this.connectionArray[var3]);
+            ConnectionManager.log("RakNet", "no-free-incoming-connections", (UdpConnection)null);
+            if (GameClient.bClient) {
+               GameClient.instance.addDisconnectPacket(var2);
+            }
             break;
          case 21:
             var3 = var1.get() & 255;
@@ -260,8 +268,8 @@ public class UdpEngine {
             break;
          case 25:
             ConnectionManager.log("RakNet", "incompatible-protocol-version", (UdpConnection)null);
-            String var9 = GameWindow.ReadString(var1);
-            LuaEventManager.triggerEvent("OnConnectionStateChanged", "ClientVersionMismatch", var9);
+            String var8 = GameWindow.ReadString(var1);
+            LuaEventManager.triggerEvent("OnConnectionStateChanged", "ClientVersionMismatch", var8);
             break;
          case 31:
             var3 = var1.get() & 255;
@@ -279,16 +287,17 @@ public class UdpEngine {
             ConnectionManager.log("RakNet", "remote-new-incoming-connection", this.connectionArray[var3]);
             break;
          case 44:
-            var8 = this.peer.getGuidOfPacket();
-            VoiceManager.instance.VoiceConnectAccept(var8);
+            var7 = this.peer.getGuidOfPacket();
+            VoiceManager.instance.VoiceConnectAccept(var7);
             break;
          case 45:
-            var8 = this.peer.getGuidOfPacket();
-            VoiceManager.instance.VoiceOpenChannelReply(var8, var1);
+            var7 = this.peer.getGuidOfPacket();
+            VoiceManager.instance.VoiceOpenChannelReply(var7, var1);
             break;
          case 46:
-            var8 = this.peer.getGuidOfPacket();
-            UdpConnection var10000 = (UdpConnection)this.connectionMap.get(var8);
+            var7 = this.peer.getGuidOfPacket();
+            var5 = (UdpConnection)this.connectionMap.get(var7);
+            DebugLog.Voice.println("RakVoice channel is closed \"%s\" guid=%d", var5.username, var5.getConnectedGUID());
             break;
          case 134:
             var3 = var1.getShort();
@@ -296,7 +305,7 @@ public class UdpEngine {
                var4 = this.peer.getGuidOfPacket();
                UdpConnection var6 = (UdpConnection)this.connectionMap.get(var4);
                if (var6 == null) {
-                  DebugLog.Network.warn("GOT PACKET FROM UNKNOWN CONNECTION guid=%s packetId=%s", var4, var3);
+                  DebugLog.Network.warn("GOT PACKET FROM UNKNOWN CONNECTION guid=%d packetId=%d", var4, Short.valueOf((short)var3));
                   return;
                }
 
@@ -308,32 +317,41 @@ public class UdpEngine {
          default:
             DebugLog.Network.warn("Received unknown packet: %s", var2);
             if (GameServer.bServer) {
-               var8 = this.peer.getGuidOfPacket();
-               UdpConnection var5 = (UdpConnection)this.connectionMap.get(var8);
-
-               try {
-                  if (ServerOptions.instance.AntiCheatProtectionType10.getValue() && PacketValidator.checkUser(var5)) {
-                     PacketValidator.doKickUser(var5, String.valueOf(var2), "Type10", (String)null);
-                  }
-               } catch (Exception var7) {
-                  var7.printStackTrace();
-               }
+               var7 = this.peer.getGuidOfPacket();
+               var5 = (UdpConnection)this.connectionMap.get(var7);
+               AntiCheat.PacketRakNet.act(var5, String.valueOf(var2));
             }
       }
 
    }
 
-   private void removeConnection(int var1) {
+   public void removeConnection(int var1) {
       UdpConnection var2 = this.connectionArray[var1];
       if (var2 != null) {
          this.connectionArray[var1] = null;
          this.connectionMap.remove(var2.getConnectedGUID());
          if (GameClient.bClient) {
             GameClient.instance.connectionLost();
-         }
+         } else if (GameServer.bServer) {
+            float var3 = SafetySystemManager.getCooldown(var2);
+            if (var3 > 0.0F) {
+               GameServer.addDelayedDisconnect(var2);
+               LoggerManager.getLogger("user").write(String.format("Connection delayed disconnect index=%d guid=%d id=%s", var2.index, var2.getConnectedGUID(), var2.idStr));
+               IsoPlayer[] var4 = var2.players;
+               int var5 = var4.length;
 
-         if (GameServer.bServer) {
-            GameServer.addDisconnect(var2);
+               for(int var6 = 0; var6 < var5; ++var6) {
+                  IsoPlayer var7 = var4[var6];
+                  if (var7 != null) {
+                     var7.networkAI.setDisconnected(true);
+                     NetworkZombieManager.getInstance().clearTargetAuth(var2, var7);
+                     INetworkPacket.sendToRelative(PacketTypes.PacketType.PlayerUpdateReliable, var2, var7.getX(), var7.getY(), var7);
+                  }
+               }
+            } else {
+               GameServer.addDisconnect(var2);
+               LoggerManager.getLogger("user").write(String.format("Connection disconnect index=%d guid=%d id=%s", var2.index, var2.getConnectedGUID(), var2.idStr));
+            }
          }
       }
 
@@ -370,7 +388,7 @@ public class UdpEngine {
    }
 
    public UdpConnection getActiveConnection(long var1) {
-      return !this.connectionMap.containsKey(var1) ? null : (UdpConnection)this.connectionMap.get(var1);
+      return (UdpConnection)this.connectionMap.get(var1);
    }
 
    public void Connect(String var1, int var2, String var3, boolean var4) {
@@ -404,13 +422,8 @@ public class UdpEngine {
 
    public void forceDisconnect(long var1, String var3) {
       this.peer.disconnect(var1, var3);
-      this.removeConnection(var1);
-   }
-
-   private void removeConnection(long var1) {
-      UdpConnection var3 = (UdpConnection)this.connectionMap.remove(var1);
-      if (var3 != null) {
-         this.removeConnection(var3.index);
+      if (this.connectionMap.containsKey(var1)) {
+         this.removeConnection(((UdpConnection)this.connectionMap.get(var1)).index);
       }
 
    }
@@ -421,10 +434,5 @@ public class UdpEngine {
 
    public int getMaxConnections() {
       return this.maxConnections;
-   }
-
-   public String getDescription() {
-      int var10000 = this.connections.size();
-      return "connections=[" + var10000 + "/" + this.connectionMap.size() + "/" + Arrays.stream(this.connectionArray).filter(Objects::nonNull).count() + "/" + this.peer.GetConnectionsNumber() + "]";
    }
 }

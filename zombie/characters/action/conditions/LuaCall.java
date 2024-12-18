@@ -20,6 +20,14 @@ public final class LuaCall implements IActionCondition {
       return new LuaCall();
    }
 
+   public String toString() {
+      return this.toString("");
+   }
+
+   public String toString(String var1) {
+      return var1 + this.getClass().getName();
+   }
+
    public static class Factory implements IActionCondition.IFactory {
       public Factory() {
       }

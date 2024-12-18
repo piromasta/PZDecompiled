@@ -18,55 +18,21 @@ import zombie.ZomboidFileSystem;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugLogStream;
 import zombie.debug.DebugType;
+import zombie.util.Type;
 
 public final class ActionGroup {
-   private static final Map<String, ActionGroup> actionGroupMap = new HashMap();
-   String initialState;
-   private List<ActionState> states = new ArrayList();
-   private Map<String, ActionState> stateLookup;
+   private String m_name;
+   private String m_initialStateName;
+   private final List<ActionState> m_states = new ArrayList();
+   private final Map<String, ActionState> m_stateLookup = new HashMap();
+   private final Map<Integer, String> stateNameLookup = new HashMap();
+   private static final Map<String, ActionGroup> s_actionGroupMap = new HashMap();
 
    public ActionGroup() {
    }
 
-   public static ActionGroup getActionGroup(String var0) {
-      var0 = var0.toLowerCase();
-      ActionGroup var1 = (ActionGroup)actionGroupMap.get(var0);
-      if (var1 == null && !actionGroupMap.containsKey(var0)) {
-         var1 = new ActionGroup();
-         actionGroupMap.put(var0, var1);
-
-         try {
-            var1.load(var0);
-         } catch (Exception var3) {
-            DebugLog.ActionSystem.error("Error loading action group: " + var0);
-            var3.printStackTrace(DebugLog.ActionSystem);
-         }
-
-         return var1;
-      } else {
-         return var1;
-      }
-   }
-
-   public static void reloadAll() {
-      Iterator var0 = actionGroupMap.entrySet().iterator();
-
-      while(var0.hasNext()) {
-         Map.Entry var1 = (Map.Entry)var0.next();
-         ActionGroup var2 = (ActionGroup)var1.getValue();
-         Iterator var3 = var2.states.iterator();
-
-         while(var3.hasNext()) {
-            ActionState var4 = (ActionState)var3.next();
-            var4.resetForReload();
-         }
-
-         var2.load((String)var1.getKey());
-      }
-
-   }
-
-   void load(String var1) {
+   private void load() {
+      String var1 = this.m_name;
       if (DebugLog.isEnabled(DebugType.ActionSystem)) {
          DebugLog.ActionSystem.debugln("Loading ActionGroup: " + var1);
       }
@@ -85,9 +51,9 @@ public final class ActionGroup {
          for(int var7 = 0; var7 < var6; ++var7) {
             File var8 = var5[var7];
             if (var8.isDirectory()) {
-               String var9 = var8.getPath();
-               ActionState var10 = this.getOrCreate(var8.getName());
-               var10.load(var9);
+               ActionState var9 = this.getOrCreate(var8.getName());
+               String var10 = var8.getPath();
+               var9.load(var10);
             }
          }
       }
@@ -100,103 +66,55 @@ public final class ActionGroup {
          DocumentBuilderFactory var3 = DocumentBuilderFactory.newInstance();
          DocumentBuilder var4 = var3.newDocumentBuilder();
          var2 = var4.parse(var1);
-      } catch (SAXException | IOException | ParserConfigurationException var8) {
+      } catch (SAXException | IOException | ParserConfigurationException var6) {
          DebugLog.ActionSystem.error("Error loading: " + var1.getPath());
-         var8.printStackTrace(DebugLog.ActionSystem);
+         var6.printStackTrace(DebugLog.ActionSystem);
          return;
       }
 
       var2.getDocumentElement().normalize();
-      Element var9 = var2.getDocumentElement();
-      if (!var9.getNodeName().equals("actiongroup")) {
+      Element var7 = var2.getDocumentElement();
+      if (!var7.getNodeName().equals("actiongroup")) {
          DebugLogStream var10000 = DebugLog.ActionSystem;
          String var10001 = var1.getPath();
-         var10000.error("Error loading: " + var10001 + ", expected root element '<actiongroup>', received '<" + var9.getNodeName() + ">'");
+         var10000.error("Error loading: " + var10001 + ", expected root element '<actiongroup>', received '<" + var7.getNodeName() + ">'");
       } else {
-         Node var10;
-         for(var10 = var9.getFirstChild(); var10 != null; var10 = var10.getNextSibling()) {
-            if (var10.getNodeName().equals("inherit") && var10 instanceof Element) {
-               String var5 = var10.getTextContent().trim();
-               this.inherit(getActionGroup(var5));
-            }
-         }
-
-         for(var10 = var9.getFirstChild(); var10 != null; var10 = var10.getNextSibling()) {
-            if (var10 instanceof Element) {
-               Element var11 = (Element)var10;
-               switch (var11.getNodeName()) {
-                  case "initial":
-                     this.initialState = var11.getTextContent().trim();
-                  case "inherit":
-                     break;
-                  default:
-                     DebugLog.ActionSystem.warn("Warning: Unknown element '<>' in '" + var1.getPath() + "'");
-               }
+         for(Node var8 = var7.getFirstChild(); var8 != null; var8 = var8.getNextSibling()) {
+            Element var5 = (Element)Type.tryCastTo(var8, Element.class);
+            if (var5 != null && var5.getNodeName().equals("initial")) {
+               this.m_initialStateName = var5.getTextContent().trim();
             }
          }
 
       }
    }
 
-   private void inherit(ActionGroup var1) {
-      if (var1 != null) {
-         if (var1.initialState != null) {
-            this.initialState = var1.initialState;
-         }
-
-         Iterator var2 = var1.states.iterator();
-
-         while(var2.hasNext()) {
-            ActionState var3 = (ActionState)var2.next();
-            ActionState var4 = this.getOrCreate(var3.name);
-            Iterator var5 = var3.transitions.iterator();
-
-            while(var5.hasNext()) {
-               ActionTransition var6 = (ActionTransition)var5.next();
-               var4.transitions.add(var6.clone());
-               var4.sortTransitions();
-            }
-         }
-
+   public ActionState addState(ActionState var1) {
+      if (this.m_states.contains(var1)) {
+         DebugLog.ActionSystem.trace("State already added.");
+         return var1;
+      } else {
+         var1.setParentActionGroup(this);
+         this.m_states.add(var1);
+         this.m_stateLookup.put(var1.getName().toLowerCase(), var1);
+         this.stateNameLookup.put(var1.getName().hashCode(), var1.getName());
+         return var1;
       }
    }
 
-   private void rebuildLookup() {
-      HashMap var1 = new HashMap();
-      Iterator var2 = this.states.iterator();
-
-      while(var2.hasNext()) {
-         ActionState var3 = (ActionState)var2.next();
-         var1.put(var3.name.toLowerCase(), var3);
-      }
-
-      this.stateLookup = var1;
+   public ActionState findState(String var1) {
+      return (ActionState)this.m_stateLookup.get(var1.toLowerCase());
    }
 
-   public void addState(ActionState var1) {
-      this.states.add(var1);
-      this.stateLookup = null;
+   public String findStateName(int var1) {
+      return (String)this.stateNameLookup.get(var1);
    }
 
-   public ActionState get(String var1) {
-      if (this.stateLookup == null) {
-         this.rebuildLookup();
-      }
-
-      return (ActionState)this.stateLookup.get(var1.toLowerCase());
-   }
-
-   ActionState getOrCreate(String var1) {
-      if (this.stateLookup == null) {
-         this.rebuildLookup();
-      }
-
+   public ActionState getOrCreate(String var1) {
       var1 = var1.toLowerCase();
-      ActionState var2 = (ActionState)this.stateLookup.get(var1);
+      ActionState var2 = this.findState(var1);
       if (var2 == null) {
-         var2 = new ActionState(var1);
-         this.states.add(var2);
-         this.stateLookup.put(var1, var2);
+         var2 = this.addState(new ActionState(var1));
       }
 
       return var2;
@@ -204,12 +122,12 @@ public final class ActionGroup {
 
    public ActionState getInitialState() {
       ActionState var1 = null;
-      if (this.initialState != null) {
-         var1 = this.get(this.initialState);
+      if (this.m_initialStateName != null) {
+         var1 = this.findState(this.m_initialStateName);
       }
 
-      if (var1 == null && this.states.size() > 0) {
-         var1 = (ActionState)this.states.get(0);
+      if (var1 == null && !this.m_states.isEmpty()) {
+         var1 = (ActionState)this.m_states.get(0);
       }
 
       return var1;
@@ -217,5 +135,48 @@ public final class ActionGroup {
 
    public ActionState getDefaultState() {
       return this.getInitialState();
+   }
+
+   public String getName() {
+      return this.m_name;
+   }
+
+   public static ActionGroup getActionGroup(String var0) {
+      var0 = var0.toLowerCase();
+      ActionGroup var1 = (ActionGroup)s_actionGroupMap.get(var0);
+      if (var1 == null && !s_actionGroupMap.containsKey(var0)) {
+         var1 = new ActionGroup();
+         var1.m_name = var0;
+         s_actionGroupMap.put(var0, var1);
+
+         try {
+            var1.load();
+         } catch (Exception var3) {
+            DebugLog.ActionSystem.error("Error loading action group: " + var0);
+            var3.printStackTrace(DebugLog.ActionSystem);
+         }
+
+         return var1;
+      } else {
+         return var1;
+      }
+   }
+
+   public static void reloadAll() {
+      Iterator var0 = s_actionGroupMap.entrySet().iterator();
+
+      while(var0.hasNext()) {
+         Map.Entry var1 = (Map.Entry)var0.next();
+         ActionGroup var2 = (ActionGroup)var1.getValue();
+         Iterator var3 = var2.m_states.iterator();
+
+         while(var3.hasNext()) {
+            ActionState var4 = (ActionState)var3.next();
+            var4.resetForReload();
+         }
+
+         var2.load();
+      }
+
    }
 }

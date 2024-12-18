@@ -4,12 +4,14 @@ import fmod.javafmod;
 import fmod.fmod.FMODSoundEmitter;
 import fmod.fmod.FMOD_STUDIO_EVENT_CALLBACK;
 import fmod.fmod.FMOD_STUDIO_EVENT_CALLBACK_TYPE;
+import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import org.joml.Vector2f;
 import zombie.Lua.LuaEventManager;
 import zombie.audio.parameters.ParameterCameraZoom;
+import zombie.audio.parameters.ParameterCharacterElevation;
 import zombie.audio.parameters.ParameterClosestWallDistance;
 import zombie.audio.parameters.ParameterFogIntensity;
 import zombie.audio.parameters.ParameterHardOfHearing;
@@ -19,9 +21,11 @@ import zombie.audio.parameters.ParameterPowerSupply;
 import zombie.audio.parameters.ParameterRainIntensity;
 import zombie.audio.parameters.ParameterRoomSize;
 import zombie.audio.parameters.ParameterRoomType;
+import zombie.audio.parameters.ParameterRoomTypeEx;
 import zombie.audio.parameters.ParameterSeason;
 import zombie.audio.parameters.ParameterSnowIntensity;
 import zombie.audio.parameters.ParameterStorm;
+import zombie.audio.parameters.ParameterStreamerMode;
 import zombie.audio.parameters.ParameterTemperature;
 import zombie.audio.parameters.ParameterTimeOfDay;
 import zombie.audio.parameters.ParameterWaterSupply;
@@ -32,14 +36,16 @@ import zombie.audio.parameters.ParameterZoneWaterSide;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugLogStream;
 import zombie.debug.DebugType;
 import zombie.input.Mouse;
 import zombie.iso.Alarm;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCamera;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMetaCell;
@@ -57,7 +63,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
    public static int OneInAmbienceChance = 2500;
    public static int MaxAmbientCount = 20;
    public static float MaxRange = 1000.0F;
-   private final ArrayList<Alarm> alarmList = new ArrayList();
+   public final ArrayList<Alarm> alarmList = new ArrayList();
    public static BaseAmbientStreamManager instance;
    public final ArrayList<Ambient> ambient = new ArrayList();
    public final ArrayList<WorldSoundEmitter> worldEmitters = new ArrayList();
@@ -82,6 +88,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
    private final ParameterTemperature parameterTemperature = new ParameterTemperature();
    private final ParameterWeatherEvent parameterWeatherEvent = new ParameterWeatherEvent();
    private final ParameterWindIntensity parameterWindIntensity = new ParameterWindIntensity();
+   private final ParameterStreamerMode parameterStreamerMode = new ParameterStreamerMode();
    private final ParameterZone parameterZoneDeepForest = new ParameterZone("ZoneDeepForest", "DeepForest");
    private final ParameterZone parameterZoneFarm = new ParameterZone("ZoneFarm", "Farm");
    private final ParameterZone parameterZoneForest = new ParameterZone("ZoneForest", "Forest");
@@ -91,6 +98,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
    private final ParameterZone parameterZoneVegetation = new ParameterZone("ZoneVegetation", "Vegitation");
    private final ParameterZoneWaterSide parameterZoneWaterSide = new ParameterZoneWaterSide();
    private final ParameterCameraZoom parameterCameraZoom = new ParameterCameraZoom();
+   private final ParameterCharacterElevation parameterCharacterElevation = new ParameterCharacterElevation();
    private final ParameterClosestWallDistance parameterClosestWallDistance = new ParameterClosestWallDistance();
    private final ParameterHardOfHearing parameterHardOfHearing = new ParameterHardOfHearing();
    private final ParameterInside parameterInside = new ParameterInside();
@@ -98,6 +106,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
    private final ParameterPowerSupply parameterPowerSupply = new ParameterPowerSupply();
    private final ParameterRoomSize parameterRoomSize = new ParameterRoomSize();
    private final ParameterRoomType parameterRoomType = new ParameterRoomType();
+   private final ParameterRoomTypeEx parameterRoomTypeEx = new ParameterRoomTypeEx();
    private final ParameterWaterSupply parameterWaterSupply = new ParameterWaterSupply();
    private final Vector2 tempo = new Vector2();
    private final FMOD_STUDIO_EVENT_CALLBACK electricityShutOffEventCallback = new FMOD_STUDIO_EVENT_CALLBACK() {
@@ -121,14 +130,37 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
    public void update() {
       if (this.initialized) {
          if (!GameTime.isGamePaused()) {
-            if (IsoPlayer.getInstance() != null) {
-               if (IsoPlayer.getInstance().getCurrentSquare() != null) {
+            IsoPlayer var1 = null;
+            IsoPlayer var2 = null;
+
+            for(int var3 = 0; var3 < IsoPlayer.numPlayers; ++var3) {
+               IsoPlayer var4 = IsoPlayer.players[var3];
+               if (var4 != null) {
+                  if (!var4.Traits.Deaf.isSet()) {
+                     var1 = var4;
+                     break;
+                  }
+
+                  if (var2 == null) {
+                     var2 = var4;
+                  }
+               }
+            }
+
+            if (var1 == null) {
+               var1 = var2;
+            }
+
+            if (var1 != null) {
+               IsoGridSquare var9 = var1.getCurrentSquare();
+               if (var9 != null) {
                   this.updatePowerSupply();
                   this.parameterFogIntensity.update();
                   this.parameterRainIntensity.update();
                   this.parameterSeason.update();
                   this.parameterSnowIntensity.update();
                   this.parameterStorm.update();
+                  this.parameterStreamerMode.update();
                   this.parameterTemperature.update();
                   this.parameterTimeOfDay.update();
                   this.parameterWeatherEvent.update();
@@ -142,113 +174,114 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
                   this.parameterZoneTrailerPark.update();
                   this.parameterZoneWaterSide.update();
                   this.parameterCameraZoom.update();
+                  this.parameterCharacterElevation.update();
                   this.parameterClosestWallDistance.update();
                   this.parameterHardOfHearing.update();
                   this.parameterInside.update();
                   this.parameterMoodlePanic.update();
                   this.parameterPowerSupply.update();
                   this.parameterRoomSize.update();
-                  this.parameterRoomType.update();
+                  this.parameterRoomTypeEx.update();
                   this.parameterWaterSupply.update();
-                  float var1 = GameTime.instance.getTimeOfDay();
+                  float var10 = GameTime.instance.getTimeOfDay();
 
-                  for(int var2 = 0; var2 < this.worldEmitters.size(); ++var2) {
-                     WorldSoundEmitter var3 = (WorldSoundEmitter)this.worldEmitters.get(var2);
-                     IsoGridSquare var4;
-                     if (var3.daytime != null) {
-                        var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)var3.x, (double)var3.y, (double)var3.z);
-                        if (var4 == null) {
-                           var3.fmodEmitter.stopAll();
-                           SoundManager.instance.unregisterEmitter(var3.fmodEmitter);
-                           this.worldEmitters.remove(var3);
-                           this.freeEmitters.add(var3);
-                           --var2;
+                  for(int var5 = 0; var5 < this.worldEmitters.size(); ++var5) {
+                     WorldSoundEmitter var6 = (WorldSoundEmitter)this.worldEmitters.get(var5);
+                     IsoGridSquare var7;
+                     if (var6.daytime != null) {
+                        var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var6.x, (double)var6.y, (double)var6.z);
+                        if (var7 == null) {
+                           var6.fmodEmitter.stopAll();
+                           SoundManager.instance.unregisterEmitter(var6.fmodEmitter);
+                           this.worldEmitters.remove(var6);
+                           this.freeEmitters.add(var6);
+                           --var5;
                         } else {
-                           if (var1 > var3.dawn && var1 < var3.dusk) {
-                              if (var3.fmodEmitter.isEmpty()) {
-                                 var3.channel = var3.fmodEmitter.playAmbientLoopedImpl(var3.daytime);
+                           if (var10 > var6.dawn && var10 < var6.dusk) {
+                              if (var6.fmodEmitter.isEmpty()) {
+                                 var6.channel = var6.fmodEmitter.playAmbientLoopedImpl(var6.daytime);
                               }
-                           } else if (!var3.fmodEmitter.isEmpty()) {
-                              var3.fmodEmitter.stopSound(var3.channel);
-                              var3.channel = 0L;
+                           } else if (!var6.fmodEmitter.isEmpty()) {
+                              var6.fmodEmitter.stopSound(var6.channel);
+                              var6.channel = 0L;
                            }
 
-                           if (!var3.fmodEmitter.isEmpty() && (IsoWorld.instance.emitterUpdate || var3.fmodEmitter.hasSoundsToStart())) {
-                              var3.fmodEmitter.tick();
+                           if (!var6.fmodEmitter.isEmpty() && (IsoWorld.instance.emitterUpdate || var6.fmodEmitter.hasSoundsToStart())) {
+                              var6.fmodEmitter.tick();
                            }
                         }
-                     } else if (IsoPlayer.getInstance() != null && IsoPlayer.getInstance().Traits.Deaf.isSet()) {
-                        var3.fmodEmitter.stopAll();
-                        SoundManager.instance.unregisterEmitter(var3.fmodEmitter);
-                        this.worldEmitters.remove(var3);
-                        this.freeEmitters.add(var3);
-                        --var2;
+                     } else if (var1 != null && var1.Traits.Deaf.isSet()) {
+                        var6.fmodEmitter.stopAll();
+                        SoundManager.instance.unregisterEmitter(var6.fmodEmitter);
+                        this.worldEmitters.remove(var6);
+                        this.freeEmitters.add(var6);
+                        --var5;
                      } else {
-                        var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)var3.x, (double)var3.y, (double)var3.z);
-                        if (var4 != null && !var3.fmodEmitter.isEmpty()) {
-                           var3.fmodEmitter.x = var3.x;
-                           var3.fmodEmitter.y = var3.y;
-                           var3.fmodEmitter.z = var3.z;
-                           if (IsoWorld.instance.emitterUpdate || var3.fmodEmitter.hasSoundsToStart()) {
-                              var3.fmodEmitter.tick();
+                        var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var6.x, (double)var6.y, (double)var6.z);
+                        if (var7 != null && !var6.fmodEmitter.isEmpty()) {
+                           var6.fmodEmitter.x = var6.x;
+                           var6.fmodEmitter.y = var6.y;
+                           var6.fmodEmitter.z = var6.z;
+                           if (IsoWorld.instance.emitterUpdate || var6.fmodEmitter.hasSoundsToStart()) {
+                              var6.fmodEmitter.tick();
                            }
                         } else {
-                           var3.fmodEmitter.stopAll();
-                           SoundManager.instance.unregisterEmitter(var3.fmodEmitter);
-                           this.worldEmitters.remove(var3);
-                           this.freeEmitters.add(var3);
-                           --var2;
+                           var6.fmodEmitter.stopAll();
+                           SoundManager.instance.unregisterEmitter(var6.fmodEmitter);
+                           this.worldEmitters.remove(var6);
+                           this.freeEmitters.add(var6);
+                           --var5;
                         }
                      }
                   }
 
-                  float var7 = GameTime.instance.getNight();
-                  boolean var6 = IsoPlayer.getInstance().getCurrentSquare().isInARoom();
-                  boolean var8 = RainManager.isRaining();
+                  float var12 = GameTime.instance.getNight();
+                  boolean var11 = var9.isInARoom();
+                  boolean var13 = RainManager.isRaining();
 
-                  int var5;
-                  for(var5 = 0; var5 < this.allAmbient.size(); ++var5) {
-                     ((AmbientLoop)this.allAmbient.get(var5)).targVol = 1.0F;
+                  int var8;
+                  for(var8 = 0; var8 < this.allAmbient.size(); ++var8) {
+                     ((AmbientLoop)this.allAmbient.get(var8)).targVol = 1.0F;
                   }
 
                   AmbientLoop var10000;
-                  for(var5 = 0; var5 < this.nightAmbient.size(); ++var5) {
-                     var10000 = (AmbientLoop)this.nightAmbient.get(var5);
-                     var10000.targVol *= var7;
+                  for(var8 = 0; var8 < this.nightAmbient.size(); ++var8) {
+                     var10000 = (AmbientLoop)this.nightAmbient.get(var8);
+                     var10000.targVol *= var12;
                   }
 
-                  for(var5 = 0; var5 < this.dayAmbient.size(); ++var5) {
-                     var10000 = (AmbientLoop)this.dayAmbient.get(var5);
-                     var10000.targVol *= 1.0F - var7;
+                  for(var8 = 0; var8 < this.dayAmbient.size(); ++var8) {
+                     var10000 = (AmbientLoop)this.dayAmbient.get(var8);
+                     var10000.targVol *= 1.0F - var12;
                   }
 
-                  for(var5 = 0; var5 < this.indoorAmbient.size(); ++var5) {
-                     var10000 = (AmbientLoop)this.indoorAmbient.get(var5);
-                     var10000.targVol *= var6 ? 0.8F : 0.0F;
+                  for(var8 = 0; var8 < this.indoorAmbient.size(); ++var8) {
+                     var10000 = (AmbientLoop)this.indoorAmbient.get(var8);
+                     var10000.targVol *= var11 ? 0.8F : 0.0F;
                   }
 
-                  for(var5 = 0; var5 < this.outdoorAmbient.size(); ++var5) {
-                     var10000 = (AmbientLoop)this.outdoorAmbient.get(var5);
-                     var10000.targVol *= var6 ? 0.15F : 0.8F;
+                  for(var8 = 0; var8 < this.outdoorAmbient.size(); ++var8) {
+                     var10000 = (AmbientLoop)this.outdoorAmbient.get(var8);
+                     var10000.targVol *= var11 ? 0.15F : 0.8F;
                   }
 
-                  for(var5 = 0; var5 < this.rainAmbient.size(); ++var5) {
-                     var10000 = (AmbientLoop)this.rainAmbient.get(var5);
-                     var10000.targVol *= var8 ? 1.0F : 0.0F;
-                     if (((AmbientLoop)this.rainAmbient.get(var5)).channel != 0L) {
-                        javafmod.FMOD_Studio_EventInstance_SetParameterByName(((AmbientLoop)this.rainAmbient.get(var5)).channel, "RainIntensity", ClimateManager.getInstance().getPrecipitationIntensity());
+                  for(var8 = 0; var8 < this.rainAmbient.size(); ++var8) {
+                     var10000 = (AmbientLoop)this.rainAmbient.get(var8);
+                     var10000.targVol *= var13 ? 1.0F : 0.0F;
+                     if (((AmbientLoop)this.rainAmbient.get(var8)).channel != 0L) {
+                        javafmod.FMOD_Studio_EventInstance_SetParameterByName(((AmbientLoop)this.rainAmbient.get(var8)).channel, "RainIntensity", ClimateManager.getInstance().getPrecipitationIntensity());
                      }
                   }
 
-                  for(var5 = 0; var5 < this.allAmbient.size(); ++var5) {
-                     ((AmbientLoop)this.allAmbient.get(var5)).update();
+                  for(var8 = 0; var8 < this.allAmbient.size(); ++var8) {
+                     ((AmbientLoop)this.allAmbient.get(var8)).update();
                   }
 
-                  for(var5 = 0; var5 < this.alarmList.size(); ++var5) {
-                     ((Alarm)this.alarmList.get(var5)).update();
-                     if (((Alarm)this.alarmList.get(var5)).finished) {
-                        this.alarmList.remove(var5);
-                        --var5;
+                  for(var8 = 0; var8 < this.alarmList.size(); ++var8) {
+                     ((Alarm)this.alarmList.get(var8)).update();
+                     if (((Alarm)this.alarmList.get(var8)).finished) {
+                        this.alarmList.remove(var8);
+                        --var8;
                      }
                   }
 
@@ -311,9 +344,43 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
 
    public void doAlarm(RoomDef var1) {
       if (var1 != null && var1.building != null && var1.building.bAlarmed) {
+         DebugLog.Sound.debugln("Elec shutoff = " + SandboxOptions.getInstance().getElecShutModifier());
+         DebugLog.Sound.debugln("alarm decay = " + var1.building.bAlarmDecay);
+         DebugLogStream var10000 = DebugLog.Sound;
+         double var10001 = GameTime.getInstance().getWorldAgeHours() / 24.0;
+         int var10002 = SandboxOptions.instance.TimeSinceApo.getValue() - 1;
+         var10000.debugln("nights survived = " + (float)(var10001 + (double)(var10002 * 30)));
+         if ((float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) <= (float)(SandboxOptions.getInstance().getElecShutModifier() + var1.building.bAlarmDecay)) {
+            this.alarmList.add(new Alarm(var1.x + var1.getW() / 2, var1.y + var1.getH() / 2));
+         }
+
          var1.building.bAlarmed = false;
          var1.building.setAllExplored(true);
-         this.alarmList.add(new Alarm(var1.x + var1.getW() / 2, var1.y + var1.getH() / 2));
+      }
+
+   }
+
+   private int GetDistance(int var1, int var2, int var3, int var4) {
+      return (int)Math.sqrt(Math.pow((double)(var1 - var3), 2.0) + Math.pow((double)(var2 - var4), 2.0));
+   }
+
+   public void handleThunderEvent(int var1, int var2) {
+      int var3 = 9999999;
+
+      for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
+         IsoPlayer var5 = IsoPlayer.players[var4];
+         if (var5 != null && var5.isAlive()) {
+            int var6 = this.GetDistance((int)var5.getX(), (int)var5.getY(), var1, var2);
+            if (var6 < var3) {
+               var3 = var6;
+            }
+         }
+      }
+
+      if (var3 <= 5000) {
+         WorldSoundManager.instance.addSound((Object)null, PZMath.fastfloor((float)var1), PZMath.fastfloor((float)var2), 0, 5000, 5000);
+         Ambient var7 = new Ambient("", (float)var1, (float)var2, 5100.0F, 1.0F);
+         this.ambient.add(var7);
       }
 
    }
@@ -390,7 +457,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
    }
 
    private void updatePowerSupply() {
-      boolean var1 = GameTime.getInstance().NightsSurvived < SandboxOptions.getInstance().getElecShutModifier();
+      boolean var1 = (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) < (float)SandboxOptions.getInstance().getElecShutModifier();
       if (this.electricityShutOffState == -1) {
          IsoWorld.instance.setHydroPowerOn(var1);
       }
@@ -408,7 +475,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
          if (!this.electricityShutOffEmitter.isPlaying(this.electricityShutOffEvent)) {
             Vector2f var2 = new Vector2f();
             this.getListenerPos(var2);
-            BuildingDef var3 = this.getNearestBuilding(var2.x, var2.y, var2);
+            BuildingDef var3 = getNearestBuilding(var2.x, var2.y, var2);
             if (var3 == null) {
                this.electricityShutOffEmitter.setPos(-1000.0F, -1000.0F, 0.0F);
             } else {
@@ -429,11 +496,11 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
 
    }
 
-   private void checkHaveElectricity() {
+   public void checkHaveElectricity() {
       for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
          IsoChunkMap var2 = IsoWorld.instance.CurrentCell.ChunkMap[var1];
          if (!var2.ignore) {
-            for(int var3 = 0; var3 < 8; ++var3) {
+            for(int var3 = -32; var3 <= 31; ++var3) {
                for(int var4 = var2.getWorldYMinTiles(); var4 <= var2.getWorldYMaxTiles(); ++var4) {
                   for(int var5 = var2.getWorldXMinTiles(); var5 <= var2.getWorldXMaxTiles(); ++var5) {
                      IsoGridSquare var6 = IsoWorld.instance.CurrentCell.getGridSquare(var5, var4, var3);
@@ -451,35 +518,39 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
 
    }
 
-   public BuildingDef getNearestBuilding(float var1, float var2, Vector2f var3) {
-      IsoMetaGrid var4 = IsoWorld.instance.getMetaGrid();
-      int var5 = PZMath.fastfloor(var1 / 300.0F);
-      int var6 = PZMath.fastfloor(var2 / 300.0F);
-      BuildingDef var7 = null;
-      float var8 = 3.4028235E38F;
-      var3.set(0.0F);
-      Vector2f var9 = new Vector2f();
+   public boolean isParameterInsideTrue() {
+      return this.parameterInside.getCurrentValue() > 0.0F;
+   }
 
-      for(int var10 = var6 - 1; var10 <= var6 + 1; ++var10) {
-         for(int var11 = var5 - 1; var11 <= var5 + 1; ++var11) {
-            IsoMetaCell var12 = var4.getCellData(var11, var10);
-            if (var12 != null && var12.info != null) {
-               Iterator var13 = var12.info.Buildings.iterator();
+   public static BuildingDef getNearestBuilding(float var0, float var1, Vector2f var2) {
+      IsoMetaGrid var3 = IsoWorld.instance.getMetaGrid();
+      int var4 = PZMath.fastfloor(var0 / (float)IsoCell.CellSizeInSquares);
+      int var5 = PZMath.fastfloor(var1 / (float)IsoCell.CellSizeInSquares);
+      BuildingDef var6 = null;
+      float var7 = 3.4028235E38F;
+      var2.set(0.0F);
+      Vector2f var8 = new Vector2f();
 
-               while(var13.hasNext()) {
-                  BuildingDef var14 = (BuildingDef)var13.next();
-                  float var15 = var14.getClosestPoint(var1, var2, var9);
-                  if (var15 < var8) {
-                     var8 = var15;
+      for(int var9 = var5 - 1; var9 <= var5 + 1; ++var9) {
+         for(int var10 = var4 - 1; var10 <= var4 + 1; ++var10) {
+            IsoMetaCell var11 = var3.getCellData(var10, var9);
+            if (var11 != null && var11.info != null) {
+               Iterator var12 = var11.info.Buildings.iterator();
+
+               while(var12.hasNext()) {
+                  BuildingDef var13 = (BuildingDef)var12.next();
+                  float var14 = var13.getClosestPoint(var0, var1, var8);
+                  if (var14 < var7) {
                      var7 = var14;
-                     var3.set(var9);
+                     var6 = var13;
+                     var2.set(var8);
                   }
                }
             }
          }
       }
 
-      return var7;
+      return var6;
    }
 
    private void getListenerPos(Vector2f var1) {
@@ -492,6 +563,26 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
             var2 = var4;
             var1.set(var4.getX(), var4.getY());
          }
+      }
+
+   }
+
+   public void save(ByteBuffer var1) {
+      var1.putShort((short)this.alarmList.size());
+
+      for(int var2 = 0; var2 < this.alarmList.size(); ++var2) {
+         ((Alarm)this.alarmList.get(var2)).save(var1);
+      }
+
+   }
+
+   public void load(ByteBuffer var1, int var2) {
+      short var3 = var1.getShort();
+
+      for(int var4 = 0; var4 < var3; ++var4) {
+         Alarm var5 = new Alarm(0, 0);
+         var5.load(var1, var2);
+         this.alarmList.add(var5);
       }
 
    }
@@ -601,7 +692,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
          }
 
          if (!GameClient.bClient && this.worldSoundRadius > 0 && this.worldSoundVolume > 0) {
-            WorldSoundManager.instance.addSound((Object)null, (int)this.x, (int)this.y, 0, this.worldSoundRadius, this.worldSoundVolume);
+            WorldSoundManager.instance.addSound((Object)null, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), 0, this.worldSoundRadius, this.worldSoundVolume);
          }
 
       }
@@ -621,10 +712,7 @@ public final class AmbientStreamManager extends BaseAmbientStreamManager {
                float var7 = var6.getX();
                float var8 = var6.getY();
                float var9 = IsoUtils.DistanceToSquared(var7, var8, var1, var2);
-               if (var6.Traits.HardOfHearing.isSet()) {
-                  var9 *= 4.5F;
-               }
-
+               var9 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
                if (var6.Traits.Deaf.isSet()) {
                   var9 = 3.4028235E38F;
                }

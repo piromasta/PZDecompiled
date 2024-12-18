@@ -34,8 +34,8 @@ public class IsoPushableObject extends IsoMovingObject {
       this.setZ((float)var2.getZ());
       this.ox = this.getX();
       this.oy = this.getY();
-      this.setNx(this.getX());
-      this.setNy(this.getNy());
+      this.setNextX(this.getX());
+      this.setNextY(this.getNextY());
       this.offsetX = (float)(6 * Core.TileScale);
       this.offsetY = (float)(-30 * Core.TileScale);
       this.setWeight(6.0F);
@@ -133,24 +133,24 @@ public class IsoPushableObject extends IsoMovingObject {
             IsoPushableObject var2 = (IsoPushableObject)var1.next();
             if (var2 != this) {
                if (var2.ox < this.ox) {
-                  var2.setNx(this.getNx() - 1.0F);
+                  var2.setNextX(this.getNextX() - 1.0F);
                   var2.setX(this.getX() - 1.0F);
                } else if (var2.ox > this.ox) {
-                  var2.setNx(this.getNx() + 1.0F);
+                  var2.setNextX(this.getNextX() + 1.0F);
                   var2.setX(this.getX() + 1.0F);
                } else {
-                  var2.setNx(this.getNx());
+                  var2.setNextX(this.getNextX());
                   var2.setX(this.getX());
                }
 
                if (var2.oy < this.oy) {
-                  var2.setNy(this.getNy() - 1.0F);
+                  var2.setNextY(this.getNextY() - 1.0F);
                   var2.setY(this.getY() - 1.0F);
                } else if (var2.oy > this.oy) {
-                  var2.setNy(this.getNy() + 1.0F);
+                  var2.setNextY(this.getNextY() + 1.0F);
                   var2.setY(this.getY() + 1.0F);
                } else {
-                  var2.setNy(this.getNy());
+                  var2.setNextY(this.getNextY());
                   var2.setY(this.getY());
                }
 
@@ -172,24 +172,24 @@ public class IsoPushableObject extends IsoMovingObject {
             IsoPushableObject var2 = (IsoPushableObject)var1.next();
             if (var2 != this) {
                if (var2.ox < this.ox) {
-                  var2.setNx(this.getNx() - 1.0F);
+                  var2.setNextX(this.getNextX() - 1.0F);
                   var2.setX(this.getX() - 1.0F);
                } else if (var2.ox > this.ox) {
-                  var2.setNx(this.getNx() + 1.0F);
+                  var2.setNextX(this.getNextX() + 1.0F);
                   var2.setX(this.getX() + 1.0F);
                } else {
-                  var2.setNx(this.getNx());
+                  var2.setNextX(this.getNextX());
                   var2.setX(this.getX());
                }
 
                if (var2.oy < this.oy) {
-                  var2.setNy(this.getNy() - 1.0F);
+                  var2.setNextY(this.getNextY() - 1.0F);
                   var2.setY(this.getY() - 1.0F);
                } else if (var2.oy > this.oy) {
-                  var2.setNy(this.getNy() + 1.0F);
+                  var2.setNextY(this.getNextY() + 1.0F);
                   var2.setY(this.getY() + 1.0F);
                } else {
-                  var2.setNy(this.getNy());
+                  var2.setNextY(this.getNextY());
                   var2.setY(this.getY());
                }
 

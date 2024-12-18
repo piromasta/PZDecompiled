@@ -4,14 +4,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import org.w3c.dom.Element;
-import zombie.characters.IsoPlayer;
-import zombie.characters.IsoZombie;
-import zombie.core.Core;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugLogStream;
-import zombie.debug.DebugOptions;
-import zombie.debug.DebugType;
-import zombie.network.GameClient;
 import zombie.util.Lambda;
 import zombie.util.PZXmlUtil;
 import zombie.util.StringUtils;
@@ -21,6 +16,7 @@ public final class ActionTransition implements Cloneable {
    boolean asSubstate;
    boolean transitionOut;
    boolean forceParent;
+   int conditionPriority = 0;
    final List<IActionCondition> conditions = new ArrayList();
 
    public ActionTransition() {
@@ -77,6 +73,8 @@ public final class ActionTransition implements Cloneable {
                   this.forceParent = StringUtils.tryParseBoolean(var1x.getTextContent());
                } else if ("asSubstate".equalsIgnoreCase(var2)) {
                   this.asSubstate = StringUtils.tryParseBoolean(var1x.getTextContent());
+               } else if ("conditionPriority".equalsIgnoreCase(var2)) {
+                  this.conditionPriority = PZMath.tryParseInt(var1x.getTextContent(), 0);
                } else if ("conditions".equalsIgnoreCase(var2)) {
                   PZXmlUtil.forEachElement(var1x, (var1) -> {
                      IActionCondition var2 = IActionCondition.createInstance(var1);
@@ -112,18 +110,6 @@ public final class ActionTransition implements Cloneable {
          }
       }
 
-      if (Core.bDebug && GameClient.bClient && (DebugOptions.instance.MultiplayerShowPlayerStatus.getValue() && var1.getOwner() instanceof IsoPlayer && !((IsoPlayer)var1.getOwner()).isGodMod() || DebugOptions.instance.MultiplayerShowZombieStatus.getValue() && var1.getOwner() instanceof IsoZombie)) {
-         StringBuilder var6 = (new StringBuilder("Character ")).append(var1.getOwner().getClass().getSimpleName()).append(" ").append("id=").append(var1.getOwner().getOnlineID()).append(" transition to \"").append(this.transitionTo).append("\":");
-         Iterator var7 = this.conditions.iterator();
-
-         while(var7.hasNext()) {
-            IActionCondition var5 = (IActionCondition)var7.next();
-            var6.append(" [").append(var5.getDescription()).append("]");
-         }
-
-         DebugLog.log(DebugType.ActionSystem, var6.toString());
-      }
-
       return true;
    }
 
@@ -133,6 +119,7 @@ public final class ActionTransition implements Cloneable {
       var1.asSubstate = this.asSubstate;
       var1.transitionOut = this.transitionOut;
       var1.forceParent = this.forceParent;
+      var1.conditionPriority = this.conditionPriority;
       Iterator var2 = this.conditions.iterator();
 
       while(var2.hasNext()) {
@@ -141,5 +128,30 @@ public final class ActionTransition implements Cloneable {
       }
 
       return var1;
+   }
+
+   public String toString() {
+      return this.toString("");
+   }
+
+   public String toString(String var1) {
+      StringBuilder var2 = new StringBuilder();
+      var2.append(var1).append(this.getClass().getName()).append("\r\n");
+      var2.append(var1).append("{").append("\r\n");
+      var2.append(var1).append("\t").append("transitionTo:").append(this.transitionTo).append("\r\n");
+      var2.append(var1).append("\t").append("asSubstate:").append(this.asSubstate).append("\r\n");
+      var2.append(var1).append("\t").append("transitionOut:").append(this.transitionOut).append("\r\n");
+      var2.append(var1).append("\t").append("forceParent:").append(this.forceParent).append("\r\n");
+      var2.append(var1).append("\t").append("conditionPriority:").append(this.forceParent).append("\r\n");
+      var2.append(var1).append("\t").append("transitions:").append("\r\n");
+      var2.append(var1).append("\t{").append("\r\n");
+
+      for(int var3 = 0; var3 < this.conditions.size(); ++var3) {
+         var2.append(var1).append(((IActionCondition)this.conditions.get(var3)).toString(var1 + "\t")).append(",").append("\r\n");
+      }
+
+      var2.append(var1).append("\t}").append("\r\n");
+      var2.append(var1).append("}");
+      return var2.toString();
    }
 }

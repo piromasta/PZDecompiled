@@ -9,7 +9,8 @@ import zombie.DummySoundManager;
 import zombie.SoundManager;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaManager;
-import zombie.core.Rand;
+import zombie.core.random.RandLua;
+import zombie.core.random.RandStandard;
 import zombie.iso.IsoCell;
 import zombie.network.ServerMap;
 
@@ -23,7 +24,8 @@ public class ZombieIDMapTest extends Assert {
    @BeforeClass
    public static void beforeAll() {
       try {
-         Rand.init();
+         RandStandard.INSTANCE.init();
+         RandLua.INSTANCE.init();
          ZomboidFileSystem.instance.init();
          LuaManager.init();
       } catch (IOException var1) {
@@ -34,7 +36,8 @@ public class ZombieIDMapTest extends Assert {
 
    @Test
    public void test10Allocations() {
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       this.IDs.clear();
       byte var1 = 10;
 
@@ -47,7 +50,8 @@ public class ZombieIDMapTest extends Assert {
 
    @Test
    public void test32653Allocations() {
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       this.IDs.clear();
       char var1 = '蝝';
       long var2 = System.nanoTime();
@@ -67,7 +71,8 @@ public class ZombieIDMapTest extends Assert {
    @Test
    public void test32653Adds() {
       SoundManager.instance = new DummySoundManager();
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       SurvivorFactory.addMaleForename("Bob");
       SurvivorFactory.addFemaleForename("Kate");
       SurvivorFactory.addSurname("Testova");
@@ -94,7 +99,8 @@ public class ZombieIDMapTest extends Assert {
 
    @Test
    public void test32653Process() {
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       ServerMap.instance = new ServerMap();
       SoundManager.instance = new DummySoundManager();
       SurvivorFactory.addMaleForename("Bob");

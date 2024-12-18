@@ -64,6 +64,10 @@ public final class VehicleWindow {
       return this.openDelta;
    }
 
+   public VehiclePart getPart() {
+      return this.part;
+   }
+
    public boolean isHittable() {
       if (this.isDestroyed()) {
          return false;
@@ -98,9 +102,9 @@ public final class VehicleWindow {
 
                   IsoGridSquare var2 = this.part.vehicle.square;
                   if (GameServer.bServer) {
-                     GameServer.PlayWorldSoundServer("SmashWindow", false, var2, 0.2F, 20.0F, 1.1F, true);
+                     GameServer.PlayWorldSoundServer("VehicleWindowSmash", false, var2, 0.2F, 20.0F, 1.1F, true);
                   } else {
-                     SoundManager.instance.PlayWorldSound("SmashWindow", var2, 0.2F, 20.0F, 1.0F, true);
+                     SoundManager.instance.PlayWorldSound("VehicleWindowSmash", var2, 0.2F, 20.0F, 1.0F, true);
                   }
 
                   this.part.getVehicle().getSquare().addBrokenGlass();

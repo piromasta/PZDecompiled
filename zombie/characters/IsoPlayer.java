@@ -18,9 +18,11 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Stack;
 import org.joml.Vector3f;
 import se.krka.kahlua.vm.KahluaTable;
+import zombie.CombatManager;
 import zombie.DebugFileWatcher;
 import zombie.GameSounds;
 import zombie.GameTime;
@@ -47,6 +49,7 @@ import zombie.ai.states.FishingState;
 import zombie.ai.states.FitnessState;
 import zombie.ai.states.ForecastBeatenPlayerState;
 import zombie.ai.states.IdleState;
+import zombie.ai.states.LungeState;
 import zombie.ai.states.OpenWindowState;
 import zombie.ai.states.PathFindState;
 import zombie.ai.states.PlayerActionsState;
@@ -59,24 +62,39 @@ import zombie.ai.states.PlayerGetUpState;
 import zombie.ai.states.PlayerHitReactionPVPState;
 import zombie.ai.states.PlayerHitReactionState;
 import zombie.ai.states.PlayerKnockedDown;
+import zombie.ai.states.PlayerOnBedState;
 import zombie.ai.states.PlayerOnGroundState;
+import zombie.ai.states.PlayerSitOnFurnitureState;
 import zombie.ai.states.PlayerSitOnGroundState;
 import zombie.ai.states.PlayerStrafeState;
 import zombie.ai.states.SmashWindowState;
 import zombie.ai.states.StaggerBackState;
 import zombie.ai.states.SwipeStatePlayer;
+import zombie.ai.states.WalkTowardState;
 import zombie.audio.BaseSoundEmitter;
 import zombie.audio.DummySoundEmitter;
 import zombie.audio.FMODParameterList;
 import zombie.audio.GameSound;
+import zombie.audio.MusicIntensityConfig;
+import zombie.audio.MusicIntensityEvents;
+import zombie.audio.MusicThreatStatuses;
 import zombie.audio.parameters.ParameterCharacterMovementSpeed;
+import zombie.audio.parameters.ParameterCharacterOnFire;
+import zombie.audio.parameters.ParameterCharacterVoicePitch;
+import zombie.audio.parameters.ParameterCharacterVoiceType;
+import zombie.audio.parameters.ParameterDragMaterial;
 import zombie.audio.parameters.ParameterEquippedBaggageContainer;
+import zombie.audio.parameters.ParameterExercising;
+import zombie.audio.parameters.ParameterFirearmInside;
+import zombie.audio.parameters.ParameterFirearmRoomSize;
 import zombie.audio.parameters.ParameterFootstepMaterial;
 import zombie.audio.parameters.ParameterFootstepMaterial2;
+import zombie.audio.parameters.ParameterIsStashTile;
 import zombie.audio.parameters.ParameterLocalPlayer;
 import zombie.audio.parameters.ParameterMeleeHitSurface;
+import zombie.audio.parameters.ParameterMoodles;
 import zombie.audio.parameters.ParameterPlayerHealth;
-import zombie.audio.parameters.ParameterRoomType;
+import zombie.audio.parameters.ParameterRoomTypeEx;
 import zombie.audio.parameters.ParameterShoeType;
 import zombie.audio.parameters.ParameterVehicleHitLocation;
 import zombie.characters.AttachedItems.AttachedItems;
@@ -90,31 +108,37 @@ import zombie.characters.Moodles.MoodleType;
 import zombie.characters.Moodles.Moodles;
 import zombie.characters.action.ActionContext;
 import zombie.characters.action.ActionGroup;
+import zombie.characters.animals.IsoAnimal;
 import zombie.characters.skills.PerkFactory;
-import zombie.commands.PlayerType;
+import zombie.core.BoxedStaticValues;
 import zombie.core.Color;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.logger.LoggerManager;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
+import zombie.core.physics.PhysicsDebugRenderer;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
+import zombie.core.skinnedmodel.visual.AnimalVisual;
 import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.visual.HumanVisual;
+import zombie.core.skinnedmodel.visual.IAnimalVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.core.textures.ColorInfo;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
+import zombie.debug.LogSeverity;
+import zombie.entity.ComponentType;
 import zombie.gameStates.MainScreenState;
 import zombie.input.GameKeyboard;
 import zombie.input.JoypadManager;
@@ -130,7 +154,6 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoPhysicsObject;
@@ -140,7 +163,9 @@ import zombie.iso.SliceY;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.areas.DesignationZoneAnimal;
 import zombie.iso.areas.SafeHouse;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
 import zombie.iso.objects.IsoBarricade;
 import zombie.iso.objects.IsoCurtain;
 import zombie.iso.objects.IsoDeadBody;
@@ -149,18 +174,23 @@ import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
 import zombie.iso.weather.ClimateManager;
+import zombie.iso.zones.Zone;
 import zombie.network.BodyDamageSync;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.MPStatistics;
 import zombie.network.PassengerMap;
-import zombie.network.ReplayManager;
 import zombie.network.ServerLOS;
 import zombie.network.ServerMap;
 import zombie.network.ServerOptions;
 import zombie.network.ServerWorldDatabase;
-import zombie.network.packets.EventPacket;
-import zombie.network.packets.hit.AttackVars;
-import zombie.network.packets.hit.HitInfo;
+import zombie.network.fields.HitInfo;
+import zombie.network.packets.actions.EventPacket;
+import zombie.pathfind.Path;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.Point;
+import zombie.pathfind.PolygonalMap2;
+import zombie.popman.animal.AnimalInstanceManager;
 import zombie.savefile.ClientPlayerDB;
 import zombie.savefile.PlayerDB;
 import zombie.scripting.objects.VehicleScript;
@@ -168,23 +198,24 @@ import zombie.ui.TutorialManager;
 import zombie.ui.UIManager;
 import zombie.util.StringUtils;
 import zombie.util.Type;
-import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.VehiclePart;
 import zombie.vehicles.VehicleWindow;
 import zombie.vehicles.VehiclesDB2;
 import zombie.world.WorldDictionary;
 
-public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual {
+public class IsoPlayer extends IsoLivingCharacter implements IAnimalVisual, IHumanVisual {
+   private static final float StrongTraitMaxWeightDelta = 1.5F;
+   private static final float WeakTraitMaxWeightDelta = 0.75F;
+   private static final float FeebleTraitMaxWeightDelta = 0.9F;
+   private static final float StoutTraitMaxWeightDelta = 1.25F;
+   public PhysicsDebugRenderer physicsDebugRenderer;
    private String attackType;
    public static String DEATH_MUSIC_NAME = "PlayerDied";
    private boolean allowSprint;
    private boolean allowRun;
    public static boolean isTestAIMode = false;
    public static final boolean NoSound = false;
-   private static final float TIME_RIGHT_PRESSED_SECONDS = 0.15F;
    public static int assumedPlayer = 0;
    public static int numPlayers = 1;
    public static final short MAX = 4;
@@ -212,23 +243,28 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private boolean ignoreInputsForDirection;
    private boolean showMPInfos;
    public long lastRemoteUpdate;
+   public ArrayList<IsoAnimal> luredAnimals;
+   public boolean isLuringAnimals;
+   private boolean invPageDirty;
+   private ArrayList<IsoAnimal> attachedAnimals;
    public boolean spottedByPlayer;
    private HashMap<Integer, Integer> spottedPlayerTimer;
    private float extUpdateCount;
    private static final int s_randomIdleFidgetInterval = 5000;
-   public boolean attackStarted;
+   private boolean attackStarted;
    private static final PredicatedFileWatcher m_isoPlayerTriggerWatcher;
    private final PredicatedFileWatcher m_setClothingTriggerWatcher;
    private static Vector2 tempVector2_1;
    private static Vector2 tempVector2_2;
-   protected final HumanVisual humanVisual;
+   protected BaseVisual baseVisual;
    protected final ItemVisuals itemVisuals;
    public boolean targetedByZombie;
    public float lastTargeted;
    public float TimeSinceOpenDoor;
+   public float TimeSinceCloseDoor;
    public boolean bRemote;
    public int TimeSinceLastNetData;
-   public String accessLevel;
+   public Role role;
    public String tagPrefix;
    public boolean showTag;
    public boolean factionPvp;
@@ -270,8 +306,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    public float runningTime;
    public float timePressedContext;
    public float chargeTime;
-   public float useChargeTime;
-   public boolean bPressContext;
+   private float useChargeTime;
+   private boolean bPressContext;
+   private boolean m_letGoAfterContextIsReleased;
    public float closestZombie;
    public final Vector2 lastAngle;
    public String SaveFileName;
@@ -300,10 +337,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    protected int ping;
    protected IsoMovingObject DragObject;
    private double lastSeenZombieTime;
-   private BaseSoundEmitter testemitter;
+   private BaseSoundEmitter worldAmbienceEmitter;
    private int checkSafehouse;
    private boolean attackFromBehind;
-   private float TimeRightPressed;
    private long aimKeyDownMS;
    private long runKeyDownMS;
    private long sprintKeyDownMS;
@@ -318,17 +354,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private static final Vector3f tempVector3f;
    private final InputState inputState;
    private boolean isWearingNightVisionGoggles;
-   /** @deprecated */
-   @Deprecated
-   private Integer transactionID;
    private float MoveSpeed;
    private int offSetXUI;
    private int offSetYUI;
    private float combatSpeed;
    private double HoursSurvived;
    private boolean noClip;
-   private boolean authorizeMeleeAction;
-   private boolean authorizeShoveStomp;
+   private boolean m_isAuthorizedHandToHandAction;
+   private boolean m_isAuthorizedHandToHand;
    private boolean blockMovement;
    private Nutrition nutrition;
    private Fitness fitness;
@@ -337,6 +370,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private final ColorInfo tagColor;
    private String displayName;
    private boolean seeNonPvpZone;
+   private boolean seeDesignationZone;
+   private ArrayList<Double> selectedZonesForHighlight;
+   private Double selectedZoneForHighlight;
    private final HashMap<Long, Long> mechanicsItem;
    private int sleepingPillsTaken;
    private long lastPillsTaken;
@@ -348,7 +384,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private boolean forceSprint;
    private boolean bMultiplayer;
    private String SaveFileIP;
-   private BaseVehicle vehicle4testCollision;
+   protected BaseVehicle vehicle4testCollision;
    private long steamID;
    private final VehicleContainerData vehicleContainerData;
    private boolean isWalking;
@@ -366,18 +402,30 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private float m_windForce;
    private float m_IPX;
    private float m_IPY;
+   float drunkDelayCommandTimer;
    private float pressedRunTimer;
    private boolean pressedRun;
    private boolean m_meleePressed;
-   private boolean m_lastAttackWasShove;
+   private boolean m_grapplePressed;
+   private boolean m_canLetGoOfGrappled;
+   private boolean m_lastAttackWasHandToHand;
    private boolean m_isPerformingAnAction;
    private ArrayList<String> alreadyReadBook;
    public byte bleedingLevel;
    public final NetworkPlayerAI networkAI;
-   public ReplayManager replay;
+   private final MusicIntensityEvents m_musicIntensityEvents;
+   private final MusicThreatStatuses m_musicThreatStatuses;
+   private boolean m_musicIntensity_Inside;
+   private boolean isFarming;
+   private float m_attackVariationX;
+   private float m_attackVariationY;
+   public String accessLevel;
+   private boolean hasObstacleOnPath;
+   private final GrapplerGruntChance m_grapplerGruntChance;
    private static final ArrayList<IsoPlayer> RecentlyRemoved;
    private boolean pathfindRun;
    private static final MoveVars s_moveVars;
+   private final MoveVars drunkMoveVars;
    int atkTimer;
    private static final ArrayList<HitInfo> s_targetsProne;
    private static final ArrayList<HitInfo> s_targetsStanding;
@@ -388,21 +436,31 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private long AttackAnimThrowTimer;
    String WeaponT;
    private final ParameterCharacterMovementSpeed parameterCharacterMovementSpeed;
+   private final ParameterCharacterOnFire parameterCharacterOnFire;
+   private final ParameterCharacterVoiceType parameterCharacterVoiceType;
+   private final ParameterCharacterVoicePitch parameterCharacterVoicePitch;
+   private final ParameterDragMaterial parameterDragMaterial;
    private final ParameterEquippedBaggageContainer parameterEquippedBaggageContainer;
+   private final ParameterExercising parameterExercising;
+   private final ParameterFirearmInside parameterFirearmInside;
+   private final ParameterFirearmRoomSize parameterFirearmRoomSize;
    private final ParameterFootstepMaterial parameterFootstepMaterial;
    private final ParameterFootstepMaterial2 parameterFootstepMaterial2;
+   private final ParameterIsStashTile parameterIsStashTile;
    private final ParameterLocalPlayer parameterLocalPlayer;
    private final ParameterMeleeHitSurface parameterMeleeHitSurface;
    private final ParameterPlayerHealth parameterPlayerHealth;
    private final ParameterVehicleHitLocation parameterVehicleHitLocation;
    private final ParameterShoeType parameterShoeType;
+   private ParameterMoodles parameterMoodles;
 
    public IsoPlayer(IsoCell var1) {
       this(var1, (SurvivorDesc)null, 0, 0, 0);
    }
 
-   public IsoPlayer(IsoCell var1, SurvivorDesc var2, int var3, int var4, int var5) {
+   public IsoPlayer(IsoCell var1, SurvivorDesc var2, int var3, int var4, int var5, boolean var6) {
       super(var1, (float)var3, (float)var4, (float)var5);
+      this.physicsDebugRenderer = null;
       this.attackType = null;
       this.allowSprint = true;
       this.allowRun = true;
@@ -417,16 +475,19 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.ignoreInputsForDirection = false;
       this.showMPInfos = false;
       this.lastRemoteUpdate = 0L;
+      this.luredAnimals = new ArrayList();
+      this.isLuringAnimals = false;
+      this.invPageDirty = false;
+      this.attachedAnimals = new ArrayList();
       this.spottedByPlayer = false;
       this.spottedPlayerTimer = new HashMap();
       this.extUpdateCount = 0.0F;
       this.attackStarted = false;
-      this.humanVisual = new HumanVisual(this);
       this.itemVisuals = new ItemVisuals();
       this.targetedByZombie = false;
       this.lastTargeted = 1.0E8F;
       this.TimeSinceLastNetData = 0;
-      this.accessLevel = "";
+      this.role = Roles.getDefaultForNewUser();
       this.tagPrefix = "";
       this.showTag = true;
       this.factionPvp = false;
@@ -463,6 +524,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.chargeTime = 0.0F;
       this.useChargeTime = 0.0F;
       this.bPressContext = false;
+      this.m_letGoAfterContextIsReleased = false;
       this.closestZombie = 1000000.0F;
       this.lastAngle = new Vector2();
       this.bBannedAttacking = false;
@@ -488,9 +550,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.ping = 0;
       this.DragObject = null;
       this.lastSeenZombieTime = 2.0;
+      this.worldAmbienceEmitter = null;
       this.checkSafehouse = 200;
       this.attackFromBehind = false;
-      this.TimeRightPressed = 0.0F;
       this.aimKeyDownMS = 0L;
       this.runKeyDownMS = 0L;
       this.sprintKeyDownMS = 0L;
@@ -502,21 +564,23 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.bUseVehicle = false;
       this.inputState = new InputState();
       this.isWearingNightVisionGoggles = false;
-      this.transactionID = 0;
       this.MoveSpeed = 0.06F;
       this.offSetXUI = 0;
       this.offSetYUI = 0;
       this.combatSpeed = 1.0F;
       this.HoursSurvived = 0.0;
       this.noClip = false;
-      this.authorizeMeleeAction = true;
-      this.authorizeShoveStomp = true;
+      this.m_isAuthorizedHandToHandAction = true;
+      this.m_isAuthorizedHandToHand = true;
       this.blockMovement = false;
       this.forceOverrideAnim = false;
       this.initiateAttack = false;
       this.tagColor = new ColorInfo(1.0F, 1.0F, 1.0F, 1.0F);
       this.displayName = null;
       this.seeNonPvpZone = false;
+      this.seeDesignationZone = false;
+      this.selectedZonesForHighlight = new ArrayList();
+      this.selectedZoneForHighlight = 0.0;
       this.mechanicsItem = new HashMap();
       this.sleepingPillsTaken = 0;
       this.lastPillsTaken = 0L;
@@ -542,15 +606,26 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.m_windForce = 0.0F;
       this.m_IPX = 0.0F;
       this.m_IPY = 0.0F;
+      this.drunkDelayCommandTimer = 0.0F;
       this.pressedRunTimer = 0.0F;
       this.pressedRun = false;
       this.m_meleePressed = false;
-      this.m_lastAttackWasShove = false;
+      this.m_grapplePressed = false;
+      this.m_canLetGoOfGrappled = true;
+      this.m_lastAttackWasHandToHand = false;
       this.m_isPerformingAnAction = false;
       this.alreadyReadBook = new ArrayList();
       this.bleedingLevel = 0;
-      this.replay = null;
+      this.m_musicIntensityEvents = new MusicIntensityEvents();
+      this.m_musicThreatStatuses = new MusicThreatStatuses(this);
+      this.m_musicIntensity_Inside = true;
+      this.isFarming = false;
+      this.m_attackVariationX = 0.0F;
+      this.m_attackVariationY = 0.0F;
+      this.hasObstacleOnPath = false;
+      this.m_grapplerGruntChance = new GrapplerGruntChance();
       this.pathfindRun = false;
+      this.drunkMoveVars = new MoveVars();
       this.atkTimer = 0;
       this.bReloadButtonDown = false;
       this.bRackButtonDown = false;
@@ -559,15 +634,312 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.AttackAnimThrowTimer = System.currentTimeMillis();
       this.WeaponT = null;
       this.parameterCharacterMovementSpeed = new ParameterCharacterMovementSpeed(this);
+      this.parameterCharacterOnFire = new ParameterCharacterOnFire(this);
+      this.parameterCharacterVoiceType = new ParameterCharacterVoiceType(this);
+      this.parameterCharacterVoicePitch = new ParameterCharacterVoicePitch(this);
+      this.parameterDragMaterial = new ParameterDragMaterial(this);
       this.parameterEquippedBaggageContainer = new ParameterEquippedBaggageContainer(this);
+      this.parameterExercising = new ParameterExercising(this);
+      this.parameterFirearmInside = new ParameterFirearmInside(this);
+      this.parameterFirearmRoomSize = new ParameterFirearmRoomSize(this);
       this.parameterFootstepMaterial = new ParameterFootstepMaterial(this);
       this.parameterFootstepMaterial2 = new ParameterFootstepMaterial2(this);
+      this.parameterIsStashTile = new ParameterIsStashTile(this);
       this.parameterLocalPlayer = new ParameterLocalPlayer(this);
       this.parameterMeleeHitSurface = new ParameterMeleeHitSurface(this);
       this.parameterPlayerHealth = new ParameterPlayerHealth(this);
       this.parameterVehicleHitLocation = new ParameterVehicleHitLocation();
       this.parameterShoeType = new ParameterShoeType(this);
+      this.parameterMoodles = null;
+      this.setIsAnimal(var6);
+      if (this.isAnimal()) {
+         this.baseVisual = new AnimalVisual(this);
+      } else {
+         this.baseVisual = new HumanVisual(this);
+         this.registerVariableCallbacks();
+         this.registerAnimEventCallbacks();
+         this.getWrappedGrappleable().setOnGrappledEndCallback(this::onGrappleEnded);
+      }
+
+      this.Traits.addAll(StaticTraits);
+      StaticTraits.clear();
+      this.dir = IsoDirections.W;
+      if (!var6) {
+         this.nutrition = new Nutrition(this);
+         this.fitness = new Fitness(this);
+         this.clothingWetness = new ClothingWetness(this);
+         this.initAttachedItems("Human");
+      }
+
+      this.initWornItems("Human");
+      if (var2 != null) {
+         this.descriptor = var2;
+      } else {
+         this.descriptor = new SurvivorDesc();
+      }
+
+      this.setFemale(this.descriptor.isFemale());
+      this.setVoiceType(this.descriptor.getVoiceType());
+      this.setVoicePitch(this.descriptor.getVoicePitch());
+      if (!var6) {
+         this.Dressup(this.descriptor);
+         this.getHumanVisual().copyFrom(this.descriptor.humanVisual);
+         this.InitSpriteParts(this.descriptor);
+      }
+
+      LuaEventManager.triggerEvent("OnCreateLivingCharacter", this, this.descriptor);
+      this.descriptor.Instance = this;
+      if (!var6) {
+         this.SpeakColour = new Color(Rand.Next(135) + 120, Rand.Next(135) + 120, Rand.Next(135) + 120, 255);
+      }
+
+      if (GameClient.bClient) {
+         if (Core.getInstance().getMpTextColor() != null) {
+            this.SpeakColour = new Color(Core.getInstance().getMpTextColor().r, Core.getInstance().getMpTextColor().g, Core.getInstance().getMpTextColor().b, 1.0F);
+         } else {
+            Core.getInstance().setMpTextColor(new ColorInfo(this.SpeakColour.r, this.SpeakColour.g, this.SpeakColour.b, 1.0F));
+
+            try {
+               Core.getInstance().saveOptions();
+            } catch (IOException var8) {
+               var8.printStackTrace();
+            }
+         }
+      }
+
+      if (Core.GameMode.equals("LastStand")) {
+         this.Traits.add("Strong");
+      }
+
+      if (this.Traits.Strong.isSet()) {
+         this.maxWeightDelta = 1.5F;
+      } else if (this.Traits.Weak.isSet()) {
+         this.maxWeightDelta = 0.75F;
+      } else if (this.Traits.Feeble.isSet()) {
+         this.maxWeightDelta = 0.9F;
+      } else if (this.Traits.Stout.isSet()) {
+         this.maxWeightDelta = 1.25F;
+      }
+
+      if (this.Traits.Injured.isSet()) {
+         this.getBodyDamage().AddRandomDamage();
+      }
+
+      this.bMultiplayer = GameServer.bServer || GameClient.bClient;
+      this.vehicle4testCollision = null;
+      if (!var6 && Core.bDebug && DebugOptions.instance.Cheat.Player.StartInvisible.getValue()) {
+         this.setGhostMode(true);
+         this.setGodMod(true);
+      }
+
+      if (!var6) {
+         this.getActionContext().setGroup(ActionGroup.getActionGroup("player"));
+         this.initializeStates();
+         DebugFileWatcher.instance.add(m_isoPlayerTriggerWatcher);
+      }
+
+      this.m_setClothingTriggerWatcher = new PredicatedFileWatcher(ZomboidFileSystem.instance.getMessagingDirSub("Trigger_SetClothing.xml"), TriggerXmlFile.class, this::onTrigger_setClothingToXmlTriggerFile);
+      this.networkAI = new NetworkPlayerAI(this);
+      this.initFMODParameters();
+   }
+
+   public IsoPlayer(IsoCell var1, SurvivorDesc var2, int var3, int var4, int var5) {
+      super(var1, (float)var3, (float)var4, (float)var5);
+      this.physicsDebugRenderer = null;
+      this.attackType = null;
+      this.allowSprint = true;
+      this.allowRun = true;
+      this.ignoreAutoVault = false;
+      this.remoteSneakLvl = 0;
+      this.remoteStrLvl = 0;
+      this.remoteFitLvl = 0;
+      this.canSeeAll = false;
+      this.canHearAll = false;
+      this.MoodleCantSprint = false;
+      this.ignoreContextKey = false;
+      this.ignoreInputsForDirection = false;
+      this.showMPInfos = false;
+      this.lastRemoteUpdate = 0L;
+      this.luredAnimals = new ArrayList();
+      this.isLuringAnimals = false;
+      this.invPageDirty = false;
+      this.attachedAnimals = new ArrayList();
+      this.spottedByPlayer = false;
+      this.spottedPlayerTimer = new HashMap();
+      this.extUpdateCount = 0.0F;
+      this.attackStarted = false;
+      this.itemVisuals = new ItemVisuals();
+      this.targetedByZombie = false;
+      this.lastTargeted = 1.0E8F;
+      this.TimeSinceLastNetData = 0;
+      this.role = Roles.getDefaultForNewUser();
+      this.tagPrefix = "";
+      this.showTag = true;
+      this.factionPvp = false;
+      this.OnlineID = 1;
+      this.bJoypadMovementActive = true;
+      this.bJoypadIgnoreChargingRT = false;
+      this.bJoypadBDown = false;
+      this.bJoypadSprint = false;
+      this.mpTorchCone = false;
+      this.mpTorchDist = 0.0F;
+      this.mpTorchStrength = 0.0F;
+      this.PlayerIndex = 0;
+      this.serverPlayerIndex = 1;
+      this.useChargeDelta = 0.0F;
+      this.JoypadBind = -1;
+      this.ContextPanic = 0.0F;
+      this.numNearbyBuildingsRooms = 0.0F;
+      this.isCharging = false;
+      this.isChargingLT = false;
+      this.bLookingWhileInVehicle = false;
+      this.JustMoved = false;
+      this.L3Pressed = false;
+      this.R3Pressed = false;
+      this.maxWeightDelta = 1.0F;
+      this.CurrentSpeed = 0.0F;
+      this.MaxSpeed = 0.09F;
+      this.bDeathFinished = false;
+      this.playerMoveDir = new Vector2(0.0F, 0.0F);
+      this.username = "Bob";
+      this.dirtyRecalcGridStack = true;
+      this.dirtyRecalcGridStackTime = 10.0F;
+      this.runningTime = 0.0F;
+      this.timePressedContext = 0.0F;
+      this.chargeTime = 0.0F;
+      this.useChargeTime = 0.0F;
+      this.bPressContext = false;
+      this.m_letGoAfterContextIsReleased = false;
+      this.closestZombie = 1000000.0F;
+      this.lastAngle = new Vector2();
+      this.bBannedAttacking = false;
+      this.sqlID = -1;
+      this.ClearSpottedTimer = -1;
+      this.timeSinceLastStab = 0.0F;
+      this.LastSpotted = new Stack();
+      this.bChangeCharacterDebounce = false;
+      this.followID = 0;
+      this.FollowCamStack = new Stack();
+      this.bSeenThisFrame = false;
+      this.bCouldBeSeenThisFrame = false;
+      this.AsleepTime = 0.0F;
+      this.spottedList = new Stack();
+      this.TicksSinceSeenZombie = 9999999;
+      this.Waiting = true;
+      this.DragCharacter = null;
+      this.heartDelay = 30.0F;
+      this.heartDelayMax = 30.0F;
+      this.Forname = "Bob";
+      this.Surname = "Smith";
+      this.DialogMood = 1;
+      this.ping = 0;
+      this.DragObject = null;
+      this.lastSeenZombieTime = 2.0;
+      this.worldAmbienceEmitter = null;
+      this.checkSafehouse = 200;
+      this.attackFromBehind = false;
+      this.aimKeyDownMS = 0L;
+      this.runKeyDownMS = 0L;
+      this.sprintKeyDownMS = 0L;
+      this.hypothermiaCache = -1;
+      this.hyperthermiaCache = -1;
+      this.ticksSincePressedMovement = 0.0F;
+      this.flickTorch = false;
+      this.checkNearbyRooms = 0.0F;
+      this.bUseVehicle = false;
+      this.inputState = new InputState();
+      this.isWearingNightVisionGoggles = false;
+      this.MoveSpeed = 0.06F;
+      this.offSetXUI = 0;
+      this.offSetYUI = 0;
+      this.combatSpeed = 1.0F;
+      this.HoursSurvived = 0.0;
+      this.noClip = false;
+      this.m_isAuthorizedHandToHandAction = true;
+      this.m_isAuthorizedHandToHand = true;
+      this.blockMovement = false;
+      this.forceOverrideAnim = false;
+      this.initiateAttack = false;
+      this.tagColor = new ColorInfo(1.0F, 1.0F, 1.0F, 1.0F);
+      this.displayName = null;
+      this.seeNonPvpZone = false;
+      this.seeDesignationZone = false;
+      this.selectedZonesForHighlight = new ArrayList();
+      this.selectedZoneForHighlight = 0.0;
+      this.mechanicsItem = new HashMap();
+      this.sleepingPillsTaken = 0;
+      this.lastPillsTaken = 0L;
+      this.heavyBreathInstance = 0L;
+      this.heavyBreathSoundName = null;
+      this.allChatMuted = false;
+      this.forceAim = false;
+      this.forceRun = false;
+      this.forceSprint = false;
+      this.vehicle4testCollision = null;
+      this.vehicleContainerData = new VehicleContainerData();
+      this.isWalking = false;
+      this.footInjuryTimer = 0;
+      this.m_turnDelta = 0.0F;
+      this.m_isPlayerMoving = false;
+      this.m_walkSpeed = 0.0F;
+      this.m_walkInjury = 0.0F;
+      this.m_runSpeed = 0.0F;
+      this.m_idleSpeed = 0.0F;
+      this.m_deltaX = 0.0F;
+      this.m_deltaY = 0.0F;
+      this.m_windspeed = 0.0F;
+      this.m_windForce = 0.0F;
+      this.m_IPX = 0.0F;
+      this.m_IPY = 0.0F;
+      this.drunkDelayCommandTimer = 0.0F;
+      this.pressedRunTimer = 0.0F;
+      this.pressedRun = false;
+      this.m_meleePressed = false;
+      this.m_grapplePressed = false;
+      this.m_canLetGoOfGrappled = true;
+      this.m_lastAttackWasHandToHand = false;
+      this.m_isPerformingAnAction = false;
+      this.alreadyReadBook = new ArrayList();
+      this.bleedingLevel = 0;
+      this.m_musicIntensityEvents = new MusicIntensityEvents();
+      this.m_musicThreatStatuses = new MusicThreatStatuses(this);
+      this.m_musicIntensity_Inside = true;
+      this.isFarming = false;
+      this.m_attackVariationX = 0.0F;
+      this.m_attackVariationY = 0.0F;
+      this.hasObstacleOnPath = false;
+      this.m_grapplerGruntChance = new GrapplerGruntChance();
+      this.pathfindRun = false;
+      this.drunkMoveVars = new MoveVars();
+      this.atkTimer = 0;
+      this.bReloadButtonDown = false;
+      this.bRackButtonDown = false;
+      this.bReloadKeyDown = false;
+      this.bRackKeyDown = false;
+      this.AttackAnimThrowTimer = System.currentTimeMillis();
+      this.WeaponT = null;
+      this.parameterCharacterMovementSpeed = new ParameterCharacterMovementSpeed(this);
+      this.parameterCharacterOnFire = new ParameterCharacterOnFire(this);
+      this.parameterCharacterVoiceType = new ParameterCharacterVoiceType(this);
+      this.parameterCharacterVoicePitch = new ParameterCharacterVoicePitch(this);
+      this.parameterDragMaterial = new ParameterDragMaterial(this);
+      this.parameterEquippedBaggageContainer = new ParameterEquippedBaggageContainer(this);
+      this.parameterExercising = new ParameterExercising(this);
+      this.parameterFirearmInside = new ParameterFirearmInside(this);
+      this.parameterFirearmRoomSize = new ParameterFirearmRoomSize(this);
+      this.parameterFootstepMaterial = new ParameterFootstepMaterial(this);
+      this.parameterFootstepMaterial2 = new ParameterFootstepMaterial2(this);
+      this.parameterIsStashTile = new ParameterIsStashTile(this);
+      this.parameterLocalPlayer = new ParameterLocalPlayer(this);
+      this.parameterMeleeHitSurface = new ParameterMeleeHitSurface(this);
+      this.parameterPlayerHealth = new ParameterPlayerHealth(this);
+      this.parameterVehicleHitLocation = new ParameterVehicleHitLocation();
+      this.parameterShoeType = new ParameterShoeType(this);
+      this.parameterMoodles = null;
+      this.baseVisual = new HumanVisual(this);
       this.registerVariableCallbacks();
+      this.registerAnimEventCallbacks();
+      this.getWrappedGrappleable().setOnGrappledEndCallback(this::onGrappleEnded);
       this.Traits.addAll(StaticTraits);
       StaticTraits.clear();
       this.dir = IsoDirections.W;
@@ -587,9 +959,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.getHumanVisual().copyFrom(this.descriptor.humanVisual);
       this.InitSpriteParts(this.descriptor);
       LuaEventManager.triggerEvent("OnCreateLivingCharacter", this, this.descriptor);
-      if (!GameClient.bClient && !GameServer.bServer) {
-      }
-
       this.descriptor.Instance = this;
       this.SpeakColour = new Color(Rand.Next(135) + 120, Rand.Next(135) + 120, Rand.Next(135) + 120, 255);
       if (GameClient.bClient) {
@@ -612,25 +981,12 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
       if (this.Traits.Strong.isSet()) {
          this.maxWeightDelta = 1.5F;
-      }
-
-      if (this.Traits.Weak.isSet()) {
+      } else if (this.Traits.Weak.isSet()) {
          this.maxWeightDelta = 0.75F;
-      }
-
-      if (this.Traits.Feeble.isSet()) {
+      } else if (this.Traits.Feeble.isSet()) {
          this.maxWeightDelta = 0.9F;
-      }
-
-      if (this.Traits.Stout.isSet()) {
+      } else if (this.Traits.Stout.isSet()) {
          this.maxWeightDelta = 1.25F;
-      }
-
-      this.descriptor.temper = 5.0F;
-      if (this.Traits.ShortTemper.isSet()) {
-         this.descriptor.temper = 7.5F;
-      } else if (this.Traits.Patient.isSet()) {
-         this.descriptor.temper = 2.5F;
       }
 
       if (this.Traits.Injured.isSet()) {
@@ -639,17 +995,23 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
       this.bMultiplayer = GameServer.bServer || GameClient.bClient;
       this.vehicle4testCollision = null;
-      if (Core.bDebug && DebugOptions.instance.CheatPlayerStartInvisible.getValue()) {
+      if (Core.bDebug && DebugOptions.instance.Cheat.Player.StartInvisible.getValue()) {
          this.setGhostMode(true);
          this.setGodMod(true);
       }
 
-      this.actionContext.setGroup(ActionGroup.getActionGroup("player"));
+      this.getActionContext().setGroup(ActionGroup.getActionGroup("player"));
       this.initializeStates();
       DebugFileWatcher.instance.add(m_isoPlayerTriggerWatcher);
       this.m_setClothingTriggerWatcher = new PredicatedFileWatcher(ZomboidFileSystem.instance.getMessagingDirSub("Trigger_SetClothing.xml"), TriggerXmlFile.class, this::onTrigger_setClothingToXmlTriggerFile);
       this.networkAI = new NetworkPlayerAI(this);
+      this.setVoiceType(this.descriptor.getVoiceType());
+      this.setVoicePitch(this.descriptor.getVoicePitch());
       this.initFMODParameters();
+      if (!this.isAnimal()) {
+         this.ai.initPlayerAI();
+      }
+
    }
 
    public void setOnlineID(short var1) {
@@ -730,13 +1092,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.setVariable("attacktype", () -> {
          return this.attackType;
       });
-      this.setVariable("aim", this::isAiming);
-      this.setVariable("bdoshove", () -> {
-         return this.bDoShove;
-      });
-      this.setVariable("bfalling", () -> {
-         return this.z > 0.0F && this.fallTime > 2.0F;
-      });
+      this.setVariable("bfalling", this::getAnimVariable_bFalling);
       this.setVariable("baimatfloor", this::isAimAtFloor);
       this.setVariable("attackfrombehind", () -> {
          return this.attackFromBehind;
@@ -751,19 +1107,57 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.setVariable("meleePressed", () -> {
          return this.m_meleePressed;
       });
-      this.setVariable("AttackAnim", this::isAttackAnim, this::setAttackAnim);
+      this.setVariable("grapplePressed", () -> {
+         return this.m_grapplePressed;
+      });
+      this.setVariable("canLetGoOfGrappled", () -> {
+         return this.m_canLetGoOfGrappled;
+      });
       this.setVariable("Weapon", this::getWeaponType, this::setWeaponType);
       this.setVariable("BumpFall", false);
       this.setVariable("bClient", () -> {
          return GameClient.bClient;
       });
       this.setVariable("IsPerformingAnAction", this::isPerformingAnAction, this::setPerformingAnAction);
+      this.setVariable("bShoveAiming", this::isShovingWhileAiming);
+      this.setVariable("bGrappleAiming", this::isGrapplingWhileAiming);
+      this.setVariable("AttackVariationX", this::getAttackVariationX);
+      this.setVariable("AttackVariationY", this::getAttackVariationY);
    }
 
-   public Vector2 getDeferredMovement(Vector2 var1) {
-      super.getDeferredMovement(var1);
-      if (DebugOptions.instance.CheatPlayerInvisibleSprint.getValue() && this.isGhostMode() && (this.IsRunning() || this.isSprinting()) && !this.isCurrentState(ClimbOverFenceState.instance()) && !this.isCurrentState(ClimbThroughWindowState.instance())) {
-         if (this.getPath2() == null && !this.pressedMovement(false)) {
+   private void registerAnimEventCallbacks() {
+      this.addAnimEventListener("GrapplerRandomGrunt", this::OnAnimEvent_GrapplerPlayRandomGrunt);
+   }
+
+   private void onGrappleEnded() {
+      this.setDoGrappleLetGoAfterContextKeyIsReleased(false);
+   }
+
+   private void OnAnimEvent_GrapplerPlayRandomGrunt(IsoGameCharacter var1, String var2) {
+      GrapplerGruntChance var10000;
+      if (Rand.Next(100) < this.m_grapplerGruntChance.gruntChance) {
+         var10000 = this.m_grapplerGruntChance;
+         Objects.requireNonNull(this.m_grapplerGruntChance);
+         var10000.gruntChance = 15;
+         String[] var3 = var2.split(",");
+         int var4 = Rand.Next(0, var3.length);
+         String var5 = var3[var4];
+         DebugLog.Zombie.trace("Dragging corpse. Grunting: %s", var5);
+         this.stopPlayerVoiceSound(var5);
+         this.playerVoiceSound(var5);
+      } else {
+         var10000 = this.m_grapplerGruntChance;
+         int var10001 = var10000.gruntChance;
+         Objects.requireNonNull(this.m_grapplerGruntChance);
+         var10000.gruntChance = var10001 + 5;
+      }
+
+   }
+
+   protected Vector2 getDeferredMovement(Vector2 var1, boolean var2) {
+      super.getDeferredMovement(var1, var2);
+      if (DebugOptions.instance.Cheat.Player.InvisibleSprint.getValue() && this.isGhostMode() && (this.IsRunning() || this.isSprinting()) && !this.isCurrentState(ClimbOverFenceState.instance()) && !this.isCurrentState(ClimbThroughWindowState.instance()) && !this.isCurrentState(PlayerGetUpState.instance())) {
+         if (this.getPath2() == null && !this.pressedMovement(false) && !this.isAutoWalk()) {
             return var1.set(0.0F, 0.0F);
          }
 
@@ -779,7 +1173,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public float getTurnDelta() {
-      return !DebugOptions.instance.CheatPlayerInvisibleSprint.getValue() || !this.isGhostMode() || !this.isRunning() && !this.isSprinting() ? super.getTurnDelta() : 10.0F;
+      return !DebugOptions.instance.Cheat.Player.InvisibleSprint.getValue() || !this.isGhostMode() || !this.isRunning() && !this.isSprinting() ? super.getTurnDelta() : 10.0F;
    }
 
    public void setPerformingAnAction(boolean var1) {
@@ -795,10 +1189,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean shouldBeTurning() {
-      if (this.isPerformingAnAction()) {
-      }
-
-      return super.shouldBeTurning();
+      return this.getAnimationPlayer().getMultiTrack().getTrackCount() == 0 ? false : super.shouldBeTurning();
    }
 
    public static void invokeOnPlayerInstance(Runnable var0) {
@@ -905,6 +1296,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       return instance == null ? assumedPlayer : instance.PlayerIndex;
    }
 
+   public int getIndex() {
+      return this.PlayerIndex;
+   }
+
    public static boolean allPlayersDead() {
       for(int var0 = 0; var0 < numPlayers; ++var0) {
          if (players[var0] != null && !players[var0].isDead()) {
@@ -941,6 +1336,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    public static void setCoopPVP(boolean var0) {
       CoopPVP = var0;
+   }
+
+   public void TestAnimalSpotPlayer(IsoAnimal var1) {
+      float var2 = IsoUtils.DistanceManhatten(var1.getX(), var1.getY(), this.getX(), this.getY());
+      var1.spotted(this, false, var2);
    }
 
    public void TestZombieSpotPlayer(IsoMovingObject var1) {
@@ -997,7 +1397,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean isSeeEveryone() {
-      return Core.bDebug && DebugOptions.instance.CheatPlayerSeeEveryone.getValue();
+      return Core.bDebug && DebugOptions.instance.Cheat.Player.SeeEveryone.getValue();
    }
 
    public boolean zombiesSwitchOwnershipEachUpdate() {
@@ -1034,75 +1434,75 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.PlayerIndex != 0) {
          return false;
       } else {
-         int var1 = Core.getInstance().getKey("Aim");
-         boolean var2 = GameKeyboard.isKeyDown(var1);
-         if (!var2) {
+         int var1 = GameKeyboard.whichKeyDown("Aim");
+         if (var1 == 0) {
             return false;
          } else {
-            boolean var3 = var1 == 29 || var1 == 157;
-            return !var3 || !UIManager.isMouseOverInventory();
+            boolean var2 = var1 == 29 || var1 == 157;
+            return !var2 || !UIManager.isMouseOverInventory();
          }
       }
    }
 
    private void initializeStates() {
-      HashMap var1 = this.getStateUpdateLookup();
-      var1.clear();
+      this.clearAIStateMap();
       if (this.getVehicle() == null) {
-         var1.put("actions", PlayerActionsState.instance());
-         var1.put("aim", PlayerAimState.instance());
-         var1.put("climbfence", ClimbOverFenceState.instance());
-         var1.put("climbdownrope", ClimbDownSheetRopeState.instance());
-         var1.put("climbrope", ClimbSheetRopeState.instance());
-         var1.put("climbwall", ClimbOverWallState.instance());
-         var1.put("climbwindow", ClimbThroughWindowState.instance());
-         var1.put("emote", PlayerEmoteState.instance());
-         var1.put("ext", PlayerExtState.instance());
-         var1.put("sitext", PlayerExtState.instance());
-         var1.put("falldown", PlayerFallDownState.instance());
-         var1.put("falling", PlayerFallingState.instance());
-         var1.put("getup", PlayerGetUpState.instance());
-         var1.put("idle", IdleState.instance());
-         var1.put("melee", SwipeStatePlayer.instance());
-         var1.put("shove", SwipeStatePlayer.instance());
-         var1.put("ranged", SwipeStatePlayer.instance());
-         var1.put("onground", PlayerOnGroundState.instance());
-         var1.put("knockeddown", PlayerKnockedDown.instance());
-         var1.put("openwindow", OpenWindowState.instance());
-         var1.put("closewindow", CloseWindowState.instance());
-         var1.put("smashwindow", SmashWindowState.instance());
-         var1.put("fishing", FishingState.instance());
-         var1.put("fitness", FitnessState.instance());
-         var1.put("hitreaction", PlayerHitReactionState.instance());
-         var1.put("hitreactionpvp", PlayerHitReactionPVPState.instance());
-         var1.put("hitreaction-hit", PlayerHitReactionPVPState.instance());
-         var1.put("collide", CollideWithWallState.instance());
-         var1.put("bumped", BumpedState.instance());
-         var1.put("bumped-bump", BumpedState.instance());
-         var1.put("sitonground", PlayerSitOnGroundState.instance());
-         var1.put("strafe", PlayerStrafeState.instance());
+         this.registerAIState("actions", PlayerActionsState.instance());
+         this.registerAIState("aim", PlayerAimState.instance());
+         this.registerAIState("climbfence", ClimbOverFenceState.instance());
+         this.registerAIState("climbdownrope", ClimbDownSheetRopeState.instance());
+         this.registerAIState("climbrope", ClimbSheetRopeState.instance());
+         this.registerAIState("climbwall", ClimbOverWallState.instance());
+         this.registerAIState("climbwindow", ClimbThroughWindowState.instance());
+         this.registerAIState("emote", PlayerEmoteState.instance());
+         this.registerAIState("ext", PlayerExtState.instance());
+         this.registerAIState("sitext", PlayerExtState.instance());
+         this.registerAIState("falldown", PlayerFallDownState.instance());
+         this.registerAIState("falling", PlayerFallingState.instance());
+         this.registerAIState("getup", PlayerGetUpState.instance());
+         this.registerAIState("idle", IdleState.instance());
+         this.registerAIState("melee", SwipeStatePlayer.instance());
+         this.registerAIState("shove", SwipeStatePlayer.instance());
+         this.registerAIState("grappleGrab", SwipeStatePlayer.instance());
+         this.registerAIState("draggingBody", SwipeStatePlayer.instance());
+         this.registerAIState("ranged", SwipeStatePlayer.instance());
+         this.registerAIState("onground", PlayerOnGroundState.instance());
+         this.registerAIState("knockeddown", PlayerKnockedDown.instance());
+         this.registerAIState("openwindow", OpenWindowState.instance());
+         this.registerAIState("closewindow", CloseWindowState.instance());
+         this.registerAIState("smashwindow", SmashWindowState.instance());
+         this.registerAIState("fishing", FishingState.instance());
+         this.registerAIState("fitness", FitnessState.instance());
+         this.registerAIState("hitreaction", PlayerHitReactionState.instance());
+         this.registerAIState("hitreactionpvp", PlayerHitReactionPVPState.instance());
+         this.registerAIState("hitreaction-hit", PlayerHitReactionPVPState.instance());
+         this.registerAIState("collide", CollideWithWallState.instance());
+         this.registerAIState("bumped", BumpedState.instance());
+         this.registerAIState("bumped-bump", BumpedState.instance());
+         this.registerAIState("onbed", PlayerOnBedState.instance());
+         this.registerAIState("sitonfurniture", PlayerSitOnFurnitureState.instance());
+         this.registerAIState("sitonground", PlayerSitOnGroundState.instance());
+         this.registerAIState("strafe", PlayerStrafeState.instance());
       } else {
-         var1.put("aim", PlayerAimState.instance());
-         var1.put("idle", IdleState.instance());
-         var1.put("melee", SwipeStatePlayer.instance());
-         var1.put("shove", SwipeStatePlayer.instance());
-         var1.put("ranged", SwipeStatePlayer.instance());
+         this.registerAIState("aim", PlayerAimState.instance());
+         this.registerAIState("idle", IdleState.instance());
+         this.registerAIState("melee", SwipeStatePlayer.instance());
+         this.registerAIState("shove", SwipeStatePlayer.instance());
+         this.registerAIState("ranged", SwipeStatePlayer.instance());
       }
 
    }
 
-   public ActionContext getActionContext() {
-      return this.actionContext;
-   }
-
    protected void onAnimPlayerCreated(AnimationPlayer var1) {
       super.onAnimPlayerCreated(var1);
-      var1.addBoneReparent("Bip01_L_Thigh", "Bip01");
-      var1.addBoneReparent("Bip01_R_Thigh", "Bip01");
-      var1.addBoneReparent("Bip01_L_Clavicle", "Bip01_Spine1");
-      var1.addBoneReparent("Bip01_R_Clavicle", "Bip01_Spine1");
-      var1.addBoneReparent("Bip01_Prop1", "Bip01_R_Hand");
-      var1.addBoneReparent("Bip01_Prop2", "Bip01_L_Hand");
+      if (!this.isAnimal()) {
+         var1.addBoneReparent("Bip01_L_Thigh", "Bip01");
+         var1.addBoneReparent("Bip01_R_Thigh", "Bip01");
+         var1.addBoneReparent("Bip01_L_Clavicle", "Bip01_Spine1");
+         var1.addBoneReparent("Bip01_R_Clavicle", "Bip01_Spine1");
+         var1.addBoneReparent("Bip01_Prop1", "Bip01_R_Hand");
+         var1.addBoneReparent("Bip01_Prop2", "Bip01_L_Hand");
+      }
    }
 
    public String GetAnimSetName() {
@@ -1169,7 +1569,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.setDisplayName(GameWindow.ReadString(var1));
       this.showTag = var1.get() == 1;
       this.factionPvp = var1.get() == 1;
-      if (var2 >= 176) {
+      if (var2 >= 198) {
+         this.setExtraInfoFlags(var1.get());
+      } else {
          this.noClip = var1.get() == 1;
       }
 
@@ -1178,7 +1580,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          this.savedVehicleY = var1.getFloat();
          this.savedVehicleSeat = (short)var1.get();
          this.savedVehicleRunning = var1.get() == 1;
-         this.z = 0.0F;
+         this.setZ(0.0F);
       }
 
       int var17 = var1.getInt();
@@ -1188,29 +1590,91 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
 
       this.fitness.load(var1, var2);
-      int var12;
-      if (var2 >= 184) {
-         short var18 = var1.getShort();
+      short var18 = var1.getShort();
 
-         for(var12 = 0; var12 < var18; ++var12) {
-            short var13 = var1.getShort();
-            String var14 = WorldDictionary.getItemTypeFromID(var13);
-            if (var14 != null) {
-               this.alreadyReadBook.add(var14);
-            }
-         }
-      } else if (var2 >= 182) {
-         var11 = var1.getInt();
-
-         for(var12 = 0; var12 < var11; ++var12) {
-            this.alreadyReadBook.add(GameWindow.ReadString(var1));
+      for(int var12 = 0; var12 < var18; ++var12) {
+         short var13 = var1.getShort();
+         String var14 = WorldDictionary.getItemTypeFromID(var13);
+         if (var14 != null) {
+            this.alreadyReadBook.add(var14);
          }
       }
 
-      if (var2 >= 189) {
-         this.loadKnownMediaLines(var1, var2);
+      this.loadKnownMediaLines(var1, var2);
+      if (var2 >= 203) {
+         this.setVoiceType(var1.get());
       }
 
+   }
+
+   public void setExtraInfoFlags(byte var1) {
+      this.setGodMod((var1 & 1) != 0);
+      this.setGhostMode((var1 & 2) != 0);
+      this.setInvisible((var1 & 4) != 0);
+      this.setNoClip((var1 & 8) != 0);
+      this.setShowAdminTag((var1 & 16) != 0);
+      this.setCanHearAll((var1 & 32) != 0);
+   }
+
+   public byte getExtraInfoFlags() {
+      boolean var1 = this.isInvisible() || this.isGodMod() || this.isGhostMode() || this.isNoClip() || this.isTimedActionInstantCheat() || this.isUnlimitedCarry() || this.isUnlimitedEndurance() || this.isBuildCheat() || this.isFarmingCheat() || this.isFishingCheat() || this.isHealthCheat() || this.isMechanicsCheat() || this.isMovablesCheat() || this.isCanSeeAll() || this.isCanHearAll() || this.isZombiesDontAttack() || this.isShowMPInfos();
+      return (byte)((this.isGodMod() ? 1 : 0) | (this.isGhostMode() ? 2 : 0) | (this.isInvisible() ? 4 : 0) | (this.isNoClip() ? 8 : 0) | (var1 ? 16 : 0) | (this.isCanHearAll() ? 32 : 0));
+   }
+
+   public String getDescription(String var1) {
+      String var10000 = this.getClass().getSimpleName();
+      String var2 = var10000 + " [" + var1;
+      var2 = var2 + super.getDescription(var1 + "    ") + " | " + var1;
+      var2 = var2 + "hoursSurvived=" + this.getHoursSurvived() + " | " + var1;
+      var2 = var2 + "zombieKills=" + this.getZombieKills() + " | " + var1;
+      var2 = var2 + "wornItems=";
+
+      int var3;
+      for(var3 = 0; var3 < this.getWornItems().size() - 1; ++var3) {
+         var2 = var2 + this.getWornItems().get(var3).getItem() + ", ";
+      }
+
+      var2 = var2 + " | " + var1;
+      var2 = var2 + "primaryHandItem=" + this.getPrimaryHandItem() + " | " + var1;
+      var2 = var2 + "secondaryHandType=" + this.getSecondaryHandType() + " | " + var1;
+      var2 = var2 + "survivorKills=" + this.getSurvivorKills() + " | " + var1;
+      if (this.isAllChatMuted()) {
+         var2 = var2 + "AllChatMuted | " + var1;
+      }
+
+      var2 = var2 + "tag=" + this.tagPrefix + ", color=(" + this.getTagColor().r + ", " + this.getTagColor().g + ", " + this.getTagColor().b + ") | " + var1;
+      var2 = var2 + "displayName=" + this.displayName + " | " + var1;
+      if (this.showTag) {
+         var2 = var2 + "showTag | " + var1;
+      }
+
+      if (this.factionPvp) {
+         var2 = var2 + "factionPvp | " + var1;
+      }
+
+      if (this.isNoClip()) {
+         var2 = var2 + "noClip | " + var1;
+      }
+
+      if (this.vehicle != null) {
+         var2 = var2 + "vehicle [ pos=(" + this.vehicle.getX() + ", " + this.vehicle.getY() + ") seat=" + this.vehicle.getSeat(this) + " isEngineRunning=" + this.vehicle.isEngineRunning() + " ] " + var1;
+      }
+
+      var2 = var2 + "mechanicsItem=";
+
+      for(var3 = 0; var3 < this.mechanicsItem.size() - 1; ++var3) {
+         var2 = var2 + this.mechanicsItem.get(var3) + ", ";
+      }
+
+      var2 = var2 + " | " + var1;
+      var2 = var2 + "alreadyReadBook=";
+
+      for(var3 = 0; var3 < this.alreadyReadBook.size() - 1; ++var3) {
+         var2 = var2 + (String)this.alreadyReadBook.get(var3) + ", ";
+      }
+
+      var2 = var2 + " ] ";
+      return var2;
    }
 
    public void save(ByteBuffer var1, boolean var2) throws IOException {
@@ -1245,11 +1709,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          GameWindow.WriteString(var1, this.displayName);
          var1.put((byte)(this.showTag ? 1 : 0));
          var1.put((byte)(this.factionPvp ? 1 : 0));
-         var1.put((byte)(this.isNoClip() ? 1 : 0));
+         var1.put(this.getExtraInfoFlags());
          if (this.vehicle != null) {
             var1.put((byte)1);
-            var1.putFloat(this.vehicle.x);
-            var1.putFloat(this.vehicle.y);
+            var1.putFloat(this.vehicle.getX());
+            var1.putFloat(this.vehicle.getY());
             var1.put((byte)this.vehicle.getSeat(this));
             var1.put((byte)(this.vehicle.isEngineRunning() ? 1 : 0));
          } else {
@@ -1273,6 +1737,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          }
 
          this.saveKnownMediaLines(var1);
+         var1.put((byte)this.getVoiceType());
       }
    }
 
@@ -1284,13 +1749,13 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          var2.put((byte)76);
          var2.put((byte)89);
          var2.put((byte)82);
-         var2.putInt(195);
+         var2.putInt(219);
          GameWindow.WriteString(var2, this.bMultiplayer ? ServerOptions.instance.ServerPlayerID.getValue() : "");
-         var2.putInt((int)(this.x / 10.0F));
-         var2.putInt((int)(this.y / 10.0F));
-         var2.putInt((int)this.x);
-         var2.putInt((int)this.y);
-         var2.putInt((int)this.z);
+         var2.putInt(PZMath.fastfloor(this.getX() / 8.0F));
+         var2.putInt(PZMath.fastfloor(this.getY() / 8.0F));
+         var2.putInt(PZMath.fastfloor(this.getX()));
+         var2.putInt(PZMath.fastfloor(this.getY()));
+         var2.putInt(PZMath.fastfloor(this.getZ()));
          this.save(var2);
          File var3 = new File(ZomboidFileSystem.instance.getFileNameInCurrentSave("map_p.bin"));
          if (!Core.getInstance().isNoSave()) {
@@ -1336,7 +1801,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.SaveFileName = var1;
       synchronized(SliceY.SliceBufferLock) {
          SliceY.SliceBuffer.clear();
-         SliceY.SliceBuffer.putInt(195);
+         SliceY.SliceBuffer.putInt(219);
          GameWindow.WriteString(SliceY.SliceBuffer, this.bMultiplayer ? ServerOptions.instance.ServerPlayerID.getValue() : "");
          this.save(SliceY.SliceBuffer);
          File var3 = (new File(var1)).getAbsoluteFile();
@@ -1387,15 +1852,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   int var6 = var4.read(SliceY.SliceBuffer.array());
                   SliceY.SliceBuffer.limit(var6);
                   int var7 = SliceY.SliceBuffer.getInt();
-                  if (var7 >= 69) {
-                     this.SaveFileIP = GameWindow.ReadStringUTF(SliceY.SliceBuffer);
-                     if (var7 < 71) {
-                        this.SaveFileIP = ServerOptions.instance.ServerPlayerID.getValue();
-                     }
-                  } else if (GameClient.bClient) {
-                     this.SaveFileIP = ServerOptions.instance.ServerPlayerID.getValue();
-                  }
-
+                  this.SaveFileIP = GameWindow.ReadStringUTF(SliceY.SliceBuffer);
                   this.load(SliceY.SliceBuffer, var7);
                }
             } catch (Throwable var12) {
@@ -1425,8 +1882,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    public void removeFromWorld() {
       this.getEmitter().stopOrTriggerSoundByName("BurningFlesh");
+      this.getEmitter().stopSoundLocal(this.vocalEvent);
+      this.vocalEvent = 0L;
       this.removedFromWorldMS = System.currentTimeMillis();
-      if (!RecentlyRemoved.contains(this)) {
+      if (!(this instanceof IsoAnimal) && !RecentlyRemoved.contains(this)) {
          RecentlyRemoved.add(this);
       }
 
@@ -1454,6 +1913,18 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public static void Reset() {
+      for(int var0 = 0; var0 < 4; ++var0) {
+         IsoPlayer var1 = players[var0];
+         if (var1 != null) {
+            var1.getAdvancedAnimator().Reset();
+            var1.releaseAnimationPlayer();
+            var1.getSpottedList().clear();
+            var1.LastSpotted.clear();
+         }
+
+         players[var0] = null;
+      }
+
       RecentlyRemoved.clear();
    }
 
@@ -1612,7 +2083,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public float getTorchStrength() {
-      if (this.bRemote) {
+      if (this.isAnimal()) {
+         return 0.0F;
+      } else if (this.bRemote) {
          return this.mpTorchStrength;
       } else {
          InventoryItem var1 = this.getActiveLightItem();
@@ -1762,34 +2235,42 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
-      if (DebugOptions.instance.Character.Debug.Render.DisplayRoomAndZombiesZone.getValue()) {
-         String var8 = "";
-         if (this.getCurrentRoomDef() != null) {
-            var8 = this.getCurrentRoomDef().name;
+      if (Core.getInstance().displayPlayerModel || this.isAnimal()) {
+         if (!this.attachedAnimals.isEmpty()) {
+            for(int var8 = 0; var8 < this.attachedAnimals.size(); ++var8) {
+               ((IsoAnimal)this.attachedAnimals.get(var8)).drawRope((IsoGameCharacter)this);
+            }
          }
 
-         IsoMetaGrid.Zone var9 = ZombiesZoneDefinition.getDefinitionZoneAt((int)var1, (int)var2, (int)var3);
-         if (var9 != null) {
-            var8 = var8 + " - " + var9.name + " / " + var9.type;
+         if (DebugOptions.instance.Character.Debug.Render.DisplayRoomAndZombiesZone.getValue()) {
+            String var10 = "";
+            if (this.getCurrentRoomDef() != null) {
+               var10 = this.getCurrentRoomDef().name;
+            }
+
+            Zone var9 = ZombiesZoneDefinition.getDefinitionZoneAt(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3));
+            if (var9 != null) {
+               var10 = var10 + " - " + var9.name + " / " + var9.type;
+            }
+
+            this.Say(var10);
          }
 
-         this.Say(var8);
-      }
+         if (!getInstance().checkCanSeeClient(this)) {
+            this.setTargetAlpha(0.0F);
+            getInstance().spottedPlayerTimer.remove(this.getRemoteID());
+         } else {
+            this.setTargetAlpha(1.0F);
+         }
 
-      if (!getInstance().checkCanSeeClient(this)) {
-         this.setTargetAlpha(0.0F);
-         getInstance().spottedPlayerTimer.remove(this.getRemoteID());
-      } else {
-         this.setTargetAlpha(1.0F);
+         super.render(var1, var2, var3, var4, var5, var6, var7);
       }
-
-      super.render(var1, var2, var3, var4, var5, var6, var7);
    }
 
    public void renderlast() {
       super.renderlast();
       if (DebugOptions.instance.Character.Debug.Render.FMODRoomType.getValue() && this.isLocalPlayer()) {
-         ParameterRoomType.render(this);
+         ParameterRoomTypeEx.render(this);
       }
 
    }
@@ -1806,27 +2287,27 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          if (this.isAlive()) {
             if (GameClient.bClient) {
                if (this.isCurrentState(PlayerSitOnGroundState.instance())) {
-                  this.setKnockedDown(true);
+                  this.setKnockedDown(ServerOptions.getInstance().KnockedDownAllowed.getValue());
                   this.setReanimateTimer(20.0F);
                } else if (!this.isOnFloor() && !(var1 > 15.0F) && !this.isCurrentState(PlayerHitReactionState.instance()) && !this.isCurrentState(PlayerGetUpState.instance()) && !this.isCurrentState(PlayerOnGroundState.instance())) {
                   this.setHitReaction("HitReaction");
-                  this.actionContext.reportEvent("washit");
+                  this.getActionContext().reportEvent("washit");
                   this.setVariable("hitpvp", false);
                } else {
                   this.setHitReaction("HitReaction");
-                  this.actionContext.reportEvent("washit");
+                  this.getActionContext().reportEvent("washit");
                   this.setVariable("hitpvp", false);
-                  this.setKnockedDown(true);
+                  this.setKnockedDown(ServerOptions.getInstance().KnockedDownAllowed.getValue());
                   this.setReanimateTimer(20.0F);
                }
             } else if (this.getCurrentState() != PlayerHitReactionState.instance() && this.getCurrentState() != PlayerFallDownState.instance() && this.getCurrentState() != PlayerOnGroundState.instance() && !this.isKnockedDown()) {
                if (var2 > 15.0F) {
-                  this.setKnockedDown(true);
-                  this.setReanimateTimer((float)(20 + Rand.Next(60)));
+                  this.setKnockedDown(ServerOptions.getInstance().KnockedDownAllowed.getValue());
+                  this.setReanimateTimer(20.0F + (float)Rand.Next(60));
                }
 
                this.setHitReaction("HitReaction");
-               this.actionContext.reportEvent("washit");
+               this.getActionContext().reportEvent("washit");
             }
          }
 
@@ -1839,24 +2320,21 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    private void updateInternal1() {
-      if (GameClient.bClient && !this.isLocal() && System.currentTimeMillis() - this.lastRemoteUpdate > 5000L) {
-         GameClient.receivePlayerTimeout(this.OnlineID);
-      }
+      if (this.isAnimal()) {
+         super.update();
+         AnimalInstanceManager.getInstance().update((IsoAnimal)this);
+      } else {
+         boolean var1 = this.updateInternal2();
+         if (var1) {
+            if (!this.bRemote) {
+               this.updateLOS();
+            }
 
-      if (this.replay != null) {
-         this.replay.update();
-      }
-
-      boolean var1 = this.updateInternal2();
-      GameClient.instance.sendPlayer2(this);
-      if (var1) {
-         if (!this.bRemote) {
-            this.updateLOS();
+            super.update();
          }
 
-         super.update();
+         GameClient.instance.sendPlayer2(this);
       }
-
    }
 
    private void setBeenMovingSprinting() {
@@ -1875,8 +2353,23 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    private boolean updateInternal2() {
+      if (Core.bDebug && GameKeyboard.isKeyPressed(28)) {
+         FBORenderChunkManager.instance.clearCache();
+      }
+
       if (isTestAIMode) {
          this.isNPC = true;
+      }
+
+      if (!GameServer.bServer && !this.isNPC) {
+         if ((this.bFalling || this.fallTime > 0.0F || this.isOnFire()) && UIManager.speedControls.getCurrentGameSpeed() > 1) {
+            UIManager.speedControls.SetCurrentGameSpeed(1);
+         }
+
+         if ((this.bFalling || this.fallTime > 0.0F) && this.isCurrentState(SwipeStatePlayer.instance())) {
+            this.setDoGrapple(false);
+            this.LetGoOfGrappled("Aborted");
+         }
       }
 
       if (!this.attackStarted) {
@@ -1885,21 +2378,18 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
 
       if ((this.isRunning() || this.isSprinting()) && this.getDeferredMovement(tempo).getLengthSquared() > 0.0F) {
-         this.runningTime += GameTime.getInstance().getMultiplier() / 1.6F;
+         this.runningTime += GameTime.getInstance().getThirtyFPSMultiplier();
       } else {
          this.runningTime = 0.0F;
       }
 
       if (this.getLastCollideTime() > 0.0F) {
-         this.setLastCollideTime(this.getLastCollideTime() - GameTime.getInstance().getMultiplier() / 1.6F);
+         this.setLastCollideTime(this.getLastCollideTime() - GameTime.getInstance().getThirtyFPSMultiplier());
       }
 
       this.updateDeathDragDown();
       this.updateGodModeKey();
-      if (GameClient.bClient) {
-         this.networkAI.update();
-      }
-
+      this.networkAI.update();
       this.doDeferredMovement();
       if (GameServer.bServer) {
          this.vehicle4testCollision = null;
@@ -1916,16 +2406,21 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          this.vehicle4testCollision = null;
       }
 
+      this.updateEquippedItemSounds();
       this.updateEmitter();
-      this.updateMechanicsItems();
-      this.updateHeavyBreathing();
-      this.updateTemperatureCheck();
-      this.updateAimingStance();
-      if (SystemDisabler.doCharacterStats) {
-         this.nutrition.update();
+      if (!this.isAnimal()) {
+         this.updateMechanicsItems();
+         this.updateHeavyBreathing();
+         this.updateTemperatureCheck();
+         this.updateAimingStance();
+         if (SystemDisabler.doCharacterStats) {
+            this.nutrition.update();
+         }
+
+         this.fitness.update();
+         this.updateVisionEffectTargets();
       }
 
-      this.fitness.update();
       this.updateSoundListener();
       SafetySystemManager.update(this);
       if (!GameClient.bClient && !GameServer.bServer && this.bDeathFinished) {
@@ -1943,6 +2438,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                if (var1 != null) {
                   var1.updateSafehouse(this);
                   var1.checkTrespass(this);
+                  this.updateDisguisedState();
                }
             }
          }
@@ -1954,19 +2450,49 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             }
          }
 
-         this.TimeSinceLastNetData = (int)((float)this.TimeSinceLastNetData + GameTime.instance.getMultiplier());
+         this.TimeSinceLastNetData += (int)GameTime.instance.getMultiplier();
          this.TimeSinceOpenDoor += GameTime.instance.getMultiplier();
+         this.TimeSinceCloseDoor += GameTime.instance.getMultiplier();
          this.lastTargeted += GameTime.instance.getMultiplier();
          this.targetedByZombie = false;
          this.checkActionGroup();
+         if (this.isJustMoved() && !this.isNPC && !this.hasPath()) {
+            if (!GameServer.bServer && UIManager.getSpeedControls().getCurrentGameSpeed() > 1) {
+               UIManager.getSpeedControls().SetCurrentGameSpeed(1);
+            }
+         } else if (!GameClient.bClient && this.stats.endurance < this.stats.endurancedanger && Rand.Next((int)(300.0F * GameTime.instance.getInvMultiplier())) == 0) {
+            if (GameServer.bServer) {
+               GameServer.addXp(this, PerkFactory.Perks.Fitness, 1.0F);
+            } else {
+               this.xp.AddXP(PerkFactory.Perks.Fitness, 1.0F);
+            }
+         }
+
+         float var13 = 1.0F;
+         float var2 = 0.0F;
+         if (this.isJustMoved() && !this.isNPC) {
+            if (!this.isRunning() && !this.isSprinting()) {
+               var2 = 1.0F;
+            } else {
+               var2 = 1.5F;
+            }
+
+            if (!GameClient.bClient && (double)var2 > 0.0 && !this.isNPC) {
+               LuaEventManager.triggerEvent("OnPlayerMove", this);
+            }
+         }
+
          if (this.updateRemotePlayer()) {
             if (this.updateWhileDead()) {
                return true;
             } else {
                this.updateHeartSound();
+               this.updateDraggingCorpseSounds();
                this.checkIsNearWall();
+               this.checkIsNearVehicle();
                this.updateExt();
                this.setBeenMovingSprinting();
+               this.updateAimingDelay();
                return true;
             }
          } else {
@@ -1976,7 +2502,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
             assert !GameClient.bClient || this.isLocalPlayer();
 
-            IsoCamera.CamCharacter = this;
+            IsoCamera.setCameraCharacter(this);
             instance = this;
             if (this.isLocalPlayer()) {
                IsoCamera.cameras[this.PlayerIndex].update();
@@ -2001,7 +2527,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                this.ContextPanic = 0.0F;
                this.ticksSincePressedMovement = 0.0F;
             } else {
-               this.ticksSincePressedMovement += GameTime.getInstance().getMultiplier() / 1.6F;
+               this.ticksSincePressedMovement += GameTime.getInstance().getThirtyFPSMultiplier();
             }
 
             this.setVariable("pressedMovement", this.pressedMovement(true));
@@ -2009,17 +2535,22 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                return true;
             } else {
                this.updateHeartSound();
+               this.updateDraggingCorpseSounds();
+               this.updateVocalProperties();
                this.updateEquippedBaggageContainer();
                this.updateWorldAmbiance();
                this.updateSneakKey();
                this.checkIsNearWall();
+               this.checkIsNearVehicle();
                this.updateExt();
                this.updateInteractKeyPanic();
+               this.updateMusicIntensityEvents();
+               this.updateMusicThreatStatuses();
                if (this.isAsleep()) {
                   this.m_isPlayerMoving = false;
                }
 
-               if ((this.getVehicle() == null || !this.getVehicle().isDriver(this) || !this.getVehicle().hasHorn() || Core.getInstance().getKey("Shout") != Core.getInstance().getKey("VehicleHorn")) && !this.isAsleep() && this.PlayerIndex == 0 && !this.Speaking && GameKeyboard.isKeyDown(Core.getInstance().getKey("Shout")) && !this.isNPC) {
+               if (this.getVehicle() != null && this.getVehicle().isDriver(this) && this.getVehicle().hasHorn() && Core.getInstance().getKey("Shout") == Core.getInstance().getKey("VehicleHorn")) {
                }
 
                if (!this.getIgnoreMovement() && !this.isAsleep()) {
@@ -2029,6 +2560,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                         this.getVehicle().updatePhysics();
                      }
 
+                     this.clearUseKeyVariables();
                      return true;
                   } else {
                      this.enterExitVehicle();
@@ -2036,6 +2568,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                      this.checkReloading();
                      this.checkWalkTo();
                      if (this.checkActionsBlockingMovement()) {
+                        this.clearUseKeyVariables();
                         return true;
                      } else if (this.getVehicle() != null) {
                         this.updateWhileInVehicle();
@@ -2046,8 +2579,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                         this.updateCursorVisibility();
                         this.bSeenThisFrame = false;
                         this.bCouldBeSeenThisFrame = false;
-                        if (IsoCamera.CamCharacter == null && GameClient.bClient) {
-                           IsoCamera.CamCharacter = instance;
+                        if (IsoCamera.getCameraCharacter() == null && GameClient.bClient) {
+                           IsoCamera.setCameraCharacter(instance);
                         }
 
                         if (this.updateUseKey()) {
@@ -2055,8 +2588,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                         } else {
                            this.updateEnableModelsKey();
                            this.updateChangeCharacterKey();
-                           boolean var12 = false;
-                           boolean var2 = false;
+                           boolean var3 = false;
+                           boolean var4 = false;
+                           boolean var5 = false;
                            this.setRunning(false);
                            this.setSprinting(false);
                            this.useChargeTime = this.chargeTime;
@@ -2068,8 +2602,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                               }
 
                               this.UpdateInputState(this.inputState);
-                              var2 = this.inputState.bMelee;
-                              var12 = this.inputState.isAttacking;
+                              var4 = this.inputState.bMelee;
+                              var5 = this.inputState.bGrapple;
+                              var3 = this.inputState.isAttacking;
                               this.setRunning(this.inputState.bRunning);
                               this.setSprinting(this.inputState.bSprinting);
                               if (this.isSprinting() && !this.isJustMoved()) {
@@ -2084,6 +2619,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  this.setRunning(true);
                               }
 
+                              if (this.isPickingUpBody() || this.isPuttingDownBody()) {
+                                 this.inputState.isAiming = false;
+                              }
+
                               this.setIsAiming(this.inputState.isAiming);
                               this.isCharging = this.inputState.isCharging;
                               this.isChargingLT = this.inputState.isChargingLT;
@@ -2092,7 +2631,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  this.StopAllActionQueueAiming();
                               }
 
-                              if (var12) {
+                              if (var3) {
                                  this.setIsAiming(true);
                               }
 
@@ -2103,10 +2642,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  this.setSprinting(false);
                               }
 
+                              if (this.isFarming()) {
+                                 this.setIsAiming(false);
+                              }
+
                               ++this.TicksSinceSeenZombie;
                            }
 
-                           if ((double)this.playerMoveDir.x == 0.0 && (double)this.playerMoveDir.y == 0.0) {
+                           if (this.playerMoveDir.x == 0.0F && this.playerMoveDir.y == 0.0F) {
                               this.setForceRun(false);
                               this.setForceSprint(false);
                            }
@@ -2119,101 +2662,121 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                               }
 
                               this.setJustMoved(false);
-                              MoveVars var3 = s_moveVars;
-                              this.updateMovementFromInput(var3);
-                              if (!this.JustMoved && this.hasPath() && !this.getPathFindBehavior2().bStopping) {
-                                 this.JustMoved = true;
+                              MoveVars var6 = s_moveVars;
+                              this.updateMovementFromInput(var6);
+                              if (!this.JustMoved && this.hasPath() && this.getPathFindBehavior2().shouldBeMoving()) {
+                                 this.setJustMoved(true);
                               }
 
-                              float var4 = var3.strafeX;
-                              float var5 = var3.strafeY;
-                              if (this.isJustMoved() && !this.isNPC && !this.hasPath()) {
-                                 if (UIManager.getSpeedControls().getCurrentGameSpeed() > 1) {
-                                    UIManager.getSpeedControls().SetCurrentGameSpeed(1);
-                                 }
-                              } else if (this.stats.endurance < this.stats.endurancedanger && Rand.Next((int)(300.0F * GameTime.instance.getInvMultiplier())) == 0) {
-                                 this.xp.AddXP(PerkFactory.Perks.Fitness, 1.0F);
-                              }
-
+                              float var7 = var6.strafeX;
+                              float var8 = var6.strafeY;
+                              this.updateAimingDelay();
                               this.setBeenMovingSprinting();
-                              float var6 = 1.0F;
-                              float var7 = 0.0F;
-                              if (this.isJustMoved() && !this.isNPC) {
-                                 if (!this.isRunning() && !this.isSprinting()) {
-                                    var7 = 1.0F;
-                                 } else {
-                                    var7 = 1.5F;
-                                 }
+                              var13 *= var2;
+                              if (var13 > 1.0F) {
+                                 var13 *= this.getSprintMod();
                               }
 
-                              var6 *= var7;
-                              if (var6 > 1.0F) {
-                                 var6 *= this.getSprintMod();
+                              if (var13 > 1.0F && this.Traits.Athletic.isSet()) {
+                                 var13 *= 1.2F;
                               }
 
-                              if (var6 > 1.0F && this.Traits.Athletic.isSet()) {
-                                 var6 *= 1.2F;
-                              }
-
-                              if (var6 > 1.0F) {
+                              if (var13 > 1.0F) {
                                  if (this.Traits.Overweight.isSet()) {
-                                    var6 *= 0.99F;
+                                    var13 *= 0.99F;
                                  }
 
                                  if (this.Traits.Obese.isSet()) {
-                                    var6 *= 0.85F;
+                                    var13 *= 0.85F;
                                  }
 
                                  if (this.getNutrition().getWeight() > 120.0) {
-                                    var6 *= 0.97F;
+                                    var13 *= 0.97F;
                                  }
 
                                  if (this.Traits.OutOfShape.isSet()) {
-                                    var6 *= 0.99F;
+                                    var13 *= 0.99F;
                                  }
 
                                  if (this.Traits.Unfit.isSet()) {
-                                    var6 *= 0.8F;
+                                    var13 *= 0.8F;
                                  }
                               }
 
-                              this.updateEndurance(var6);
+                              if (!this.isAnimal()) {
+                                 this.updateEndurance();
+                              }
+
                               if (this.isAiming() && this.isJustMoved()) {
-                                 var6 *= 0.7F;
+                                 var13 *= 0.7F;
                               }
 
                               if (this.isAiming()) {
-                                 var6 *= this.getNimbleMod();
+                                 var13 *= this.getNimbleMod();
                               }
 
                               this.isWalking = false;
-                              if (var6 > 0.0F && !this.isNPC) {
+                              if (var13 > 0.0F && !this.isNPC) {
                                  this.isWalking = true;
-                                 LuaEventManager.triggerEvent("OnPlayerMove", this);
                               }
 
                               if (this.isJustMoved()) {
                                  this.sprite.Animate = true;
                               }
 
-                              if (this.isNPC && this.GameCharacterAIBrain != null) {
-                                 var2 = this.GameCharacterAIBrain.HumanControlVars.bMelee;
-                                 this.bBannedAttacking = this.GameCharacterAIBrain.HumanControlVars.bBannedAttacking;
+                              if (this.isNPC) {
+                                 var4 = this.ai.doUpdatePlayerControls(var4);
                               }
 
-                              this.m_meleePressed = var2;
-                              if (var2) {
-                                 if (!this.m_lastAttackWasShove) {
+                              this.m_meleePressed = var4;
+                              this.m_grapplePressed = var5;
+                              if (!this.m_grapplePressed) {
+                                 this.setDoGrapple(false);
+                                 this.m_canLetGoOfGrappled = true;
+                              }
+
+                              if (!this.bPressContext && this.isDoGrappleLetGoAfterContextKeyIsReleased()) {
+                                 this.setDoGrapple(false);
+                                 this.setDoGrappleLetGo();
+                              }
+
+                              if (var4) {
+                                 if (!this.m_lastAttackWasHandToHand) {
                                     this.setMeleeDelay(Math.min(this.getMeleeDelay(), 2.0F));
                                  }
 
-                                 if (!this.bBannedAttacking && this.isAuthorizeShoveStomp() && this.CanAttack() && this.getMeleeDelay() <= 0.0F) {
+                                 if (!this.bBannedAttacking && this.isAuthorizedHandToHand() && this.CanAttack() && this.getMeleeDelay() <= 0.0F) {
                                     this.setDoShove(true);
+                                    this.setDoGrapple(false);
                                     if (!this.isCharging && !this.isChargingLT) {
                                        this.setIsAiming(false);
                                     }
 
                                     this.AttemptAttack(this.useChargeTime);
+                                    this.useChargeTime = 0.0F;
+                                    this.chargeTime = 0.0F;
+                                 }
+                              } else if (var5) {
+                                 if (!this.m_lastAttackWasHandToHand) {
+                                    this.setMeleeDelay(Math.min(this.getMeleeDelay(), 2.0F));
+                                 }
+
+                                 if (!this.bBannedAttacking && this.isAuthorizedHandToHand() && this.CanAttack() && this.getMeleeDelay() <= 0.0F) {
+                                    if (!this.isGrappling()) {
+                                       this.m_canLetGoOfGrappled = false;
+                                       this.setDoGrapple(true);
+                                       if (!this.isCharging && !this.isChargingLT) {
+                                          this.setIsAiming(false);
+                                       }
+                                    } else if (this.m_canLetGoOfGrappled) {
+                                       if (this.bPressContext) {
+                                          this.setDoGrappleLetGoAfterContextKeyIsReleased(true);
+                                       } else {
+                                          this.setDoGrapple(false);
+                                          this.setDoGrappleLetGo();
+                                       }
+                                    }
+
                                     this.useChargeTime = 0.0F;
                                     this.chargeTime = 0.0F;
                                  }
@@ -2224,7 +2787,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                     this.DragCharacter = null;
                                  }
 
-                                 if (var12 && !this.bBannedAttacking) {
+                                 if (var3 && !this.bBannedAttacking) {
                                     this.sprite.Animate = true;
                                     if (this.getRecoilDelay() <= 0.0F && this.getMeleeDelay() <= 0.0F) {
                                        this.AttemptAttack(this.useChargeTime);
@@ -2235,26 +2798,26 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  }
                               }
 
-                              if (this.isAiming() && !this.isNPC) {
+                              if (this.isAiming() && !this.isNPC && !this.isCurrentState(FishingState.instance()) && !this.isFarming()) {
                                  if (this.JoypadBind != -1 && !this.bJoypadMovementActive) {
                                     if (this.getForwardDirection().getLengthSquared() > 0.0F) {
                                        this.DirectionFromVector(this.getForwardDirection());
                                     }
                                  } else {
-                                    Vector2 var8 = tempVector2.set(0.0F, 0.0F);
+                                    Vector2 var9 = tempVector2.set(0.0F, 0.0F);
                                     if (GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1) {
-                                       this.getControllerAimDir(var8);
+                                       this.getControllerAimDir(var9);
                                     } else {
-                                       this.getMouseAimVector(var8);
+                                       this.getMouseAimVector(var9);
                                     }
 
-                                    if (var8.getLengthSquared() > 0.0F) {
-                                       this.DirectionFromVector(var8);
-                                       this.setForwardDirection(var8);
+                                    if (var9.getLengthSquared() > 0.0F) {
+                                       this.DirectionFromVector(var9);
+                                       this.setForwardDirection(var9);
                                     }
                                  }
 
-                                 var3.NewFacing = this.dir;
+                                 var6.NewFacing = this.dir;
                               }
 
                               if (this.getForwardDirection().x == 0.0F && this.getForwardDirection().y == 0.0F) {
@@ -2268,17 +2831,17 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                               }
 
                               this.stats.endurance = PZMath.clamp(this.stats.endurance, 0.0F, 1.0F);
-                              AnimationPlayer var13 = this.getAnimationPlayer();
-                              if (var13 != null && var13.isReady()) {
-                                 float var9 = var13.getAngle() + var13.getTwistAngle();
-                                 this.dir = IsoDirections.fromAngle(tempVector2.setLengthAndDirection(var9, 1.0F));
-                              } else if (!this.bFalling && !this.isAiming() && !var12) {
-                                 this.dir = var3.NewFacing;
+                              AnimationPlayer var14 = this.getAnimationPlayer();
+                              if (var14 != null && var14.isReady()) {
+                                 float var10 = var14.getAngle() + var14.getTwistAngle();
+                                 this.dir = IsoDirections.fromAngle(tempVector2.setLengthAndDirection(var10, 1.0F));
+                              } else if (!this.bFalling && !this.isAiming() && !var3) {
+                                 this.dir = var6.NewFacing;
                               }
 
                               if (this.isAiming() && (GameWindow.ActivatedJoyPad == null || this.JoypadBind == -1)) {
-                                 this.playerMoveDir.x = var3.moveX;
-                                 this.playerMoveDir.y = var3.moveY;
+                                 this.playerMoveDir.x = var6.moveX;
+                                 this.playerMoveDir.y = var6.moveY;
                               }
 
                               if (!this.isAiming() && this.isJustMoved()) {
@@ -2298,15 +2861,15 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  this.CurrentSpeed = 0.0F;
                               }
 
-                              boolean var14 = this.IsInMeleeAttack();
+                              boolean var15 = this.IsInMeleeAttack();
                               if (!this.CharacterActions.isEmpty()) {
-                                 BaseAction var10 = (BaseAction)this.CharacterActions.get(0);
-                                 if (var10.overrideAnimation) {
-                                    var14 = true;
+                                 BaseAction var11 = (BaseAction)this.CharacterActions.get(0);
+                                 if (var11.overrideAnimation) {
+                                    var15 = true;
                                  }
                               }
 
-                              if (!var14 && !this.isForceOverrideAnim()) {
+                              if (!var15 && !this.isForceOverrideAnim()) {
                                  if (this.getPath2() == null) {
                                     if (this.CurrentSpeed > 0.0F && (!this.bClimbing || this.lastFallSpeed > 0.0F)) {
                                        if (!this.isRunning() && !this.isSprinting()) {
@@ -2343,33 +2906,32 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                               this.closestZombie = 1000000.0F;
                               this.weight = 0.3F;
                               this.separate();
-                              this.updateSleepingPillsTaken();
-                              this.updateTorchStrength();
-                              if (this.isNPC && this.GameCharacterAIBrain != null) {
-                                 this.GameCharacterAIBrain.postUpdateHuman(this);
-                                 this.setInitiateAttack(this.GameCharacterAIBrain.HumanControlVars.initiateAttack);
-                                 this.setRunning(this.GameCharacterAIBrain.HumanControlVars.bRunning);
-                                 var4 = this.GameCharacterAIBrain.HumanControlVars.strafeX;
-                                 var5 = this.GameCharacterAIBrain.HumanControlVars.strafeY;
-                                 this.setJustMoved(this.GameCharacterAIBrain.HumanControlVars.JustMoved);
-                                 this.updateMovementRates();
+                              if (!this.isAnimal()) {
+                                 this.updateSleepingPillsTaken();
+                                 this.updateTorchStrength();
                               }
 
-                              this.m_isPlayerMoving = this.isJustMoved() || this.getPath2() != null && !this.getPathFindBehavior2().bStopping;
-                              boolean var15 = this.isInTrees();
-                              float var11;
-                              if (var15) {
-                                 var11 = "parkranger".equals(this.getDescriptor().getProfession()) ? 1.3F : 1.0F;
-                                 var11 = "lumberjack".equals(this.getDescriptor().getProfession()) ? 1.15F : var11;
+                              if (this.isNPC) {
+                                 this.ai.postUpdate();
+                                 var7 = this.ai.brain.HumanControlVars.strafeX;
+                                 var8 = this.ai.brain.HumanControlVars.strafeY;
+                              }
+
+                              this.m_isPlayerMoving = this.isJustMoved() || this.hasPath() && this.getPathFindBehavior2().shouldBeMoving();
+                              boolean var16 = this.isInTrees();
+                              float var12;
+                              if (var16) {
+                                 var12 = "parkranger".equals(this.getDescriptor().getProfession()) ? 1.3F : 1.0F;
+                                 var12 = "lumberjack".equals(this.getDescriptor().getProfession()) ? 1.15F : var12;
                                  if (this.isRunning()) {
-                                    var11 *= 1.1F;
+                                    var12 *= 1.1F;
                                  }
 
-                                 this.setVariable("WalkSpeedTrees", var11);
+                                 this.setVariable("WalkSpeedTrees", var12);
                               }
 
-                              if ((var15 || this.m_walkSpeed < 0.4F || this.m_walkInjury > 0.5F) && this.isSprinting() && !this.isGhostMode()) {
-                                 if ((double)this.runSpeedModifier < 1.0) {
+                              if ((var16 || this.m_walkSpeed < 0.4F || this.m_walkInjury > 0.5F) && this.isSprinting() && !this.isGhostMode()) {
+                                 if (this.runSpeedModifier < 1.0F) {
                                     this.setMoodleCantSprint(true);
                                  }
 
@@ -2381,15 +2943,15 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                     this.setVariable("BumpDone", false);
                                     this.setVariable("BumpFall", true);
                                     this.setVariable("TripObstacleType", "tree");
-                                    this.actionContext.reportEvent("wasBumped");
+                                    this.getActionContext().reportEvent("wasBumped");
                                  }
                               }
 
-                              this.m_deltaX = var4;
-                              this.m_deltaY = var5;
+                              this.m_deltaX = var7;
+                              this.m_deltaY = var8;
                               this.m_windspeed = ClimateManager.getInstance().getWindSpeedMovement();
-                              var11 = this.getForwardDirection().getDirectionNeg();
-                              this.m_windForce = ClimateManager.getInstance().getWindForceMovement(this, var11);
+                              var12 = this.getForwardDirection().getDirectionNeg();
+                              this.m_windForce = ClimateManager.getInstance().getWindForceMovement(this, var12);
                               return true;
                            } else {
                               return true;
@@ -2398,11 +2960,20 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                      }
                   }
                } else {
+                  this.clearUseKeyVariables();
                   return true;
                }
             }
          }
       }
+   }
+
+   private void setDoGrappleLetGoAfterContextKeyIsReleased(boolean var1) {
+      this.m_letGoAfterContextIsReleased = var1;
+   }
+
+   private boolean isDoGrappleLetGoAfterContextKeyIsReleased() {
+      return this.m_letGoAfterContextIsReleased;
    }
 
    private void updateMovementFromInput(MoveVars var1) {
@@ -2413,27 +2984,158 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       var1.NewFacing = this.dir;
       if (!TutorialManager.instance.StealControl) {
          if (!this.isBlockMovement()) {
-            if (!this.isNPC) {
-               if (!MPDebugAI.updateMovementFromInput(this, var1)) {
-                  if (!(this.fallTime > 2.0F)) {
-                     if (GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1) {
-                        this.updateMovementFromJoypad(var1);
-                     }
+            if (!this.isPickingUpBody() && !this.isPuttingDownBody()) {
+               if (!this.isNPC) {
+                  if (!MPDebugAI.updateMovementFromInput(this, var1)) {
+                     if (!(this.fallTime > 2.0F)) {
+                        if (GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1) {
+                           this.updateMovementFromJoypad(var1);
+                        }
 
-                     if (this.PlayerIndex == 0 && this.JoypadBind == -1) {
-                        this.updateMovementFromKeyboardMouse(var1);
-                     }
+                        if (this.PlayerIndex == 0 && this.JoypadBind == -1) {
+                           this.updateMovementFromKeyboardMouse(var1);
+                        }
 
-                     if (this.isJustMoved()) {
-                        this.getForwardDirection().normalize();
-                        UIManager.speedControls.SetCurrentGameSpeed(1);
-                     }
+                        if (this.isJustMoved()) {
+                           this.getForwardDirection().normalize();
+                           UIManager.speedControls.SetCurrentGameSpeed(1);
+                        }
 
+                     }
                   }
                }
             }
          }
       }
+   }
+
+   private void randomizeDrunkenMovement(MoveVars var1, boolean var2) {
+      int var3 = Rand.NextBool(20) ? 2 : 1;
+      boolean var4 = false;
+      if (this.drunkMoveVars.NewFacing == null) {
+         this.drunkMoveVars.NewFacing = var1.NewFacing;
+      }
+
+      int var6 = (var1.NewFacing.index() - this.drunkMoveVars.NewFacing.index() + 4) % 8 - 4;
+      var6 = var6 < -4 ? var6 + 4 : var6;
+      boolean var5 = false;
+      if (Math.abs(var6) >= 2) {
+         if (var6 < 0) {
+            var5 = true;
+         }
+      } else if (Rand.NextBool(2)) {
+         var5 = true;
+      }
+
+      if (var5) {
+         var1.NewFacing = this.drunkMoveVars.NewFacing.RotRight(var3);
+      } else {
+         var1.NewFacing = this.drunkMoveVars.NewFacing.RotLeft(var3);
+      }
+
+      if (var2) {
+         switch (var1.NewFacing) {
+            case N:
+               var1.moveX = 1.0F;
+               var1.moveY = -1.0F;
+               break;
+            case NW:
+               var1.moveX = 0.0F;
+               var1.moveY = -1.0F;
+               break;
+            case W:
+               var1.moveX = -1.0F;
+               var1.moveY = -1.0F;
+               break;
+            case SW:
+               var1.moveX = -1.0F;
+               var1.moveY = 0.0F;
+               break;
+            case S:
+               var1.moveX = -1.0F;
+               var1.moveY = 1.0F;
+               break;
+            case SE:
+               var1.moveX = 0.0F;
+               var1.moveY = 1.0F;
+               break;
+            case E:
+               var1.moveX = 1.0F;
+               var1.moveY = 1.0F;
+               break;
+            case NE:
+               var1.moveX = 1.0F;
+               var1.moveY = 0.0F;
+         }
+
+      } else {
+         switch (var1.NewFacing) {
+            case N:
+               var1.moveX = 0.0F;
+               var1.moveY = -1.0F;
+               break;
+            case NW:
+               var1.moveX = -1.0F;
+               var1.moveY = -1.0F;
+               break;
+            case W:
+               var1.moveX = -1.0F;
+               var1.moveY = 0.0F;
+               break;
+            case SW:
+               var1.moveX = -1.0F;
+               var1.moveY = 1.0F;
+               break;
+            case S:
+               var1.moveX = 0.0F;
+               var1.moveY = 1.0F;
+               break;
+            case SE:
+               var1.moveX = 1.0F;
+               var1.moveY = 1.0F;
+               break;
+            case E:
+               var1.moveX = 1.0F;
+               var1.moveY = 0.0F;
+               break;
+            case NE:
+               var1.moveX = 1.0F;
+               var1.moveY = -1.0F;
+         }
+
+      }
+   }
+
+   private void adjustMovementForDrunks(MoveVars var1, boolean var2) {
+      if (this.getMoodles().getMoodleLevel(MoodleType.Drunk) > 1) {
+         this.drunkDelayCommandTimer += GameTime.getInstance().getMultiplier();
+         int var3 = Rand.AdjustForFramerate(4 * this.getMoodles().getMoodleLevel(MoodleType.Drunk));
+         if ((float)var3 > this.drunkDelayCommandTimer) {
+            var1.moveY = this.drunkMoveVars.moveY;
+            var1.moveX = this.drunkMoveVars.moveX;
+            var1.NewFacing = this.drunkMoveVars.NewFacing;
+         } else {
+            this.drunkDelayCommandTimer = 0.0F;
+            if ((var1.moveX != 0.0F || var1.moveY != 0.0F) && (float)Rand.Next(160) < this.getStats().Drunkenness) {
+               this.randomizeDrunkenMovement(var1, var2);
+            }
+
+            if ((this.isSprinting() || this.isRunning()) && (float)Rand.Next(2000) < this.getStats().Drunkenness * (float)this.getMoodles().getMoodleLevel(MoodleType.Drunk)) {
+               this.setVariable("BumpDone", false);
+               this.clearVariable("BumpFallType");
+               this.setBumpType("trippingFromSprint");
+               this.setBumpFall(true);
+               this.setBumpFallType(Rand.NextBool(5) ? "pushedFront" : "pushedBehind");
+               this.getActionContext().reportEvent("wasBumped");
+            }
+         }
+      } else {
+         this.drunkDelayCommandTimer = 0.0F;
+      }
+
+      this.drunkMoveVars.moveY = var1.moveY;
+      this.drunkMoveVars.moveX = var1.moveX;
+      this.drunkMoveVars.NewFacing = var1.NewFacing;
    }
 
    private void updateMovementFromJoypad(MoveVars var1) {
@@ -2488,9 +3190,13 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          var1.NewFacing = IsoDirections.fromAngle(var7);
       }
 
+      var1.moveX = this.playerMoveDir.x;
+      var1.moveY = this.playerMoveDir.y;
+      this.playerMoveDir.x = var1.moveX;
+      this.playerMoveDir.y = var1.moveY;
       PathFindBehavior2 var9 = this.getPathFindBehavior2();
       if (this.playerMoveDir.x == 0.0F && this.playerMoveDir.y == 0.0F && this.getPath2() != null && var9.isStrafing() && !var9.bStopping) {
-         this.playerMoveDir.set(var9.getTargetX() - this.x, var9.getTargetY() - this.y);
+         this.playerMoveDir.set(var9.getTargetX() - this.getX(), var9.getTargetY() - this.getY());
          this.playerMoveDir.normalize();
       }
 
@@ -2500,11 +3206,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             tempo.normalize();
             float var8 = this.legsSprite.modelSlot.model.AnimPlayer.getRenderedAngle();
             if ((double)var8 > 6.283185307179586) {
-               var8 = (float)((double)var8 - 6.283185307179586);
+               var8 -= 6.2831855F;
             }
 
             if (var8 < 0.0F) {
-               var8 = (float)((double)var8 + 6.283185307179586);
+               var8 += 6.2831855F;
             }
 
             tempo.rotate(var8);
@@ -2524,14 +3230,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    private void updateMovementFromKeyboardMouse(MoveVars var1) {
-      int var2 = Core.getInstance().getKey("Left");
-      int var3 = Core.getInstance().getKey("Right");
-      int var4 = Core.getInstance().getKey("Forward");
-      int var5 = Core.getInstance().getKey("Backward");
-      boolean var6 = GameKeyboard.isKeyDown(var2);
-      boolean var7 = GameKeyboard.isKeyDown(var3);
-      boolean var8 = GameKeyboard.isKeyDown(var4);
-      boolean var9 = GameKeyboard.isKeyDown(var5);
+      int var2 = GameKeyboard.whichKeyDown("Left");
+      int var3 = GameKeyboard.whichKeyDown("Right");
+      int var4 = GameKeyboard.whichKeyDown("Forward");
+      int var5 = GameKeyboard.whichKeyDown("Backward");
+      boolean var6 = var2 > 0;
+      boolean var7 = var3 > 0;
+      boolean var8 = var4 > 0;
+      boolean var9 = var5 > 0;
       if (!var6 && !var7 && !var8 && !var9 || var2 != 30 && var3 != 30 && var4 != 30 && var5 != 30 || !GameKeyboard.isKeyDown(29) && !GameKeyboard.isKeyDown(157) || !UIManager.isMouseOverInventory() || !Core.getInstance().isSelectingAll()) {
          if (!this.isIgnoreInputsForDirection()) {
             if (Core.bAltMoveMethod) {
@@ -2584,12 +3290,17 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   tempo.normalize();
                   var1.NewFacing = IsoDirections.fromAngle(tempo);
                }
+
+               if (this.isAnimatingBackwards()) {
+                  var1.moveX = -var1.moveX;
+                  var1.moveY = -var1.moveY;
+               }
             }
          }
 
          PathFindBehavior2 var10 = this.getPathFindBehavior2();
          if (var1.moveX == 0.0F && var1.moveY == 0.0F && this.getPath2() != null && (var10.isStrafing() || this.isAiming()) && !var10.bStopping) {
-            Vector2 var11 = tempo.set(var10.getTargetX() - this.x, var10.getTargetY() - this.y);
+            Vector2 var11 = tempo.set(var10.getTargetX() - this.getX(), var10.getTargetY() - this.getY());
             Vector2 var12 = tempo2.set(-1.0F, 0.0F);
             float var13 = 1.0F;
             float var14 = var11.dot(var12);
@@ -2615,13 +3326,13 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                tempo.set(var1.moveX, var1.moveY);
                tempo.normalize();
                float var17 = this.legsSprite.modelSlot.model.AnimPlayer.getRenderedAngle();
-               var17 = (float)((double)var17 + 0.7853981633974483);
+               var17 += 0.7853982F;
                if ((double)var17 > 6.283185307179586) {
-                  var17 = (float)((double)var17 - 6.283185307179586);
+                  var17 -= 6.2831855F;
                }
 
                if (var17 < 0.0F) {
-                  var17 = (float)((double)var17 + 6.283185307179586);
+                  var17 += 6.2831855F;
                }
 
                tempo.rotate(var17);
@@ -2648,14 +3359,22 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.isAiming() && !this.isCurrentState(SwipeStatePlayer.instance())) {
          HandWeapon var1 = (HandWeapon)Type.tryCastTo(this.getPrimaryHandItem(), HandWeapon.class);
          var1 = var1 == null ? this.bareHands : var1;
-         SwipeStatePlayer.instance().calcValidTargets(this, var1, true, s_targetsProne, s_targetsStanding);
+         if (this.isLocal()) {
+            CombatManager.targetReticleMode = var1.isAimedFirearm() ? 1 : 0;
+         }
+
+         if (var1.hasComponent(ComponentType.FluidContainer) && var1.getFluidContainer().getRainCatcher() > 0.0F && !var1.getFluidContainer().isEmpty()) {
+            var1.getFluidContainer().Empty();
+         }
+
+         CombatManager.getInstance().calcValidTargets(this, var1, true, s_targetsProne, s_targetsStanding);
          HitInfo var2 = s_targetsStanding.isEmpty() ? null : (HitInfo)s_targetsStanding.get(0);
          HitInfo var3 = s_targetsProne.isEmpty() ? null : (HitInfo)s_targetsProne.get(0);
-         if (SwipeStatePlayer.instance().isProneTargetBetter(this, var2, var3)) {
+         if (CombatManager.getInstance().isProneTargetBetter(this, var2, var3)) {
             var2 = null;
          }
 
-         boolean var4 = this.isAttackAnim() || this.getVariableBoolean("ShoveAnim") || this.getVariableBoolean("StompAnim");
+         boolean var4 = this.isPerformingHostileAnimation();
          if (!var4) {
             this.setAimAtFloor(false);
          }
@@ -2669,14 +3388,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          }
 
          if (var2 != null) {
-            boolean var5 = !this.isAttackAnim() && var1.getSwingAnim() != null && var1.CloseKillMove != null && var2.distSq < var1.getMinRange() * var1.getMinRange();
+            boolean var5 = !this.isPerformingAttackAnimation() && var1.getSwingAnim() != null && var1.CloseKillMove != null && var2.distSq < var1.getMinRange() * var1.getMinRange();
             if (var5 && (this.getSecondaryHandItem() == null || this.getSecondaryHandItem().getItemReplacementSecondHand() == null)) {
                this.setVariable("LeftHandMask", "RaiseHand");
             }
          }
 
-         SwipeStatePlayer.instance().hitInfoPool.release((List)s_targetsStanding);
-         SwipeStatePlayer.instance().hitInfoPool.release((List)s_targetsProne);
+         CombatManager.getInstance().hitInfoPool.release((List)s_targetsStanding);
+         CombatManager.getInstance().hitInfoPool.release((List)s_targetsProne);
          s_targetsStanding.clear();
          s_targetsProne.clear();
       }
@@ -2713,16 +3432,22 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          }
 
          var3 = 1.0F;
+         if ("averageBedPillow".equals(this.getBedType())) {
+            var3 = 1.05F;
+         }
+
          if ("goodBed".equals(this.getBedType())) {
             var3 = 1.1F;
-         }
-
-         if ("badBed".equals(this.getBedType())) {
+         } else if ("goodBedPillow".equals(this.getBedType())) {
+            var3 = 1.15F;
+         } else if ("badBed".equals(this.getBedType())) {
             var3 = 0.9F;
-         }
-
-         if ("floor".equals(this.getBedType())) {
+         } else if ("badBedPillow".equals(this.getBedType())) {
+            var3 = 0.95F;
+         } else if ("floor".equals(this.getBedType())) {
             var3 = 0.6F;
+         } else if ("floorPillow".equals(this.getBedType())) {
+            var3 = 0.75F;
          }
 
          float var4 = 1.0F / GameTime.instance.getMinutesPerDay() / 60.0F * GameTime.instance.getMultiplier() / 2.0F;
@@ -2804,146 +3529,132 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    public void updateEnduranceWhileSitting() {
       float var1 = (float)ZomboidGlobals.SittingEnduranceMultiplier;
-      var1 *= 1.0F - this.stats.fatigue;
+      var1 *= 1.0F - this.stats.fatigue * 0.8F;
       var1 *= GameTime.instance.getMultiplier();
       Stats var10000 = this.stats;
       var10000.endurance = (float)((double)var10000.endurance + ZomboidGlobals.ImobileEnduranceReduce * SandboxOptions.instance.getEnduranceRegenMultiplier() * (double)this.getRecoveryMod() * (double)var1);
       this.stats.endurance = PZMath.clamp(this.stats.endurance, 0.0F, 1.0F);
    }
 
-   private void updateEndurance(float var1) {
-      if (this.isSitOnGround()) {
-         this.updateEnduranceWhileSitting();
-      } else {
-         float var2 = 1.0F;
+   private void updateEndurance() {
+      if (!this.isSitOnGround() && !this.isSittingOnFurniture() && !this.isResting()) {
+         float var1 = 1.0F;
          if (this.isSneaking()) {
-            var2 = 1.5F;
+            var1 = 1.5F;
          }
 
          Stats var10000;
-         float var5;
-         float var8;
-         if (!(this.CurrentSpeed > 0.0F) || !this.isRunning() && !this.isSprinting()) {
+         float var4;
+         float var7;
+         if (!(this.CurrentSpeed > 0.0F) || !this.isRunning() && !this.isSprinting() && !this.isDraggingCorpse()) {
             if (this.CurrentSpeed > 0.0F && this.Moodles.getMoodleLevel(MoodleType.HeavyLoad) > 2) {
-               var8 = 0.7F;
+               var7 = 0.7F;
                if (this.Traits.Asthmatic.isSet()) {
-                  var8 = 1.4F;
+                  var7 = 1.0F;
                }
 
-               float var4 = 1.4F;
+               float var3 = 1.4F;
                if (this.Traits.Overweight.isSet()) {
-                  var4 = 2.9F;
+                  var3 = 2.9F;
                }
 
                if (this.Traits.Athletic.isSet()) {
-                  var4 = 0.8F;
+                  var3 = 0.8F;
                }
 
-               var4 *= 3.0F;
-               var4 *= this.getPacingMod();
-               var4 *= this.getHyperthermiaMod();
-               var5 = 2.8F;
+               var3 *= 3.0F;
+               var3 *= this.getPacingMod();
+               var3 *= this.getHyperthermiaMod();
+               var4 = 2.8F;
                switch (this.Moodles.getMoodleLevel(MoodleType.HeavyLoad)) {
                   case 2:
-                     var5 = 1.5F;
+                     var4 = 1.5F;
                      break;
                   case 3:
-                     var5 = 1.9F;
+                     var4 = 1.9F;
                      break;
                   case 4:
-                     var5 = 2.3F;
+                     var4 = 2.3F;
                }
 
                var10000 = this.stats;
-               var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce * (double)var4 * 0.5 * (double)var8 * (double)var2 * (double)GameTime.instance.getMultiplier() * (double)var5 / 2.0);
+               var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce * (double)var3 * 0.5 * (double)var7 * (double)var1 * (double)GameTime.instance.getMultiplier() * (double)var4 / 2.0);
             }
          } else {
-            double var3 = ZomboidGlobals.RunningEnduranceReduce;
+            double var2 = ZomboidGlobals.RunningEnduranceReduce;
             if (this.isSprinting()) {
-               var3 = ZomboidGlobals.SprintingEnduranceReduce;
+               var2 = ZomboidGlobals.SprintingEnduranceReduce;
             }
 
-            var5 = 1.4F;
+            if (this.isDraggingCorpse()) {
+               var2 = ZomboidGlobals.SprintingEnduranceReduce;
+            }
+
+            var4 = 1.4F;
             if (this.Traits.Overweight.isSet()) {
-               var5 = 2.9F;
+               var4 = 2.9F;
             }
 
             if (this.Traits.Athletic.isSet()) {
-               var5 = 0.8F;
+               var4 = 0.8F;
             }
 
-            var5 *= 2.3F;
-            var5 *= this.getPacingMod();
-            var5 *= this.getHyperthermiaMod();
-            float var6 = 0.7F;
+            var4 *= 2.3F;
+            var4 *= this.getPacingMod();
+            var4 *= this.getHyperthermiaMod();
+            float var5 = 0.7F;
             if (this.Traits.Asthmatic.isSet()) {
-               var6 = 1.4F;
+               var5 = 1.0F;
             }
 
             if (this.Moodles.getMoodleLevel(MoodleType.HeavyLoad) == 0) {
                var10000 = this.stats;
-               var10000.endurance = (float)((double)var10000.endurance - var3 * (double)var5 * 0.5 * (double)var6 * (double)GameTime.instance.getMultiplier() * (double)var2);
+               var10000.endurance = (float)((double)var10000.endurance - var2 * (double)var4 * 0.5 * (double)var5 * (double)GameTime.instance.getMultiplier() * (double)var1);
             } else {
-               float var7 = 2.8F;
+               float var6 = 2.8F;
                switch (this.Moodles.getMoodleLevel(MoodleType.HeavyLoad)) {
                   case 1:
-                     var7 = 1.5F;
+                     var6 = 1.5F;
                      break;
                   case 2:
-                     var7 = 1.9F;
+                     var6 = 1.9F;
                      break;
                   case 3:
-                     var7 = 2.3F;
+                     var6 = 2.3F;
                }
 
                var10000 = this.stats;
-               var10000.endurance = (float)((double)var10000.endurance - var3 * (double)var5 * 0.5 * (double)var6 * (double)GameTime.instance.getMultiplier() * (double)var7 * (double)var2);
+               var10000.endurance = (float)((double)var10000.endurance - var2 * (double)var4 * 0.5 * (double)var5 * (double)GameTime.instance.getMultiplier() * (double)var6 * (double)var1);
             }
          }
 
-         switch (this.Moodles.getMoodleLevel(MoodleType.Endurance)) {
-            case 1:
-               var1 *= 0.95F;
-               break;
-            case 2:
-               var1 *= 0.9F;
-               break;
-            case 3:
-               var1 *= 0.8F;
-               break;
-            case 4:
-               var1 *= 0.6F;
-         }
-
-         if (this.stats.enduranceRecharging) {
-            var1 *= 0.85F;
-         }
-
          if (!this.isPlayerMoving()) {
-            var8 = 1.0F;
-            var8 *= 1.0F - this.stats.fatigue;
-            var8 *= GameTime.instance.getMultiplier();
+            var7 = 1.0F;
+            var7 *= 1.0F - this.stats.fatigue * 0.85F;
+            var7 *= GameTime.instance.getMultiplier();
             if (this.Moodles.getMoodleLevel(MoodleType.HeavyLoad) <= 1) {
                var10000 = this.stats;
-               var10000.endurance = (float)((double)var10000.endurance + ZomboidGlobals.ImobileEnduranceReduce * SandboxOptions.instance.getEnduranceRegenMultiplier() * (double)this.getRecoveryMod() * (double)var8);
+               var10000.endurance = (float)((double)var10000.endurance + ZomboidGlobals.ImobileEnduranceReduce * SandboxOptions.instance.getEnduranceRegenMultiplier() * (double)this.getRecoveryMod() * (double)var7);
             }
          }
 
          if (!this.isSprinting() && !this.isRunning() && this.CurrentSpeed > 0.0F) {
-            var8 = 1.0F;
-            var8 *= 1.0F - this.stats.fatigue;
-            var8 *= GameTime.instance.getMultiplier();
+            var7 = 1.0F;
+            var7 *= 1.0F - this.stats.fatigue;
+            var7 *= GameTime.instance.getMultiplier();
             if (this.getMoodles().getMoodleLevel(MoodleType.Endurance) < 2) {
                if (this.Moodles.getMoodleLevel(MoodleType.HeavyLoad) <= 1) {
                   var10000 = this.stats;
-                  var10000.endurance = (float)((double)var10000.endurance + ZomboidGlobals.ImobileEnduranceReduce / 4.0 * SandboxOptions.instance.getEnduranceRegenMultiplier() * (double)this.getRecoveryMod() * (double)var8);
+                  var10000.endurance = (float)((double)var10000.endurance + ZomboidGlobals.ImobileEnduranceReduce / 4.0 * SandboxOptions.instance.getEnduranceRegenMultiplier() * (double)this.getRecoveryMod() * (double)var7);
                }
             } else {
                var10000 = this.stats;
-               var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce / 7.0 * (double)var2);
+               var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce / 7.0 * (double)var1);
             }
          }
 
+      } else {
+         this.updateEnduranceWhileSitting();
       }
    }
 
@@ -2958,7 +3669,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void updateInteractKeyPanic() {
       if (this.PlayerIndex == 0) {
-         if (GameKeyboard.isKeyPressed(Core.getInstance().getKey("Interact"))) {
+         if (GameKeyboard.isKeyPressed("Interact")) {
             this.ContextPanic += 0.6F;
          }
 
@@ -2969,7 +3680,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.PlayerIndex != 0) {
          this.bSneakDebounce = false;
       } else {
-         if (!this.isBlockMovement() && GameKeyboard.isKeyDown(Core.getInstance().getKey("Crouch"))) {
+         if (!this.isBlockMovement() && GameKeyboard.isKeyDown("Crouch")) {
             if (!this.bSneakDebounce) {
                this.setSneaking(!this.isSneaking());
                this.bSneakDebounce = true;
@@ -3013,7 +3724,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void updateEnableModelsKey() {
       if (Core.bDebug) {
-         if (this.PlayerIndex == 0 && GameKeyboard.isKeyPressed(Core.getInstance().getKey("ToggleModelsEnabled"))) {
+         if (this.PlayerIndex == 0 && GameKeyboard.isKeyPressed("ToggleModelsEnabled")) {
             ModelManager.instance.bDebugEnableModels = !ModelManager.instance.bDebugEnableModels;
          }
 
@@ -3028,7 +3739,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             } else if (!"EndDeath".equals(this.getHitReaction())) {
                for(int var1 = -1; var1 <= 1; ++var1) {
                   for(int var2 = -1; var2 <= 1; ++var2) {
-                     IsoGridSquare var3 = this.getCell().getGridSquare((int)this.x + var2, (int)this.y + var1, (int)this.z);
+                     IsoGridSquare var3 = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()) + var2, PZMath.fastfloor(this.getY()) + var1, PZMath.fastfloor(this.getZ()));
                      if (var3 != null) {
                         for(int var4 = 0; var4 < var3.getMovingObjects().size(); ++var4) {
                            IsoMovingObject var5 = (IsoMovingObject)var3.getMovingObjects().get(var4);
@@ -3046,7 +3757,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
                this.setDeathDragDown(false);
                if (GameClient.bClient) {
-                  DebugLog.Multiplayer.warn("UpdateDeathDragDown: no zombies found around player \"%s\"", this.getUsername());
+                  DebugLog.DetailedInfo.warn("UpdateDeathDragDown: no zombies found around player \"%s\"", this.getUsername());
                   this.setHitFromBehind(false);
                   this.Kill((IsoGameCharacter)null);
                }
@@ -3058,7 +3769,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void updateGodModeKey() {
       if (Core.bDebug) {
-         if (GameKeyboard.isKeyPressed(Core.getInstance().getKey("ToggleGodModeInvisible"))) {
+         if (GameKeyboard.isKeyPressed("ToggleGodModeInvisible")) {
             IsoPlayer var1 = null;
 
             for(int var2 = 0; var2 < numPlayers; ++var2) {
@@ -3074,12 +3785,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                var1.setInvisible(var4);
                var1.setGhostMode(var4);
                var1.setGodMod(var4);
+               var1.setNoClip(var4);
 
                for(int var3 = 0; var3 < numPlayers; ++var3) {
                   if (players[var3] != null && players[var3] != var1) {
                      players[var3].setInvisible(var4);
                      players[var3].setGhostMode(var4);
                      players[var3].setGodMod(var4);
+                     players[var3].setNoClip(var4);
                   }
                }
 
@@ -3114,13 +3827,13 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          }
 
          if (this.PlayerIndex == 0) {
-            var4 = GameKeyboard.isKeyDown(Core.getInstance().getKey("ReloadWeapon"));
+            var4 = GameKeyboard.isKeyDown("ReloadWeapon");
             if (var4) {
                var2 = !this.bReloadKeyDown;
             }
 
             this.bReloadKeyDown = var4;
-            var4 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Rack Firearm"));
+            var4 = GameKeyboard.isKeyDown("Rack Firearm");
             if (var4) {
                var3 = !this.bRackKeyDown;
             }
@@ -3150,7 +3863,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          this.setHitReaction("");
       }
 
-      this.highlightRangedTargets();
       if (this.isNPC) {
          GameTime var2 = GameTime.getInstance();
          float var3 = 1.0F / var2.getMinutesPerDay() / 60.0F * var2.getMultiplier() / 2.0F;
@@ -3161,58 +3873,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          this.setHoursSurvived(this.getHoursSurvived() + (double)var3);
       }
 
-      this.getBodyDamage().setBodyPartsLastState();
-   }
-
-   private void highlightRangedTargets() {
-      if (this.isLocalPlayer() && !this.isNPC) {
-         if (this.isAiming()) {
-            if (Core.getInstance().getOptionAimOutline() != 1) {
-               IsoPlayer.s_performance.highlightRangedTargets.invokeAndMeasure(this, IsoPlayer::highlightRangedTargetsInternal);
-            }
-         }
-      }
-   }
-
-   private void highlightRangedTargetsInternal() {
-      HandWeapon var1 = (HandWeapon)Type.tryCastTo(this.getPrimaryHandItem(), HandWeapon.class);
-      if (var1 == null || var1.getSwingAnim() == null || var1.getCondition() <= 0) {
-         var1 = this.bareHands;
+      if (this.getBodyDamage() != null) {
+         this.getBodyDamage().setBodyPartsLastState();
       }
 
-      if (Core.getInstance().getOptionAimOutline() != 2 || var1.isRanged()) {
-         AttackVars var2 = new AttackVars();
-         ArrayList var3 = new ArrayList();
-         boolean var4 = this.bDoShove;
-         HandWeapon var5 = this.getUseHandWeapon();
-         this.setDoShove(false);
-         this.setUseHandWeapon(var1);
-         SwipeStatePlayer.instance().CalcAttackVars(this, var2);
-         SwipeStatePlayer.instance().CalcHitList(this, false, var2, var3);
-
-         for(int var6 = 0; var6 < var3.size(); ++var6) {
-            HitInfo var7 = (HitInfo)var3.get(var6);
-            IsoMovingObject var8 = var7.getObject();
-            if (var8 instanceof IsoZombie || var8 instanceof IsoPlayer) {
-               ColorInfo var9 = new ColorInfo();
-               Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), (float)var7.chance / 100.0F, var9);
-               var8.bOutline[this.PlayerIndex] = true;
-               if (var8.outlineColor[this.PlayerIndex] == null) {
-                  var8.outlineColor[this.PlayerIndex] = new ColorInfo();
-               }
-
-               var8.outlineColor[this.PlayerIndex].set(var9);
-            }
-
-            if (var7.window.getObject() != null) {
-               var7.window.getObject().setHighlightColor(0.8F, 0.1F, 0.1F, 0.5F);
-               var7.window.getObject().setHighlighted(true);
-            }
-         }
-
-         this.setDoShove(var4);
-         this.setUseHandWeapon(var5);
-      }
    }
 
    public boolean isSolidForSeparate() {
@@ -3237,18 +3901,20 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void updateExt() {
       if (!this.isSneaking()) {
-         this.extUpdateCount += GameTime.getInstance().getMultiplier() / 0.8F;
-         if (!this.getAdvancedAnimator().containsAnyIdleNodes() && !this.isSitOnGround()) {
-            this.extUpdateCount = 0.0F;
-         }
+         if (!this.isGrappling() && !this.isBeingGrappled()) {
+            this.extUpdateCount += GameTime.getInstance().getMultiplier() / 0.8F;
+            if (!this.getAdvancedAnimator().containsAnyIdleNodes() && !this.isSitOnGround()) {
+               this.extUpdateCount = 0.0F;
+            }
 
-         if (!(this.extUpdateCount <= 5000.0F)) {
-            this.extUpdateCount = 0.0F;
-            if (this.stats.NumVisibleZombies == 0 && this.stats.NumChasingZombies == 0) {
-               if (Rand.NextBool(3)) {
-                  if (this.getAdvancedAnimator().containsAnyIdleNodes() || this.isSitOnGround()) {
-                     this.onIdlePerformFidgets();
-                     this.reportEvent("EventDoExt");
+            if (!(this.extUpdateCount <= 5000.0F)) {
+               this.extUpdateCount = 0.0F;
+               if (this.stats.NumVisibleZombies == 0 && this.stats.NumChasingZombies == 0) {
+                  if (Rand.NextBool(3)) {
+                     if (this.getAdvancedAnimator().containsAnyIdleNodes() || this.isSitOnGround()) {
+                        this.onIdlePerformFidgets();
+                        this.reportEvent("EventDoExt");
+                     }
                   }
                }
             }
@@ -3364,28 +4030,31 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          return false;
       } else {
          this.timePressedContext += GameTime.instance.getRealworldSecondsSinceLastUpdate();
-         boolean var1 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Interact"));
+         boolean var1 = GameKeyboard.isKeyDown("Interact");
          if (var1 && this.timePressedContext < 0.5F) {
             this.bPressContext = true;
          } else {
-            if (this.bPressContext && (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.DoingTextEntry || !GameKeyboard.doLuaKeyPressed)) {
+            if (this.bPressContext && (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.isDoingTextEntry() || !GameKeyboard.doLuaKeyPressed)) {
                this.bPressContext = false;
             }
 
             if (this.bPressContext && this.doContext(this.dir)) {
-               this.timePressedContext = 0.0F;
-               this.bPressContext = false;
+               this.clearUseKeyVariables();
                return true;
             }
 
             if (!var1) {
-               this.bPressContext = false;
-               this.timePressedContext = 0.0F;
+               this.clearUseKeyVariables();
             }
          }
 
          return false;
       }
+   }
+
+   private void clearUseKeyVariables() {
+      this.bPressContext = false;
+      this.timePressedContext = 0.0F;
    }
 
    private void updateHitByVehicle() {
@@ -3401,8 +4070,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   Vector2 var5 = (Vector2)((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).alloc();
                   Vector2 var6 = var1.testCollisionWithCharacter(this, 0.20000002F, var5);
                   if (var6 != null && var6.x != -1.0F) {
-                     var6.x = (var6.x - var1.x) * var4 * 1.0F + this.x;
-                     var6.y = (var6.y - var1.y) * var4 * 1.0F + this.x;
+                     var6.x = (var6.x - var1.getX()) * var4 * 1.0F + this.getX();
+                     var6.y = (var6.y - var1.getY()) * var4 * 1.0F + this.getX();
                      if (this.isOnFloor()) {
                         int var7 = var1.testCollisionWithProneCharacter(this, false);
                         if (var7 > 0) {
@@ -3429,20 +4098,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                this.soundListener = (BaseSoundListener)(Core.SoundDisabled ? new DummySoundListener(this.PlayerIndex) : new SoundListener(this.PlayerIndex));
             }
 
-            this.soundListener.setPos(this.x, this.y, this.z);
-            this.checkNearbyRooms -= GameTime.getInstance().getMultiplier() / 1.6F;
+            this.soundListener.setPos(this.getX(), this.getY(), this.getZ());
+            this.checkNearbyRooms -= GameTime.getInstance().getThirtyFPSMultiplier();
             if (this.checkNearbyRooms <= 0.0F) {
                this.checkNearbyRooms = 30.0F;
                this.numNearbyBuildingsRooms = (float)IsoWorld.instance.MetaGrid.countNearbyBuildingsRooms(this);
             }
 
-            if (this.testemitter == null) {
-               this.testemitter = (BaseSoundEmitter)(Core.SoundDisabled ? new DummySoundEmitter() : new FMODSoundEmitter());
-               this.testemitter.setPos(this.x, this.y, this.z);
-            }
-
             this.soundListener.tick();
-            this.testemitter.tick();
          }
       }
    }
@@ -3453,204 +4116,39 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.updateFootInjuries();
    }
 
-   public void pressedAttack(boolean var1) {
-      boolean var2 = GameClient.bClient && !this.isLocalPlayer();
-      boolean var3 = this.isSprinting();
-      this.setSprinting(false);
-      this.setForceSprint(false);
-      if (!this.attackStarted && !this.isCurrentState(PlayerHitReactionState.instance())) {
-         if (!GameClient.bClient || !this.isCurrentState(PlayerHitReactionPVPState.instance()) || ServerOptions.instance.PVPMeleeWhileHitReaction.getValue()) {
-            if (this.primaryHandModel != null && !StringUtils.isNullOrEmpty(this.primaryHandModel.maskVariableValue) && this.secondaryHandModel != null && !StringUtils.isNullOrEmpty(this.secondaryHandModel.maskVariableValue)) {
-               this.setDoShove(false);
-               this.setForceShove(false);
-               this.setInitiateAttack(false);
-               this.attackStarted = false;
-               this.setAttackType((String)null);
-            } else if (this.getPrimaryHandItem() != null && this.getPrimaryHandItem().getItemReplacementPrimaryHand() != null && this.getSecondaryHandItem() != null && this.getSecondaryHandItem().getItemReplacementSecondHand() != null) {
-               this.setDoShove(false);
-               this.setForceShove(false);
-               this.setInitiateAttack(false);
-               this.attackStarted = false;
-               this.setAttackType((String)null);
-            } else {
-               if (!this.attackStarted) {
-                  this.setVariable("StartedAttackWhileSprinting", var3);
-               }
+   public void pressedAttack() {
+      CombatManager.getInstance().pressedAttack(this);
+   }
 
-               this.setInitiateAttack(true);
-               this.attackStarted = true;
-               if (!var2) {
-                  this.setCriticalHit(false);
-               }
+   public void setAttackVariationX(float var1) {
+      this.m_attackVariationX = var1;
+   }
 
-               this.setAttackFromBehind(false);
-               WeaponType var4 = WeaponType.getWeaponType((IsoGameCharacter)this);
-               if (!GameClient.bClient || this.isLocalPlayer()) {
-                  this.setAttackType((String)PZArrayUtil.pickRandom(var4.possibleAttack));
-               }
+   private float getAttackVariationX() {
+      return this.m_attackVariationX;
+   }
 
-               if (!GameClient.bClient || this.isLocalPlayer()) {
-                  this.combatSpeed = this.calculateCombatSpeed();
-               }
+   public void setAttackVariationY(float var1) {
+      this.m_attackVariationY = var1;
+   }
 
-               if (var1) {
-                  SwipeStatePlayer.instance().CalcAttackVars(this, this.attackVars);
-               }
+   private float getAttackVariationY() {
+      return this.m_attackVariationY;
+   }
 
-               String var5 = this.getVariableString("Weapon");
-               if (var5 != null && var5.equals("throwing") && !this.attackVars.bDoShove) {
-                  this.setAttackAnimThrowTimer(2000L);
-                  this.setIsAiming(true);
-               }
-
-               if (var2) {
-                  this.attackVars.bDoShove = this.isDoShove();
-                  this.attackVars.bAimAtFloor = this.isAimAtFloor();
-               }
-
-               if (this.attackVars.bDoShove && !this.isAuthorizeShoveStomp()) {
-                  this.setDoShove(false);
-                  this.setForceShove(false);
-                  this.setInitiateAttack(false);
-                  this.attackStarted = false;
-                  this.setAttackType((String)null);
-               } else {
-                  this.useHandWeapon = this.attackVars.getWeapon(this);
-                  this.setAimAtFloor(this.attackVars.bAimAtFloor);
-                  this.setDoShove(this.attackVars.bDoShove);
-                  this.targetOnGround = (IsoGameCharacter)this.attackVars.targetOnGround.getMovingObject();
-                  if (this.attackVars.getWeapon(this) != null && !StringUtils.isNullOrEmpty(this.attackVars.getWeapon(this).getFireMode())) {
-                     this.setVariable("FireMode", this.attackVars.getWeapon(this).getFireMode());
-                  } else {
-                     this.clearVariable("FireMode");
-                  }
-
-                  int var6;
-                  if (this.useHandWeapon != null && var4.isRanged && !this.bDoShove) {
-                     var6 = this.useHandWeapon.getRecoilDelay();
-                     Float var7 = (float)var6 * (1.0F - (float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 30.0F);
-                     this.setRecoilDelay((float)var7.intValue());
-                  }
-
-                  var6 = Rand.Next(0, 3);
-                  if (var6 == 0) {
-                     this.setVariable("AttackVariationX", Rand.Next(-1.0F, -0.5F));
-                  }
-
-                  if (var6 == 1) {
-                     this.setVariable("AttackVariationX", 0.0F);
-                  }
-
-                  if (var6 == 2) {
-                     this.setVariable("AttackVariationX", Rand.Next(0.5F, 1.0F));
-                  }
-
-                  this.setVariable("AttackVariationY", 0.0F);
-                  if (var1) {
-                     SwipeStatePlayer.instance().CalcHitList(this, true, this.attackVars, this.hitList);
-                  }
-
-                  IsoGameCharacter var11 = null;
-                  if (!this.hitList.isEmpty()) {
-                     var11 = (IsoGameCharacter)Type.tryCastTo(((HitInfo)this.hitList.get(0)).getObject(), IsoGameCharacter.class);
-                  }
-
-                  if (var11 == null) {
-                     if (this.isAiming() && !this.m_meleePressed && this.useHandWeapon != this.bareHands) {
-                        this.setDoShove(false);
-                        this.setForceShove(false);
-                     }
-
-                     this.m_lastAttackWasShove = this.bDoShove;
-                     if (var4.canMiss && !this.isAimAtFloor() && (!GameClient.bClient || this.isLocalPlayer())) {
-                        this.setAttackType("miss");
-                     }
-
-                     if (this.isAiming() && this.bDoShove) {
-                        this.setVariable("bShoveAiming", true);
-                     } else {
-                        this.clearVariable("bShoveAiming");
-                     }
-
-                  } else {
-                     if (!GameClient.bClient || this.isLocalPlayer()) {
-                        this.setAttackFromBehind(this.isBehind(var11));
-                     }
-
-                     float var8 = IsoUtils.DistanceTo(var11.x, var11.y, this.x, this.y);
-                     this.setVariable("TargetDist", var8);
-                     int var9 = this.calculateCritChance(var11);
-                     if (var11 instanceof IsoZombie) {
-                        IsoZombie var10 = this.getClosestZombieToOtherZombie((IsoZombie)var11);
-                        if (!this.attackVars.bAimAtFloor && (double)var8 > 1.25 && var4 == WeaponType.spear && (var10 == null || (double)IsoUtils.DistanceTo(var11.x, var11.y, var10.x, var10.y) > 1.7)) {
-                           if (!GameClient.bClient || this.isLocalPlayer()) {
-                              this.setAttackType("overhead");
-                           }
-
-                           var9 += 30;
-                        }
-                     }
-
-                     if (this.isLocalPlayer() && !var11.isOnFloor()) {
-                        var11.setHitFromBehind(this.isAttackFromBehind());
-                     }
-
-                     if (this.isAttackFromBehind()) {
-                        if (var11 instanceof IsoZombie && ((IsoZombie)var11).target == null) {
-                           var9 += 30;
-                        } else {
-                           var9 += 5;
-                        }
-                     }
-
-                     if (var11 instanceof IsoPlayer && var4.isRanged && !this.bDoShove) {
-                        var9 = (int)(this.attackVars.getWeapon(this).getStopPower() * (1.0F + (float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 15.0F));
-                     }
-
-                     if (!GameClient.bClient || this.isLocalPlayer()) {
-                        this.setCriticalHit(Rand.Next(100) < var9);
-                        if (DebugOptions.instance.MultiplayerCriticalHit.getValue()) {
-                           this.setCriticalHit(true);
-                        }
-
-                        if (this.isAttackFromBehind() && this.attackVars.bCloseKill && var11 instanceof IsoZombie && ((IsoZombie)var11).target == null) {
-                           this.setCriticalHit(true);
-                        }
-
-                        if (this.isCriticalHit() && !this.attackVars.bCloseKill && !this.bDoShove && var4 == WeaponType.knife) {
-                           this.setCriticalHit(false);
-                        }
-
-                        this.setAttackWasSuperAttack(false);
-                        if (this.stats.NumChasingZombies > 1 && this.attackVars.bCloseKill && !this.bDoShove && var4 == WeaponType.knife) {
-                           this.setCriticalHit(false);
-                        }
-                     }
-
-                     if (this.isCriticalHit()) {
-                        this.combatSpeed *= 1.1F;
-                     }
-
-                     if (Core.bDebug) {
-                        DebugLog.Combat.debugln("Hit zombie dist: " + var8 + " crit: " + this.isCriticalHit() + " (" + var9 + "%) from behind: " + this.isAttackFromBehind());
-                     }
-
-                     if (this.isAiming() && this.bDoShove) {
-                        this.setVariable("bShoveAiming", true);
-                     } else {
-                        this.clearVariable("bShoveAiming");
-                     }
-
-                     if (this.useHandWeapon != null && var4.isRanged) {
-                        this.setRecoilDelay((float)(this.useHandWeapon.getRecoilDelay() - this.getPerkLevel(PerkFactory.Perks.Aiming) * 2));
-                     }
-
-                     this.m_lastAttackWasShove = this.bDoShove;
-                  }
-               }
-            }
-         }
+   public boolean canPerformHandToHandCombat() {
+      if (this.primaryHandModel != null && !StringUtils.isNullOrEmpty(this.primaryHandModel.maskVariableValue) && this.secondaryHandModel != null && !StringUtils.isNullOrEmpty(this.secondaryHandModel.maskVariableValue)) {
+         return false;
+      } else {
+         return this.getPrimaryHandItem() == null || this.getPrimaryHandItem().getItemReplacementPrimaryHand() == null || this.getSecondaryHandItem() == null || this.getSecondaryHandItem().getItemReplacementSecondHand() == null;
       }
+   }
+
+   public void clearHandToHandAttack() {
+      super.clearHandToHandAttack();
+      this.setInitiateAttack(false);
+      this.attackStarted = false;
+      this.setAttackType((String)null);
    }
 
    public void setAttackAnimThrowTimer(long var1) {
@@ -3661,8 +4159,12 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       return this.AttackAnimThrowTimer <= System.currentTimeMillis();
    }
 
-   private boolean getAttackAnim() {
-      return false;
+   public boolean isAiming() {
+      if (!this.isAttackAnimThrowTimeOut()) {
+         return true;
+      } else {
+         return GameClient.bClient && this.isLocalPlayer() && DebugOptions.instance.Multiplayer.Debug.AttackPlayer.getValue() ? false : super.isAiming();
+      }
    }
 
    private String getWeaponType() {
@@ -3674,116 +4176,107 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public int calculateCritChance(IsoGameCharacter var1) {
-      if (this.bDoShove) {
-         int var7 = 35;
+      if (this.isDoShove()) {
+         float var8 = 35.0F;
          if (var1 instanceof IsoPlayer) {
-            IsoPlayer var9 = (IsoPlayer)var1;
-            var7 = 20;
-            if (GameClient.bClient && !var9.isLocalPlayer()) {
-               var7 = (int)((double)var7 - (double)var9.remoteStrLvl * 1.5);
-               if (var9.getNutrition().getWeight() < 80.0) {
-                  var7 = (int)((double)var7 + Math.abs((var9.getNutrition().getWeight() - 80.0) / 2.0));
+            IsoPlayer var12 = (IsoPlayer)var1;
+            var8 = 20.0F;
+            if (GameClient.bClient && !var12.isLocalPlayer()) {
+               double var9 = var12 instanceof IsoAnimal ? (double)((IsoAnimal)var12).getData().getWeight() : var12.getNutrition().getWeight();
+               var8 -= (float)var12.remoteStrLvl * 1.5F;
+               if (var9 < 80.0) {
+                  var8 += (float)Math.abs((var9 - 80.0) / 2.0);
                } else {
-                  var7 = (int)((double)var7 - (var9.getNutrition().getWeight() - 80.0) / 2.0);
+                  var8 -= (float)((var9 - 80.0) / 2.0);
                }
             }
          }
 
-         var7 -= this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 5;
-         var7 -= this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 5;
-         var7 = (int)((double)var7 - (double)this.getMoodles().getMoodleLevel(MoodleType.Panic) * 1.3);
-         var7 += this.getPerkLevel(PerkFactory.Perks.Strength) * 2;
-         return var7;
-      } else if (this.bDoShove && var1.getStateMachine().getCurrent() == StaggerBackState.instance() && var1 instanceof IsoZombie) {
+         var8 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 5);
+         var8 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 5);
+         var8 -= (float)this.getMoodles().getMoodleLevel(MoodleType.Panic) * 1.3F;
+         var8 += (float)(this.getPerkLevel(PerkFactory.Perks.Strength) * 2);
+         return (int)var8;
+      } else if (this.isDoShove() && var1.getStateMachine().getCurrent() == StaggerBackState.instance() && var1 instanceof IsoZombie) {
          return 100;
       } else if (this.getPrimaryHandItem() != null && this.getPrimaryHandItem() instanceof HandWeapon) {
          HandWeapon var2 = (HandWeapon)this.getPrimaryHandItem();
-         int var3 = (int)var2.getCriticalChance();
+         float var3 = var2.getCriticalChance();
          if (var2.isAlwaysKnockdown()) {
             return 100;
          } else {
             WeaponType var4 = WeaponType.getWeaponType((IsoGameCharacter)this);
             if (var4.isRanged) {
-               var3 = (int)((float)var3 + (float)var2.getAimingPerkCritModifier() * ((float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 2.0F));
-               if (this.getBeenMovingFor() > (float)(var2.getAimingTime() + this.getPerkLevel(PerkFactory.Perks.Aiming) * 2)) {
-                  var3 = (int)((float)var3 - (this.getBeenMovingFor() - (float)(var2.getAimingTime() + this.getPerkLevel(PerkFactory.Perks.Aiming) * 2)));
-               }
-
-               var3 += this.getPerkLevel(PerkFactory.Perks.Aiming) * 3;
+               var3 += (float)(var2.getAimingPerkCritModifier() * this.getPerkLevel(PerkFactory.Perks.Aiming));
                float var5 = this.DistToProper(var1);
-               if (var5 < 4.0F) {
-                  var3 = (int)((float)var3 + (4.0F - var5) * 7.0F);
-               } else if (var5 >= 4.0F) {
-                  var3 = (int)((float)var3 - (var5 - 4.0F) * 7.0F);
-               }
-
-               if ("Auto".equals(this.getVariableString("FireMode"))) {
-                  var3 -= this.shootInARow * 10;
+               float var6 = var2.getMaxSightRange(this);
+               float var7 = var2.getMinSightRange(this);
+               var3 += PZMath.max(CombatManager.getDistanceModifierSightless(var5, false) - CombatManager.getAimDelayPenaltySightless(PZMath.max(0.0F, this.getAimingDelay()), var5), CombatManager.getDistanceModifier(var5, var7, var6, false) - CombatManager.getAimDelayPenalty(PZMath.max(0.0F, this.getAimingDelay()), var5, var7, var6));
+               var3 -= CombatManager.getMoodlesPenalty(this, var5);
+               var3 -= CombatManager.getWeatherPenalty(this, var2, var1.getCurrentSquare(), var5);
+               var3 -= CombatManager.getMovePenalty(this, var5);
+               if (this.Traits.Marksman.isSet()) {
+                  var3 += 10.0F;
                }
             } else {
                if (var2.isTwoHandWeapon() && (this.getPrimaryHandItem() != var2 || this.getSecondaryHandItem() != var2)) {
-                  var3 -= var3 / 3;
+                  var3 -= var3 / 3.0F;
                }
 
                if (this.chargeTime < 2.0F) {
-                  var3 -= var3 / 5;
+                  var3 -= var3 / 5.0F;
                }
 
-               int var8 = this.getPerkLevel(PerkFactory.Perks.Blunt);
+               int var10 = this.getPerkLevel(PerkFactory.Perks.Blunt);
                if (var2.getCategories().contains("Axe")) {
-                  var8 = this.getPerkLevel(PerkFactory.Perks.Axe);
+                  var10 = this.getPerkLevel(PerkFactory.Perks.Axe);
                }
 
                if (var2.getCategories().contains("LongBlade")) {
-                  var8 = this.getPerkLevel(PerkFactory.Perks.LongBlade);
+                  var10 = this.getPerkLevel(PerkFactory.Perks.LongBlade);
                }
 
                if (var2.getCategories().contains("Spear")) {
-                  var8 = this.getPerkLevel(PerkFactory.Perks.Spear);
+                  var10 = this.getPerkLevel(PerkFactory.Perks.Spear);
                }
 
                if (var2.getCategories().contains("SmallBlade")) {
-                  var8 = this.getPerkLevel(PerkFactory.Perks.SmallBlade);
+                  var10 = this.getPerkLevel(PerkFactory.Perks.SmallBlade);
                }
 
                if (var2.getCategories().contains("SmallBlunt")) {
-                  var8 = this.getPerkLevel(PerkFactory.Perks.SmallBlunt);
+                  var10 = this.getPerkLevel(PerkFactory.Perks.SmallBlunt);
                }
 
-               var3 += var8 * 3;
+               var3 += (float)var10 * 3.0F;
                if (var1 instanceof IsoPlayer) {
-                  IsoPlayer var6 = (IsoPlayer)var1;
-                  if (GameClient.bClient && !var6.isLocalPlayer()) {
-                     var3 = (int)((double)var3 - (double)var6.remoteStrLvl * 1.5);
-                     if (var6.getNutrition().getWeight() < 80.0) {
-                        var3 = (int)((double)var3 + Math.abs((var6.getNutrition().getWeight() - 80.0) / 2.0));
+                  IsoPlayer var11 = (IsoPlayer)var1;
+                  if (GameClient.bClient && !var11.isLocalPlayer()) {
+                     var3 -= (float)var11.remoteStrLvl * 1.5F;
+                     if (var11.getNutrition().getWeight() < 80.0) {
+                        var3 += (float)Math.abs((var11.getNutrition().getWeight() - 80.0) / 2.0);
                      } else {
-                        var3 = (int)((double)var3 - (var6.getNutrition().getWeight() - 80.0) / 2.0);
+                        var3 -= (float)((var11.getNutrition().getWeight() - 80.0) / 2.0);
                      }
                   }
                }
+
+               var3 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 5);
+               var3 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 5);
+               var3 -= (float)this.getMoodles().getMoodleLevel(MoodleType.Panic) * 1.3F;
             }
 
-            var3 -= this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 5;
-            var3 -= this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 5;
-            var3 = (int)((double)var3 - (double)this.getMoodles().getMoodleLevel(MoodleType.Panic) * 1.3);
-            if (SandboxOptions.instance.Lore.Toughness.getValue() == 1) {
-               var3 -= 6;
+            if (var1 instanceof IsoZombie) {
+               if (SandboxOptions.instance.Lore.Toughness.getValue() == 1) {
+                  var3 -= 6.0F;
+               }
+
+               if (SandboxOptions.instance.Lore.Toughness.getValue() == 3) {
+                  var3 += 6.0F;
+               }
             }
 
-            if (SandboxOptions.instance.Lore.Toughness.getValue() == 3) {
-               var3 += 6;
-            }
-
-            if (var3 < 10) {
-               var3 = 10;
-            }
-
-            if (var3 > 90) {
-               var3 = 90;
-            }
-
-            return var3;
+            return (int)PZMath.clamp(var3, 10.0F, 90.0F);
          }
       } else {
          return 0;
@@ -3810,6 +4303,18 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          return true;
       } else {
          return GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1 && this.bJoypadMovementActive && this.getJoypadAimVector(tempo).getLengthSquared() > 0.0F;
+      }
+   }
+
+   public boolean allowsTwist() {
+      if (this.isAttacking()) {
+         return false;
+      } else if (this.isTwisting()) {
+         return true;
+      } else if (this.isAiming()) {
+         return true;
+      } else {
+         return this.isSneaking();
       }
    }
 
@@ -3864,7 +4369,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   if (this.aimKeyDownMS != 0L) {
                      this.toggleForceAim();
                   } else {
-                     int var4 = Core.getInstance().getKey("Aim");
+                     int var4 = GameKeyboard.whichKeyDown("Aim");
                      boolean var5 = var4 == 29 || var4 == 157;
                      if (var5 && UIManager.isMouseOverInventory()) {
                         this.toggleForceAim();
@@ -3881,6 +4386,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void UpdateInputState(InputState var1) {
       var1.bMelee = false;
+      var1.bGrapple = false;
       if (!MPDebugAI.updateInputState(this, var1)) {
          if (GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1) {
             if (this.bJoypadMovementActive) {
@@ -3903,14 +4409,18 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                var1.isAttacking = false;
             }
          } else {
-            var1.isAttacking = this.isCharging && Mouse.isButtonDownUICheck(0);
-            if (GameKeyboard.isKeyDown(Core.getInstance().getKey("Melee")) && this.authorizeMeleeAction) {
+            var1.isAttacking = this.isCharging && GameKeyboard.isKeyDown("Attack/Click");
+            if (GameKeyboard.isKeyDown("Melee") && this.isAuthorizedHandToHandAction()) {
                var1.bMelee = true;
+               var1.isAttacking = false;
+            }
+
+            if ((GameKeyboard.isKeyDown("Interact") || this.getGrapplingTarget() != null && ((IsoGameCharacter)this.getGrapplingTarget()).isOnFire()) && this.isAuthorizedHandToHandAction()) {
+               var1.bGrapple = true;
                var1.isAttacking = false;
             }
          }
 
-         boolean var4;
          if (GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1) {
             if (this.bJoypadMovementActive) {
                var1.isCharging = JoypadManager.instance.isRTPressed(this.JoypadBind);
@@ -3923,15 +4433,15 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             var1.isAiming = false;
             var1.bRunning = false;
             var1.bSprinting = false;
-            Vector2 var9 = this.getJoypadAimVector(tempVector2);
-            if (var9.x == 0.0F && var9.y == 0.0F) {
+            Vector2 var7 = this.getJoypadAimVector(tempVector2);
+            if (var7.x == 0.0F && var7.y == 0.0F) {
                var1.isCharging = false;
-               Vector2 var11 = this.getJoypadMoveVector(tempVector2);
-               if (this.isAutoWalk() && var11.getLengthSquared() == 0.0F) {
-                  var11.set(this.getAutoWalkDirection());
+               Vector2 var9 = this.getJoypadMoveVector(tempVector2);
+               if (this.isAutoWalk() && var9.getLengthSquared() == 0.0F) {
+                  var9.set(this.getAutoWalkDirection());
                }
 
-               if (var11.x != 0.0F || var11.y != 0.0F) {
+               if (var9.x != 0.0F || var9.y != 0.0F) {
                   if (this.isAllowRun()) {
                      var1.bRunning = JoypadManager.instance.isRTPressed(this.JoypadBind);
                   }
@@ -3940,12 +4450,12 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   var1.bMelee = false;
                   this.bJoypadIgnoreChargingRT = true;
                   var1.isCharging = false;
-                  var4 = JoypadManager.instance.isBPressed(this.JoypadBind);
-                  if (var1.bRunning && var4 && !this.bJoypadBDown) {
+                  boolean var10 = JoypadManager.instance.isBPressed(this.JoypadBind);
+                  if (var1.bRunning && var10 && !this.bJoypadBDown) {
                      this.bJoypadSprint = !this.bJoypadSprint;
                   }
 
-                  this.bJoypadBDown = var4;
+                  this.bJoypadBDown = var10;
                   var1.bSprinting = this.bJoypadSprint;
                }
             } else {
@@ -3957,39 +4467,28 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                this.bJoypadSprint = false;
             }
          } else {
-            var1.isAiming = (this.isAimKeyDown() || Mouse.isButtonDownUICheck(1) && this.TimeRightPressed >= 0.15F) && this.getPlayerNum() == 0 && StringUtils.isNullOrEmpty(this.getVariableString("BumpFallType"));
-            if (Mouse.isButtonDown(1)) {
-               this.TimeRightPressed += GameTime.getInstance().getRealworldSecondsSinceLastUpdate();
-            } else {
-               this.TimeRightPressed = 0.0F;
-            }
-
-            if (!this.isCharging) {
-               var1.isCharging = Mouse.isButtonDownUICheck(1) && this.TimeRightPressed >= 0.15F || this.isAimKeyDown();
-            } else {
-               var1.isCharging = Mouse.isButtonDown(1) || this.isAimKeyDown();
-            }
-
-            int var8 = Core.getInstance().getKey("Run");
-            int var10 = Core.getInstance().getKey("Sprint");
+            var1.isAiming = this.isAimKeyDown() && this.getPlayerNum() == 0 && StringUtils.isNullOrEmpty(this.getVariableString("BumpFallType"));
+            var1.isCharging = this.isAimKeyDown();
             if (this.isAllowRun()) {
-               var1.bRunning = GameKeyboard.isKeyDown(var8);
+               var1.bRunning = GameKeyboard.isKeyDown("Run");
+            } else {
+               var1.bRunning = false;
             }
 
             if (this.isAllowSprint()) {
-               if (!Core.OptiondblTapJogToSprint) {
-                  if (GameKeyboard.isKeyDown(var10)) {
+               if (!Core.getInstance().isOptiondblTapJogToSprint()) {
+                  if (GameKeyboard.isKeyDown("Sprint")) {
                      var1.bSprinting = true;
                      this.pressedRunTimer = 1.0F;
                   } else {
                      var1.bSprinting = false;
                   }
                } else {
-                  if (!GameKeyboard.wasKeyDown(var8) && GameKeyboard.isKeyDown(var8) && this.pressedRunTimer < 30.0F && this.pressedRun) {
+                  if (!GameKeyboard.wasKeyDown("Run") && GameKeyboard.isKeyDown("Run") && this.pressedRunTimer < 30.0F && this.pressedRun) {
                      var1.bSprinting = true;
                   }
 
-                  if (GameKeyboard.wasKeyDown(var8) && !GameKeyboard.isKeyDown(var8)) {
+                  if (GameKeyboard.wasKeyDown("Run") && !GameKeyboard.isKeyDown("Run")) {
                      var1.bSprinting = false;
                      this.pressedRun = true;
                   }
@@ -4007,6 +4506,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                      this.pressedRun = false;
                   }
                }
+            } else {
+               var1.bSprinting = false;
             }
 
             this.updateToggleToAim();
@@ -4014,26 +4515,27 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                this.setForceAim(false);
             }
 
-            boolean var5;
-            long var6;
+            long var4;
+            boolean var6;
+            boolean var8;
             if (this.PlayerIndex == 0 && Core.getInstance().isToggleToRun()) {
-               var4 = GameKeyboard.isKeyDown(var8);
-               var5 = GameKeyboard.wasKeyDown(var8);
-               var6 = System.currentTimeMillis();
-               if (var4 && !var5) {
-                  this.runKeyDownMS = var6;
-               } else if (!var4 && var5 && var6 - this.runKeyDownMS < 500L) {
+               var6 = GameKeyboard.isKeyDown("Run");
+               var8 = GameKeyboard.wasKeyDown("Run");
+               var4 = System.currentTimeMillis();
+               if (var6 && !var8) {
+                  this.runKeyDownMS = var4;
+               } else if (!var6 && var8 && var4 - this.runKeyDownMS < 500L) {
                   this.toggleForceRun();
                }
             }
 
             if (this.PlayerIndex == 0 && Core.getInstance().isToggleToSprint()) {
-               var4 = GameKeyboard.isKeyDown(var10);
-               var5 = GameKeyboard.wasKeyDown(var10);
-               var6 = System.currentTimeMillis();
-               if (var4 && !var5) {
-                  this.sprintKeyDownMS = var6;
-               } else if (!var4 && var5 && var6 - this.sprintKeyDownMS < 500L) {
+               var6 = GameKeyboard.isKeyDown("Sprint");
+               var8 = GameKeyboard.wasKeyDown("Sprint");
+               var4 = System.currentTimeMillis();
+               if (var6 && !var8) {
+                  this.sprintKeyDownMS = var4;
+               } else if (!var6 && var8 && var4 - this.sprintKeyDownMS < 500L) {
                   this.toggleForceSprint();
                }
             }
@@ -4071,7 +4573,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
       for(int var10 = 0; var10 < var3.size(); ++var10) {
          IsoZombie var7 = (IsoZombie)var3.get(var10);
-         float var8 = IsoUtils.DistanceTo(var7.x, var7.y, var1.x, var1.y);
+         float var8 = IsoUtils.DistanceTo(var7.getX(), var7.getY(), var1.getX(), var1.getY());
          if (var2 == null || var8 < var9) {
             var2 = var7;
             var9 = var8;
@@ -4086,14 +4588,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    public IsoGameCharacter getClosestZombieDist() {
       float var1 = 0.4F;
       boolean var2 = false;
-      testHitPosition.x = this.x + this.getForwardDirection().x * var1;
-      testHitPosition.y = this.y + this.getForwardDirection().y * var1;
+      testHitPosition.x = this.getX() + this.getForwardDirection().x * var1;
+      testHitPosition.y = this.getY() + this.getForwardDirection().y * var1;
       HandWeapon var3 = this.getWeapon();
       ArrayList var4 = new ArrayList();
 
-      for(int var5 = (int)testHitPosition.x - (int)var3.getMaxRange(); var5 <= (int)testHitPosition.x + (int)var3.getMaxRange(); ++var5) {
-         for(int var6 = (int)testHitPosition.y - (int)var3.getMaxRange(); var6 <= (int)testHitPosition.y + (int)var3.getMaxRange(); ++var6) {
-            IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var5, (double)var6, (double)this.z);
+      for(int var5 = PZMath.fastfloor(testHitPosition.x) - (int)var3.getMaxRange(); var5 <= PZMath.fastfloor(testHitPosition.x) + (int)var3.getMaxRange(); ++var5) {
+         for(int var6 = PZMath.fastfloor(testHitPosition.y) - (int)var3.getMaxRange(); var6 <= PZMath.fastfloor(testHitPosition.y) + (int)var3.getMaxRange(); ++var6) {
+            IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var5, (double)var6, (double)this.getZ());
             if (var7 != null && var7.getMovingObjects().size() > 0) {
                for(int var8 = 0; var8 < var7.getMovingObjects().size(); ++var8) {
                   IsoMovingObject var9 = (IsoMovingObject)var7.getMovingObjects().get(var8);
@@ -4114,7 +4616,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                         ((IsoZombie)var9).setHitFromBehind(this.isBehind((IsoZombie)var9));
                         ((IsoZombie)var9).setHitAngle(((IsoZombie)var9).getForwardDirection());
                         ((IsoZombie)var9).setPlayerAttackPosition(((IsoZombie)var9).testDotSide(this));
-                        float var14 = IsoUtils.DistanceTo(var9.x, var9.y, this.x, this.y);
+                        float var14 = IsoUtils.DistanceTo(var9.getX(), var9.getY(), this.getX(), this.getY());
                         if (var14 < var3.getMaxRange()) {
                            var4.add((IsoZombie)var9);
                         }
@@ -4128,8 +4630,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (!var4.isEmpty()) {
          Collections.sort(var4, new Comparator<IsoGameCharacter>() {
             public int compare(IsoGameCharacter var1, IsoGameCharacter var2) {
-               float var3 = IsoUtils.DistanceTo(var1.x, var1.y, IsoPlayer.testHitPosition.x, IsoPlayer.testHitPosition.y);
-               float var4 = IsoUtils.DistanceTo(var2.x, var2.y, IsoPlayer.testHitPosition.x, IsoPlayer.testHitPosition.y);
+               float var3 = IsoUtils.DistanceTo(var1.getX(), var1.getY(), IsoPlayer.testHitPosition.x, IsoPlayer.testHitPosition.y);
+               float var4 = IsoUtils.DistanceTo(var2.getX(), var2.getY(), IsoPlayer.testHitPosition.x, IsoPlayer.testHitPosition.y);
                if (var3 > var4) {
                   return 1;
                } else {
@@ -4144,65 +4646,76 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void hitConsequences(HandWeapon var1, IsoGameCharacter var2, boolean var3, float var4, boolean var5) {
-      String var6 = var2.getVariableString("ZombieHitReaction");
-      if ("Shot".equals(var6)) {
-         var2.setCriticalHit(Rand.Next(100) < ((IsoPlayer)var2).calculateCritChance(this));
-      }
+      if (var2 instanceof IsoAnimal) {
+         this.getBodyDamage().DamageFromAnimal((IsoAnimal)var2);
+         this.setKnockedDown(((IsoAnimal)var2).adef.knockdownAttack);
+         this.setHitReaction("HitReaction");
+      } else {
+         String var6 = var2.getVariableString("ZombieHitReaction");
+         if ("Shot".equals(var6)) {
+            var2.setCriticalHit(Rand.Next(100) < ((IsoPlayer)var2).calculateCritChance(this));
+         }
 
-      if (var2 instanceof IsoPlayer && (GameServer.bServer || GameClient.bClient)) {
-         if (ServerOptions.getInstance().KnockedDownAllowed.getValue()) {
+         if (var2 instanceof IsoPlayer && (GameServer.bServer || GameClient.bClient)) {
+            if (ServerOptions.getInstance().KnockedDownAllowed.getValue()) {
+               this.setKnockedDown(var2.isCriticalHit());
+            }
+         } else {
             this.setKnockedDown(var2.isCriticalHit());
          }
-      } else {
-         this.setKnockedDown(var2.isCriticalHit());
-      }
 
-      if (var2 instanceof IsoPlayer) {
-         if (!StringUtils.isNullOrEmpty(this.getHitReaction())) {
-            this.actionContext.reportEvent("washitpvpagain");
-         }
-
-         this.actionContext.reportEvent("washitpvp");
-         this.setVariable("hitpvp", true);
-      } else {
-         this.actionContext.reportEvent("washit");
-      }
-
-      String var7;
-      if (var3) {
-         if (!GameServer.bServer) {
-            var2.xp.AddXP(PerkFactory.Perks.Strength, 2.0F);
-            this.setHitForce(Math.min(0.5F, this.getHitForce()));
-            this.setHitReaction("HitReaction");
-            var7 = this.testDotSide(var2);
-            this.setHitFromBehind("BEHIND".equals(var7));
-         }
-      } else {
-         if (!GameServer.bServer && (!GameClient.bClient || this.isLocalPlayer())) {
-            this.BodyDamage.DamageFromWeapon(var1);
-         } else if (!GameServer.bServer && !this.isLocalPlayer()) {
-            this.BodyDamage.splatBloodFloorBig();
-         }
-
-         if ("Bite".equals(var6)) {
-            var7 = this.testDotSide(var2);
-            boolean var8 = var7.equals("FRONT");
-            boolean var9 = var7.equals("BEHIND");
-            if (var7.equals("RIGHT")) {
-               var6 = var6 + "LEFT";
+         if (var2 instanceof IsoPlayer) {
+            if (!StringUtils.isNullOrEmpty(this.getHitReaction())) {
+               this.getActionContext().reportEvent("washitpvpagain");
             }
 
-            if (var7.equals("LEFT")) {
-               var6 = var6 + "RIGHT";
-            }
-
-            if (var6 != null && !"".equals(var6)) {
-               this.setHitReaction(var6);
-            }
-         } else if (!this.isKnockedDown()) {
-            this.setHitReaction("HitReaction");
+            this.getActionContext().reportEvent("washitpvp");
+            this.setVariable("hitpvp", true);
+         } else {
+            this.getActionContext().reportEvent("washit");
          }
 
+         String var7;
+         if (var3) {
+            if (GameServer.bServer) {
+               GameServer.addXp((IsoPlayer)var2, PerkFactory.Perks.Strength, 2.0F);
+            } else {
+               if (!GameClient.bClient) {
+                  var2.xp.AddXP(PerkFactory.Perks.Strength, 2.0F);
+               }
+
+               this.setHitForce(Math.min(0.5F, this.getHitForce()));
+               this.setHitReaction("HitReaction");
+               var7 = this.testDotSide(var2);
+               this.setHitFromBehind("BEHIND".equals(var7));
+            }
+         } else {
+            if (GameClient.bClient && var2 instanceof IsoPlayer) {
+               this.getBodyDamage().splatBloodFloorBig();
+            } else {
+               this.getBodyDamage().DamageFromWeapon(var1, -1);
+            }
+
+            if ("Bite".equals(var6)) {
+               var7 = this.testDotSide(var2);
+               boolean var8 = var7.equals("FRONT");
+               boolean var9 = var7.equals("BEHIND");
+               if (var7.equals("RIGHT")) {
+                  var6 = var6 + "LEFT";
+               }
+
+               if (var7.equals("LEFT")) {
+                  var6 = var6 + "RIGHT";
+               }
+
+               if (var6 != null && !"".equals(var6)) {
+                  this.setHitReaction(var6);
+               }
+            } else if (!this.isKnockedDown()) {
+               this.setHitReaction("HitReaction");
+            }
+
+         }
       }
    }
 
@@ -4215,7 +4728,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    private void updateMechanicsItems() {
-      if (!GameServer.bServer && !this.mechanicsItem.isEmpty()) {
+      if (!this.mechanicsItem.isEmpty()) {
          Iterator var1 = this.mechanicsItem.keySet().iterator();
          ArrayList var2 = new ArrayList();
 
@@ -4235,7 +4748,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    private void enterExitVehicle() {
-      boolean var1 = this.PlayerIndex == 0 && GameKeyboard.isKeyDown(Core.getInstance().getKey("Interact"));
+      boolean var1 = this.PlayerIndex == 0 && GameKeyboard.isKeyDown("Interact");
       if (var1) {
          this.bUseVehicle = true;
          this.useVehicleDuration += GameTime.instance.getRealworldSecondsSinceLastUpdate();
@@ -4264,15 +4777,15 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    }
 
-   private void checkActionGroup() {
-      ActionGroup var1 = this.actionContext.getGroup();
+   public void checkActionGroup() {
+      ActionGroup var1 = this.getActionContext().getGroup();
       ActionGroup var2;
       if (this.getVehicle() == null) {
          var2 = ActionGroup.getActionGroup("player");
          if (var1 != var2) {
             this.advancedAnimator.OnAnimDataChanged(false);
             this.initializeStates();
-            this.actionContext.setGroup(var2);
+            this.getActionContext().setGroup(var2);
             this.clearVariable("bEnteringVehicle");
             this.clearVariable("EnterAnimationFinished");
             this.clearVariable("bExitingVehicle");
@@ -4286,7 +4799,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          if (var1 != var2) {
             this.advancedAnimator.OnAnimDataChanged(false);
             this.initializeStates();
-            this.actionContext.setGroup(var2);
+            this.getActionContext().setGroup(var2);
          }
       }
 
@@ -4296,14 +4809,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.getVehicle() != null) {
          return null;
       } else {
-         int var1 = ((int)this.x - 4) / 10 - 1;
-         int var2 = ((int)this.y - 4) / 10 - 1;
-         int var3 = (int)Math.ceil((double)((this.x + 4.0F) / 10.0F)) + 1;
-         int var4 = (int)Math.ceil((double)((this.y + 4.0F) / 10.0F)) + 1;
+         int var1 = (PZMath.fastfloor(this.getX()) - 4) / 8 - 1;
+         int var2 = (PZMath.fastfloor(this.getY()) - 4) / 8 - 1;
+         int var3 = (int)Math.ceil((double)((this.getX() + 4.0F) / 8.0F)) + 1;
+         int var4 = (int)Math.ceil((double)((this.getY() + 4.0F) / 8.0F)) + 1;
 
          for(int var5 = var2; var5 < var4; ++var5) {
             for(int var6 = var1; var6 < var3; ++var6) {
-               IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var6, var5) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var6 * 10, var5 * 10, 0);
+               IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var6, var5) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var6 * 8, var5 * 8, 0);
                if (var7 != null) {
                   for(int var8 = 0; var8 < var7.vehicles.size(); ++var8) {
                      BaseVehicle var9 = (BaseVehicle)var7.vehicles.get(var8);
@@ -4323,10 +4836,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.getVehicle() != null) {
          return false;
       } else {
-         int var1 = ((int)this.x - 4) / 10 - 1;
-         int var2 = ((int)this.y - 4) / 10 - 1;
-         int var3 = (int)Math.ceil((double)((this.x + 4.0F) / 10.0F)) + 1;
-         int var4 = (int)Math.ceil((double)((this.y + 4.0F) / 10.0F)) + 1;
+         int var1 = (PZMath.fastfloor(this.getX()) - 4) / 8 - 1;
+         int var2 = (PZMath.fastfloor(this.getY()) - 4) / 8 - 1;
+         int var3 = (int)Math.ceil((double)((this.getX() + 4.0F) / 8.0F)) + 1;
+         int var4 = (int)Math.ceil((double)((this.getY() + 4.0F) / 8.0F)) + 1;
 
          for(int var5 = var2; var5 < var4; ++var5) {
             for(int var6 = var1; var6 < var3; ++var6) {
@@ -4334,7 +4847,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                if (var7 != null) {
                   for(int var8 = 0; var8 < var7.vehicles.size(); ++var8) {
                      BaseVehicle var9 = (BaseVehicle)var7.vehicles.get(var8);
-                     if (var9.getScript() != null && (double)var9.DistTo(this) < 3.5) {
+                     if (var9.getScript() != null && var9.DistTo(this) < 3.5F) {
                         return true;
                      }
                   }
@@ -4350,10 +4863,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.getVehicle() != null) {
          return null;
       } else {
-         int var1 = ((int)this.x - 4) / 10 - 1;
-         int var2 = ((int)this.y - 4) / 10 - 1;
-         int var3 = (int)Math.ceil((double)((this.x + 4.0F) / 10.0F)) + 1;
-         int var4 = (int)Math.ceil((double)((this.y + 4.0F) / 10.0F)) + 1;
+         int var1 = (PZMath.fastfloor(this.getX()) - 4) / 8 - 1;
+         int var2 = (PZMath.fastfloor(this.getY()) - 4) / 8 - 1;
+         int var3 = (int)Math.ceil((double)((this.getX() + 4.0F) / 8.0F)) + 1;
+         int var4 = (int)Math.ceil((double)((this.getY() + 4.0F) / 8.0F)) + 1;
 
          for(int var5 = var2; var5 < var4; ++var5) {
             for(int var6 = var1; var6 < var3; ++var6) {
@@ -4361,7 +4874,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                if (var7 != null) {
                   for(int var8 = 0; var8 < var7.vehicles.size(); ++var8) {
                      BaseVehicle var9 = (BaseVehicle)var7.vehicles.get(var8);
-                     if (var9.getScript() != null && (int)this.getZ() == (int)var9.getZ() && (!this.isLocalPlayer() || var9.getTargetAlpha(this.PlayerIndex) != 0.0F) && !(this.DistToSquared((float)((int)var9.x), (float)((int)var9.y)) >= 16.0F) && PolygonalMap2.instance.intersectLineWithVehicle(this.x, this.y, this.x + this.getForwardDirection().x * 4.0F, this.y + this.getForwardDirection().y * 4.0F, var9, tempVector2) && !PolygonalMap2.instance.lineClearCollide(this.x, this.y, tempVector2.x, tempVector2.y, (int)this.z, var9, false, true)) {
+                     if (var9.getScript() != null && PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(var9.getZ()) && (!this.isLocalPlayer() || var9.getTargetAlpha(this.PlayerIndex) != 0.0F) && !(this.DistToSquared((float)PZMath.fastfloor(var9.getX()), (float)PZMath.fastfloor(var9.getY())) >= 16.0F) && PolygonalMap2.instance.intersectLineWithVehicle(this.getX(), this.getY(), this.getX() + this.getForwardDirection().x * 4.0F, this.getY() + this.getForwardDirection().y * 4.0F, var9, tempVector2) && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), tempVector2.x, tempVector2.y, PZMath.fastfloor(this.getZ()), var9, false, true)) {
                         return var9;
                      }
                   }
@@ -4375,16 +4888,16 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void updateWhileInVehicle() {
       this.bLookingWhileInVehicle = false;
-      ActionGroup var1 = this.actionContext.getGroup();
+      ActionGroup var1 = this.getActionContext().getGroup();
       ActionGroup var2 = ActionGroup.getActionGroup("player-vehicle");
       if (var1 != var2) {
          this.advancedAnimator.OnAnimDataChanged(false);
          this.initializeStates();
-         this.actionContext.setGroup(var2);
+         this.getActionContext().setGroup(var2);
       }
 
       if (GameClient.bClient && this.getVehicle().getSeat(this) == -1) {
-         DebugLog.log("forced " + this.getUsername() + " out of vehicle seat -1");
+         DebugLog.DetailedInfo.trace("forced " + this.getUsername() + " out of vehicle seat -1");
          this.setVehicle((BaseVehicle)null);
       } else {
          this.dirtyRecalcGridStackTime = 10.0F;
@@ -4420,10 +4933,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          this.bSeenThisFrame = false;
          this.bCouldBeSeenThisFrame = false;
          this.closestZombie = 1000000.0F;
+         this.updateAimingDelay();
          this.setBeenMovingFor(this.getBeenMovingFor() - 0.625F * GameTime.getInstance().getMultiplier());
          if (!this.Asleep) {
             float var12 = (float)ZomboidGlobals.SittingEnduranceMultiplier;
-            var12 *= 1.0F - this.stats.fatigue;
+            var12 *= 1.0F - this.stats.fatigue * 0.8F;
             var12 *= GameTime.instance.getMultiplier();
             Stats var10000 = this.stats;
             var10000.endurance = (float)((double)var10000.endurance + ZomboidGlobals.ImobileEnduranceReduce * SandboxOptions.instance.getEnduranceRegenMultiplier() * (double)this.getRecoveryMod() * (double)var12);
@@ -4434,16 +4948,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          if (this.vehicle != null) {
             Vector3f var13 = this.vehicle.getForwardVector(tempVector3f);
             boolean var11 = this.isAimControlActive();
-            if (this.PlayerIndex == 0) {
-               if (Mouse.isButtonDown(1)) {
-                  this.TimeRightPressed += GameTime.getInstance().getRealworldSecondsSinceLastUpdate();
-               } else {
-                  this.TimeRightPressed = 0.0F;
-               }
-
-               var11 |= Mouse.isButtonDownUICheck(1) && this.TimeRightPressed >= 0.15F;
-            }
-
             if (!var11 && this.isCurrentState(IdleState.instance())) {
                this.setForwardDirection(var13.x, var13.z);
                this.getForwardDirection().normalize();
@@ -4456,7 +4960,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             this.DirectionFromVector(this.getForwardDirection());
             AnimationPlayer var5 = this.getAnimationPlayer();
             if (var5 != null && var5.isReady()) {
-               var5.SetForceDir(this.getForwardDirection());
+               var5.setTargetAndCurrentDirection(this.getForwardDirection());
                float var6 = var5.getAngle() + var5.getTwistAngle();
                this.dir = IsoDirections.fromAngle(tempVector2.setLengthAndDirection(var6, 1.0F));
             }
@@ -4517,22 +5021,17 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          this.isChargingLT = this.isAiming() && JoypadManager.instance.isLTPressed(this.JoypadBind);
       } else {
          boolean var3 = this.isAimKeyDown();
-         this.setIsAiming(var3 || Mouse.isButtonDownUICheck(1) && this.TimeRightPressed >= 0.15F);
-         if (this.isCharging) {
-            this.isCharging = var3 || Mouse.isButtonDown(1);
-         } else {
-            this.isCharging = var3 || Mouse.isButtonDownUICheck(1) && this.TimeRightPressed >= 0.15F;
-         }
-
+         this.setIsAiming(var3);
+         this.isCharging = var3;
          if (this.isForceAim()) {
             this.setIsAiming(true);
             this.isCharging = true;
          }
 
-         if (GameKeyboard.isKeyDown(Core.getInstance().getKey("Melee")) && this.authorizeMeleeAction) {
+         if (GameKeyboard.isKeyDown("Melee") && this.isAuthorizedHandToHandAction()) {
             var2 = true;
          } else {
-            var1 = this.isCharging && Mouse.isButtonDownUICheck(0);
+            var1 = this.isCharging && GameKeyboard.isKeyDown("Attack/Click");
             if (var1) {
                this.setIsAiming(true);
             }
@@ -4567,7 +5066,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
    }
 
-   private void setAngleFromAim() {
+   public void setAngleFromAim() {
       Vector2 var1 = tempVector2;
       if (GameWindow.ActivatedJoyPad != null && this.JoypadBind != -1) {
          this.getControllerAimDir(var1);
@@ -4579,6 +5078,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          var1.y -= IsoUtils.YToIso((float)var2, (float)var3 + 55.0F * this.def.getScaleY(), this.getZ());
          var1.x = -var1.x;
          var1.y = -var1.y;
+         float var4 = IsoUtils.XToIso((float)var2, (float)var3, this.getZ() + 0.45F);
+         float var5 = IsoUtils.YToIso((float)var2, (float)var3, this.getZ() + 0.45F);
+         this.faceLocationF(var4, var5);
       }
 
       if (var1.getLengthSquared() > 0.0F) {
@@ -4601,7 +5103,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             return;
          }
 
-         if (Rand.Next(600 - (int)(0.4 / (double)var1.getUsedDelta() * 100.0)) == 0) {
+         if (Rand.Next(600 - (int)(0.4F / var1.getCurrentUsesFloat() * 100.0F)) == 0) {
             this.flickTorch = true;
          }
 
@@ -4627,9 +5129,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void calculateContext() {
-      float var1 = this.x;
-      float var2 = this.y;
-      float var3 = this.x;
+      float var1 = this.getX();
+      float var2 = this.getY();
+      float var3 = this.getX();
       IsoGridSquare[] var4 = new IsoGridSquare[4];
       if (this.dir == IsoDirections.N) {
          var4[2] = this.getCell().getGridSquare((double)(var1 - 1.0F), (double)(var2 - 1.0F), (double)var3);
@@ -4679,19 +5181,21 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       IsoGridSquare var2 = null;
       switch (var1) {
          case N:
-            var2 = this.getCell().getGridSquare((double)this.x, (double)(this.y - 1.0F), (double)this.z);
+            var2 = this.getCell().getGridSquare((double)this.getX(), (double)(this.getY() - 1.0F), (double)this.getZ());
             break;
-         case S:
-            var2 = this.getCell().getGridSquare((double)this.x, (double)(this.y + 1.0F), (double)this.z);
-            break;
-         case W:
-            var2 = this.getCell().getGridSquare((double)(this.x - 1.0F), (double)this.y, (double)this.z);
-            break;
-         case E:
-            var2 = this.getCell().getGridSquare((double)(this.x + 1.0F), (double)this.y, (double)this.z);
-            break;
+         case NW:
+         case SW:
+         case SE:
          default:
             return false;
+         case W:
+            var2 = this.getCell().getGridSquare((double)(this.getX() - 1.0F), (double)this.getY(), (double)this.getZ());
+            break;
+         case S:
+            var2 = this.getCell().getGridSquare((double)this.getX(), (double)(this.getY() + 1.0F), (double)this.getZ());
+            break;
+         case E:
+            var2 = this.getCell().getGridSquare((double)(this.getX() + 1.0F), (double)this.getY(), (double)this.getZ());
       }
 
       if (var2 == null) {
@@ -4708,7 +5212,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          return false;
       } else if (this.isBlockMovement()) {
          return false;
-      } else {
+      } else if (!this.getCharacterActions().isEmpty()) {
+         return false;
+      } else if (!this.isSittingOnFurniture() && !this.isSitOnGround()) {
          for(int var2 = 0; var2 < this.getCell().vehicles.size(); ++var2) {
             BaseVehicle var3 = (BaseVehicle)this.getCell().vehicles.get(var2);
             if (var3.getUseablePart(this) != null) {
@@ -4716,8 +5222,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             }
          }
 
-         float var7 = this.x - (float)((int)this.x);
-         float var8 = this.y - (float)((int)this.y);
+         float var7 = this.getX() - (float)PZMath.fastfloor(this.getX());
+         float var8 = this.getY() - (float)PZMath.fastfloor(this.getY());
          IsoDirections var4 = IsoDirections.Max;
          IsoDirections var5 = IsoDirections.Max;
          if (var1 == IsoDirections.NW) {
@@ -4825,7 +5331,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                return true;
             }
 
-            var4 = var1.RotLeft(4);
+            var4 = var1.Rot180();
          }
 
          IsoObject var6;
@@ -4845,7 +5351,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             }
          }
 
+         LuaEventManager.triggerEvent("OnContextKey", this, BoxedStaticValues.toDouble((double)PZMath.fastfloor(this.timePressedContext * 1000.0F)));
          return false;
+      } else {
+         LuaEventManager.triggerEvent("OnContextKey", this, BoxedStaticValues.toDouble((double)PZMath.fastfloor(this.timePressedContext * 1000.0F)));
+         return true;
       }
    }
 
@@ -4855,25 +5365,23 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       if (this.current == null) {
          return false;
       } else if (var1 == IsoDirections.N && this.current.Is(IsoFlagType.climbSheetN) && this.canClimbSheetRope(this.current)) {
-         this.climbSheetRope();
+         this.triggerContextualAction("ClimbSheetRope", this.current, false);
          return true;
       } else if (var1 == IsoDirections.S && this.current.Is(IsoFlagType.climbSheetS) && this.canClimbSheetRope(this.current)) {
-         this.climbSheetRope();
+         this.triggerContextualAction("ClimbSheetRope", this.current, false);
          return true;
       } else if (var1 == IsoDirections.W && this.current.Is(IsoFlagType.climbSheetW) && this.canClimbSheetRope(this.current)) {
-         this.climbSheetRope();
+         this.triggerContextualAction("ClimbSheetRope", this.current, false);
          return true;
       } else if (var1 == IsoDirections.E && this.current.Is(IsoFlagType.climbSheetE) && this.canClimbSheetRope(this.current)) {
-         this.climbSheetRope();
+         this.triggerContextualAction("ClimbSheetRope", this.current, false);
          return true;
       } else {
          IsoGridSquare var2 = this.current.nav[var1.index()];
          boolean var3 = IsoWindow.isTopOfSheetRopeHere(var2) && this.canClimbDownSheetRope(var2);
          IsoObject var4 = this.getContextDoorOrWindowOrWindowFrame(var1);
-         if (var4 != null) {
-            this.doContextDoorOrWindowOrWindowFrame(var1, var4);
-            return true;
-         } else {
+         if (var4 == null || this.isGrappling() && !(var4 instanceof IsoWindow)) {
+            IsoGridSquare var7;
             if (GameKeyboard.isKeyDown(42) && this.current != null && this.ticksSincePressedMovement > 15.0F) {
                IsoObject var5 = this.current.getDoor(true);
                if (var5 instanceof IsoDoor && ((IsoDoor)var5).isFacingSheet(this)) {
@@ -4887,10 +5395,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   return true;
                }
 
-               IsoGridSquare var7;
                IsoObject var8;
                if (var1 == IsoDirections.E) {
-                  var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)(this.x + 1.0F), (double)this.y, (double)this.z);
+                  var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)(this.getX() + 1.0F), (double)this.getY(), (double)this.getZ());
                   var8 = var7 != null ? var7.getDoor(true) : null;
                   if (var8 instanceof IsoDoor && ((IsoDoor)var8).isFacingSheet(this)) {
                      ((IsoDoor)var8).toggleCurtain();
@@ -4899,7 +5406,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                }
 
                if (var1 == IsoDirections.S) {
-                  var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)(this.y + 1.0F), (double)this.z);
+                  var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)this.getX(), (double)(this.getY() + 1.0F), (double)this.getZ());
                   var8 = var7 != null ? var7.getDoor(false) : null;
                   if (var8 instanceof IsoDoor && ((IsoDoor)var8).isFacingSheet(this)) {
                      ((IsoDoor)var8).toggleCurtain();
@@ -4909,7 +5416,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             }
 
             boolean var9 = this.isSafeToClimbOver(var1);
-            if (this.z > 0.0F && var3) {
+            if (this.getZ() > 0.0F && var3) {
                var9 = true;
             }
 
@@ -4918,20 +5425,29 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             } else if (this.ignoreAutoVault) {
                return false;
             } else if (var1 == IsoDirections.N && this.getCurrentSquare().Is(IsoFlagType.HoppableN)) {
-               this.climbOverFence(var1);
+               this.triggerContextualAction("ClimbOverFence", this.getCurrentSquare().getHoppable(true));
                return true;
             } else if (var1 == IsoDirections.W && this.getCurrentSquare().Is(IsoFlagType.HoppableW)) {
-               this.climbOverFence(var1);
-               return true;
-            } else if (var1 == IsoDirections.S && IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)(this.y + 1.0F), (double)this.z) != null && IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)(this.y + 1.0F), (double)this.z).Is(IsoFlagType.HoppableN)) {
-               this.climbOverFence(var1);
-               return true;
-            } else if (var1 == IsoDirections.E && IsoWorld.instance.CurrentCell.getGridSquare((double)(this.x + 1.0F), (double)this.y, (double)this.z) != null && IsoWorld.instance.CurrentCell.getGridSquare((double)(this.x + 1.0F), (double)this.y, (double)this.z).Is(IsoFlagType.HoppableW)) {
-               this.climbOverFence(var1);
+               this.triggerContextualAction("ClimbOverFence", this.getCurrentSquare().getHoppable(false));
                return true;
             } else {
-               return this.climbOverWall(var1);
+               IsoGridSquare var10 = this.getCurrentSquare().getAdjacentSquare(IsoDirections.S);
+               if (var1 == IsoDirections.S && var10 != null && var10.Is(IsoFlagType.HoppableN)) {
+                  this.triggerContextualAction("ClimbOverFence", var10.getHoppable(true));
+                  return true;
+               } else {
+                  var7 = this.getCurrentSquare().getAdjacentSquare(IsoDirections.E);
+                  if (var1 == IsoDirections.E && var7 != null && var7.Is(IsoFlagType.HoppableW)) {
+                     this.triggerContextualAction("ClimbOverFence", var7.getHoppable(false));
+                     return true;
+                  } else {
+                     return this.climbOverWall(var1);
+                  }
+               }
             }
+         } else {
+            this.doContextDoorOrWindowOrWindowFrame(var1, var4);
+            return true;
          }
       }
    }
@@ -4960,22 +5476,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                if (var2 != null && !this.current.isBlockedTo(var2)) {
                   var3 = var2.getOpenDoor(IsoDirections.S);
                }
-               break;
-            case S:
-               var3 = this.current.getOpenDoor(var1);
-               if (var3 != null) {
-                  return var3;
-               }
-
-               if (var2 != null) {
-                  boolean var4 = this.current.isBlockedTo(var2);
-                  var3 = var2.getDoorOrWindowOrWindowFrame(IsoDirections.N, var4);
-                  if (var3 != null) {
-                     return var3;
-                  }
-
-                  var3 = var2.getDoor(true);
-               }
+            case NW:
+            case SW:
+            case SE:
+            default:
                break;
             case W:
                var3 = this.current.getOpenDoor(var1);
@@ -4995,6 +5499,22 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
                if (var2 != null && !this.current.isBlockedTo(var2)) {
                   var3 = var2.getOpenDoor(IsoDirections.E);
+               }
+               break;
+            case S:
+               var3 = this.current.getOpenDoor(var1);
+               if (var3 != null) {
+                  return var3;
+               }
+
+               if (var2 != null) {
+                  boolean var4 = this.current.isBlockedTo(var2);
+                  var3 = var2.getDoorOrWindowOrWindowFrame(IsoDirections.N, var4);
+                  if (var3 != null) {
+                     return var3;
+                  }
+
+                  var3 = var2.getDoor(true);
                }
                break;
             case E:
@@ -5023,94 +5543,137 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private void doContextDoorOrWindowOrWindowFrame(IsoDirections var1, IsoObject var2) {
       IsoGridSquare var3 = this.current.nav[var1.index()];
       boolean var4 = IsoWindow.isTopOfSheetRopeHere(var3) && this.canClimbDownSheetRope(var3);
-      if (var2 instanceof IsoDoor var5) {
-         if (GameKeyboard.isKeyDown(42) && var5.HasCurtains() != null && var5.isFacingSheet(this) && this.ticksSincePressedMovement > 15.0F) {
-            var5.toggleCurtain();
-         } else if (this.timePressedContext >= 0.5F) {
-            if (var5.isHoppable() && !this.isIgnoreAutoVault()) {
-               this.climbOverFence(var1);
-            } else {
-               var5.ToggleDoor(this);
-            }
-         } else {
-            var5.ToggleDoor(this);
+      if (var2 instanceof IsoDoor) {
+         this.doContextDoor(var1, (IsoDoor)var2);
+      } else if (var2 instanceof IsoThumpable && ((IsoThumpable)var2).isDoor()) {
+         this.doContextThumpableDoor(var1, (IsoThumpable)var2);
+      } else if (var2 instanceof IsoWindow && !var2.getSquare().getProperties().Is(IsoFlagType.makeWindowInvincible)) {
+         this.doContextWindow(var1, (IsoWindow)var2, var4);
+      } else if (var2 instanceof IsoThumpable && !var2.getSquare().getProperties().Is(IsoFlagType.makeWindowInvincible)) {
+         this.doContextThumpableWindow(var1, (IsoThumpable)var2, var4);
+      } else if (var2 instanceof IsoWindowFrame) {
+         IsoWindowFrame var5 = (IsoWindowFrame)var2;
+         this.doContextWindowFrame(var1, var5, var4);
+      }
+
+   }
+
+   private void doContextWindowFrame(IsoDirections var1, IsoWindowFrame var2, boolean var3) {
+      if (GameKeyboard.isKeyDown(42)) {
+         IsoCurtain var4 = var2.getCurtain();
+         if (var4 != null && this.current != null && !var4.getSquare().isBlockedTo(this.current)) {
+            this.triggerContextualAction(var4.IsOpen() ? "CloseCurtain" : "OpenCurtain", var4);
          }
-      } else if (var2 instanceof IsoThumpable var8 && ((IsoThumpable)var2).isDoor()) {
-         if (this.timePressedContext >= 0.5F) {
-            if (var8.isHoppable() && !this.isIgnoreAutoVault()) {
-               this.climbOverFence(var1);
-            } else {
-               var8.ToggleDoor(this);
-            }
+      } else if ((this.timePressedContext >= 0.5F || this.isSafeToClimbOver(var1) || var3) && var2.canClimbThrough(this)) {
+         if (this.isGrappling()) {
+            this.throwGrappledTargetOutWindow(var2);
          } else {
-            var8.ToggleDoor(this);
+            this.triggerContextualAction("ClimbThroughWindow", var2);
+         }
+      }
+
+   }
+
+   private void doContextThumpableWindow(IsoDirections var1, IsoThumpable var2, boolean var3) {
+      if (GameKeyboard.isKeyDown(42)) {
+         IsoCurtain var4 = var2.HasCurtains();
+         if (var4 != null && this.current != null && !var4.getSquare().isBlockedTo(this.current)) {
+            this.triggerContextualAction(var4.IsOpen() ? "CloseCurtain" : "OpenCurtain", var4);
+         }
+      } else if (this.timePressedContext >= 0.5F) {
+         if (var2.canClimbThrough(this)) {
+            if (this.isGrappling()) {
+               this.throwGrappledTargetOutWindow(var2);
+            } else {
+               this.triggerContextualAction("ClimbThroughWindow", var2);
+            }
          }
       } else {
-         IsoCurtain var6;
-         if (var2 instanceof IsoWindow var9 && !var2.getSquare().getProperties().Is(IsoFlagType.makeWindowInvincible)) {
-            if (GameKeyboard.isKeyDown(42)) {
-               var6 = var9.HasCurtains();
-               if (var6 != null && this.current != null && !var6.getSquare().isBlockedTo(this.current)) {
-                  var6.ToggleDoor(this);
-               }
-            } else if (this.timePressedContext >= 0.5F) {
-               if (var9.canClimbThrough(this)) {
-                  this.climbThroughWindow(var9);
-               } else if (!var9.PermaLocked && !var9.isBarricaded() && !var9.IsOpen() && !var9.isDestroyed()) {
-                  this.openWindow(var9);
-               }
-            } else if (var9.Health > 0 && !var9.isDestroyed()) {
-               IsoBarricade var10 = var9.getBarricadeForCharacter(this);
-               if (!var9.open && var10 == null) {
-                  this.openWindow(var9);
-               } else if (var10 == null) {
-                  this.closeWindow(var9);
-               }
-            } else if (var9.isGlassRemoved()) {
-               if (!this.isSafeToClimbOver(var1) && !var2.getSquare().haveSheetRope && !var4) {
-                  return;
-               }
+         if (!this.isSafeToClimbOver(var1) && !var2.getSquare().haveSheetRope && !var3) {
+            return;
+         }
 
-               if (!var9.isBarricaded()) {
-                  this.climbThroughWindow(var9);
-               }
-            }
-         } else if (var2 instanceof IsoThumpable var8 && !var2.getSquare().getProperties().Is(IsoFlagType.makeWindowInvincible)) {
-            if (GameKeyboard.isKeyDown(42)) {
-               var6 = var8.HasCurtains();
-               if (var6 != null && this.current != null && !var6.getSquare().isBlockedTo(this.current)) {
-                  var6.ToggleDoor(this);
-               }
-            } else if (this.timePressedContext >= 0.5F) {
-               if (var8.canClimbThrough(this)) {
-                  this.climbThroughWindow(var8);
-               }
+         if (var2.canClimbThrough(this)) {
+            if (this.isGrappling()) {
+               this.throwGrappledTargetOutWindow(var2);
             } else {
-               if (!this.isSafeToClimbOver(var1) && !var2.getSquare().haveSheetRope && !var4) {
-                  return;
-               }
-
-               if (var8.canClimbThrough(this)) {
-                  this.climbThroughWindow(var8);
-               }
-            }
-         } else if (IsoWindowFrame.isWindowFrame(var2)) {
-            if (GameKeyboard.isKeyDown(42)) {
-               IsoCurtain var7 = IsoWindowFrame.getCurtain(var2);
-               if (var7 != null && this.current != null && !var7.getSquare().isBlockedTo(this.current)) {
-                  var7.ToggleDoor(this);
-               }
-            } else if ((this.timePressedContext >= 0.5F || this.isSafeToClimbOver(var1) || var4) && IsoWindowFrame.canClimbThrough(var2, this)) {
-               this.climbThroughWindowFrame(var2);
+               this.triggerContextualAction("ClimbThroughWindow", var2);
             }
          }
       }
 
    }
 
+   private void doContextWindow(IsoDirections var1, IsoWindow var2, boolean var3) {
+      if (GameKeyboard.isKeyDown(42)) {
+         IsoCurtain var4 = var2.HasCurtains();
+         if (var4 != null && this.current != null && !var4.getSquare().isBlockedTo(this.current)) {
+            this.triggerContextualAction(var4.IsOpen() ? "CloseCurtain" : "OpenCurtain", var4);
+         }
+      } else if (this.timePressedContext >= 0.5F) {
+         if (var2.canClimbThrough(this)) {
+            if (this.isGrappling()) {
+               this.throwGrappledTargetOutWindow(var2);
+            } else {
+               this.triggerContextualAction("ClimbThroughWindow", var2);
+            }
+         } else if (!var2.PermaLocked && !var2.isBarricaded() && !var2.IsOpen() && !var2.isDestroyed()) {
+            this.triggerContextualAction("OpenWindow", var2);
+         }
+      } else if (var2.Health > 0 && !var2.isDestroyed()) {
+         IsoBarricade var5 = var2.getBarricadeForCharacter(this);
+         if (!var2.open && var5 == null) {
+            this.triggerContextualAction("OpenWindow", var2);
+         } else if (var5 == null) {
+            this.triggerContextualAction("CloseWindow", var2);
+         }
+      } else if (var2.isGlassRemoved()) {
+         if (!this.isSafeToClimbOver(var1) && !var2.getSquare().haveSheetRope && !var3) {
+            return;
+         }
+
+         if (!var2.isBarricaded()) {
+            if (this.isGrappling()) {
+               this.throwGrappledTargetOutWindow(var2);
+            } else {
+               this.triggerContextualAction("ClimbThroughWindow", var2);
+            }
+         }
+      }
+
+   }
+
+   private void doContextThumpableDoor(IsoDirections var1, IsoThumpable var2) {
+      if (this.timePressedContext >= 0.5F) {
+         if (var2.isHoppable() && !this.isIgnoreAutoVault()) {
+            this.triggerContextualAction("ClimbOverFence", var2);
+         } else {
+            this.triggerContextualAction(var2.IsOpen() ? "CloseDoor" : "OpenDoor", var2);
+         }
+      } else {
+         this.triggerContextualAction(var2.IsOpen() ? "CloseDoor" : "OpenDoor", var2);
+      }
+
+   }
+
+   private void doContextDoor(IsoDirections var1, IsoDoor var2) {
+      if (GameKeyboard.isKeyDown(42) && var2.HasCurtains() != null && var2.isFacingSheet(this) && this.ticksSincePressedMovement > 15.0F) {
+         this.triggerContextualAction(var2.isCurtainOpen() ? "CloseCurtain" : "OpenCurtain", var2);
+      } else if (this.timePressedContext >= 0.5F) {
+         if (var2.isHoppable() && !this.isIgnoreAutoVault()) {
+            this.triggerContextualAction("ClimbOverFence", var2);
+         } else {
+            this.triggerContextualAction(var2.IsOpen() ? "CloseDoor" : "OpenDoor", var2);
+         }
+      } else {
+         this.triggerContextualAction(var2.IsOpen() ? "CloseDoor" : "OpenDoor", var2);
+      }
+
+   }
+
    public boolean hopFence(IsoDirections var1, boolean var2) {
-      float var4 = this.x - (float)((int)this.x);
-      float var5 = this.y - (float)((int)this.y);
+      float var4 = this.getX() - (float)PZMath.fastfloor(this.getX());
+      float var5 = this.getY() - (float)PZMath.fastfloor(this.getY());
       if (var1 == IsoDirections.NW) {
          if (var5 < var4) {
             return this.hopFence(IsoDirections.N, var2) ? true : this.hopFence(IsoDirections.W, var2);
@@ -5148,32 +5711,38 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                if (var2) {
                   return true;
                } else {
-                  this.climbOverFence(var1);
+                  this.triggerContextualAction("ClimbOverFence", this.getCurrentSquare().getHoppable(true));
                   return true;
                }
             } else if (var1 == IsoDirections.W && this.getCurrentSquare().Is(IsoFlagType.HoppableW)) {
                if (var2) {
                   return true;
                } else {
-                  this.climbOverFence(var1);
-                  return true;
-               }
-            } else if (var1 == IsoDirections.S && IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)(this.y + 1.0F), (double)this.z) != null && IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)(this.y + 1.0F), (double)this.z).Is(IsoFlagType.HoppableN)) {
-               if (var2) {
-                  return true;
-               } else {
-                  this.climbOverFence(var1);
-                  return true;
-               }
-            } else if (var1 == IsoDirections.E && IsoWorld.instance.CurrentCell.getGridSquare((double)(this.x + 1.0F), (double)this.y, (double)this.z) != null && IsoWorld.instance.CurrentCell.getGridSquare((double)(this.x + 1.0F), (double)this.y, (double)this.z).Is(IsoFlagType.HoppableW)) {
-               if (var2) {
-                  return true;
-               } else {
-                  this.climbOverFence(var1);
+                  this.triggerContextualAction("ClimbOverFence", this.getCurrentSquare().getHoppable(false));
                   return true;
                }
             } else {
-               return false;
+               IsoGridSquare var7 = this.getCurrentSquare().getAdjacentSquare(IsoDirections.S);
+               if (var1 == IsoDirections.S && var7 != null && var7.Is(IsoFlagType.HoppableN)) {
+                  if (var2) {
+                     return true;
+                  } else {
+                     this.triggerContextualAction("ClimbOverFence", var7.getHoppable(true));
+                     return true;
+                  }
+               } else {
+                  IsoGridSquare var8 = this.getCurrentSquare().getAdjacentSquare(IsoDirections.E);
+                  if (var1 == IsoDirections.E && var8 != null && var8.Is(IsoFlagType.HoppableW)) {
+                     if (var2) {
+                        return true;
+                     } else {
+                        this.triggerContextualAction("ClimbOverFence", var8.getHoppable(false));
+                        return true;
+                     }
+                  } else {
+                     return false;
+                  }
+               }
             }
          } else {
             return false;
@@ -5191,7 +5760,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             return false;
          } else {
             IsoGridSquare var2 = IsoWorld.instance.CurrentCell.getGridSquare(this.current.x, this.current.y, this.current.z + 1);
-            if (var2 != null && var2.HasSlopedRoof()) {
+            if (var2 != null && var2.HasSlopedRoof() && !var2.HasEave()) {
                return false;
             } else {
                IsoGridSquare var3 = this.current.nav[var1.index()];
@@ -5202,7 +5771,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                      return false;
                   } else {
                      IsoGridSquare var4 = IsoWorld.instance.CurrentCell.getGridSquare(var3.x, var3.y, var3.z + 1);
-                     if (var4 != null && var4.HasSlopedRoof()) {
+                     if (var4 != null && var4.HasSlopedRoof() && !var4.HasEave()) {
                         return false;
                      } else {
                         switch (var1) {
@@ -5227,27 +5796,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  return false;
                               }
                               break;
-                           case S:
-                              if (var3.Is(IsoFlagType.CantClimb)) {
-                                 return false;
-                              }
-
-                              if (!var3.Has(IsoObjectType.wall)) {
-                                 return false;
-                              }
-
-                              if (!var3.Is(IsoFlagType.collideN)) {
-                                 return false;
-                              }
-
-                              if (var3.Is(IsoFlagType.HoppableN)) {
-                                 return false;
-                              }
-
-                              if (var4 != null && var4.Is(IsoFlagType.collideN)) {
-                                 return false;
-                              }
-                              break;
+                           case NW:
+                           case SW:
+                           case SE:
+                           default:
+                              return false;
                            case W:
                               if (this.current.Is(IsoFlagType.CantClimb)) {
                                  return false;
@@ -5266,6 +5819,27 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                               }
 
                               if (var2 != null && var2.Is(IsoFlagType.collideW)) {
+                                 return false;
+                              }
+                              break;
+                           case S:
+                              if (var3.Is(IsoFlagType.CantClimb)) {
+                                 return false;
+                              }
+
+                              if (!var3.Has(IsoObjectType.wall)) {
+                                 return false;
+                              }
+
+                              if (!var3.Is(IsoFlagType.collideN)) {
+                                 return false;
+                              }
+
+                              if (var3.Is(IsoFlagType.HoppableN)) {
+                                 return false;
+                              }
+
+                              if (var4 != null && var4.Is(IsoFlagType.collideN)) {
                                  return false;
                               }
                               break;
@@ -5289,9 +5863,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                               if (var4 != null && var4.Is(IsoFlagType.collideW)) {
                                  return false;
                               }
-                              break;
-                           default:
-                              return false;
                         }
 
                         return IsoWindow.canClimbThroughHelper(this, this.current, var3, var1 == IsoDirections.N || var1 == IsoDirections.S);
@@ -5313,7 +5884,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       } else {
          this.dropHeavyItems();
          ClimbOverWallState.instance().setParams(this, var1);
-         this.actionContext.reportEvent("EventClimbWall");
+         this.getActionContext().reportEvent("EventClimbWall");
          return true;
       }
    }
@@ -5334,12 +5905,12 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean DoAttack(float var1, boolean var2, String var3) {
-      if (!this.authorizeMeleeAction) {
+      if (!this.isAuthorizedHandToHandAction()) {
          return false;
       } else {
          this.setForceShove(var2);
          this.setClickSound(var3);
-         this.pressedAttack(true);
+         this.pressedAttack();
          return false;
       }
    }
@@ -5353,7 +5924,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.stats.NumVisibleZombies = 0;
       this.stats.LastNumChasingZombies = this.stats.NumChasingZombies;
       this.stats.NumChasingZombies = 0;
-      this.stats.MusicZombiesTargeting = 0;
+      this.stats.MusicZombiesTargeting_DistantNotMoving = 0;
+      this.stats.MusicZombiesTargeting_NearbyNotMoving = 0;
+      this.stats.MusicZombiesTargeting_DistantMoving = 0;
+      this.stats.MusicZombiesTargeting_NearbyMoving = 0;
       this.stats.MusicZombiesVisible = 0;
       this.NumSurvivorsInVicinity = 0;
       if (this.getCurrentSquare() != null) {
@@ -5390,27 +5964,29 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                         IsoGameCharacter var18 = (IsoGameCharacter)Type.tryCastTo(var12, IsoGameCharacter.class);
                         IsoPlayer var19 = (IsoPlayer)Type.tryCastTo(var18, IsoPlayer.class);
                         IsoZombie var20 = (IsoZombie)Type.tryCastTo(var18, IsoZombie.class);
-                        if (var4 != null && var12 != var4 && var18 != null && var18.isInvisible() && var4.accessLevel.isEmpty()) {
+                        if (var20 != null && var20.isReanimatedForGrappleOnly()) {
+                           IsoMovingObject var28 = (IsoMovingObject)Type.tryCastTo(var20.getGrappledBy(), IsoMovingObject.class);
+                           var12.setAlphaAndTarget(var28 == null ? 1.0F : var28.getTargetAlpha());
+                        } else if (GameClient.bClient && var4 != null && var12 != var4 && var18 != null && var18.isInvisible() && !var4.role.haveCapability(Capability.SeesInvisiblePlayers)) {
                            var18.setAlphaAndTarget(var3, 0.0F);
                         } else {
-                           float var21 = this.getSeeNearbyCharacterDistance();
-                           boolean var22;
+                           boolean var21;
                            if (var1) {
-                              var22 = ServerLOS.instance.isCouldSee(this, var17);
+                              var21 = ServerLOS.instance.isCouldSee(this, var17);
                            } else {
-                              var22 = var17.isCouldSee(var3);
+                              var21 = var17.isCouldSee(var3);
                            }
 
-                           boolean var23;
+                           boolean var22;
                            if (var2 && var19 != null) {
-                              var23 = true;
+                              var22 = true;
                            } else if (!var1) {
-                              var23 = var17.isCanSee(var3);
+                              var22 = var17.isCanSee(var3);
                            } else {
-                              var23 = var22;
+                              var22 = var21;
                            }
 
-                           if (!this.isAsleep() && (var23 || var16 < var21 && var22)) {
+                           if (!this.isAsleep() && (var22 || var16 < this.getSeeNearbyCharacterDistance() && var21)) {
                               this.TestZombieSpotPlayer(var12);
                               if (var18 != null && var18.IsVisibleToPlayer[var3]) {
                                  if (var18 instanceof IsoSurvivor) {
@@ -5431,7 +6007,17 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                     if (!var20.isSceneCulled()) {
                                        ++this.stats.MusicZombiesVisible;
                                        if (var20.target == this) {
-                                          ++this.stats.MusicZombiesTargeting;
+                                          if (!var20.isCurrentState(WalkTowardState.instance()) && !var20.isCurrentState(LungeState.instance()) && !var20.isCurrentState(PathFindState.instance())) {
+                                             if (this.DistToProper(var20) >= 10.0F) {
+                                                ++this.stats.MusicZombiesTargeting_DistantNotMoving;
+                                             } else {
+                                                ++this.stats.MusicZombiesTargeting_NearbyNotMoving;
+                                             }
+                                          } else if (this.DistToProper(var20) >= 10.0F) {
+                                             ++this.stats.MusicZombiesTargeting_DistantMoving;
+                                          } else {
+                                             ++this.stats.MusicZombiesTargeting_NearbyMoving;
+                                          }
                                        }
                                     }
                                  }
@@ -5445,19 +6031,19 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                     }
                                  }
 
-                                 float var24 = 4.0F;
+                                 float var23 = 4.0F;
                                  if (this.stats.NumVisibleZombies > 4) {
-                                    var24 = 7.0F;
+                                    var23 = 7.0F;
                                  }
 
-                                 if (var16 < var24 && var18 instanceof IsoZombie && (int)var15 == (int)var7 && !this.isGhostMode() && !var2) {
+                                 if (var16 < var23 && var18 instanceof IsoZombie && PZMath.fastfloor(var15) == PZMath.fastfloor(var7) && !this.isGhostMode() && !var2) {
                                     GameTime.instance.setMultiplier(1.0F);
                                     if (!var1) {
                                        UIManager.getSpeedControls().SetCurrentGameSpeed(1);
                                     }
                                  }
 
-                                 if (var16 < var24 && var18 instanceof IsoZombie && (int)var15 == (int)var7 && !this.LastSpotted.contains(var18)) {
+                                 if (var16 < var23 && var18 instanceof IsoZombie && PZMath.fastfloor(var15) == PZMath.fastfloor(var7) && !this.LastSpotted.contains(var18)) {
                                     Stats var10000 = this.stats;
                                     var10000.NumVisibleZombies += 2;
                                  }
@@ -5467,7 +6053,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                                  var12.setTargetAlpha(var3, 0.0F);
                               }
 
-                              if (var22) {
+                              if (var21) {
                                  this.TestZombieSpotPlayer(var12);
                               }
                            }
@@ -5484,8 +6070,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
          if (this.isAlive() && var9 > 0 && this.stats.LastVeryCloseZombies == 0 && this.stats.NumVisibleZombies > 0 && this.stats.LastNumVisibleZombies == 0 && this.timeSinceLastStab >= 600.0F) {
             this.timeSinceLastStab = 0.0F;
-            long var25 = this.getEmitter().playSoundImpl("ZombieSurprisedPlayer", (IsoObject)null);
-            this.getEmitter().setVolume(var25, (float)Core.getInstance().getOptionJumpScareVolume() / 10.0F);
+            long var24 = this.getEmitter().playSoundImpl("ZombieSurprisedPlayer", (IsoObject)null);
+            this.getEmitter().setVolume(var24, (float)Core.getInstance().getOptionJumpScareVolume() / 10.0F);
          }
 
          if (this.stats.NumVisibleZombies > 0) {
@@ -5493,29 +6079,29 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          }
 
          if (this.timeSinceLastStab < 600.0F) {
-            this.timeSinceLastStab += GameTime.getInstance().getMultiplier() / 1.6F;
+            this.timeSinceLastStab += GameTime.getInstance().getThirtyFPSMultiplier();
          }
 
-         float var26 = (float)var8 / 20.0F;
-         if (var26 > 1.0F) {
-            var26 = 1.0F;
+         float var25 = (float)var8 / 20.0F;
+         if (var25 > 1.0F) {
+            var25 = 1.0F;
          }
 
-         var26 *= 0.6F;
-         SoundManager.instance.BlendVolume(MainScreenState.ambient, var26);
-         int var27 = 0;
+         var25 *= 0.6F;
+         SoundManager.instance.BlendVolume(MainScreenState.ambient, var25);
+         int var26 = 0;
 
-         for(int var28 = 0; var28 < this.spottedList.size(); ++var28) {
-            if (!this.LastSpotted.contains(this.spottedList.get(var28))) {
-               this.LastSpotted.add((IsoMovingObject)this.spottedList.get(var28));
+         for(int var27 = 0; var27 < this.spottedList.size(); ++var27) {
+            if (!this.LastSpotted.contains(this.spottedList.get(var27))) {
+               this.LastSpotted.add((IsoMovingObject)this.spottedList.get(var27));
             }
 
-            if (this.spottedList.get(var28) instanceof IsoZombie) {
-               ++var27;
+            if (this.spottedList.get(var27) instanceof IsoZombie) {
+               ++var26;
             }
          }
 
-         if (this.ClearSpottedTimer <= 0 && var27 == 0) {
+         if (this.ClearSpottedTimer <= 0 && var26 == 0) {
             this.LastSpotted.clear();
             this.ClearSpottedTimer = 1000;
          } else {
@@ -5528,7 +6114,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public float getSeeNearbyCharacterDistance() {
-      return 3.5F - this.stats.getFatigue();
+      return (3.5F - this.stats.getFatigue() - this.stats.Drunkenness * 0.01F) * this.getWornItemsVisionMultiplier();
    }
 
    private boolean checkSpottedPLayerTimer(IsoPlayer var1) {
@@ -5543,7 +6129,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
          if ((Integer)this.spottedPlayerTimer.get(var1.getRemoteID()) > 100) {
             var1.spottedByPlayer = false;
-            var1.doRenderShadow = false;
             return false;
          } else {
             return true;
@@ -5552,7 +6137,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean checkCanSeeClient(UdpConnection var1) {
-      if (var1.accessLevel > 1) {
+      if (var1.role.haveCapability(Capability.SeesInvisiblePlayers)) {
          return true;
       } else {
          return !this.isInvisible();
@@ -5560,7 +6145,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean checkCanSeeClient(IsoPlayer var1) {
-      var1.doRenderShadow = true;
       Vector2 var2 = tempVector2_1.set(this.getX(), this.getY());
       Vector2 var3 = tempVector2_2.set(var1.getX(), var1.getY());
       var3.x -= var2.x;
@@ -5582,7 +6166,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             } else if (ServerOptions.getInstance().HidePlayersBehindYou.getValue() && (double)var5 < -0.5) {
                return this.checkSpottedPLayerTimer(var1);
             } else if (var1.isGhostMode() && this.isAccessLevel("None")) {
-               var1.doRenderShadow = false;
                var1.spottedByPlayer = false;
                return false;
             } else {
@@ -5597,83 +6180,99 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   if (var1.spottedByPlayer) {
                      return true;
                   } else {
-                     var1.doRenderShadow = true;
                      float var8 = (float)(Math.pow((double)Math.max(40.0F - var6, 0.0F), 3.0) / 12000.0);
-                     float var9 = (float)(1.0 - (double)((float)var1.remoteSneakLvl / 10.0F) * 0.9 + 0.3);
+                     float var9 = 1.0F - (float)var1.remoteSneakLvl / 10.0F * 0.9F + 0.3F;
                      float var10 = 1.0F;
-                     if ((double)var5 < 0.8) {
+                     if (var5 < 0.8F) {
                         var10 = 0.3F;
                      }
 
-                     if ((double)var5 < 0.6) {
+                     if (var5 < 0.6F) {
                         var10 = 0.05F;
                      }
 
                      float var11 = (var7.lightInfo().getR() + var7.lightInfo().getG() + var7.lightInfo().getB()) / 3.0F;
-                     float var12 = (float)((1.0 - (double)((float)this.getMoodles().getMoodleLevel(MoodleType.Tired) / 5.0F)) * 0.7 + 0.3);
-                     float var13 = 0.1F;
+                     float var12 = (1.0F - (float)this.getMoodles().getMoodleLevel(MoodleType.Tired) / 5.0F) * 0.7F + 0.3F;
+                     float var13 = (1.0F - (float)this.getMoodles().getMoodleLevel(MoodleType.Drunk) / 5.0F) * 0.7F + 0.3F;
+                     float var14 = 0.1F;
                      if (var1.isPlayerMoving()) {
-                        var13 = 0.35F;
+                        var14 = 0.35F;
                      }
 
                      if (var1.isRunning()) {
-                        var13 = 1.0F;
+                        var14 = 1.0F;
                      }
 
-                     ArrayList var14 = PolygonalMap2.instance.getPointInLine(var1.getX(), var1.getY(), this.getX(), this.getY(), (int)this.getZ());
-                     IsoGridSquare var15 = null;
-                     float var16 = 0.0F;
+                     ArrayList var15 = PolygonalMap2.instance.getPointInLine(var1.getX(), var1.getY(), this.getX(), this.getY(), PZMath.fastfloor(this.getZ()));
+                     IsoGridSquare var16 = null;
                      float var17 = 0.0F;
-                     boolean var18 = false;
+                     float var18 = 0.0F;
+                     boolean var19 = false;
+                     boolean var20 = false;
 
-                     float var21;
-                     for(int var19 = 0; var19 < var14.size(); ++var19) {
-                        PolygonalMap2.Point var20 = (PolygonalMap2.Point)var14.get(var19);
-                        var15 = IsoCell.getInstance().getGridSquare((double)var20.x, (double)var20.y, (double)this.getZ());
-                        if (var15 != null) {
-                           var21 = var15.getGridSneakModifier(false);
-                           if (var21 > 1.0F) {
-                              var18 = true;
+                     float var23;
+                     for(int var21 = 0; var21 < var15.size(); ++var21) {
+                        Point var22 = (Point)var15.get(var21);
+                        var16 = IsoCell.getInstance().getGridSquare((double)var22.x, (double)var22.y, (double)this.getZ());
+                        if (var16 != null) {
+                           var23 = var16.getGridSneakModifier(false);
+                           if (var23 > 1.0F) {
+                              var19 = true;
+                              if (var16.getProperties().Is(IsoFlagType.windowN) || var16.getProperties().Is(IsoFlagType.windowW)) {
+                                 var20 = true;
+                              }
                               break;
                            }
 
-                           for(int var22 = 0; var22 < var15.getObjects().size(); ++var22) {
-                              IsoObject var23 = (IsoObject)var15.getObjects().get(var22);
-                              if (var23.getSprite().getProperties().Is(IsoFlagType.solidtrans) || var23.getSprite().getProperties().Is(IsoFlagType.solid) || var23.getSprite().getProperties().Is(IsoFlagType.windowW) || var23.getSprite().getProperties().Is(IsoFlagType.windowN)) {
-                                 var18 = true;
+                           int var24 = 0;
+
+                           while(var24 < var16.getObjects().size()) {
+                              IsoObject var25 = (IsoObject)var16.getObjects().get(var24);
+                              if (!var25.getSprite().getProperties().Is(IsoFlagType.solidtrans) && !var25.getSprite().getProperties().Is(IsoFlagType.solid)) {
+                                 if (!var25.getSprite().getProperties().Is(IsoFlagType.windowN) && !var25.getSprite().getProperties().Is(IsoFlagType.windowW)) {
+                                    ++var24;
+                                    continue;
+                                 }
+
+                                 var19 = true;
+                                 var20 = true;
                                  break;
                               }
+
+                              var19 = true;
+                              break;
                            }
 
-                           if (var18) {
+                           if (var19) {
                               break;
                            }
                         }
                      }
 
-                     if (var18) {
-                        var16 = var15.DistTo(var1.getCurrentSquare());
-                        var17 = var15.DistTo(this.getCurrentSquare());
+                     float var26 = 1.0F;
+                     if (var20 && var1.isSneaking()) {
+                        var26 = 0.3F;
                      }
 
-                     float var24 = var17 < 2.0F ? 5.0F : Math.min(var16, 5.0F);
-                     var24 = Math.max(0.0F, var24 - 1.0F);
-                     var24 = (float)((double)var24 / 5.0 * 0.9 + 0.1);
-                     float var25 = Math.max(0.1F, 1.0F - ClimateManager.getInstance().getFogIntensity());
-                     var21 = var10 * var8 * var11 * var9 * var12 * var13 * var24 * var25;
-                     if (var21 >= 1.0F) {
+                     if (var19) {
+                        var17 = var16.DistTo(var1.getCurrentSquare());
+                        var18 = var16.DistTo(this.getCurrentSquare());
+                     }
+
+                     float var27 = var18 < 2.0F ? 5.0F : Math.min(var17, 5.0F);
+                     var27 = Math.max(0.0F, var27 - 1.0F);
+                     var27 = var27 / 5.0F * 0.9F + 0.1F;
+                     var23 = Math.max(0.1F, 1.0F - ClimateManager.getInstance().getFogIntensity());
+                     float var28 = var10 * var8 * var11 * var9 * var12 * var13 * var14 * var27 * var23 * var26;
+                     if (var28 >= 1.0F) {
                         var1.spottedByPlayer = true;
                         return true;
                      } else {
-                        var21 = (float)(1.0 - Math.pow((double)(1.0F - var21), (double)GameTime.getInstance().getMultiplier()));
-                        var21 *= 0.5F;
-                        boolean var26 = Rand.Next(0.0F, 1.0F) < var21;
-                        var1.spottedByPlayer = var26;
-                        if (!var26) {
-                           var1.doRenderShadow = false;
-                        }
-
-                        return var26;
+                        var28 = (float)(1.0 - Math.pow((double)(1.0F - var28), (double)GameTime.getInstance().getMultiplier()));
+                        var28 *= 0.5F;
+                        boolean var29 = Rand.Next(0.0F, 1.0F) < var28;
+                        var1.spottedByPlayer = var29;
+                        return var29;
                      }
                   }
                } else {
@@ -5785,12 +6384,20 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void setSleepingPillsTaken(int var1) {
-      this.sleepingPillsTaken = var1;
-      if (this.getStats().Drunkenness > 10.0F) {
-         ++this.sleepingPillsTaken;
-      }
+      if (this.isGodMod()) {
+         this.resetSleepingPillsTaken();
+      } else {
+         this.sleepingPillsTaken = var1;
+         if (this.getStats().Drunkenness > 10.0F) {
+            ++this.sleepingPillsTaken;
+         }
 
-      this.lastPillsTaken = GameTime.instance.Calender.getTimeInMillis();
+         this.lastPillsTaken = GameTime.instance.Calender.getTimeInMillis();
+      }
+   }
+
+   public void resetSleepingPillsTaken() {
+      this.sleepingPillsTaken = 0;
    }
 
    public boolean isOutside() {
@@ -5880,9 +6487,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public float getTorchDot() {
-      if (this.bRemote) {
-      }
-
       InventoryItem var1 = this.getActiveLightItem();
       return var1 != null ? var1.getTorchDot() : 0.0F;
    }
@@ -5904,7 +6508,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       } else {
          boolean var2 = false;
          if (this.PlayerIndex == 0) {
-            var2 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Run"));
+            var2 = GameKeyboard.isKeyDown("Run");
          }
 
          if (this.JoypadBind != -1) {
@@ -5918,7 +6522,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             }
 
             return false;
-         } else if (this.PlayerIndex != 0 || !GameKeyboard.isKeyDown(Core.getInstance().getKey("Left")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Right")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Forward")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Backward"))) {
+         } else if (this.PlayerIndex != 0 || !GameKeyboard.isKeyDown("Left") && !GameKeyboard.isKeyDown("Right") && !GameKeyboard.isKeyDown("Forward") && !GameKeyboard.isKeyDown("Backward")) {
             if (this.JoypadBind != -1) {
                float var3 = JoypadManager.instance.getMovementAxisY(this.JoypadBind);
                float var4 = JoypadManager.instance.getMovementAxisX(this.JoypadBind);
@@ -5952,7 +6556,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          return false;
       } else if (GameClient.bClient && !this.isLocal()) {
          return this.networkAI.isPressedCancelAction();
-      } else if (this.PlayerIndex == 0 && GameKeyboard.isKeyDown(Core.getInstance().getKey("CancelAction"))) {
+      } else if (this.PlayerIndex == 0 && GameKeyboard.isKeyDown("CancelAction")) {
          if (GameClient.bClient && this.isLocal()) {
             this.networkAI.setPressedCancelAction(true);
          }
@@ -5977,7 +6581,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    public boolean checkWalkTo() {
       if (this.isNPC) {
          return false;
-      } else if (this.PlayerIndex == 0 && GameKeyboard.isKeyDown(Core.getInstance().getKey("WalkTo"))) {
+      } else if (this.PlayerIndex == 0 && GameKeyboard.isKeyDown("WalkTo")) {
          LuaEventManager.triggerEvent("OnPressWalkTo", 0, 0, 0);
          return true;
       } else {
@@ -5988,24 +6592,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    public boolean pressedAim() {
       if (this.isNPC) {
          return false;
+      } else if (this.PlayerIndex == 0 && this.isAimKeyDown()) {
+         return true;
+      } else if (this.JoypadBind == -1) {
+         return false;
       } else {
-         if (this.PlayerIndex == 0) {
-            if (this.isAimKeyDown()) {
-               return true;
-            }
-
-            if (Mouse.isButtonDownUICheck(1)) {
-               return true;
-            }
-         }
-
-         if (this.JoypadBind == -1) {
-            return false;
-         } else {
-            float var1 = JoypadManager.instance.getAimingAxisY(this.JoypadBind);
-            float var2 = JoypadManager.instance.getAimingAxisX(this.JoypadBind);
-            return Math.abs(var1) > 0.1F || Math.abs(var2) > 0.1F;
-         }
+         float var1 = JoypadManager.instance.getAimingAxisY(this.JoypadBind);
+         float var2 = JoypadManager.instance.getAimingAxisX(this.JoypadBind);
+         return Math.abs(var1) > 0.1F || Math.abs(var2) > 0.1F;
       }
    }
 
@@ -6064,20 +6658,31 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public String getUsername() {
-      return this.getUsername(false);
+      return this.getUsername(false, false);
    }
 
    public String getUsername(Boolean var1) {
-      String var2 = this.username;
-      if (var1 && GameClient.bClient && ServerOptions.instance.ShowFirstAndLastName.getValue() && this.isAccessLevel("None")) {
+      return this.getUsername(var1, false);
+   }
+
+   public String getUsername(Boolean var1, Boolean var2) {
+      String var3 = this.username;
+      if (var2) {
+         this.updateDisguisedState();
+         IsoGameCharacter var4 = IsoCamera.getCameraCharacter();
+         boolean var5 = GameClient.bClient && var4 instanceof IsoPlayer && ((IsoPlayer)var4).role.haveCapability(Capability.CanSeePlayersStats);
+         if (this.isDisguised() && !var5) {
+            var3 = ServerOptions.getInstance().HideDisguisedUserName.getValue() ? "" : Translator.getText("IGUI_Disguised_Player_Name");
+         }
+      } else if (var1 && GameClient.bClient && ServerOptions.instance.ShowFirstAndLastName.getValue()) {
          String var10000 = this.getDescriptor().getForename();
-         var2 = var10000 + " " + this.getDescriptor().getSurname();
+         var3 = var10000 + " " + this.getDescriptor().getSurname();
          if (ServerOptions.instance.DisplayUserName.getValue()) {
-            var2 = var2 + " (" + this.username + ")";
+            var3 = var3 + " (" + this.username + ")";
          }
       }
 
-      return var2;
+      return var3;
    }
 
    public void setUsername(String var1) {
@@ -6109,6 +6714,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
    }
 
+   public static boolean isLocalPlayer(IsoGameCharacter var0) {
+      return var0 instanceof IsoPlayer && ((IsoPlayer)var0).isLocalPlayer();
+   }
+
+   public static boolean isLocalPlayer(Object var0) {
+      return var0 instanceof IsoPlayer && ((IsoPlayer)var0).isLocalPlayer();
+   }
+
    public static void setLocalPlayer(int var0, IsoPlayer var1) {
       players[var0] = var1;
    }
@@ -6138,6 +6751,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
    }
 
+   public void setHasObstacleOnPath(boolean var1) {
+      this.hasObstacleOnPath = var1;
+   }
+
+   public boolean isRemoteAndHasObstacleOnPath() {
+      return !this.isLocalPlayer() && this.hasObstacleOnPath;
+   }
+
    public void OnDeath() {
       super.OnDeath();
       if (!GameServer.bServer) {
@@ -6165,7 +6786,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             this.forceAwake();
          }
 
-         this.getMoodles().Update();
+         if (this.getMoodles() != null) {
+            this.getMoodles().Update();
+         }
+
          this.getCell().setDrag((KahluaTable)null, this.getPlayerNum());
       }
    }
@@ -6175,23 +6799,47 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void setNoClip(boolean var1) {
-      this.noClip = var1;
+      if (!Role.haveCapability(this, Capability.ToggleNoclipHimself)) {
+         this.noClip = false;
+      } else {
+         this.noClip = var1;
+      }
    }
 
+   /** @deprecated */
    public void setAuthorizeMeleeAction(boolean var1) {
-      this.authorizeMeleeAction = var1;
+      this.setAuthorizedHandToHandAction(var1);
    }
 
+   /** @deprecated */
    public boolean isAuthorizeMeleeAction() {
-      return this.authorizeMeleeAction;
+      return this.isAuthorizedHandToHandAction();
    }
 
+   /** @deprecated */
    public void setAuthorizeShoveStomp(boolean var1) {
-      this.authorizeShoveStomp = var1;
+      this.setAuthorizedHandToHand(var1);
    }
 
+   /** @deprecated */
    public boolean isAuthorizeShoveStomp() {
-      return this.authorizeShoveStomp;
+      return this.isAuthorizedHandToHand();
+   }
+
+   public void setAuthorizedHandToHandAction(boolean var1) {
+      this.m_isAuthorizedHandToHandAction = var1;
+   }
+
+   public boolean isAuthorizedHandToHandAction() {
+      return this.m_isAuthorizedHandToHandAction;
+   }
+
+   public void setAuthorizedHandToHand(boolean var1) {
+      this.m_isAuthorizedHandToHand = var1;
+   }
+
+   public boolean isAuthorizedHandToHand() {
+      return this.m_isAuthorizedHandToHand;
    }
 
    public boolean isBlockMovement() {
@@ -6205,14 +6853,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    public void startReceivingBodyDamageUpdates(IsoPlayer var1) {
       if (GameClient.bClient && var1 != null && var1 != this && this.isLocalPlayer() && !var1.isLocalPlayer()) {
          var1.resetBodyDamageRemote();
-         BodyDamageSync.instance.startReceivingUpdates(var1.getOnlineID());
+         BodyDamageSync.instance.startReceivingUpdates(var1);
       }
 
    }
 
    public void stopReceivingBodyDamageUpdates(IsoPlayer var1) {
       if (GameClient.bClient && var1 != null && var1 != this && !var1.isLocalPlayer()) {
-         BodyDamageSync.instance.stopReceivingUpdates(var1.getOnlineID());
+         BodyDamageSync.instance.stopReceivingUpdates(var1);
       }
 
    }
@@ -6240,9 +6888,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             this.setX(this.realx);
             this.setY(this.realy);
             this.setZ((float)this.realz);
-            this.setLx(this.realx);
-            this.setLy(this.realy);
-            this.setLz((float)this.realz);
+            this.setLastX(this.realx);
+            this.setLastY(this.realy);
+            this.setLastZ((float)this.realz);
             this.ensureOnTile();
             if (this.slowTimer > 0.0F) {
                this.slowTimer -= GameTime.instance.getRealworldSecondsSinceLastUpdate();
@@ -6283,12 +6931,12 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
                while(var6.hasNext()) {
                   EventPacket var7 = (EventPacket)var6.next();
-                  if (var7.process(this)) {
+                  if (var7.process(this, GameClient.connection)) {
                      this.m_isPlayerMoving = this.networkAI.moving = false;
                      this.setJustMoved(false);
                      if (this.networkAI.usePathFind) {
                         var4.reset();
-                        this.setPath2((PolygonalMap2.Path)null);
+                        this.setPath2((Path)null);
                         this.networkAI.usePathFind = false;
                      }
 
@@ -6297,7 +6945,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   }
 
                   if (!var7.isMovableEvent()) {
-                     tempo.set(var7.x - this.x, var7.y - this.y);
+                     tempo.set(var7.x - this.getX(), var7.y - this.getY());
                      var1 = var7.x;
                      var2 = var7.y;
                      var3 = var7.z;
@@ -6309,7 +6957,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                      this.setJustMoved(false);
                      if (this.networkAI.usePathFind) {
                         var4.reset();
-                        this.setPath2((PolygonalMap2.Path)null);
+                        this.setPath2((Path)null);
                         this.networkAI.usePathFind = false;
                      }
 
@@ -6323,22 +6971,19 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                }
             }
 
-            if (!var5 && this.networkAI.collidePointX > -1.0F && this.networkAI.collidePointY > -1.0F && ((int)this.x != (int)this.networkAI.collidePointX || (int)this.y != (int)this.networkAI.collidePointY)) {
+            if (!var5 && this.networkAI.collidePointX > -1.0F && this.networkAI.collidePointY > -1.0F && (PZMath.fastfloor(this.getX()) != PZMath.fastfloor(this.networkAI.collidePointX) || PZMath.fastfloor(this.getY()) != PZMath.fastfloor(this.networkAI.collidePointY))) {
                var1 = this.networkAI.collidePointX;
                var2 = this.networkAI.collidePointY;
-               DebugLog.log(DebugType.ActionSystem, "Player " + this.username + ": collide point (" + var1 + ", " + var2 + ") has not been reached, so move to it");
+               DebugLog.DetailedInfo.trace("Player " + this.username + ": collide point (" + var1 + ", " + var2 + ") has not been reached, so move to it");
             }
 
-            if (DebugOptions.instance.MultiplayerShowPlayerPrediction.getValue()) {
-               this.networkAI.targetX = var1;
-               this.networkAI.targetY = var2;
-            }
-
-            if (!this.networkAI.forcePathFinder && this.isCollidedThisFrame() && IsoUtils.DistanceManhatten(var1, var2, this.x, this.y) > 3.0F) {
+            this.networkAI.targetX = var1;
+            this.networkAI.targetY = var2;
+            if (!this.networkAI.forcePathFinder && this.isRemoteAndHasObstacleOnPath()) {
                this.networkAI.forcePathFinder = true;
             }
 
-            if (this.networkAI.forcePathFinder && !PolygonalMap2.instance.lineClearCollide(this.x, this.y, var1, var2, (int)this.z, this.vehicle, false, true) && IsoUtils.DistanceManhatten(var1, var2, this.x, this.y) < 2.0F || this.getCurrentState() == ClimbOverFenceState.instance() || this.getCurrentState() == ClimbThroughWindowState.instance() || this.getCurrentState() == ClimbOverWallState.instance()) {
+            if (this.networkAI.forcePathFinder && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1, var2, PZMath.fastfloor(this.getZ()), this.vehicle, false, true) && IsoUtils.DistanceManhatten(var1, var2, this.getX(), this.getY()) < 2.0F || this.getCurrentState() == ClimbOverFenceState.instance() || this.getCurrentState() == ClimbThroughWindowState.instance() || this.getCurrentState() == ClimbOverWallState.instance()) {
                this.networkAI.forcePathFinder = false;
             }
 
@@ -6346,28 +6991,28 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             if (!this.networkAI.needToMovingUsingPathFinder && !this.networkAI.forcePathFinder) {
                if (this.networkAI.usePathFind) {
                   var4.reset();
-                  this.setPath2((PolygonalMap2.Path)null);
+                  this.setPath2((Path)null);
                   this.networkAI.usePathFind = false;
                }
 
-               var4.walkingOnTheSpot.reset(this.x, this.y);
+               var4.walkingOnTheSpot.reset(this.getX(), this.getY());
                this.getDeferredMovement(tempVector2_2);
                if (this.getCurrentState() != ClimbOverWallState.instance() && this.getCurrentState() != ClimbOverFenceState.instance()) {
-                  var11 = IsoUtils.DistanceTo(this.x, this.y, this.networkAI.targetX, this.networkAI.targetY) / IsoUtils.DistanceTo(this.realx, this.realy, this.networkAI.targetX, this.networkAI.targetY);
+                  var11 = IsoUtils.DistanceTo(this.getX(), this.getY(), this.networkAI.targetX, this.networkAI.targetY) / IsoUtils.DistanceTo(this.realx, this.realy, this.networkAI.targetX, this.networkAI.targetY);
                   float var13 = 0.8F + 0.4F * IsoUtils.smoothstep(0.8F, 1.2F, var11);
                   var4.moveToPoint(var1, var2, var13);
                } else {
                   this.MoveUnmodded(tempVector2_2);
                }
 
-               this.m_isPlayerMoving = !var5 && IsoUtils.DistanceManhatten(var1, var2, this.x, this.y) > 0.2F || (int)var1 != (int)this.x || (int)var2 != (int)this.y || (int)this.z != (int)var3;
+               this.m_isPlayerMoving = !var5 && IsoUtils.DistanceManhatten(var1, var2, this.getX(), this.getY()) > 0.2F || PZMath.fastfloor(var1) != PZMath.fastfloor(this.getX()) || PZMath.fastfloor(var2) != PZMath.fastfloor(this.getY()) || PZMath.fastfloor(this.getZ()) != PZMath.fastfloor(var3);
                if (!this.m_isPlayerMoving) {
                   this.DirectionFromVector(this.networkAI.direction);
                   this.setForwardDirection(this.networkAI.direction);
                   this.networkAI.forcePathFinder = false;
                   if (this.networkAI.usePathFind) {
                      var4.reset();
-                     this.setPath2((PolygonalMap2.Path)null);
+                     this.setPath2((Path)null);
                      this.networkAI.usePathFind = false;
                   }
                }
@@ -6378,7 +7023,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             } else {
                if (!this.networkAI.usePathFind || var1 != var4.getTargetX() || var2 != var4.getTargetY()) {
                   var4.pathToLocationF(var1, var2, var3);
-                  var4.walkingOnTheSpot.reset(this.x, this.y);
+                  var4.walkingOnTheSpot.reset(this.getX(), this.getY());
                   this.networkAI.usePathFind = true;
                }
 
@@ -6387,14 +7032,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   this.setPathFindIndex(-1);
                   if (this.networkAI.forcePathFinder) {
                      this.networkAI.forcePathFinder = false;
-                  } else if (NetworkTeleport.teleport(this, NetworkTeleport.Type.teleportation, var1, var2, (byte)((int)var3), 1.0F) && GameServer.bServer) {
-                     DebugLog.Multiplayer.warn(String.format("Player %d teleport from (%.2f, %.2f, %.2f) to (%.2f, %.2f, %.2f)", this.getOnlineID(), this.x, this.y, this.z, var1, var2, var3));
+                  } else if (NetworkTeleport.teleport(this, NetworkTeleport.Type.teleportation, this.realx, this.realy, this.realz, 1.0F) && GameServer.bServer) {
+                     DebugLog.Multiplayer.warn(String.format("Player %d teleport from (%.2f, %.2f, %.2f) to (%.2f, %.2f, %.2f)", this.getOnlineID(), this.getX(), this.getY(), this.getZ(), this.realx, this.realy, this.realz));
                   }
                } else if (var10 == PathFindBehavior2.BehaviorResult.Succeeded) {
-                  int var12 = (int)var4.getTargetX();
-                  int var8 = (int)var4.getTargetY();
+                  int var12 = PZMath.fastfloor(var4.getTargetX());
+                  int var8 = PZMath.fastfloor(var4.getTargetY());
                   if (GameServer.bServer) {
-                     ServerMap.instance.getChunk(var12 / 10, var8 / 10);
+                     ServerMap.instance.getChunk(var12 / 8, var8 / 8);
                   } else {
                      IsoWorld.instance.CurrentCell.getChunkForGridSquare(var12, var8, 0);
                   }
@@ -6410,7 +7055,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             if (!this.m_isPlayerMoving || this.isAiming()) {
                this.DirectionFromVector(this.networkAI.direction);
                this.setForwardDirection(this.networkAI.direction);
-               tempo.set(var1 - this.nx, -(var2 - this.ny));
+               tempo.set(var1 - this.getNextX(), -(var2 - this.getNextY()));
                tempo.normalize();
                var11 = this.legsSprite.modelSlot.model.AnimPlayer.getRenderedAngle();
                if ((double)var11 > 6.283185307179586) {
@@ -6422,7 +7067,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                }
 
                tempo.rotate(var11);
-               tempo.setLength(Math.min(IsoUtils.DistanceTo(var1, var2, this.x, this.y), 1.0F));
+               tempo.setLength(Math.min(IsoUtils.DistanceTo(var1, var2, this.getX(), this.getY()), 1.0F));
                this.m_deltaX = tempo.x;
                this.m_deltaY = tempo.y;
             }
@@ -6458,15 +7103,28 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    private void initFMODParameters() {
       FMODParameterList var1 = this.getFMODParameters();
-      var1.add(this.parameterCharacterMovementSpeed);
-      var1.add(this.parameterEquippedBaggageContainer);
-      var1.add(this.parameterFootstepMaterial);
-      var1.add(this.parameterFootstepMaterial2);
-      var1.add(this.parameterLocalPlayer);
-      var1.add(this.parameterMeleeHitSurface);
-      var1.add(this.parameterPlayerHealth);
-      var1.add(this.parameterShoeType);
-      var1.add(this.parameterVehicleHitLocation);
+      if (this instanceof IsoAnimal) {
+         var1.add(this.parameterFootstepMaterial);
+         var1.add(this.parameterFootstepMaterial2);
+      } else {
+         var1.add(this.parameterCharacterMovementSpeed);
+         var1.add(this.parameterCharacterOnFire);
+         var1.add(this.parameterCharacterVoiceType);
+         var1.add(this.parameterCharacterVoicePitch);
+         var1.add(this.parameterDragMaterial);
+         var1.add(this.parameterEquippedBaggageContainer);
+         var1.add(this.parameterExercising);
+         var1.add(this.parameterFirearmInside);
+         var1.add(this.parameterFirearmRoomSize);
+         var1.add(this.parameterFootstepMaterial);
+         var1.add(this.parameterFootstepMaterial2);
+         var1.add(this.parameterIsStashTile);
+         var1.add(this.parameterLocalPlayer);
+         var1.add(this.parameterMeleeHitSurface);
+         var1.add(this.parameterPlayerHealth);
+         var1.add(this.parameterShoeType);
+         var1.add(this.parameterVehicleHitLocation);
+      }
    }
 
    public ParameterCharacterMovementSpeed getParameterCharacterMovementSpeed() {
@@ -6479,6 +7137,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    public void setMeleeHitSurface(String var1) {
       try {
+         if ("MetalPoleGateDouble".equalsIgnoreCase(var1) || "MetalPoleGateSmall".equalsIgnoreCase(var1)) {
+            var1 = "MetalGate";
+         }
+
          this.parameterMeleeHitSurface.setMaterial(ParameterMeleeHitSurface.Material.valueOf(var1));
       } catch (IllegalArgumentException var3) {
          this.parameterMeleeHitSurface.setMaterial(ParameterMeleeHitSurface.Material.Default);
@@ -6497,14 +7159,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             GameSound var1 = GameSounds.getSound("HeartBeat");
             boolean var2 = var1 != null && var1.getUserVolume() > 0.0F && this.stats.Panic > 0.0F;
             if (!this.Asleep && var2 && GameTime.getInstance().getTrueMultiplier() == 1.0F) {
-               this.heartDelay -= GameTime.getInstance().getMultiplier() / 1.6F;
+               this.heartDelay -= GameTime.getInstance().getThirtyFPSMultiplier();
                if (this.heartEventInstance == 0L || !this.getEmitter().isPlaying(this.heartEventInstance)) {
                   this.heartEventInstance = this.getEmitter().playSoundImpl("HeartBeat", (IsoObject)null);
                   this.getEmitter().setVolume(this.heartEventInstance, 0.0F);
                }
 
                if (this.heartDelay <= 0.0F) {
-                  this.heartDelayMax = (float)((int)((1.0F - this.stats.Panic / 100.0F * 0.7F) * 25.0F) * 2);
+                  this.heartDelayMax = (float)((int)((1.0F - this.stats.Panic / 100.0F * 0.7F) * 25.0F)) * 2.0F;
                   this.heartDelay = this.heartDelayMax;
                   if (this.heartEventInstance != 0L) {
                      this.getEmitter().setVolume(this.heartEventInstance, this.stats.Panic / 100.0F);
@@ -6521,11 +7183,21 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private void updateWorldAmbiance() {
       if (!GameServer.bServer) {
          if (this.isLocalPlayer()) {
-            if (this.getPlayerNum() == 0 && (this.worldAmbianceInstance == 0L || !this.getEmitter().isPlaying(this.worldAmbianceInstance))) {
-               this.worldAmbianceInstance = this.getEmitter().playSoundImpl("WorldAmbiance", (IsoObject)null);
-               this.getEmitter().setVolume(this.worldAmbianceInstance, 1.0F);
-            }
+            if (this.getPlayerNum() == 0) {
+               byte var1 = 0;
+               if (this.worldAmbienceEmitter == null) {
+                  this.worldAmbienceEmitter = (BaseSoundEmitter)(Core.SoundDisabled ? new DummySoundEmitter() : new FMODSoundEmitter());
+                  this.worldAmbienceEmitter.setPos(this.getX(), this.getY(), (float)var1);
+               }
 
+               if (this.worldAmbianceInstance == 0L || !this.worldAmbienceEmitter.isPlaying(this.worldAmbianceInstance)) {
+                  this.worldAmbianceInstance = this.worldAmbienceEmitter.playSoundImpl("WorldAmbiance", (IsoObject)null);
+                  this.worldAmbienceEmitter.setVolume(this.worldAmbianceInstance, 1.0F);
+               }
+
+               this.worldAmbienceEmitter.setPos(this.getX(), this.getY(), (float)var1);
+               this.worldAmbienceEmitter.tick();
+            }
          }
       }
    }
@@ -6593,22 +7265,119 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    private void updateHeavyBreathing() {
    }
 
+   public long playerVoiceSound(String var1) {
+      String var2 = this.descriptor.getVoicePrefix();
+      return this.getEmitter().isPlaying(var2 + var1) ? 0L : this.getEmitter().playVocals(var2 + var1);
+   }
+
+   public long stopPlayerVoiceSound(String var1) {
+      String var2 = this.descriptor.getVoicePrefix();
+      return (long)this.getEmitter().stopSoundByName(var2 + var1);
+   }
+
+   public void updateVocalProperties() {
+      if (!GameServer.bServer) {
+         if (this.isLocal()) {
+            if (this.vocalEvent != 0L && !this.getEmitter().isPlaying(this.vocalEvent)) {
+               this.vocalEvent = 0L;
+               if (this.parameterMoodles != null) {
+                  this.parameterMoodles.reset();
+               }
+            }
+
+            if (this.vocalEvent == 0L && this.isAlive()) {
+               this.vocalEvent = this.playSoundLocal(this.descriptor.getVoicePrefix());
+               if (this.parameterMoodles != null) {
+                  this.parameterMoodles.reset();
+               }
+            }
+
+            if (this.vocalEvent != 0L) {
+               if (this.parameterMoodles == null) {
+                  this.parameterMoodles = new ParameterMoodles(this);
+               }
+
+               this.parameterMoodles.update(this.vocalEvent);
+            }
+
+         }
+      }
+   }
+
+   public boolean isDraggingCorpseStateName(String var1) {
+      if (!this.isDraggingCorpse()) {
+         return false;
+      } else {
+         AnimLayer var2 = this.getAdvancedAnimator().getRootLayer();
+         return var2 == null ? false : var2.isCurrentState(var1);
+      }
+   }
+
+   public boolean isPickingUpBody() {
+      return this.isDraggingCorpseStateName("pickUpBody-HeadEnd") || this.isDraggingCorpseStateName("pickUpBody-LegsEnd");
+   }
+
+   public boolean isPuttingDownBody() {
+      return this.isDraggingCorpseStateName("layDownBody");
+   }
+
+   private void updateDraggingCorpseSounds() {
+      if (!this.isAnimal()) {
+         boolean var1 = this.isPickingUpBody();
+         boolean var2 = this.isPuttingDownBody();
+         boolean var3 = false;
+         boolean var4 = false;
+         if (this.isDraggingCorpse() && !var1 && !var2) {
+            if (this.isPlayerMoving() && this.getBeenMovingFor() > 20.0F) {
+               var3 = true;
+            }
+
+            if (this.isTurning()) {
+               var4 = true;
+            }
+         }
+
+         if (var3) {
+            if (!this.getEmitter().isPlaying("CorpseDrag")) {
+               this.getEmitter().playSoundImpl("CorpseDrag", (IsoObject)null);
+            }
+         } else if (this.getEmitter().isPlaying("CorpseDrag")) {
+            this.getEmitter().stopOrTriggerSoundByName("CorpseDrag");
+         }
+
+         if (var4) {
+            if (!this.getEmitter().isPlaying("CorpseDragTurn")) {
+               this.playSoundLocal("CorpseDragTurn");
+            }
+         } else if (this.getEmitter().isPlaying("CorpseDragTurn")) {
+            this.getEmitter().stopOrTriggerSoundByName("CorpseDragTurn");
+         }
+
+      }
+   }
+
+   public void playBloodSplatterSound() {
+      if (!this.isDead()) {
+         super.playBloodSplatterSound();
+      }
+   }
+
    private void checkVehicleContainers() {
       ArrayList var1 = this.vehicleContainerData.tempContainers;
       var1.clear();
-      int var2 = (int)this.getX() - 4;
-      int var3 = (int)this.getY() - 4;
-      int var4 = (int)this.getX() + 4;
-      int var5 = (int)this.getY() + 4;
-      int var6 = var2 / 10;
-      int var7 = var3 / 10;
-      int var8 = (int)Math.ceil((double)((float)var4 / 10.0F));
-      int var9 = (int)Math.ceil((double)((float)var5 / 10.0F));
+      int var2 = PZMath.fastfloor(this.getX()) - 4;
+      int var3 = PZMath.fastfloor(this.getY()) - 4;
+      int var4 = PZMath.fastfloor(this.getX()) + 4;
+      int var5 = PZMath.fastfloor(this.getY()) + 4;
+      int var6 = var2 / 8;
+      int var7 = var3 / 8;
+      int var8 = (int)Math.ceil((double)((float)var4 / 8.0F));
+      int var9 = (int)Math.ceil((double)((float)var5 / 8.0F));
 
       int var10;
       for(var10 = var7; var10 < var9; ++var10) {
          for(int var11 = var6; var11 < var8; ++var11) {
-            IsoChunk var12 = GameServer.bServer ? ServerMap.instance.getChunk(var11, var10) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var11 * 10, var10 * 10, 0);
+            IsoChunk var12 = GameServer.bServer ? ServerMap.instance.getChunk(var11, var10) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var11 * 8, var10 * 8, 0);
             if (var12 != null) {
                for(int var13 = 0; var13 < var12.vehicles.size(); ++var13) {
                   BaseVehicle var14 = (BaseVehicle)var12.vehicles.get(var13);
@@ -6616,7 +7385,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   if (var15 != null) {
                      for(int var16 = 0; var16 < var15.getPartCount(); ++var16) {
                         VehicleScript.Part var17 = var15.getPart(var16);
-                        if (var17.container != null && var17.area != null && var14.isInArea(var17.area, this)) {
+                        if (var17.container != null && var17.area != null && var14.isInArea(var17.area, (IsoGameCharacter)this)) {
                            VehicleContainer var18 = this.vehicleContainerData.freeContainers.isEmpty() ? new VehicleContainer() : (VehicleContainer)this.vehicleContainerData.freeContainers.pop();
                            var1.add(var18.set(var14, var16));
                         }
@@ -6650,10 +7419,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    public void setJoypadIgnoreAimUntilCentered(boolean var1) {
       this.bJoypadIgnoreAimUntilCentered = var1;
-   }
-
-   public boolean canSeePlayerStats() {
-      return this.accessLevel != "";
    }
 
    public ByteBufferWriter createPlayerStats(ByteBufferWriter var1, String var2) {
@@ -6770,42 +7535,33 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.allChatMuted = var1;
    }
 
+   /** @deprecated */
+   @Deprecated
    public String getAccessLevel() {
-      switch (this.accessLevel) {
-         case "admin":
-            return "Admin";
-         case "moderator":
-            return "Moderator";
-         case "overseer":
-            return "Overseer";
-         case "gm":
-            return "GM";
-         case "observer":
-            return "Observer";
-         default:
-            return "None";
-      }
+      return this.role == null ? "none" : this.role.getName();
+   }
+
+   public Role getRole() {
+      return this.role;
    }
 
    public boolean isAccessLevel(String var1) {
       return this.getAccessLevel().equalsIgnoreCase(var1);
    }
 
-   public void setAccessLevel(String var1) {
-      byte var2 = PlayerType.fromString(var1.trim().toLowerCase());
-      if (var2 == 1) {
-         GameClient.SendCommandToServer("/setaccesslevel \"" + this.username + "\" \"none\"");
-      } else {
+   public void setRole(String var1) {
+      if (GameClient.bClient) {
+         Role var2 = Roles.getRole(var1.trim().toLowerCase());
          String var10000 = this.username;
-         GameClient.SendCommandToServer("/setaccesslevel \"" + var10000 + "\" \"" + PlayerType.toString(var2) + "\"");
+         GameClient.SendCommandToServer("/setaccesslevel \"" + var10000 + "\" \"" + var2.getName() + "\"");
       }
 
    }
 
    public void addMechanicsItem(String var1, VehiclePart var2, Long var3) {
-      byte var4 = 1;
-      byte var5 = 1;
-      if (this.mechanicsItem.get(Long.parseLong(var1)) == null) {
+      int var4 = 1;
+      int var5 = 1;
+      if (this.mechanicsItem.get(Long.parseLong(var1)) == null && !GameClient.bClient) {
          if (var2.getTable("uninstall") != null && var2.getTable("uninstall").rawget("skills") != null) {
             String[] var6 = ((String)var2.getTable("uninstall").rawget("skills")).split(";");
             String[] var7 = var6;
@@ -6828,20 +7584,21 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                      var4 = 2;
                      var5 = 2;
                   }
+
+                  var4 *= 2;
+                  var5 *= 2;
                }
             }
          }
 
-         this.getXp().AddXP(PerkFactory.Perks.Mechanics, (float)Rand.Next(var4, var5));
+         if (GameServer.bServer) {
+            GameServer.addXp(this, PerkFactory.Perks.Mechanics, (float)Rand.Next(var4, var5));
+         } else {
+            this.getXp().AddXP(PerkFactory.Perks.Mechanics, (float)Rand.Next(var4, var5));
+         }
       }
 
       this.mechanicsItem.put(Long.parseLong(var1), var3);
-   }
-
-   public void setPosition(float var1, float var2, float var3) {
-      this.setX(var1);
-      this.setY(var2);
-      this.setZ(var3);
    }
 
    private void updateTemperatureCheck() {
@@ -6911,11 +7668,23 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public BaseVisual getVisual() {
-      return this.humanVisual;
+      return this.baseVisual;
    }
 
    public HumanVisual getHumanVisual() {
-      return this.humanVisual;
+      return (HumanVisual)Type.tryCastTo(this.baseVisual, HumanVisual.class);
+   }
+
+   public AnimalVisual getAnimalVisual() {
+      return (AnimalVisual)Type.tryCastTo(this.baseVisual, AnimalVisual.class);
+   }
+
+   public String getAnimalType() {
+      return null;
+   }
+
+   public float getAnimalSize() {
+      return 1.0F;
    }
 
    public ItemVisuals getItemVisuals() {
@@ -6923,18 +7692,20 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void getItemVisuals(ItemVisuals var1) {
-      if (!this.bRemote) {
-         this.getWornItems().getItemVisuals(var1);
-      } else {
+      if (this.bRemote && !GameServer.bServer) {
          var1.clear();
          var1.addAll(this.itemVisuals);
+      } else {
+         this.getWornItems().getItemVisuals(var1);
       }
 
    }
 
    public void dressInNamedOutfit(String var1) {
-      this.getHumanVisual().dressInNamedOutfit(var1, this.itemVisuals);
-      this.onClothingOutfitPreviewChanged();
+      if (this.getHumanVisual() != null) {
+         this.getHumanVisual().dressInNamedOutfit(var1, this.itemVisuals);
+         this.onClothingOutfitPreviewChanged();
+      }
    }
 
    public void dressInClothingItem(String var1) {
@@ -7140,10 +7911,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    public void InitSpriteParts() {
    }
 
-   public boolean IsAiming() {
-      return this.isAiming();
-   }
-
    public String getTagPrefix() {
       return this.tagPrefix;
    }
@@ -7160,24 +7927,8 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       this.tagColor.set(var1);
    }
 
-   /** @deprecated */
-   @Deprecated
-   public Integer getTransactionID() {
-      return this.transactionID;
-   }
-
-   /** @deprecated */
-   @Deprecated
-   public void setTransactionID(Integer var1) {
-      this.transactionID = var1;
-   }
-
    public String getDisplayName() {
-      if (GameClient.bClient) {
-         if (this.displayName == null || this.displayName.equals("")) {
-            this.displayName = this.getUsername();
-         }
-      } else if (!GameServer.bServer) {
+      if (this.displayName == null || this.displayName.equals("")) {
          this.displayName = this.getUsername();
       }
 
@@ -7189,7 +7940,38 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean isSeeNonPvpZone() {
-      return this.seeNonPvpZone || DebugOptions.instance.MultiplayerSeeNonPvpZones.getValue();
+      return this.seeNonPvpZone || DebugOptions.instance.Multiplayer.Debug.SeeNonPvpZones.getValue();
+   }
+
+   public boolean isSeeDesignationZone() {
+      return this.seeDesignationZone;
+   }
+
+   public void setSeeDesignationZone(boolean var1) {
+      this.seeDesignationZone = var1;
+   }
+
+   public void addSelectedZoneForHighlight(Double var1) {
+      if (!this.selectedZonesForHighlight.contains(var1)) {
+         this.selectedZonesForHighlight.add(var1);
+      }
+
+   }
+
+   public void setSelectedZoneForHighlight(Double var1) {
+      this.selectedZoneForHighlight = var1;
+   }
+
+   public Double getSelectedZoneForHighlight() {
+      return this.selectedZoneForHighlight;
+   }
+
+   public ArrayList<Double> getSelectedZonesForHighlight() {
+      return this.selectedZonesForHighlight;
+   }
+
+   public void resetSelectedZonesForHighlight() {
+      this.selectedZonesForHighlight.clear();
    }
 
    public void setSeeNonPvpZone(boolean var1) {
@@ -7314,7 +8096,10 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             if (this.getCurrentSquare().getBrokenGlass() != null) {
                BodyPartType var2 = BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.Foot_L), BodyPartType.ToIndex(BodyPartType.Foot_R) + 1));
                BodyPart var3 = this.getBodyDamage().getBodyPart(var2);
-               var3.generateDeepShardWound();
+               if (!var3.isDeepWounded() || !var3.haveGlass()) {
+                  var3.generateDeepShardWound();
+                  this.playerVoiceSound("PainFromGlassCut");
+               }
             }
 
             byte var7 = 0;
@@ -7388,16 +8173,29 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       return this.attackStarted;
    }
 
+   public void setAttackStarted(boolean var1) {
+      this.attackStarted = var1;
+   }
+
    public boolean isBehaviourMoving() {
       return this.hasPath() || super.isBehaviourMoving();
    }
 
    public boolean isJustMoved() {
-      return this.JustMoved;
+      if (!GameServer.bServer) {
+         return this.JustMoved;
+      } else {
+         return Math.abs(this.getX() - this.networkAI.targetX) > 0.2F || Math.abs(this.getY() - this.networkAI.targetY) > 0.2F;
+      }
    }
 
    public void setJustMoved(boolean var1) {
       this.JustMoved = var1;
+      if (GameClient.bClient && !this.networkAI.moved && this.JustMoved) {
+         this.networkAI.moved = true;
+         GameClient.connection.setReady(true);
+      }
+
    }
 
    public boolean isPlayerMoving() {
@@ -7478,7 +8276,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void setCanSeeAll(boolean var1) {
-      this.canSeeAll = var1;
+      if (!Role.haveCapability(this, Capability.CanSeeAll)) {
+         this.canSeeAll = false;
+      } else {
+         this.canSeeAll = var1;
+      }
    }
 
    public boolean isNetworkTeleportEnabled() {
@@ -7490,11 +8292,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public boolean isCheatPlayerSeeEveryone() {
-      return DebugOptions.instance.CheatPlayerSeeEveryone.getValue();
+      return DebugOptions.instance.Cheat.Player.SeeEveryone.getValue();
    }
 
    public float getRelevantAndDistance(float var1, float var2, float var3) {
-      return Math.abs(this.x - var1) <= var3 * 10.0F && Math.abs(this.y - var2) <= var3 * 10.0F ? IsoUtils.DistanceTo(this.x, this.y, var1, var2) : 1.0F / 0.0F;
+      return Math.abs(this.getX() - var1) <= var3 * 8.0F && Math.abs(this.getY() - var2) <= var3 * 8.0F ? IsoUtils.DistanceTo(this.getX(), this.getY(), var1, var2) : 1.0F / 0.0F;
    }
 
    public boolean isCanHearAll() {
@@ -7502,7 +8304,11 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
    }
 
    public void setCanHearAll(boolean var1) {
-      this.canHearAll = var1;
+      if (!Role.haveCapability(this, Capability.CanHearAll)) {
+         this.canHearAll = false;
+      } else {
+         this.canHearAll = var1;
+      }
    }
 
    public ArrayList<String> getAlreadyReadBook() {
@@ -7540,10 +8346,6 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
 
       float var3 = var1 * var2;
-      if (DebugOptions.instance.MultiplayerCriticalHit.getValue()) {
-         var3 += 10.0F;
-      }
-
       if (var3 > 0.0F) {
          int var4 = (int)(2.0F + var3 * 0.07F);
 
@@ -7552,9 +8354,9 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
             BodyPart var7 = this.getBodyDamage().getBodyPart(BodyPartType.FromIndex(var6));
             float var8 = Math.max(Rand.Next(var3 - 15.0F, var3), 5.0F);
             if (this.Traits.FastHealer.isSet()) {
-               var8 = (float)((double)var8 * 0.8);
+               var8 *= 0.8F;
             } else if (this.Traits.SlowHealer.isSet()) {
-               var8 = (float)((double)var8 * 1.2);
+               var8 *= 1.2F;
             }
 
             switch (SandboxOptions.instance.InjurySeverity.getValue()) {
@@ -7565,22 +8367,22 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
                   var8 *= 1.5F;
             }
 
-            var8 = (float)((double)var8 * 0.9);
+            var8 *= 0.9F;
             var7.AddDamage(var8);
             if (var8 > 40.0F && Rand.Next(12) == 0) {
                var7.generateDeepWound();
             }
 
             if (var8 > 10.0F && Rand.Next(100) <= 10 && SandboxOptions.instance.BoneFracture.getValue()) {
-               var7.setFractureTime(Rand.Next(Rand.Next(10.0F, var8 + 10.0F), Rand.Next(var8 + 20.0F, var8 + 30.0F)));
+               var7.generateFracture(Rand.Next(Rand.Next(10.0F, var8 + 10.0F), Rand.Next(var8 + 20.0F, var8 + 30.0F)));
             }
 
             if (var8 > 30.0F && Rand.Next(100) <= 80 && SandboxOptions.instance.BoneFracture.getValue() && var6 == BodyPartType.ToIndex(BodyPartType.Head)) {
-               var7.setFractureTime(Rand.Next(Rand.Next(10.0F, var8 + 10.0F), Rand.Next(var8 + 20.0F, var8 + 30.0F)));
+               var7.generateFracture(Rand.Next(Rand.Next(10.0F, var8 + 10.0F), Rand.Next(var8 + 20.0F, var8 + 30.0F)));
             }
 
             if (var8 > 10.0F && Rand.Next(100) <= 60 && SandboxOptions.instance.BoneFracture.getValue() && var6 > BodyPartType.ToIndex(BodyPartType.Groin)) {
-               var7.setFractureTime(Rand.Next(Rand.Next(10.0F, var8 + 20.0F), Rand.Next(var8 + 30.0F, var8 + 40.0F)));
+               var7.generateFracture(Rand.Next(Rand.Next(10.0F, var8 + 20.0F), Rand.Next(var8 + 30.0F, var8 + 40.0F)));
             }
          }
 
@@ -7605,9 +8407,13 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    public void Kill(IsoGameCharacter var1) {
       if (!this.isOnKillDone()) {
+         if (GameServer.bServer) {
+            MPStatistics.onPlayerWasKilled(this.isOnFire(), var1 instanceof IsoPlayer, var1 instanceof IsoZombie);
+         }
+
          super.Kill(var1);
          this.getBodyDamage().setOverallBodyHealth(0.0F);
-         if (DebugOptions.instance.MultiplayerPlayerZombie.getValue()) {
+         if (DebugOptions.instance.Multiplayer.Debug.PlayerZombie.getValue()) {
             this.getBodyDamage().setInfectionLevel(100.0F);
          }
 
@@ -7673,6 +8479,22 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       return this.networkAI;
    }
 
+   public void setFishingStage(String var1) {
+      this.setVariable("FishingStage", var1);
+      if (GameClient.bClient && !this.bRemote && this.networkAI != null) {
+         try {
+            FishingState.FishingStage var2 = FishingState.FishingStage.valueOf(var1);
+            if (!this.networkAI.fishingStage.equals(var2)) {
+               this.networkAI.fishingStage = var2;
+               GameClient.sendEvent(this, var1);
+            }
+         } catch (IllegalArgumentException var3) {
+            DebugLog.Multiplayer.printException(var3, "No such FishingStage: " + var1, LogSeverity.Error);
+         }
+      }
+
+   }
+
    public void setFitnessSpeed() {
       this.clearVariable("FitnessStruggle");
       float var1 = (float)this.getPerkLevel(PerkFactory.Perks.Fitness) / 5.0F / 1.1F - (float)this.getMoodleLevel(MoodleType.Endurance) / 20.0F;
@@ -7715,7 +8537,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          return false;
       } else {
          IsoPlayer var2 = (IsoPlayer)GameClient.IDToPlayerMap.get(this.vehicle4testCollision.getNetPlayerId());
-         if (!SwipeStatePlayer.checkPVP(var2, this)) {
+         if (!CombatManager.checkPVP(var2, this)) {
             return false;
          } else if (SandboxOptions.instance.DamageToPlayerFromHitByACar.getValue() < 1) {
             return false;
@@ -7727,12 +8549,323 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
    }
 
+   public boolean isSkipResolveCollision() {
+      if (super.isSkipResolveCollision()) {
+         return true;
+      } else if (this.isLocal()) {
+         return false;
+      } else {
+         return this.isCurrentState(PlayerFallDownState.instance()) || this.isCurrentState(BumpedState.instance()) || this.isCurrentState(PlayerKnockedDown.instance()) || this.isCurrentState(PlayerHitReactionState.instance()) || this.isCurrentState(PlayerHitReactionPVPState.instance()) || this.isCurrentState(PlayerOnGroundState.instance());
+      }
+   }
+
    public boolean isShowMPInfos() {
       return this.showMPInfos;
    }
 
    public void setShowMPInfos(boolean var1) {
       this.showMPInfos = var1;
+   }
+
+   public MusicIntensityEvents getMusicIntensityEvents() {
+      return this.m_musicIntensityEvents;
+   }
+
+   private void updateMusicIntensityEvents() {
+      boolean var1 = this.getCurrentSquare() != null && this.getCurrentSquare().isInARoom();
+      if (var1) {
+         this.triggerMusicIntensityEvent("InsideBuilding");
+      }
+
+      this.m_musicIntensityEvents.update();
+   }
+
+   public void triggerMusicIntensityEvent(String var1) {
+      MusicIntensityConfig.getInstance().triggerEvent(var1, this.getMusicIntensityEvents());
+   }
+
+   public MusicThreatStatuses getMusicThreatStatuses() {
+      return this.m_musicThreatStatuses;
+   }
+
+   private void updateMusicThreatStatuses() {
+      this.m_musicThreatStatuses.update();
+   }
+
+   public void addAttachedAnimal(IsoAnimal var1) {
+      this.attachedAnimals.add(var1);
+   }
+
+   public ArrayList<IsoAnimal> getAttachedAnimals() {
+      return this.attachedAnimals;
+   }
+
+   public void removeAttachedAnimal(IsoAnimal var1) {
+      this.attachedAnimals.remove(var1);
+   }
+
+   public void removeAllAttachedAnimals() {
+      for(int var1 = 0; var1 < this.attachedAnimals.size(); ++var1) {
+         ((IsoAnimal)this.attachedAnimals.get(var1)).getData().attachedPlayer = null;
+      }
+
+      this.attachedAnimals.clear();
+   }
+
+   public void lureAnimal(InventoryItem var1) {
+      DesignationZoneAnimal var2 = DesignationZoneAnimal.getZone((int)this.getX(), (int)this.getY(), (int)this.getZ());
+      if (var2 != null) {
+         for(int var3 = 0; var3 < var2.animals.size(); ++var3) {
+            ((IsoAnimal)var2.animals.get(var3)).tryLure(this, var1);
+         }
+      }
+
+      byte var9 = 10;
+
+      for(int var4 = this.getSquare().x - var9; var4 < this.getSquare().x + var9; ++var4) {
+         for(int var5 = this.getSquare().y - var9; var5 < this.getSquare().y + var9; ++var5) {
+            IsoGridSquare var6 = this.getSquare().getCell().getGridSquare(var4, var5, this.getSquare().z);
+            if (var6 != null) {
+               ArrayList var7 = var6.getAnimals();
+
+               for(int var8 = 0; var8 < var7.size(); ++var8) {
+                  ((IsoAnimal)var7.get(var8)).tryLure(this, var1);
+               }
+            }
+         }
+      }
+
+   }
+
+   public ArrayList<IsoAnimal> getLuredAnimals() {
+      return this.luredAnimals;
+   }
+
+   public void stopLuringAnimals(boolean var1) {
+      if (this.getPrimaryHandItem() != null) {
+         this.setIsLuringAnimals(false);
+
+         for(int var2 = 0; var2 < this.getLuredAnimals().size(); ++var2) {
+            IsoAnimal var3 = (IsoAnimal)this.getLuredAnimals().get(var2);
+            if (var1) {
+               var3.eatFromLured(this, this.getPrimaryHandItem());
+               var3.getData().eatFood(this.getPrimaryHandItem());
+            }
+
+            var3.cancelLuring();
+         }
+
+      }
+   }
+
+   public void setIsLuringAnimals(boolean var1) {
+      this.isLuringAnimals = var1;
+   }
+
+   public int getVoiceType() {
+      return this.getDescriptor().getVoiceType();
+   }
+
+   public void setVoiceType(int var1) {
+      this.getDescriptor().setVoiceType(PZMath.clamp(var1, 0, 3));
+   }
+
+   public void setVoicePitch(float var1) {
+      this.getDescriptor().setVoicePitch(PZMath.clamp(var1, -100.0F, 100.0F));
+   }
+
+   public boolean isFarming() {
+      return this.isFarming;
+   }
+
+   public void setIsFarming(boolean var1) {
+      this.isFarming = var1;
+   }
+
+   public boolean tooDarkToRead() {
+      if (!this.isLocalPlayer()) {
+         return false;
+      } else if (this.getSquare() == null) {
+         return false;
+      } else {
+         int var1 = this.getPlayerNum();
+         float var2 = this.getSquare().getLightLevel(var1);
+         return (var2 / this.getWornItemsVisionModifier() + var2) / 2.0F < 0.43F;
+      }
+   }
+
+   public boolean isWalking() {
+      return this.isWalking;
+   }
+
+   public boolean isInvPageDirty() {
+      return this.invPageDirty;
+   }
+
+   public void setInvPageDirty(boolean var1) {
+      this.invPageDirty = var1;
+   }
+
+   public float getVoicePitch() {
+      return this.getDescriptor().getVoicePitch();
+   }
+
+   public void setCombatSpeed(float var1) {
+      this.combatSpeed = var1;
+   }
+
+   public float getCombatSpeed() {
+      return this.combatSpeed;
+   }
+
+   public boolean isMeleePressed() {
+      return this.m_meleePressed;
+   }
+
+   public boolean isGrapplePressed() {
+      return this.m_grapplePressed;
+   }
+
+   public void setRole(Role var1) {
+      if (!var1.haveCapability(Capability.ToggleWriteRoleNameAbove)) {
+         this.setShowAdminTag(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseZombieDontAttackCheat)) {
+         this.setZombiesDontAttack(false);
+      }
+
+      if (!var1.haveCapability(Capability.ToggleGodModHimself)) {
+         this.setGodMod(false);
+      }
+
+      if (!var1.haveCapability(Capability.ToggleInvisibleHimself)) {
+         this.setInvisible(false);
+      }
+
+      if (!var1.haveCapability(Capability.ToggleUnlimitedEndurance)) {
+         this.setUnlimitedEndurance(false);
+      }
+
+      if (!var1.haveCapability(Capability.ToggleUnlimitedCarry)) {
+         this.setUnlimitedCarry(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseMovablesCheat)) {
+         this.setMovablesCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseFastMoveCheat)) {
+         this.setFastMoveCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseBuildCheat)) {
+         this.setBuildCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseFarmingCheat)) {
+         this.setFarmingCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseFishingCheat)) {
+         this.setFishingCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseHealthCheat)) {
+         this.setHealthCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseMechanicsCheat)) {
+         this.setMechanicsCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseTimedActionInstantCheat)) {
+         this.setTimedActionInstantCheat(false);
+      }
+
+      if (!var1.haveCapability(Capability.ToggleNoclipHimself)) {
+         this.setNoClip(false);
+      }
+
+      if (!var1.haveCapability(Capability.CanSeeAll)) {
+         this.setCanSeeAll(false);
+      }
+
+      if (!var1.haveCapability(Capability.CanHearAll)) {
+         this.setCanHearAll(false);
+      }
+
+      if (!var1.haveCapability(Capability.UseBrushToolManager)) {
+         this.setCanUseBrushTool(false);
+      }
+
+      this.role = var1;
+   }
+
+   public boolean wasLastAttackHandToHand() {
+      return this.m_lastAttackWasHandToHand;
+   }
+
+   public void setLastAttackWasHandToHand(boolean var1) {
+      this.m_lastAttackWasHandToHand = var1;
+   }
+
+   public void petAnimal() {
+      if (GameTime.getInstance().getCalender().getTimeInMillis() - this.lastAnimalPet > 3600000L) {
+         this.lastAnimalPet = GameTime.getInstance().getCalender().getTimeInMillis();
+         Stats var10000 = this.getStats();
+         var10000.stress -= Rand.Next(0.15F, 0.35F);
+         BodyDamage var1 = this.getBodyDamage();
+         var1.UnhappynessLevel -= Rand.Next(15.0F, 35.0F);
+         var10000 = this.getStats();
+         var10000.Panic -= Rand.Next(15.0F, 35.0F);
+         var10000 = this.getStats();
+         var10000.Boredom -= Rand.Next(15.0F, 35.0F);
+      }
+
+   }
+
+   public IsoAnimal getUseableAnimal() {
+      if (this.getCurrentSquare() == null) {
+         return null;
+      } else {
+         ArrayList var1 = new ArrayList();
+
+         for(int var2 = this.getCurrentSquare().getX() - 2; var2 < this.getCurrentSquare().getX() + 2; ++var2) {
+            for(int var3 = this.getCurrentSquare().getY() - 2; var3 < this.getCurrentSquare().getY() + 2; ++var3) {
+               IsoGridSquare var4 = this.getCurrentSquare().getCell().getGridSquare(var2, var3, this.getCurrentSquare().getZ());
+               if (var4 != null) {
+                  var1.addAll(var4.getAnimals());
+               }
+            }
+         }
+
+         float var7 = 99.0F;
+         IsoAnimal var8 = null;
+
+         for(int var9 = 0; var9 < var1.size(); ++var9) {
+            IsoAnimal var5 = (IsoAnimal)var1.get(var9);
+            if (var5.getCurrentSquare() != null) {
+               IsoGridSquare var6 = this.getCurrentSquare().getAdjacentSquare(this.getDir());
+               if (var6.DistToProper(var5.getCurrentSquare()) < var7) {
+                  var8 = var5;
+                  var7 = var6.DistToProper(var5.getCurrentSquare());
+               }
+            }
+         }
+
+         return var8;
+      }
+   }
+
+   private boolean getAnimVariable_bFalling() {
+      int var1 = 0;
+      IsoChunk var2 = this.getChunk();
+      if (var2 != null) {
+         var1 = var2.getMinLevel();
+      }
+
+      return this.getZ() > (float)var1 && this.fallTime > 2.0F;
    }
 
    static {
@@ -7748,6 +8881,7 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
 
    static class InputState {
       public boolean bMelee;
+      public boolean bGrapple;
       public boolean isAttacking;
       public boolean bRunning;
       public boolean bSprinting;
@@ -7768,12 +8902,12 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       }
    }
 
-   private static class s_performance {
-      static final PerformanceProfileProbe postUpdate = new PerformanceProfileProbe("IsoPlayer.postUpdate");
-      static final PerformanceProfileProbe highlightRangedTargets = new PerformanceProfileProbe("IsoPlayer.highlightRangedTargets");
-      static final PerformanceProfileProbe update = new PerformanceProfileProbe("IsoPlayer.update");
+   private final class GrapplerGruntChance {
+      private final int baseChance = 15;
+      private final int chanceIncrement = 5;
+      private int gruntChance = 15;
 
-      private s_performance() {
+      private GrapplerGruntChance() {
       }
    }
 
@@ -7785,6 +8919,14 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
       IsoDirections NewFacing;
 
       MoveVars() {
+      }
+   }
+
+   private static class s_performance {
+      static final PerformanceProfileProbe postUpdate = new PerformanceProfileProbe("IsoPlayer.postUpdate");
+      static final PerformanceProfileProbe update = new PerformanceProfileProbe("IsoPlayer.update");
+
+      private s_performance() {
       }
    }
 

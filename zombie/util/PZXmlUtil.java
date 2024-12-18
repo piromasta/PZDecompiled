@@ -5,7 +5,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
@@ -34,9 +33,10 @@ import org.w3c.dom.Text;
 import org.xml.sax.SAXException;
 import zombie.ZomboidFileSystem;
 import zombie.core.logger.ExceptionLogger;
+import zombie.debug.DebugType;
+import zombie.util.list.PZArrayUtil;
 
 public final class PZXmlUtil {
-   private static boolean s_debugLogging = false;
    private static final ThreadLocal<DocumentBuilder> documentBuilders = ThreadLocal.withInitial(() -> {
       try {
          DocumentBuilderFactory var0 = DocumentBuilderFactory.newInstance();
@@ -109,10 +109,10 @@ public final class PZXmlUtil {
       Document var2 = createNewDocument();
       Element var3 = resolve(var0, var1, var2);
       var2.appendChild(var3);
-      if (s_debugLogging) {
-         PrintStream var10000 = System.out;
+      if (DebugType.Xml.isEnabled()) {
+         DebugType var10000 = DebugType.Xml;
          String var10001 = elementToPrettyStringSafe(var1);
-         var10000.println("PZXmlUtil.resolve> \r\n<Parent>\r\n" + var10001 + "\r\n</Parent>\r\n<Child>\r\n" + elementToPrettyStringSafe(var0) + "\r\n</Child>\r\n<Resolved>\r\n" + elementToPrettyStringSafe(var3) + "\r\n</Resolved>");
+         var10000.debugln("PZXmlUtil.resolve> \r\n<Parent>\r\n" + var10001 + "\r\n</Parent>\r\n<Child>\r\n" + elementToPrettyStringSafe(var0) + "\r\n</Child>\r\n<Resolved>\r\n" + elementToPrettyStringSafe(var3) + "\r\n</Resolved>");
       }
 
       return var3;
@@ -128,35 +128,29 @@ public final class PZXmlUtil {
          ArrayList var4 = new ArrayList();
          NamedNodeMap var5 = var1.getAttributes();
 
-         Node var7;
          Attr var8;
          for(int var6 = 0; var6 < var5.getLength(); ++var6) {
-            var7 = var5.item(var6);
+            Node var7 = var5.item(var6);
             if (!(var7 instanceof Attr)) {
-               if (s_debugLogging) {
-                  System.out.println("PZXmlUtil.resolve> Skipping parent.attrib: " + var7);
-               }
+               DebugType.Xml.trace("PZXmlUtil.resolve> Skipping parent.attrib: %s", var7);
             } else {
                var8 = (Attr)var2.importNode(var7, true);
                var4.add(var8);
             }
          }
 
-         NamedNodeMap var19 = var0.getAttributes();
+         NamedNodeMap var17 = var0.getAttributes();
 
-         int var12;
-         for(int var21 = 0; var21 < var19.getLength(); ++var21) {
-            Node var24 = var19.item(var21);
-            if (!(var24 instanceof Attr)) {
-               if (s_debugLogging) {
-                  System.out.println("PZXmlUtil.resolve> Skipping attrib: " + var24);
-               }
+         for(int var19 = 0; var19 < var17.getLength(); ++var19) {
+            Node var21 = var17.item(var19);
+            if (!(var21 instanceof Attr)) {
+               DebugType.Xml.trace("PZXmlUtil.resolve> Skipping attrib: %s", var21);
             } else {
-               Attr var9 = (Attr)var2.importNode(var24, true);
+               Attr var9 = (Attr)var2.importNode(var21, true);
                String var10 = var9.getName();
                boolean var11 = true;
 
-               for(var12 = 0; var12 < var4.size(); ++var12) {
+               for(int var12 = 0; var12 < var4.size(); ++var12) {
                   Attr var13 = (Attr)var4.get(var12);
                   String var14 = var13.getName();
                   if (var14.equals(var10)) {
@@ -172,71 +166,21 @@ public final class PZXmlUtil {
             }
          }
 
-         Iterator var23 = var4.iterator();
+         Iterator var20 = var4.iterator();
 
-         while(var23.hasNext()) {
-            var8 = (Attr)var23.next();
+         while(var20.hasNext()) {
+            var8 = (Attr)var20.next();
             var3.setAttributeNode(var8);
          }
 
-         var4 = new ArrayList();
-         HashMap var18 = new HashMap();
+         TagTable var15 = PZXmlUtil.TagTable.createTagTable(var1, var2);
+         TagTable var16 = PZXmlUtil.TagTable.createTagTable(var0, var2);
+         var15.resolveWith(var16, var2);
+         Iterator var18 = var15.m_resolvedElements.iterator();
 
-         for(Node var20 = var1.getFirstChild(); var20 != null; var20 = var20.getNextSibling()) {
-            if (!(var20 instanceof Element)) {
-               if (s_debugLogging) {
-                  System.out.println("PZXmlUtil.resolve> Skipping parent.node: " + var20);
-               }
-            } else {
-               Element var25 = (Element)var2.importNode(var20, true);
-               String var26 = var25.getTagName();
-               var18.put(var26, 1 + (Integer)var18.getOrDefault(var26, 0));
-               var4.add(var25);
-            }
-         }
-
-         HashMap var22 = new HashMap();
-
-         Element var27;
-         for(var7 = var0.getFirstChild(); var7 != null; var7 = var7.getNextSibling()) {
-            if (!(var7 instanceof Element)) {
-               if (s_debugLogging) {
-                  System.out.println("PZXmlUtil.resolve> Skipping node: " + var7);
-               }
-            } else {
-               var27 = (Element)var2.importNode(var7, true);
-               String var28 = var27.getTagName();
-               int var29 = (Integer)var22.getOrDefault(var28, 0);
-               int var30 = 1 + var29;
-               var22.put(var28, var30);
-               var12 = (Integer)var18.getOrDefault(var28, 0);
-               if (var12 < var30) {
-                  var4.add(var27);
-               } else {
-                  int var31 = 0;
-
-                  for(int var32 = 0; var31 < var4.size(); ++var31) {
-                     Element var15 = (Element)var4.get(var31);
-                     String var16 = var15.getTagName();
-                     if (var16.equals(var28)) {
-                        if (var32 == var29) {
-                           Element var17 = resolve(var27, var15, var2);
-                           var4.set(var31, var17);
-                           break;
-                        }
-
-                        ++var32;
-                     }
-                  }
-               }
-            }
-         }
-
-         var23 = var4.iterator();
-
-         while(var23.hasNext()) {
-            var27 = (Element)var23.next();
-            var3.appendChild(var27);
+         while(var18.hasNext()) {
+            NamedTagEntry var22 = (NamedTagEntry)var18.next();
+            var3.appendChild(var22.m_element);
          }
 
          return var3;
@@ -346,13 +290,16 @@ public final class PZXmlUtil {
 
    public static <T> T parse(Class<T> var0, String var1) throws PZXmlParserException {
       Element var2 = parseXml(var1);
+      return unmarshall(var0, var2);
+   }
 
+   public static <T> T unmarshall(Class<T> var0, Element var1) throws PZXmlParserException {
       try {
-         Unmarshaller var3 = PZXmlUtil.UnmarshallerAllocator.get(var0);
-         Object var4 = var3.unmarshal(var2);
-         return var4;
-      } catch (JAXBException var5) {
-         throw new PZXmlParserException("Exception thrown loading source: \"" + var1 + "\". Loading for type \"" + var0 + "\"", var5);
+         Unmarshaller var2 = PZXmlUtil.UnmarshallerAllocator.get(var0);
+         Object var3 = var2.unmarshal(var1);
+         return var3;
+      } catch (JAXBException var4) {
+         throw new PZXmlParserException("Exception thrown loading source: \"" + var1.getLocalName() + "\". Loading for type \"" + var0 + "\"", var4);
       }
    }
 
@@ -391,6 +338,125 @@ public final class PZXmlUtil {
       } catch (IOException | TransformerException var3) {
          ExceptionLogger.logException(var3, "Exception thrown writing document: \"" + var0 + "\". Out file: \"" + var1 + "\"");
          return false;
+      }
+   }
+
+   private static class TagTable {
+      public final HashMap<String, NamedTags> m_tags = new HashMap();
+      public final ArrayList<NamedTagEntry> m_resolvedElements = new ArrayList();
+
+      private TagTable() {
+      }
+
+      public static TagTable createTagTable(Element var0, Document var1) {
+         TagTable var2 = new TagTable();
+
+         for(Node var3 = var0.getFirstChild(); var3 != null; var3 = var3.getNextSibling()) {
+            if (!(var3 instanceof Element)) {
+               DebugType.Xml.trace("PZXmlUtil.resolve> Skipping node: %s", var3);
+            } else {
+               Element var4 = (Element)var1.importNode(var3, true);
+               var2.addEntry(var4);
+            }
+         }
+
+         return var2;
+      }
+
+      public NamedTagEntry getEntry(NamedTagEntry var1) {
+         NamedTags var2 = (NamedTags)this.m_tags.get(var1.m_tag);
+         if (var2 == null) {
+            return null;
+         } else {
+            NamedTagEntry var3;
+            if (StringUtils.isNullOrWhitespace(var1.m_name)) {
+               var3 = (NamedTagEntry)PZArrayUtil.find((Iterable)var2.m_namedTags.values(), (var1x) -> {
+                  return var1x.m_index == var1.m_index;
+               });
+               return var3;
+            } else {
+               var3 = (NamedTagEntry)var2.m_namedTags.get(var1.m_name);
+               return var3;
+            }
+         }
+      }
+
+      public void addEntry(Element var1) {
+         String var2 = var1.getTagName();
+         int var3 = this.getTagIndex(var2);
+         String var4 = this.getNodeName(var1);
+         NamedTagEntry var5 = new NamedTagEntry();
+         var5.m_tag = var2;
+         var5.m_name = var4;
+         var5.m_element = var1;
+         var5.m_index = var3;
+         this.addEntry(var5);
+      }
+
+      public void addEntry(NamedTagEntry var1) {
+         this.m_resolvedElements.add(var1);
+         NamedTags var2 = this.getOrCreateTableEntry(var1.m_tag);
+         var2.m_namedTags.put(var1.getUniqueKey(), var1);
+      }
+
+      private NamedTags getOrCreateTableEntry(String var1) {
+         NamedTags var2 = (NamedTags)this.m_tags.get(var1);
+         if (var2 == null) {
+            var2 = new NamedTags();
+            this.m_tags.put(var1, var2);
+         }
+
+         return var2;
+      }
+
+      private String getNodeName(Element var1) {
+         String var2 = var1.getAttribute("x_name");
+         return var2;
+      }
+
+      private String getNodeNameFromTagIdx(String var1) {
+         int var2 = this.getTagIndex(var1);
+         String var3 = "nodeTag_" + var2;
+         return var3;
+      }
+
+      private int getTagIndex(String var1) {
+         NamedTags var2 = (NamedTags)this.m_tags.get(var1);
+         int var3 = 0;
+         if (var2 != null) {
+            var3 = var2.m_namedTags.size();
+         }
+
+         return var3;
+      }
+
+      public void resolveWith(TagTable var1, Document var2) {
+         Iterator var3 = var1.m_resolvedElements.iterator();
+
+         while(var3.hasNext()) {
+            NamedTagEntry var4 = (NamedTagEntry)var3.next();
+            NamedTagEntry var5 = this.getEntry(var4);
+            if (var5 == null) {
+               this.addEntry(var4);
+            } else {
+               var5.m_element = PZXmlUtil.resolve(var4.m_element, var5.m_element, var2);
+            }
+         }
+
+      }
+   }
+
+   private static class NamedTagEntry {
+      public String m_tag;
+      public String m_name;
+      public Element m_element;
+      public int m_index;
+
+      private NamedTagEntry() {
+      }
+
+      public String getUniqueKey() {
+         return StringUtils.isNullOrWhitespace(this.m_name) ? "node_" + this.m_index : this.m_name;
       }
    }
 
@@ -451,6 +517,13 @@ public final class PZXmlUtil {
          }
 
          return var2;
+      }
+   }
+
+   private static class NamedTags {
+      public final HashMap<String, NamedTagEntry> m_namedTags = new HashMap();
+
+      private NamedTags() {
       }
    }
 }

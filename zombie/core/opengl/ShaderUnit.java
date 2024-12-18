@@ -4,7 +4,7 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Iterator;
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.lwjgl.opengl.GL20;
 import zombie.core.IndieFileLoader;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugLogStream;
@@ -74,15 +74,15 @@ public final class ShaderUnit {
             }
          }
 
-         int var8 = ARBShaderObjects.glCreateShaderObjectARB(var1);
+         int var8 = GL20.glCreateShader(var1);
          if (var8 == 0) {
             var10000 = DebugLog.Shader;
             var10001 = this.getFileName();
             var10000.error(var10001 + "> Failed to generate shaderID. Shader code:\n" + var3);
             return false;
          } else {
-            ARBShaderObjects.glShaderSourceARB(var8, var3);
-            ARBShaderObjects.glCompileShaderARB(var8);
+            GL20.glShaderSource(var8, var3);
+            GL20.glCompileShader(var8);
             ShaderProgram.printLogInfo(var8);
             this.m_glID = var8;
             return true;
@@ -106,7 +106,7 @@ public final class ShaderUnit {
          if (!this.isCompiled()) {
             return false;
          } else {
-            ARBShaderObjects.glAttachObjectARB(this.getParentShaderProgramGLID(), this.getGLID());
+            GL20.glAttachShader(this.getParentShaderProgramGLID(), this.getGLID());
             if (!PZGLUtil.checkGLError(false)) {
                this.destroy();
                return false;
@@ -126,14 +126,14 @@ public final class ShaderUnit {
 
          try {
             if (this.m_isAttached && this.getParentShaderProgramGLID() != 0) {
-               ARBShaderObjects.glDetachObjectARB(this.getParentShaderProgramGLID(), this.m_glID);
+               GL20.glDetachShader(this.getParentShaderProgramGLID(), this.m_glID);
                if (!PZGLUtil.checkGLError(false)) {
                   DebugLog.Shader.error("ShaderUnit failed to detach: " + this.getFileName());
                   return;
                }
             }
 
-            ARBShaderObjects.glDeleteObjectARB(this.m_glID);
+            GL20.glDeleteShader(this.m_glID);
             PZGLUtil.checkGLError(false);
          } finally {
             this.m_glID = 0;

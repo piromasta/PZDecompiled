@@ -6,7 +6,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.lwjgl.opengl.GL20;
 import zombie.GameTime;
 import zombie.IndieGL;
 import zombie.WorldSoundManager;
@@ -16,26 +16,37 @@ import zombie.audio.parameters.ParameterMeleeHitSurface;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
 import zombie.core.opengl.Shader;
 import zombie.core.opengl.ShaderProgram;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.inventory.types.HandWeapon;
 import zombie.iso.CellLoader;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoChunk;
+import zombie.iso.IsoChunkMap;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.LosUtil;
+import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderLevels;
+import zombie.iso.fboRenderChunk.FBORenderObjectHighlight;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
+import zombie.network.GameServer;
 import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
 
@@ -45,7 +56,9 @@ public class IsoTree extends IsoObject {
    public int damage = 500;
    public int size = 4;
    public boolean bRenderFlag;
-   public float fadeAlpha;
+   public boolean bWasFaded = false;
+   public boolean bUseTreeShader = false;
+   public float fadeAlpha = 1.0F;
    private static final IsoGameCharacter.Location[] s_chopTreeLocation = new IsoGameCharacter.Location[4];
    private static final ArrayList<IsoGridSquare> s_chopTreeIndicators = new ArrayList();
    private static IsoTree s_chopTreeHighlighted = null;
@@ -159,23 +172,29 @@ public class IsoTree extends IsoObject {
          int var4;
          for(var4 = 0; var4 < var3; ++var4) {
             this.square.AddWorldInventoryItem("Base.Log", 0.0F, 0.0F, 0.0F);
-            if (Rand.Next(4) == 0) {
-               this.square.AddWorldInventoryItem("Base.TreeBranch", 0.0F, 0.0F, 0.0F);
+            if (var4 > 3 && Rand.NextBool(4)) {
+               this.square.AddWorldInventoryItem("Base.LargeBranch", 0.0F, 0.0F, 0.0F);
+            } else if (var4 > 2 && Rand.NextBool(4)) {
+               this.square.AddWorldInventoryItem("Base.Sapling", 0.0F, 0.0F, 0.0F);
+            } else if (Rand.NextBool(4)) {
+               this.square.AddWorldInventoryItem("Base.TreeBranch2", 0.0F, 0.0F, 0.0F);
             }
 
-            if (Rand.Next(4) == 0) {
+            if (Rand.NextBool(4)) {
                this.square.AddWorldInventoryItem("Base.Twigs", 0.0F, 0.0F, 0.0F);
             }
          }
 
          this.reset();
-         CellLoader.isoTreeCache.add(this);
+         synchronized(CellLoader.isoTreeCache) {
+            CellLoader.isoTreeCache.add(this);
+         }
 
          for(var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
             LosUtil.cachecleared[var4] = true;
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          GameTime.instance.lightSourceUpdate = 100.0F;
          LuaEventManager.triggerEvent("OnContainerUpdate");
       }
@@ -190,16 +209,7 @@ public class IsoTree extends IsoObject {
       this.Damage((float)this.damage);
    }
 
-   public void WeaponHit(IsoGameCharacter var1, HandWeapon var2) {
-      int var3 = var2.getConditionLowerChance() * 2 + var1.getMaintenanceMod();
-      if (!var2.getCategories().contains("Axe")) {
-         var3 = var2.getConditionLowerChance() / 2 + var1.getMaintenanceMod();
-      }
-
-      if (Rand.NextBool(var3)) {
-         var2.setCondition(var2.getCondition() - 1);
-      }
-
+   public void WeaponHitEffects(IsoGameCharacter var1, HandWeapon var2) {
       if (var1 instanceof IsoPlayer) {
          ((IsoPlayer)var1).setMeleeHitSurface(ParameterMeleeHitSurface.Material.Tree);
          var1.getEmitter().playSound(var2.getZombieHitSound());
@@ -209,43 +219,55 @@ public class IsoTree extends IsoObject {
 
       WorldSoundManager.instance.addSound((Object)null, this.square.getX(), this.square.getY(), this.square.getZ(), 20, 20, true, 4.0F, 15.0F);
       this.setRenderEffect(RenderEffectType.Hit_Tree_Shudder, true);
-      float var4 = (float)var2.getTreeDamage();
-      if (var1.Traits.Axeman.isSet() && var2.getCategories().contains("Axe")) {
-         var4 *= 1.5F;
+   }
+
+   public void WeaponHit(IsoGameCharacter var1, HandWeapon var2) {
+      if (!GameServer.bServer) {
+         this.WeaponHitEffects(var1, var2);
       }
 
-      this.damage = (int)((float)this.damage - var4);
+      float var3 = (float)var2.getTreeDamage();
+      if (var1.Traits.Axeman.isSet() && var2.getCategories().contains("Axe")) {
+         var3 *= 1.5F;
+      }
+
+      this.damage = (int)((float)this.damage - var3);
       if (this.damage <= 0) {
          this.square.transmitRemoveItemFromSquare(this);
          var1.getEmitter().playSound("FallingTree");
          this.square.RecalcAllWithNeighbours(true);
-         int var5 = this.LogYield;
+         int var4 = this.LogYield;
 
-         int var6;
-         for(var6 = 0; var6 < var5; ++var6) {
+         int var5;
+         for(var5 = 0; var5 < var4; ++var5) {
             this.square.AddWorldInventoryItem("Base.Log", 0.0F, 0.0F, 0.0F);
-            if (Rand.Next(4) == 0) {
-               this.square.AddWorldInventoryItem("Base.TreeBranch", 0.0F, 0.0F, 0.0F);
+            if (var5 > 3 && Rand.NextBool(4)) {
+               this.square.AddWorldInventoryItem("Base.LargeBranch", 0.0F, 0.0F, 0.0F);
+            } else if (var5 > 2 && Rand.NextBool(4)) {
+               this.square.AddWorldInventoryItem("Base.Sapling", 0.0F, 0.0F, 0.0F);
+            } else if (Rand.NextBool(4)) {
+               this.square.AddWorldInventoryItem("Base.TreeBranch2", 0.0F, 0.0F, 0.0F);
             }
 
-            if (Rand.Next(4) == 0) {
+            if (Rand.NextBool(4)) {
                this.square.AddWorldInventoryItem("Base.Twigs", 0.0F, 0.0F, 0.0F);
             }
          }
 
          this.reset();
-         CellLoader.isoTreeCache.add(this);
-
-         for(var6 = 0; var6 < IsoPlayer.numPlayers; ++var6) {
-            LosUtil.cachecleared[var6] = true;
+         synchronized(CellLoader.isoTreeCache) {
+            CellLoader.isoTreeCache.add(this);
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         for(var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
+            LosUtil.cachecleared[var5] = true;
+         }
+
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          GameTime.instance.lightSourceUpdate = 100.0F;
          LuaEventManager.triggerEvent("OnContainerUpdate");
       }
 
-      LuaEventManager.triggerEvent("OnWeaponHitTree", var1, var2);
    }
 
    public void setHealth(int var1) {
@@ -291,48 +313,55 @@ public class IsoTree extends IsoObject {
 
       } else {
          int var8 = IsoCamera.frameState.playerIndex;
-         if (!this.bRenderFlag && !(this.fadeAlpha < this.getTargetAlpha(var8))) {
+         if (!this.bRenderFlag && !(this.fadeAlpha < this.getTargetAlpha(var8)) || PerformanceSettings.FBORenderChunk && !FBORenderCell.instance.bRenderTranslucentOnly) {
             this.renderInner(var1, var2, var3, var4, var5, false);
          } else {
             IndieGL.enableStencilTest();
+            IndieGL.glBlendFunc(770, 771);
+            boolean var9 = IsoCamera.frameState.CamCharacterSquare != null && !IsoCamera.frameState.CamCharacterSquare.Is(IsoFlagType.exterior);
             IndieGL.glStencilFunc(517, 128, 128);
             this.renderInner(var1, var2, var3, var4, var5, false);
-            float var9 = 0.044999998F * (GameTime.getInstance().getMultiplier() / 1.6F);
-            if (this.bRenderFlag && this.fadeAlpha > 0.25F) {
-               this.fadeAlpha -= var9;
-               if (this.fadeAlpha < 0.25F) {
-                  this.fadeAlpha = 0.25F;
+            float var10 = 0.044999998F * GameTime.getInstance().getThirtyFPSMultiplier();
+            float var11 = var9 ? 0.05F : 0.25F;
+            if (this.bRenderFlag && this.fadeAlpha > var11) {
+               this.fadeAlpha -= var10;
+               if (this.fadeAlpha < var11) {
+                  this.fadeAlpha = var11;
                }
             }
 
-            float var10;
+            float var12;
             if (!this.bRenderFlag) {
-               var10 = this.getTargetAlpha(var8);
-               if (this.fadeAlpha < var10) {
-                  this.fadeAlpha += var9;
-                  if (this.fadeAlpha > var10) {
-                     this.fadeAlpha = var10;
+               var12 = this.getTargetAlpha(var8);
+               if (this.fadeAlpha < var12) {
+                  this.fadeAlpha += var10;
+                  if (this.fadeAlpha > var12) {
+                     this.fadeAlpha = var12;
                   }
                }
             }
 
-            var10 = this.getAlpha(var8);
-            float var11 = this.getTargetAlpha(var8);
+            var12 = this.getAlpha(var8);
+            float var13 = this.getTargetAlpha(var8);
             this.setAlphaAndTarget(var8, this.fadeAlpha);
             IndieGL.glStencilFunc(514, 128, 128);
             this.renderInner(var1, var2, var3, var4, true, false);
-            this.setAlpha(var8, var10);
-            this.setTargetAlpha(var8, var11);
+            this.setAlpha(var8, var12);
+            this.setTargetAlpha(var8, var13);
             if (IsoTree.TreeShader.instance.StartShader()) {
-               IsoTree.TreeShader.instance.setOutlineColor(0.1F, 0.1F, 0.1F, 1.0F - this.fadeAlpha);
+               IsoTree.TreeShader.instance.setOutlineColor(0.1F, 0.1F, 0.1F, var9 && this.fadeAlpha < 0.5F ? this.fadeAlpha : 1.0F - this.fadeAlpha);
                this.renderInner(var1, var2, var3, var4, true, true);
                IndieGL.EndShader();
             }
 
             IndieGL.glStencilFunc(519, 255, 255);
+            IndieGL.glDefaultBlendFunc();
          }
 
-         this.checkChopTreeIndicator(var1, var2, var3);
+         if (!PerformanceSettings.FBORenderChunk) {
+            this.checkChopTreeIndicator();
+         }
+
       }
    }
 
@@ -358,27 +387,38 @@ public class IsoTree extends IsoObject {
       }
 
       if (var6 && this.sprite != null) {
-         Texture var12 = this.sprite.getTextureForCurrentFrame(this.dir);
-         if (var12 != null) {
-            IsoTree.TreeShader.instance.setStepSize(0.25F, var12.getWidth(), var12.getHeight());
+         Texture var13 = this.sprite.getTextureForCurrentFrame(this.dir);
+         if (var13 != null) {
+            IsoTree.TreeShader.instance.setStepSize(0.25F, var13.getWidth(), var13.getHeight());
          }
       }
 
+      boolean var14 = this.bRenderFlag;
+      if (!var6) {
+         this.bRenderFlag = false;
+      }
+
+      this.bUseTreeShader = var6;
       super.render(var1, var2, var3, var4, false, false, (Shader)null);
       if (this.AttachedAnimSprite != null) {
-         int var13 = this.AttachedAnimSprite.size();
+         int var15 = this.AttachedAnimSprite.size();
 
-         for(int var14 = 0; var14 < var13; ++var14) {
-            IsoSpriteInstance var9 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var14);
-            int var10 = IsoCamera.frameState.playerIndex;
-            float var11 = this.getTargetAlpha(var10);
-            this.setTargetAlpha(var10, 1.0F);
-            var9.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY, this.isHighlighted() ? this.getHighlightColor() : var4);
-            this.setTargetAlpha(var10, var11);
-            var9.update();
+         for(int var9 = 0; var9 < var15; ++var9) {
+            IsoSpriteInstance var10 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var9);
+            int var11 = IsoCamera.frameState.playerIndex;
+            float var12 = this.getTargetAlpha(var11);
+            this.setTargetAlpha(var11, 1.0F);
+            var10.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY, this.isHighlighted() ? this.getHighlightColor() : var4);
+            this.setTargetAlpha(var11, var12);
+            var10.update();
          }
       }
 
+      this.bRenderFlag = var14;
+   }
+
+   protected boolean isUpdateAlphaDuringRender() {
+      return false;
    }
 
    public void setSprite(IsoSprite var1) {
@@ -413,16 +453,53 @@ public class IsoTree extends IsoObject {
       var4.z = var3;
    }
 
-   private void checkChopTreeIndicator(float var1, float var2, float var3) {
+   public void checkChopTreeIndicator() {
       if (!this.isHighlighted()) {
-         int var4 = IsoCamera.frameState.playerIndex;
-         IsoGameCharacter.Location var5 = s_chopTreeLocation[var4];
-         if (var5 != null && var5.x != -1 && this.square != null) {
-            if (this.getCell().getDrag(var4) == null) {
-               var5.x = -1;
+         int var1 = IsoCamera.frameState.playerIndex;
+         IsoGameCharacter.Location var2 = s_chopTreeLocation[var1];
+         if (var2 != null && var2.x != -1 && this.square != null) {
+            if (this.getCell().getDrag(var1) == null) {
+               var2.x = -1;
             } else {
-               if (IsoUtils.DistanceToSquared((float)this.square.x + 0.5F, (float)this.square.y + 0.5F, (float)var5.x + 0.5F, (float)var5.y + 0.5F) < 12.25F) {
+               if (IsoUtils.DistanceToSquared((float)this.square.x + 0.5F, (float)this.square.y + 0.5F, (float)var2.x + 0.5F, (float)var2.y + 0.5F) < 12.25F) {
                   s_chopTreeIndicators.add(this.square);
+               }
+
+            }
+         }
+      }
+   }
+
+   public static void checkChopTreeIndicators(int var0) {
+      IsoGameCharacter.Location var1 = s_chopTreeLocation[var0];
+      if (var1 != null && var1.x != -1) {
+         if (IsoWorld.instance.CurrentCell.getDrag(var0) == null) {
+            var1.x = -1;
+         } else {
+            int var2 = ((int)Math.floor((double)var1.x) - 4) / 8 - 1;
+            int var3 = ((int)Math.floor((double)var1.y) - 4) / 8 - 1;
+            int var4 = (int)Math.ceil((double)((var1.x + 4) / 8)) + 1;
+            int var5 = (int)Math.ceil((double)((var1.y + 4) / 8)) + 1;
+            IsoChunkMap var6 = IsoWorld.instance.CurrentCell.getChunkMap(var0);
+            if (!var6.ignore) {
+               for(int var7 = var3; var7 < var5; ++var7) {
+                  for(int var8 = var2; var8 < var4; ++var8) {
+                     IsoChunk var9 = var6.getChunkForGridSquare(var8 * 8, var7 * 8);
+                     if (var9 != null && var9.bLoaded && var9.IsOnScreen(true)) {
+                        FBORenderLevels var10 = var9.getRenderLevels(var0);
+                        if (var10.isOnScreen(0)) {
+                           ArrayList var11 = var10.m_treeSquares;
+
+                           for(int var12 = 0; var12 < var11.size(); ++var12) {
+                              IsoGridSquare var13 = (IsoGridSquare)var11.get(var12);
+                              IsoTree var14 = var13.getTree();
+                              if (var14 != null && !var14.isHighlighted() && IsoUtils.DistanceToSquared((float)var13.x + 0.5F, (float)var13.y + 0.5F, (float)var1.x + 0.5F, (float)var1.y + 0.5F) < 12.25F) {
+                                 s_chopTreeIndicators.add(var13);
+                              }
+                           }
+                        }
+                     }
+                  }
                }
 
             }
@@ -432,6 +509,10 @@ public class IsoTree extends IsoObject {
 
    public static void renderChopTreeIndicators() {
       if (!s_chopTreeIndicators.isEmpty()) {
+         if (PerformanceSettings.FBORenderChunk) {
+            IndieGL.disableDepthTest();
+         }
+
          PZArrayUtil.forEach((List)s_chopTreeIndicators, IsoTree::renderChopTreeIndicator);
          s_chopTreeIndicators.clear();
       }
@@ -439,7 +520,14 @@ public class IsoTree extends IsoObject {
       if (s_chopTreeHighlighted != null) {
          IsoTree var0 = s_chopTreeHighlighted;
          s_chopTreeHighlighted = null;
+         if (PerformanceSettings.FBORenderChunk) {
+            FBORenderObjectHighlight.getInstance().setRenderingGhostTile(true);
+         }
+
          var0.renderInner((float)var0.square.x, (float)var0.square.y, (float)var0.square.z, var0.getHighlightColor(), false, false);
+         if (PerformanceSettings.FBORenderChunk) {
+            FBORenderObjectHighlight.getInstance().setRenderingGhostTile(false);
+         }
       }
 
    }
@@ -454,7 +542,28 @@ public class IsoTree extends IsoObject {
          float var6 = IsoUtils.YToScreen(var2, var3, var4, 0) + IsoSprite.globalOffsetY;
          var5 -= (float)(32 * Core.TileScale);
          var6 -= (float)(96 * Core.TileScale);
+         IndieGL.StartShader(0);
          SpriteRenderer.instance.render(var1, var5, var6, (float)(64 * Core.TileScale), (float)(128 * Core.TileScale), 0.0F, 0.5F, 0.0F, 0.75F, (Consumer)null);
+      }
+   }
+
+   public IsoGridSquare getRenderSquare() {
+      if (this.getSquare() == null) {
+         return null;
+      } else {
+         Texture var1 = this.getSprite().getTextureForCurrentFrame(this.getDir());
+         if (var1 != null && var1.getName() != null && var1.getName().contains("JUMBO")) {
+            byte var2 = 8;
+            if (PZMath.coordmodulo(this.square.x, var2) == 0 && PZMath.coordmodulo(this.square.y, var2) == var2 - 1) {
+               return this.square.getAdjacentSquare(IsoDirections.S);
+            }
+
+            if (PZMath.coordmodulo(this.square.x, var2) == var2 - 1 && PZMath.coordmodulo(this.square.y, var2) == 0) {
+               return this.square.getAdjacentSquare(IsoDirections.E);
+            }
+         }
+
+         return this.getSquare();
       }
    }
 
@@ -463,18 +572,22 @@ public class IsoTree extends IsoObject {
       private ShaderProgram shaderProgram;
       private int stepSize;
       private int outlineColor;
+      private int chunkDepth;
+      private int zDepth;
 
       public TreeShader() {
       }
 
       public void initShader() {
-         this.shaderProgram = ShaderProgram.createShaderProgram("tree", false, true);
+         this.shaderProgram = ShaderProgram.createShaderProgram("tree", false, false, true);
          if (this.shaderProgram.isCompiled()) {
-            this.stepSize = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "stepSize");
-            this.outlineColor = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "outlineColor");
-            ARBShaderObjects.glUseProgramObjectARB(this.shaderProgram.getShaderID());
-            ARBShaderObjects.glUniform2fARB(this.stepSize, 0.001F, 0.001F);
-            ARBShaderObjects.glUseProgramObjectARB(0);
+            this.stepSize = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "stepSize");
+            this.outlineColor = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "outlineColor");
+            this.chunkDepth = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "chunkDepth");
+            this.zDepth = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "zDepth");
+            ShaderHelper.glUseProgramObjectARB(this.shaderProgram.getShaderID());
+            GL20.glUniform2f(this.stepSize, 0.001F, 0.001F);
+            ShaderHelper.glUseProgramObjectARB(0);
          }
 
       }
@@ -485,6 +598,11 @@ public class IsoTree extends IsoObject {
 
       public void setStepSize(float var1, int var2, int var3) {
          SpriteRenderer.instance.ShaderUpdate2f(this.shaderProgram.getShaderID(), this.stepSize, var1 / (float)var2, var1 / (float)var3);
+      }
+
+      public void setDepth(float var1, float var2) {
+         SpriteRenderer.instance.ShaderUpdate1f(this.shaderProgram.getShaderID(), this.chunkDepth, var1);
+         SpriteRenderer.instance.ShaderUpdate1f(this.shaderProgram.getShaderID(), this.zDepth, var2);
       }
 
       public boolean StartShader() {

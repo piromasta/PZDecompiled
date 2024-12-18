@@ -4,8 +4,10 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import se.krka.kahlua.vm.KahluaTable;
+import zombie.SoundManager;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaManager;
 import zombie.config.BooleanConfigOption;
@@ -16,7 +18,10 @@ import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.debug.DebugOptions;
 import zombie.input.GameKeyboard;
-import zombie.ui.UIElement;
+import zombie.scripting.ScriptManager;
+import zombie.scripting.objects.AnimationsMesh;
+import zombie.scripting.objects.ModelScript;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIManager;
 import zombie.vehicles.EditVehicleState;
 
@@ -24,15 +29,18 @@ public final class AnimationViewerState extends GameState {
    public static AnimationViewerState instance;
    private EditVehicleState.LuaEnvironment m_luaEnv;
    private boolean bExit = false;
-   private final ArrayList<UIElement> m_gameUI = new ArrayList();
-   private final ArrayList<UIElement> m_selfUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_gameUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_selfUI = new ArrayList();
    private boolean m_bSuspendUI;
    private KahluaTable m_table = null;
    private final ArrayList<String> m_clipNames = new ArrayList();
+   private float m_ambientVolume;
+   private float m_musicVolume;
    private static final int VERSION = 1;
    private final ArrayList<ConfigOption> options = new ArrayList();
    private BooleanDebugOption DrawGrid = new BooleanDebugOption("DrawGrid", false);
    private BooleanDebugOption Isometric = new BooleanDebugOption("Isometric", false);
+   private BooleanDebugOption ShowBones = new BooleanDebugOption("ShowBones", false);
    private BooleanDebugOption UseDeferredMovement = new BooleanDebugOption("UseDeferredMovement", false);
 
    public AnimationViewerState() {
@@ -46,6 +54,7 @@ public final class AnimationViewerState extends GameState {
       }
 
       this.saveGameUI();
+      this.saveSoundState();
       if (this.m_selfUI.size() == 0) {
          this.m_luaEnv.caller.pcall(this.m_luaEnv.thread, this.m_luaEnv.env.rawget("AnimationViewerState_InitUI"), new Object[0]);
          if (this.m_table != null && this.m_table.getMetatable() != null) {
@@ -61,15 +70,18 @@ public final class AnimationViewerState extends GameState {
 
    public void yield() {
       this.restoreGameUI();
+      this.restoreSoundState();
    }
 
    public void reenter() {
       this.saveGameUI();
+      this.saveSoundState();
    }
 
    public void exit() {
       this.save();
       this.restoreGameUI();
+      this.restoreSoundState();
    }
 
    public void render() {
@@ -78,7 +90,7 @@ public final class AnimationViewerState extends GameState {
       this.renderScene();
       Core.getInstance().EndFrame(var1);
       Core.getInstance().RenderOffScreenBuffer();
-      UIManager.useUIFBO = Core.getInstance().supportsFBO() && Core.OptionUIFBO;
+      UIManager.useUIFBO = Core.getInstance().supportsFBO() && Core.getInstance().getOptionUIFBO();
       if (Core.getInstance().StartFrameUI()) {
          this.renderUI();
       }
@@ -129,10 +141,24 @@ public final class AnimationViewerState extends GameState {
       UIManager.defaultthread = LuaManager.thread;
    }
 
+   private void saveSoundState() {
+      this.m_ambientVolume = SoundManager.instance.getAmbientVolume();
+      SoundManager.instance.setAmbientVolume(1.0F);
+      this.m_musicVolume = SoundManager.instance.getMusicVolume();
+      SoundManager.instance.setMusicVolume(0.0F);
+      SoundManager.instance.setMusicState("InGame");
+   }
+
+   private void restoreSoundState() {
+      SoundManager.instance.setAmbientVolume(this.m_ambientVolume);
+      SoundManager.instance.setMusicVolume(this.m_musicVolume);
+      SoundManager.instance.setMusicState("PauseMenu");
+   }
+
    private void updateScene() {
       ModelManager.instance.update();
       if (GameKeyboard.isKeyPressed(17)) {
-         DebugOptions.instance.ModelRenderWireframe.setValue(!DebugOptions.instance.ModelRenderWireframe.getValue());
+         DebugOptions.instance.Model.Render.Wireframe.setValue(!DebugOptions.instance.Model.Render.Wireframe.getValue());
       }
 
    }
@@ -173,9 +199,25 @@ public final class AnimationViewerState extends GameState {
    }
 
    public Object fromLua1(String var1, Object var2) {
-      byte var4 = -1;
-      var1.hashCode();
-      switch (var4) {
+      switch (var1) {
+         case "getClipNames":
+            String var5 = (String)var2;
+            ModelScript var6 = ScriptManager.instance.getModelScript(var5);
+            AnimationsMesh var7 = ScriptManager.instance.getAnimationsMesh(var6.animationsMesh);
+            HashMap var8 = var7.modelMesh.skinningData.AnimationClips;
+            if (this.m_clipNames.isEmpty() || !var8.containsKey(this.m_clipNames.get(0))) {
+               this.m_clipNames.clear();
+               Iterator var9 = var8.values().iterator();
+
+               while(var9.hasNext()) {
+                  AnimationClip var10 = (AnimationClip)var9.next();
+                  this.m_clipNames.add(var10.Name);
+               }
+
+               this.m_clipNames.sort(Comparator.naturalOrder());
+            }
+
+            return this.m_clipNames;
          default:
             throw new IllegalArgumentException(String.format("unhandled \"%s\" \"%s\"", var1, var2));
       }

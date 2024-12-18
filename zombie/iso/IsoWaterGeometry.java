@@ -11,7 +11,7 @@ public final class IsoWaterGeometry {
    boolean bShore = false;
    final float[] x = new float[4];
    final float[] y = new float[4];
-   final float[] depth = new float[4];
+   public final float[] depth = new float[4];
    final float[] flow = new float[4];
    final float[] speed = new float[4];
    float IsExternal = 0.0F;
@@ -23,14 +23,6 @@ public final class IsoWaterGeometry {
    }
 
    public IsoWaterGeometry init(IsoGridSquare var1) throws Exception {
-      this.x[0] = IsoUtils.XToScreen((float)var1.x, (float)var1.y, 0.0F, 0);
-      this.y[0] = IsoUtils.YToScreen((float)var1.x, (float)var1.y, 0.0F, 0);
-      this.x[1] = IsoUtils.XToScreen((float)var1.x, (float)(var1.y + 1), 0.0F, 0);
-      this.y[1] = IsoUtils.YToScreen((float)var1.x, (float)(var1.y + 1), 0.0F, 0);
-      this.x[2] = IsoUtils.XToScreen((float)(var1.x + 1), (float)(var1.y + 1), 0.0F, 0);
-      this.y[2] = IsoUtils.YToScreen((float)(var1.x + 1), (float)(var1.y + 1), 0.0F, 0);
-      this.x[3] = IsoUtils.XToScreen((float)(var1.x + 1), (float)var1.y, 0.0F, 0);
-      this.y[3] = IsoUtils.YToScreen((float)(var1.x + 1), (float)var1.y, 0.0F, 0);
       this.hasWater = false;
       this.bShore = false;
       this.square = var1;
@@ -39,6 +31,8 @@ public final class IsoWaterGeometry {
       IsoObject var3 = var1.getFloor();
       String var4 = var3 == null ? null : var3.getSprite().getName();
       int var5;
+      IsoGridSquare var8;
+      IsoGridSquare var9;
       if (var1.getProperties().Is(IsoFlagType.water)) {
          this.hasWater = true;
 
@@ -53,8 +47,8 @@ public final class IsoWaterGeometry {
                IsoGridSquare var13 = var1.getAdjacentSquare(IsoDirections.W);
                IsoGridSquare var6 = var1.getAdjacentSquare(IsoDirections.NW);
                IsoGridSquare var7 = var1.getAdjacentSquare(IsoDirections.N);
-               IsoGridSquare var8 = var1.getAdjacentSquare(IsoDirections.SW);
-               IsoGridSquare var9 = var1.getAdjacentSquare(IsoDirections.S);
+               var8 = var1.getAdjacentSquare(IsoDirections.SW);
+               var9 = var1.getAdjacentSquare(IsoDirections.S);
                IsoGridSquare var10 = var1.getAdjacentSquare(IsoDirections.SE);
                IsoGridSquare var11 = var1.getAdjacentSquare(IsoDirections.E);
                IsoGridSquare var12 = var1.getAdjacentSquare(IsoDirections.NE);
@@ -89,18 +83,41 @@ public final class IsoWaterGeometry {
          }
       }
 
-      Vector2f var14 = IsoWaterFlow.getFlow(var1, 0, 0, tempVector2f);
-      this.flow[0] = var14.x;
-      this.speed[0] = var14.y;
-      var14 = IsoWaterFlow.getFlow(var1, 0, 1, var14);
-      this.flow[1] = var14.x;
-      this.speed[1] = var14.y;
-      var14 = IsoWaterFlow.getFlow(var1, 1, 1, var14);
-      this.flow[2] = var14.x;
-      this.speed[2] = var14.y;
-      var14 = IsoWaterFlow.getFlow(var1, 1, 0, var14);
-      this.flow[3] = var14.x;
-      this.speed[3] = var14.y;
+      float var15 = 0.02F;
+      float var14 = 0.0F;
+      float var16 = 0.0F;
+      if (this.bShore) {
+         var8 = var1.getAdjacentSquare(IsoDirections.W);
+         var9 = var1.getAdjacentSquare(IsoDirections.S);
+         if (var8 != null && var8.Is(IsoFlagType.water)) {
+            var14 = -var15;
+         }
+
+         if (var9 != null && var9.Is(IsoFlagType.water)) {
+            var16 = var15;
+         }
+      }
+
+      this.x[0] = IsoUtils.XToScreen((float)var1.x + var14, (float)var1.y, 0.0F, 0);
+      this.y[0] = IsoUtils.YToScreen((float)var1.x + var14, (float)var1.y, 0.0F, 0);
+      this.x[1] = IsoUtils.XToScreen((float)var1.x + var14, (float)(var1.y + 1) + var16, 0.0F, 0);
+      this.y[1] = IsoUtils.YToScreen((float)var1.x + var14, (float)(var1.y + 1) + var16, 0.0F, 0);
+      this.x[2] = IsoUtils.XToScreen((float)(var1.x + 1), (float)(var1.y + 1) + var16, 0.0F, 0);
+      this.y[2] = IsoUtils.YToScreen((float)(var1.x + 1), (float)(var1.y + 1) + var16, 0.0F, 0);
+      this.x[3] = IsoUtils.XToScreen((float)(var1.x + 1), (float)var1.y, 0.0F, 0);
+      this.y[3] = IsoUtils.YToScreen((float)(var1.x + 1), (float)var1.y, 0.0F, 0);
+      Vector2f var17 = IsoWaterFlow.getFlow(var1, 0, 0, tempVector2f);
+      this.flow[0] = var17.x;
+      this.speed[0] = var17.y;
+      var17 = IsoWaterFlow.getFlow(var1, 0, 1, var17);
+      this.flow[1] = var17.x;
+      this.speed[1] = var17.y;
+      var17 = IsoWaterFlow.getFlow(var1, 1, 1, var17);
+      this.flow[2] = var17.x;
+      this.speed[2] = var17.y;
+      var17 = IsoWaterFlow.getFlow(var1, 1, 0, var17);
+      this.flow[3] = var17.x;
+      this.speed[3] = var17.y;
       this.hideWaterObjects(var1);
       return this;
    }
@@ -124,10 +141,25 @@ public final class IsoWaterGeometry {
       return IsoWaterFlow.getShore(this.square.x, this.square.y) == 0;
    }
 
+   public boolean isActualShore() {
+      return this.bShore;
+   }
+
    public float getFlow() {
       IsoWaterFlow.getShore(this.square.x, this.square.y);
       Vector2f var1 = IsoWaterFlow.getFlow(this.square, 0, 0, tempVector2f);
-      System.out.println("FLOW!  " + var1.x + " " + var1.y);
       return var1.x;
+   }
+
+   public boolean isValid() {
+      return this.hasWater || this.bShore;
+   }
+
+   public boolean hasWater() {
+      return this.hasWater;
+   }
+
+   public boolean isbShore() {
+      return this.bShore;
    }
 }

@@ -4,9 +4,12 @@ import gnu.trove.list.array.TIntArrayList;
 import gnu.trove.set.TIntSet;
 import gnu.trove.set.hash.TIntHashSet;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector2f;
@@ -14,27 +17,34 @@ import org.joml.Vector3f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL20;
 import zombie.characters.IsoPlayer;
 import zombie.config.BooleanConfigOption;
 import zombie.config.ConfigOption;
 import zombie.config.DoubleConfigOption;
 import zombie.core.Core;
+import zombie.core.DefaultShader;
+import zombie.core.SceneShaderStore;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
 import zombie.core.VBO.GLVertexBufferObject;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.PZGLUtil;
-import zombie.core.opengl.VBOLines;
+import zombie.core.opengl.VBORenderer;
 import zombie.core.skinnedmodel.ModelCamera;
 import zombie.core.skinnedmodel.model.ModelSlotRenderData;
+import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 import zombie.core.textures.TextureID;
 import zombie.iso.IsoCamera;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoMetaCell;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
+import zombie.iso.zones.Zone;
 import zombie.popman.ObjectPool;
 import zombie.ui.UIManager;
 import zombie.util.list.PZArrayUtil;
@@ -59,6 +69,14 @@ public final class WorldMapRenderer {
    private float m_zoomUIY;
    private float m_zoomWorldX;
    private float m_zoomWorldY;
+   private boolean m_bTransitionTo = false;
+   private float m_transitionFromWorldX;
+   private float m_transitionFromWorldY;
+   private float m_transitionFromZoomF;
+   private float m_transitionToWorldX;
+   private float m_transitionToWorldY;
+   private float m_transitionToZoomF;
+   private long m_transitionToStartMS = 0L;
    private final Matrix4f m_projection = new Matrix4f();
    private final Matrix4f m_modelView = new Matrix4f();
    private final Quaternionf m_modelViewChange = new Quaternionf();
@@ -71,21 +89,27 @@ public final class WorldMapRenderer {
    private final CharacterModelCamera m_CharacterModelCamera = new CharacterModelCamera();
    private int m_dropShadowWidth = 12;
    public WorldMapStyle m_style = null;
-   protected static final VBOLines m_vboLines = new VBOLines();
-   protected static final VBOLinesUV m_vboLinesUV = new VBOLinesUV();
+   protected static VBORenderer m_vboLines = null;
+   private float m_maxZoom = 18.0F;
    private final int[] m_viewport = new int[]{0, 0, 0, 0};
    private static final ThreadLocal<ObjectPool<UI3DScene.Plane>> TL_Plane_pool = ThreadLocal.withInitial(UI3DScene.PlaneObjectPool::new);
    private static final ThreadLocal<ObjectPool<UI3DScene.Ray>> TL_Ray_pool = ThreadLocal.withInitial(UI3DScene.RayObjectPool::new);
    static final float SMALL_NUM = 1.0E-8F;
    private final ArrayList<ConfigOption> options = new ArrayList();
+   private final WorldMapBooleanOption Animals = new WorldMapBooleanOption("Animals", false);
+   private final WorldMapBooleanOption AnimalTracks = new WorldMapBooleanOption("AnimalTracks", false);
+   private final WorldMapBooleanOption Basements = new WorldMapBooleanOption("Basements", false);
    private final WorldMapBooleanOption BlurUnvisited = new WorldMapBooleanOption("BlurUnvisited", true);
    private final WorldMapBooleanOption BuildingsWithoutFeatures = new WorldMapBooleanOption("BuildingsWithoutFeatures", false);
+   private final WorldMapBooleanOption ClampBaseZoomToPoint5 = new WorldMapBooleanOption("ClampBaseZoomToPoint5", true);
+   private final WorldMapBooleanOption ColorblindPatterns = new WorldMapBooleanOption("ColorblindPatterns", false);
    private final WorldMapBooleanOption DebugInfo = new WorldMapBooleanOption("DebugInfo", false);
    private final WorldMapBooleanOption CellGrid = new WorldMapBooleanOption("CellGrid", false);
    private final WorldMapBooleanOption TileGrid = new WorldMapBooleanOption("TileGrid", false);
    private final WorldMapBooleanOption UnvisitedGrid = new WorldMapBooleanOption("UnvisitedGrid", true);
    private final WorldMapBooleanOption Features = new WorldMapBooleanOption("Features", true);
-   private final WorldMapBooleanOption ForestZones = new WorldMapBooleanOption("ForestZones", false);
+   private final WorldMapBooleanOption OtherZones = new WorldMapBooleanOption("OtherZones", false);
+   private final WorldMapBooleanOption ForestZones = new WorldMapBooleanOption("ForagingZones", false);
    private final WorldMapBooleanOption HideUnvisited = new WorldMapBooleanOption("HideUnvisited", false);
    private final WorldMapBooleanOption HitTest = new WorldMapBooleanOption("HitTest", false);
    private final WorldMapBooleanOption ImagePyramid = new WorldMapBooleanOption("ImagePyramid", false);
@@ -99,6 +123,10 @@ public final class WorldMapRenderer {
    private final WorldMapBooleanOption WorldBounds = new WorldMapBooleanOption("WorldBounds", true);
    private final WorldMapBooleanOption MiniMapSymbols = new WorldMapBooleanOption("MiniMapSymbols", false);
    private final WorldMapBooleanOption VisibleCells = new WorldMapBooleanOption("VisibleCells", false);
+   private final WorldMapBooleanOption DimUnsharedSymbols = new WorldMapBooleanOption("DimUnsharedSymbols", false);
+   private final WorldMapBooleanOption StoryZones = new WorldMapBooleanOption("StoryZones", false);
+   private final WorldMapBooleanOption WGRoads = new WorldMapBooleanOption("WGRoads", false);
+   private final WorldMapBooleanOption InfiniteZoom = new WorldMapBooleanOption("InfiniteZoom", false);
 
    public WorldMapRenderer() {
       PZArrayUtil.arrayPopulate(this.m_drawer, Drawer::new);
@@ -249,12 +277,23 @@ public final class WorldMapRenderer {
    public void zoomAt(int var1, int var2, int var3) {
       float var4 = this.uiToWorldX((float)var1, (float)var2, this.m_displayZoomF, this.m_centerWorldX, this.m_centerWorldY);
       float var5 = this.uiToWorldY((float)var1, (float)var2, this.m_displayZoomF, this.m_centerWorldX, this.m_centerWorldY);
-      this.m_zoomF = PZMath.clamp(this.m_zoomF + (float)var3 / 2.0F, this.getBaseZoom(), 24.0F);
+      this.m_zoomF = PZMath.clamp(this.m_zoomF + (float)var3 / 2.0F, this.getBaseZoom(), this.getMaxZoom());
       this.m_zoom = (int)this.m_zoomF;
       this.m_zoomWorldX = var4;
       this.m_zoomWorldY = var5;
       this.m_zoomUIX = (float)var1;
       this.m_zoomUIY = (float)var2;
+   }
+
+   public void transitionTo(float var1, float var2, float var3) {
+      this.m_transitionFromWorldX = this.m_centerWorldX;
+      this.m_transitionFromWorldY = this.m_centerWorldY;
+      this.m_transitionFromZoomF = this.m_displayZoomF;
+      this.m_transitionToWorldX = var1;
+      this.m_transitionToWorldY = var2;
+      this.m_transitionToZoomF = PZMath.clamp(var3, this.getBaseZoom(), this.getMaxZoom());
+      this.m_bTransitionTo = true;
+      this.m_transitionToStartMS = System.currentTimeMillis();
    }
 
    public float getCenterWorldX() {
@@ -291,18 +330,29 @@ public final class WorldMapRenderer {
          var1 = MapProjection.zoomAtMetersPerPixel((double)this.m_worldMap.getWidthInSquares() / (double)this.getWidth(), (double)this.getHeight());
       }
 
-      var1 = (double)((int)(var1 * 2.0)) / 2.0;
-      return (float)var1;
+      if (this.ClampBaseZoomToPoint5.getValue()) {
+         var1 = (double)((int)(var1 * 2.0)) / 2.0;
+      }
+
+      return PZMath.max((float)var1, this.InfiniteZoom.getValue() ? (float)var1 : 12.0F);
    }
 
    public void setZoom(float var1) {
-      this.m_zoomF = PZMath.clamp(var1, this.getBaseZoom(), 24.0F);
+      this.m_zoomF = PZMath.clamp(var1, this.getBaseZoom(), this.getMaxZoom());
       this.m_zoom = (int)this.m_zoomF;
       this.m_displayZoomF = this.m_zoomF;
    }
 
+   public void setMaxZoom(float var1) {
+      this.m_maxZoom = PZMath.clamp(var1, 0.0F, 24.0F);
+   }
+
+   public float getMaxZoom() {
+      return this.InfiniteZoom.getValue() ? 24.0F : this.m_maxZoom;
+   }
+
    public void resetView() {
-      this.m_zoomF = this.getBaseZoom();
+      this.m_zoomF = this.getWidth() * this.getHeight() < 1 ? 12.0F : this.getBaseZoom();
       this.m_zoom = (int)this.m_zoomF;
       this.m_centerWorldX = (float)this.m_worldMap.getMinXInSquares() + (float)this.m_worldMap.getWidthInSquares() / 2.0F;
       this.m_centerWorldY = (float)this.m_worldMap.getMinYInSquares() + (float)this.m_worldMap.getHeightInSquares() / 2.0F;
@@ -337,51 +387,74 @@ public final class WorldMapRenderer {
    }
 
    public void updateView() {
-      float var3;
-      if (this.m_displayZoomF != this.m_zoomF) {
-         float var1 = (float)(UIManager.getMillisSinceLastRender() / 750.0);
-         float var2 = Math.abs(this.m_zoomF - this.m_displayZoomF);
-         var3 = var2 > 0.25F ? var2 / 0.25F : 1.0F;
-         if (this.m_displayZoomF < this.m_zoomF) {
-            this.m_displayZoomF = PZMath.min(this.m_displayZoomF + var1 * var3, this.m_zoomF);
-         } else if (this.m_displayZoomF > this.m_zoomF) {
-            this.m_displayZoomF = PZMath.max(this.m_displayZoomF - var1 * var3, this.m_zoomF);
+      if (this.m_worldMap != null && this.m_worldMap.getWidthInSquares() > 1 && this.m_worldMap.getHeightInSquares() > 1 && this.getWidth() >= 1 && this.getHeight() >= 1) {
+         float var3;
+         if (this.m_displayZoomF != this.m_zoomF) {
+            float var1 = (float)(UIManager.getMillisSinceLastRender() / 750.0);
+            float var2 = Math.abs(this.m_zoomF - this.m_displayZoomF);
+            var3 = var2 > 0.25F ? var2 / 0.25F : 1.0F;
+            if (this.m_displayZoomF < this.m_zoomF) {
+               this.m_displayZoomF = PZMath.min(this.m_displayZoomF + var1 * var3, this.m_zoomF);
+            } else if (this.m_displayZoomF > this.m_zoomF) {
+               this.m_displayZoomF = PZMath.max(this.m_displayZoomF - var1 * var3, this.m_zoomF);
+            }
+
+            float var4 = this.uiToWorldX(this.m_zoomUIX, this.m_zoomUIY, this.m_displayZoomF, 0.0F, 0.0F);
+            float var5 = this.uiToWorldY(this.m_zoomUIX, this.m_zoomUIY, this.m_displayZoomF, 0.0F, 0.0F);
+            this.m_centerWorldX = this.m_zoomWorldX - var4;
+            this.m_centerWorldY = this.m_zoomWorldY - var5;
          }
 
-         float var4 = this.uiToWorldX(this.m_zoomUIX, this.m_zoomUIY, this.m_displayZoomF, 0.0F, 0.0F);
-         float var5 = this.uiToWorldY(this.m_zoomUIX, this.m_zoomUIY, this.m_displayZoomF, 0.0F, 0.0F);
-         this.m_centerWorldX = this.m_zoomWorldX - var4;
-         this.m_centerWorldY = this.m_zoomWorldY - var5;
-      }
+         if (!this.m_firstUpdate) {
+            this.m_firstUpdate = true;
+            this.m_isometric = this.Isometric.getValue();
+         }
 
-      if (!this.m_firstUpdate) {
-         this.m_firstUpdate = true;
-         this.m_isometric = this.Isometric.getValue();
-      }
+         long var6;
+         if (this.m_isometric != this.Isometric.getValue()) {
+            this.m_isometric = this.Isometric.getValue();
+            var6 = System.currentTimeMillis();
+            if (this.m_viewChangeTime + VIEW_CHANGE_TIME < var6) {
+               this.m_modelViewChange.setFromUnnormalized(this.m_modelView);
+            }
 
-      long var6;
-      if (this.m_isometric != this.Isometric.getValue()) {
-         this.m_isometric = this.Isometric.getValue();
+            this.m_viewChangeTime = var6;
+         }
+
+         if (this.m_bTransitionTo) {
+            var6 = System.currentTimeMillis() - this.m_transitionToStartMS;
+            if (var6 >= 600L) {
+               this.m_bTransitionTo = false;
+               this.m_centerWorldX = this.m_transitionToWorldX;
+               this.m_centerWorldY = this.m_transitionToWorldY;
+               this.m_zoomF = this.m_transitionToZoomF;
+               this.m_zoom = (int)PZMath.floor(this.m_zoomF);
+               this.m_displayZoomF = this.m_zoomF;
+            } else {
+               var3 = (float)var6 / 600.0F;
+               var3 = PZMath.lerpFunc_EaseOutInQuad(var3);
+               this.m_centerWorldX = PZMath.lerp(this.m_transitionFromWorldX, this.m_transitionToWorldX, var3);
+               this.m_centerWorldY = PZMath.lerp(this.m_transitionFromWorldY, this.m_transitionToWorldY, var3);
+               this.m_zoomF = PZMath.lerp(this.m_transitionFromZoomF, this.m_transitionToZoomF, var3);
+               this.m_zoom = (int)PZMath.floor(this.m_zoomF);
+               this.m_displayZoomF = this.m_zoomF;
+            }
+         }
+
+         this.calcMatrices(this.m_centerWorldX, this.m_centerWorldY, this.m_displayZoomF, this.m_projection, this.m_modelView);
          var6 = System.currentTimeMillis();
-         if (this.m_viewChangeTime + VIEW_CHANGE_TIME < var6) {
-            this.m_modelViewChange.setFromUnnormalized(this.m_modelView);
+         if (this.m_viewChangeTime + VIEW_CHANGE_TIME > var6) {
+            var3 = (float)(this.m_viewChangeTime + VIEW_CHANGE_TIME - var6) / (float)VIEW_CHANGE_TIME;
+            Quaternionf var7 = allocQuaternionf().setFromUnnormalized(this.m_modelView);
+            this.m_modelView.set(this.m_modelViewChange.slerp(var7, 1.0F - var3));
+            releaseQuaternionf(var7);
          }
 
-         this.m_viewChangeTime = var6;
       }
-
-      this.calcMatrices(this.m_centerWorldX, this.m_centerWorldY, this.m_displayZoomF, this.m_projection, this.m_modelView);
-      var6 = System.currentTimeMillis();
-      if (this.m_viewChangeTime + VIEW_CHANGE_TIME > var6) {
-         var3 = (float)(this.m_viewChangeTime + VIEW_CHANGE_TIME - var6) / (float)VIEW_CHANGE_TIME;
-         Quaternionf var7 = allocQuaternionf().setFromUnnormalized(this.m_modelView);
-         this.m_modelView.set(this.m_modelViewChange.slerp(var7, 1.0F - var3));
-         releaseQuaternionf(var7);
-      }
-
    }
 
    public void render(UIWorldMap var1) {
+      m_vboLines = VBORenderer.getInstance();
       this.m_style = var1.getAPI().getStyle();
       int var2 = SpriteRenderer.instance.getMainStateIndex();
       this.m_drawer[var2].init(this, var1);
@@ -467,35 +540,35 @@ public final class WorldMapRenderer {
       Vector3f var4 = allocVector3f().set(var2.direction).mul(10000.0F);
       Vector3f var5 = allocVector3f().set(var2.origin).sub(var1.point);
 
-      byte var9;
+      byte var8;
       try {
          float var6 = var1.normal.dot(var4);
          float var7 = -var1.normal.dot(var5);
-         if (Math.abs(var6) < 1.0E-8F) {
-            byte var13;
-            if (var7 == 0.0F) {
-               var13 = 2;
-               return var13;
+         if (!(Math.abs(var6) < 1.0E-8F)) {
+            float var13 = var7 / var6;
+            byte var9;
+            if (!(var13 < 0.0F) && !(var13 > 1.0F)) {
+               var3.set(var2.origin).add(var4.mul(var13));
+               var9 = 1;
+               return var9;
             }
 
-            var13 = 0;
-            return var13;
-         }
-
-         float var8 = var7 / var6;
-         if (var8 < 0.0F || var8 > 1.0F) {
             var9 = 0;
             return var9;
          }
 
-         var3.set(var2.origin).add(var4.mul(var8));
-         var9 = 1;
+         if (var7 == 0.0F) {
+            var8 = 2;
+            return var8;
+         }
+
+         var8 = 0;
       } finally {
          releaseVector3f(var4);
          releaseVector3f(var5);
       }
 
-      return var9;
+      return var8;
    }
 
    public ConfigOption getOptionByName(String var1) {
@@ -543,6 +616,10 @@ public final class WorldMapRenderer {
       return var4 instanceof DoubleConfigOption ? ((DoubleConfigOption)var4).getValue() : var2;
    }
 
+   public boolean isDimUnsharedSymbols() {
+      return this.DimUnsharedSymbols.getValue();
+   }
+
    public static final class Drawer extends TextureDraw.GenericDrawer {
       WorldMapRenderer m_renderer;
       final WorldMapStyle m_style = new WorldMapStyle();
@@ -567,8 +644,8 @@ public final class WorldMapRenderer {
       final WorldMapStyleLayer.RenderArgs m_renderArgs = new WorldMapStyleLayer.RenderArgs();
       final ArrayList<WorldMapRenderLayer> m_renderLayers = new ArrayList();
       final ArrayList<WorldMapFeature> m_features = new ArrayList();
-      final ArrayList<IsoMetaGrid.Zone> m_zones = new ArrayList();
-      final HashSet<IsoMetaGrid.Zone> m_zoneSet = new HashSet();
+      final ArrayList<Zone> m_zones = new ArrayList();
+      final HashSet<Zone> m_zoneSet = new HashSet();
       WorldMapStyleLayer.RGBAf m_fill;
       int m_triangulationsThisFrame = 0;
       float[] m_floatArray;
@@ -619,8 +696,8 @@ public final class WorldMapRenderer {
             for(var3 = 0; var3 < 4; ++var3) {
                IsoPlayer var4 = IsoPlayer.players[var3];
                if (var4 != null && !var4.isDead() && var4.legsSprite.hasActiveModel()) {
-                  float var5 = var4.x;
-                  float var6 = var4.y;
+                  float var5 = var4.getX();
+                  float var6 = var4.getY();
                   if (var4.getVehicle() != null) {
                      var5 = var4.getVehicle().getX();
                      var6 = var4.getVehicle().getY();
@@ -636,7 +713,9 @@ public final class WorldMapRenderer {
                      int var9 = IsoCamera.frameState.playerIndex;
                      IsoCamera.frameState.playerIndex = var3;
                      var4.checkUpdateModelTextures();
-                     this.m_playerRenderData[var3].m_modelSlotRenderData = ModelSlotRenderData.alloc().init(var4.legsSprite.modelSlot);
+                     this.m_playerRenderData[var3].m_modelSlotRenderData = ModelSlotRenderData.alloc();
+                     this.m_playerRenderData[var3].m_modelSlotRenderData.initModel(var4.legsSprite.modelSlot);
+                     this.m_playerRenderData[var3].m_modelSlotRenderData.init(var4.legsSprite.modelSlot);
                      this.m_playerRenderData[var3].m_modelSlotRenderData.centerOfMassY = 0.0F;
                      IsoCamera.frameState.playerIndex = var9;
                      ++var4.legsSprite.modelSlot.renderRefCount;
@@ -709,8 +788,8 @@ public final class WorldMapRenderer {
                   this.m_renderArgs.drawer = this;
                   this.m_renderArgs.cellX = var2;
                   this.m_renderArgs.cellY = var3;
-                  this.m_renderCellX = this.m_renderOriginX + (float)(var2 * 300 - this.m_worldMap.getMinXInSquares()) * this.m_worldScale;
-                  this.m_renderCellY = this.m_renderOriginY + (float)(var3 * 300 - this.m_worldMap.getMinYInSquares()) * this.m_worldScale;
+                  this.m_renderCellX = this.m_renderOriginX + (float)(var2 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * this.m_worldScale;
+                  this.m_renderCellY = this.m_renderOriginY + (float)(var3 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * this.m_worldScale;
 
                   for(var4 = 0; var4 < this.m_style.m_layers.size(); ++var4) {
                      WorldMapStyleLayer var7 = (WorldMapStyleLayer)this.m_style.m_layers.get(var4);
@@ -727,8 +806,8 @@ public final class WorldMapRenderer {
       }
 
       private void renderCell(int var1, int var2, ArrayList<WorldMapFeature> var3) {
-         this.m_renderCellX = this.m_renderOriginX + (float)(var1 * 300 - this.m_worldMap.getMinXInSquares()) * this.m_worldScale;
-         this.m_renderCellY = this.m_renderOriginY + (float)(var2 * 300 - this.m_worldMap.getMinYInSquares()) * this.m_worldScale;
+         this.m_renderCellX = this.m_renderOriginX + (float)(var1 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * this.m_worldScale;
+         this.m_renderCellY = this.m_renderOriginY + (float)(var2 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * this.m_worldScale;
          WorldMapRenderLayer.s_pool.release((List)this.m_renderLayers);
          this.m_renderLayers.clear();
          this.m_filterArgs.renderer = this.m_renderer;
@@ -785,22 +864,24 @@ public final class WorldMapRenderer {
       }
 
       void renderCellGrid(int var1, int var2, int var3, int var4) {
-         float var5 = this.m_renderOriginX + (float)(var1 * 300 - this.m_worldMap.getMinXInSquares()) * this.m_worldScale;
-         float var6 = this.m_renderOriginY + (float)(var2 * 300 - this.m_worldMap.getMinYInSquares()) * this.m_worldScale;
-         float var7 = var5 + (float)((var3 - var1 + 1) * 300) * this.m_worldScale;
-         float var8 = var6 + (float)((var4 - var2 + 1) * 300) * this.m_worldScale;
+         float var5 = this.m_renderOriginX + (float)(var1 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * this.m_worldScale;
+         float var6 = this.m_renderOriginY + (float)(var2 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * this.m_worldScale;
+         float var7 = var5 + (float)((var3 - var1 + 1) * IsoCell.CellSizeInSquares) * this.m_worldScale;
+         float var8 = var6 + (float)((var4 - var2 + 1) * IsoCell.CellSizeInSquares) * this.m_worldScale;
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
          WorldMapRenderer.m_vboLines.setMode(1);
          WorldMapRenderer.m_vboLines.setLineWidth(1.0F);
 
          int var9;
          for(var9 = var1; var9 <= var3 + 1; ++var9) {
-            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (float)(var9 * 300 - this.m_worldMap.getMinXInSquares()) * this.m_worldScale, var6, 0.0F, this.m_renderOriginX + (float)(var9 * 300 - this.m_worldMap.getMinXInSquares()) * this.m_worldScale, var8, 0.0F, 0.25F, 0.25F, 0.25F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (float)(var9 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * this.m_worldScale, var6, 0.0F, this.m_renderOriginX + (float)(var9 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * this.m_worldScale, var8, 0.0F, 0.25F, 0.25F, 0.25F, 1.0F);
          }
 
          for(var9 = var2; var9 <= var4 + 1; ++var9) {
-            WorldMapRenderer.m_vboLines.addLine(var5, this.m_renderOriginY + (float)(var9 * 300 - this.m_worldMap.getMinYInSquares()) * this.m_worldScale, 0.0F, var7, this.m_renderOriginY + (float)(var9 * 300 - this.m_worldMap.getMinYInSquares()) * this.m_worldScale, 0.0F, 0.25F, 0.25F, 0.25F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(var5, this.m_renderOriginY + (float)(var9 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * this.m_worldScale, 0.0F, var7, this.m_renderOriginY + (float)(var9 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * this.m_worldScale, 0.0F, 0.25F, 0.25F, 0.25F, 1.0F);
          }
 
+         WorldMapRenderer.m_vboLines.endRun();
          WorldMapRenderer.m_vboLines.flush();
       }
 
@@ -845,6 +926,7 @@ public final class WorldMapRenderer {
             WorldMapGeometry var13 = (WorldMapGeometry)var2.m_geometries.get(var12);
             switch (var13.m_type) {
                case LineString:
+                  WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
                   WorldMapRenderer.m_vboLines.setMode(1);
                   WorldMapRenderer.m_vboLines.setLineWidth(var4);
 
@@ -859,6 +941,8 @@ public final class WorldMapRenderer {
                         WorldMapRenderer.m_vboLines.addLine(var5 + var17 * var7, var6 + var18 * var7, 0.0F, var5 + var19 * var7, var6 + var20 * var7, 0.0F, var8, var9, var10, var11);
                      }
                   }
+
+                  WorldMapRenderer.m_vboLines.endRun();
             }
          }
 
@@ -891,6 +975,7 @@ public final class WorldMapRenderer {
                   var21.width = var4;
                   ArrayList var22 = StrokeGeometry.getStrokeGeometry(var14, var21);
                   if (var22 != null) {
+                     WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
                      WorldMapRenderer.m_vboLines.setMode(4);
 
                      for(int var23 = 0; var23 < var22.size(); ++var23) {
@@ -899,6 +984,7 @@ public final class WorldMapRenderer {
                         WorldMapRenderer.m_vboLines.addElement(var19, var20, 0.0F, var8, var9, var10, var11);
                      }
 
+                     WorldMapRenderer.m_vboLines.endRun();
                      StrokeGeometry.release(var22);
                   }
             }
@@ -916,7 +1002,6 @@ public final class WorldMapRenderer {
             float var10 = var3.b;
             float var11 = var3.a;
             WorldMapRenderer.m_vboLines.flush();
-            WorldMapRenderer.m_vboLinesUV.flush();
 
             for(int var12 = 0; var12 < var2.m_geometries.size(); ++var12) {
                WorldMapGeometry var13 = (WorldMapGeometry)var2.m_geometries.get(var12);
@@ -955,8 +1040,9 @@ public final class WorldMapRenderer {
             for(int var9 = 0; var9 < var2.m_geometries.size(); ++var9) {
                WorldMapGeometry var10 = (WorldMapGeometry)var2.m_geometries.get(var9);
                if (var10.m_type == WorldMapGeometry.Type.LineString) {
-                  WorldMapRenderer.m_vboLinesUV.setMode(7);
-                  WorldMapRenderer.m_vboLinesUV.startRun(var5.getTextureId());
+                  WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColorUV);
+                  WorldMapRenderer.m_vboLines.setMode(7);
+                  WorldMapRenderer.m_vboLines.setTextureID(var5.getTextureId());
                   float var11 = var4;
                   WorldMapPoints var12 = (WorldMapPoints)var10.m_points.get(0);
 
@@ -986,8 +1072,10 @@ public final class WorldMapRenderer {
                      float var35 = 0.0F;
                      float var36 = 1.0F;
                      float var37 = var29 / (var11 * ((float)var5.getHeight() / (float)var5.getWidth()));
-                     WorldMapRenderer.m_vboLinesUV.addQuad(var21, var22, var30, var31, var23, var24, var32, var33, var25, var26, var34, var35, var27, var28, var36, var37, 0.0F, var3.r, var3.g, var3.b, var3.a);
+                     WorldMapRenderer.m_vboLines.addQuad(var21, var22, var30, var31, var23, var24, var32, var33, var25, var26, var34, var35, var27, var28, var36, var37, 0.0F, var3.r, var3.g, var3.b, var3.a);
                   }
+
+                  WorldMapRenderer.m_vboLines.endRun();
                }
             }
 
@@ -995,7 +1083,6 @@ public final class WorldMapRenderer {
       }
 
       public void fillPolygon(WorldMapStyleLayer.RenderArgs var1, WorldMapFeature var2, WorldMapStyleLayer.RGBAf var3) {
-         WorldMapRenderer.m_vboLinesUV.flush();
          float var4 = this.m_renderCellX;
          float var5 = this.m_renderCellY;
          float var6 = this.m_worldScale;
@@ -1008,8 +1095,13 @@ public final class WorldMapRenderer {
             WorldMapGeometry var12 = (WorldMapGeometry)var2.m_geometries.get(var11);
             if (var12.m_type == WorldMapGeometry.Type.Polygon) {
                boolean var13 = false;
-               int var18;
                if (var12.m_triangles == null) {
+                  if (var12.bFailedToTriangulate) {
+                     if (Core.bDebug) {
+                     }
+                     continue;
+                  }
+
                   if (this.m_triangulationsThisFrame > 500) {
                      continue;
                   }
@@ -1018,31 +1110,7 @@ public final class WorldMapRenderer {
                   double[] var14 = var2.m_properties.containsKey("highway") ? new double[]{1.0, 2.0, 4.0, 8.0, 12.0, 18.0} : null;
                   var12.triangulate(var14);
                   if (var12.m_triangles == null) {
-                     if (!Core.bDebug) {
-                        continue;
-                     }
-
-                     WorldMapRenderer.m_vboLines.setMode(1);
-                     var7 = 1.0F;
-                     var9 = 0.0F;
-                     var8 = 0.0F;
-                     WorldMapRenderer.m_vboLines.setLineWidth(4.0F);
-
-                     for(int var15 = 0; var15 < var12.m_points.size(); ++var15) {
-                        WorldMapPoints var28 = (WorldMapPoints)var12.m_points.get(var15);
-
-                        for(int var30 = 0; var30 < var28.numPoints(); ++var30) {
-                           var18 = var28.getX(var30);
-                           int var31 = var28.getY(var30);
-                           int var32 = var28.getX((var30 + 1) % var28.numPoints());
-                           int var33 = var28.getY((var30 + 1) % var28.numPoints());
-                           WorldMapRenderer.m_vboLines.reserve(2);
-                           WorldMapRenderer.m_vboLines.addElement(var4 + (float)var18 * var6, var5 + (float)var31 * var6, 0.0F, var7, var8, var9, var10);
-                           WorldMapRenderer.m_vboLines.addElement(var4 + (float)var32 * var6, var5 + (float)var33 * var6, 0.0F, var7, var8, var9, var10);
-                        }
-                     }
-
-                     WorldMapRenderer.m_vboLines.setLineWidth(1.0F);
+                     var12.bFailedToTriangulate = true;
                      continue;
                   }
 
@@ -1056,9 +1124,9 @@ public final class WorldMapRenderer {
                   GL11.glScalef(var6, var6, var6);
                   GL11.glColor4f(var7, var8, var9, var10);
                   if (var12.m_triangles.length / 2 > 2340) {
-                     int var29 = PZMath.min(var12.m_triangles.length / 2, 2340);
-                     WorldMapVBOs.getInstance().drawElements(4, var12.m_vboIndex1, var12.m_vboIndex2, var29);
-                     WorldMapVBOs.getInstance().drawElements(4, var12.m_vboIndex3, var12.m_vboIndex4, var12.m_triangles.length / 2 - var29);
+                     int var28 = PZMath.min(var12.m_triangles.length / 2, 2340);
+                     WorldMapVBOs.getInstance().drawElements(4, var12.m_vboIndex1, var12.m_vboIndex2, var28);
+                     WorldMapVBOs.getInstance().drawElements(4, var12.m_vboIndex3, var12.m_vboIndex4, var12.m_triangles.length / 2 - var28);
                   } else {
                      WorldMapVBOs.getInstance().drawElements(4, var12.m_vboIndex1, var12.m_vboIndex2, var12.m_triangles.length / 2);
                   }
@@ -1066,6 +1134,7 @@ public final class WorldMapRenderer {
                   GL11.glScalef(1.0F / var6, 1.0F / var6, 1.0F / var6);
                   GL11.glTranslatef(-var4, -var5, 0.0F);
                } else {
+                  WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
                   WorldMapRenderer.m_vboLines.setMode(4);
                   double var27 = 0.0;
                   if ((double)this.m_zoomF <= 11.5) {
@@ -1084,6 +1153,7 @@ public final class WorldMapRenderer {
 
                   WorldMapGeometry.TrianglesPerZoom var16 = var27 == 0.0 ? null : var12.findTriangles(var27);
                   float[] var17;
+                  int var18;
                   float var19;
                   float var20;
                   float var21;
@@ -1106,6 +1176,8 @@ public final class WorldMapRenderer {
                         WorldMapRenderer.m_vboLines.addElement(var4 + var21 * var6, var5 + var22 * var6, 0.0F, var7 * var25, var8 * var25, var9 * var25, var10);
                         WorldMapRenderer.m_vboLines.addElement(var4 + var23 * var6, var5 + var24 * var6, 0.0F, var7 * var25, var8 * var25, var9 * var25, var10);
                      }
+
+                     WorldMapRenderer.m_vboLines.endRun();
                   } else {
                      var17 = var12.m_triangles;
 
@@ -1121,6 +1193,8 @@ public final class WorldMapRenderer {
                         WorldMapRenderer.m_vboLines.addElement(var4 + var21 * var6, var5 + var22 * var6, 0.0F, var7, var8, var9, var10);
                         WorldMapRenderer.m_vboLines.addElement(var4 + var23 * var6, var5 + var24 * var6, 0.0F, var7, var8, var9, var10);
                      }
+
+                     WorldMapRenderer.m_vboLines.endRun();
                   }
                }
             }
@@ -1128,72 +1202,74 @@ public final class WorldMapRenderer {
 
       }
 
-      public void fillPolygon(WorldMapStyleLayer.RenderArgs var1, WorldMapFeature var2, WorldMapStyleLayer.RGBAf var3, Texture var4, float var5) {
-         WorldMapRenderer.m_vboLines.flush();
-         float var6 = this.m_renderCellX;
-         float var7 = this.m_renderCellY;
-         float var8 = this.m_worldScale;
-         float var9 = var3.r;
-         float var10 = var3.g;
-         float var11 = var3.b;
-         float var12 = var3.a;
+      public void fillPolygon(WorldMapStyleLayer.RenderArgs var1, WorldMapFeature var2, WorldMapStyleLayer.RGBAf var3, Texture var4, float var5, WorldMapStyleLayer.TextureScaling var6) {
+         float var7 = this.m_renderCellX;
+         float var8 = this.m_renderCellY;
+         float var9 = this.m_worldScale;
+         boolean var10 = var6 == WorldMapStyleLayer.TextureScaling.IsoGridSquare;
+         float var11 = var10 ? 1.0F / var5 : var9 / var5;
+         float var12 = var3.r;
+         float var13 = var3.g;
+         float var14 = var3.b;
+         float var15 = var3.a;
 
-         for(int var13 = 0; var13 < var2.m_geometries.size(); ++var13) {
-            WorldMapGeometry var14 = (WorldMapGeometry)var2.m_geometries.get(var13);
-            if (var14.m_type == WorldMapGeometry.Type.Polygon) {
-               if (var14.m_triangles == null) {
-                  var14.triangulate((double[])null);
-                  if (var14.m_triangles == null) {
+         for(int var16 = 0; var16 < var2.m_geometries.size(); ++var16) {
+            WorldMapGeometry var17 = (WorldMapGeometry)var2.m_geometries.get(var16);
+            if (var17.m_type == WorldMapGeometry.Type.Polygon) {
+               if (var17.m_triangles == null) {
+                  var17.triangulate((double[])null);
+                  if (var17.m_triangles == null) {
                      continue;
                   }
                }
 
                GL11.glEnable(3553);
-               GL11.glTexParameteri(3553, 10241, 9728);
-               GL11.glTexParameteri(3553, 10240, 9728);
-               WorldMapRenderer.m_vboLinesUV.setMode(4);
-               WorldMapRenderer.m_vboLinesUV.startRun(var4.getTextureId());
-               float[] var15 = var14.m_triangles;
-               float var16 = (float)(var1.cellX * 300 + var14.m_minX);
-               float var17 = (float)(var1.cellY * 300 + var14.m_minY);
-               float var18 = (float)var4.getWidth() * var5;
-               float var19 = (float)var4.getHeight() * var5;
-               float var20 = (float)var4.getWidthHW();
-               float var21 = (float)var4.getHeightHW();
-               float var22 = PZMath.floor(var16 / var18) * var18;
-               float var23 = PZMath.floor(var17 / var19) * var19;
+               WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColorUV);
+               WorldMapRenderer.m_vboLines.setMode(4);
+               WorldMapRenderer.m_vboLines.setTextureID(var4.getTextureId());
+               WorldMapRenderer.m_vboLines.setMinMagFilters(9728, 9728);
+               float[] var18 = var17.m_triangles;
+               float var19 = (float)(var1.cellX * IsoCell.CellSizeInSquares + var17.m_minX);
+               float var20 = (float)(var1.cellY * IsoCell.CellSizeInSquares + var17.m_minY);
+               float var21 = (float)var4.getWidth() * var5;
+               float var22 = (float)var4.getHeight() * var5;
+               float var23 = (float)var4.getWidthHW();
+               float var24 = (float)var4.getHeightHW();
+               float var25 = PZMath.floor(var19 / var21) * var21;
+               float var26 = PZMath.floor(var20 / var22) * var22;
 
-               for(int var24 = 0; var24 < var15.length; var24 += 6) {
-                  float var25 = var15[var24];
-                  float var26 = var15[var24 + 1];
-                  float var27 = var15[var24 + 2];
-                  float var28 = var15[var24 + 3];
-                  float var29 = var15[var24 + 4];
-                  float var30 = var15[var24 + 5];
-                  float var31 = (var25 + (float)(var1.cellX * 300) - var22) / var5;
-                  float var32 = (var26 + (float)(var1.cellY * 300) - var23) / var5;
-                  float var33 = (var27 + (float)(var1.cellX * 300) - var22) / var5;
-                  float var34 = (var28 + (float)(var1.cellY * 300) - var23) / var5;
-                  float var35 = (var29 + (float)(var1.cellX * 300) - var22) / var5;
-                  float var36 = (var30 + (float)(var1.cellY * 300) - var23) / var5;
-                  var25 = var6 + var25 * var8;
-                  var26 = var7 + var26 * var8;
-                  var27 = var6 + var27 * var8;
-                  var28 = var7 + var28 * var8;
-                  var29 = var6 + var29 * var8;
-                  var30 = var7 + var30 * var8;
-                  float var37 = var31 / var20;
-                  float var38 = var32 / var21;
-                  float var39 = var33 / var20;
-                  float var40 = var34 / var21;
-                  float var41 = var35 / var20;
-                  float var42 = var36 / var21;
-                  WorldMapRenderer.m_vboLinesUV.reserve(3);
-                  WorldMapRenderer.m_vboLinesUV.addElement(var25, var26, 0.0F, var37, var38, var9, var10, var11, var12);
-                  WorldMapRenderer.m_vboLinesUV.addElement(var27, var28, 0.0F, var39, var40, var9, var10, var11, var12);
-                  WorldMapRenderer.m_vboLinesUV.addElement(var29, var30, 0.0F, var41, var42, var9, var10, var11, var12);
+               for(int var27 = 0; var27 < var18.length; var27 += 6) {
+                  float var28 = var18[var27];
+                  float var29 = var18[var27 + 1];
+                  float var30 = var18[var27 + 2];
+                  float var31 = var18[var27 + 3];
+                  float var32 = var18[var27 + 4];
+                  float var33 = var18[var27 + 5];
+                  float var34 = (var28 + (float)(var1.cellX * IsoCell.CellSizeInSquares) - var25) * var11;
+                  float var35 = (var29 + (float)(var1.cellY * IsoCell.CellSizeInSquares) - var26) * var11;
+                  float var36 = (var30 + (float)(var1.cellX * IsoCell.CellSizeInSquares) - var25) * var11;
+                  float var37 = (var31 + (float)(var1.cellY * IsoCell.CellSizeInSquares) - var26) * var11;
+                  float var38 = (var32 + (float)(var1.cellX * IsoCell.CellSizeInSquares) - var25) * var11;
+                  float var39 = (var33 + (float)(var1.cellY * IsoCell.CellSizeInSquares) - var26) * var11;
+                  var28 = var7 + var28 * var9;
+                  var29 = var8 + var29 * var9;
+                  var30 = var7 + var30 * var9;
+                  var31 = var8 + var31 * var9;
+                  var32 = var7 + var32 * var9;
+                  var33 = var8 + var33 * var9;
+                  float var40 = var34 / var23;
+                  float var41 = var35 / var24;
+                  float var42 = var36 / var23;
+                  float var43 = var37 / var24;
+                  float var44 = var38 / var23;
+                  float var45 = var39 / var24;
+                  WorldMapRenderer.m_vboLines.reserve(3);
+                  WorldMapRenderer.m_vboLines.addElement(var28, var29, 0.0F, var40, var41, var12, var13, var14, var15);
+                  WorldMapRenderer.m_vboLines.addElement(var30, var31, 0.0F, var42, var43, var12, var13, var14, var15);
+                  WorldMapRenderer.m_vboLines.addElement(var32, var33, 0.0F, var44, var45, var12, var13, var14, var15);
                }
 
+               WorldMapRenderer.m_vboLines.endRun();
                GL11.glDisable(3553);
             }
          }
@@ -1258,6 +1334,7 @@ public final class WorldMapRenderer {
       }
 
       void outlineTriangles(WorldMapGeometry var1, float var2, float var3, float var4) {
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
          WorldMapRenderer.m_vboLines.setMode(1);
          float var8 = 1.0F;
          float var5 = 1.0F;
@@ -1280,9 +1357,11 @@ public final class WorldMapRenderer {
             WorldMapRenderer.m_vboLines.addElement(var2 + var11 * var4, var3 + var12 * var4, 0.0F, var5, var6, var7, var8);
          }
 
+         WorldMapRenderer.m_vboLines.endRun();
       }
 
       void outlinePolygon(WorldMapGeometry var1, float var2, float var3, float var4) {
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
          WorldMapRenderer.m_vboLines.setMode(1);
          float var8 = 1.0F;
          float var7 = 0.8F;
@@ -1303,22 +1382,20 @@ public final class WorldMapRenderer {
             }
          }
 
-         WorldMapRenderer.m_vboLines.setLineWidth(1.0F);
+         WorldMapRenderer.m_vboLines.endRun();
       }
 
       public void drawTexture(Texture var1, WorldMapStyleLayer.RGBAf var2, int var3, int var4, int var5, int var6) {
          if (var1 != null && var1.isReady()) {
-            WorldMapRenderer.m_vboLines.flush();
-            WorldMapRenderer.m_vboLinesUV.flush();
             float var7 = this.m_worldScale;
             float var8 = ((float)var3 - this.m_centerWorldX) * var7;
             float var9 = ((float)var4 - this.m_centerWorldY) * var7;
             float var10 = var8 + (float)(var5 - var3) * var7;
             float var11 = var9 + (float)(var6 - var4) * var7;
-            float var12 = PZMath.clamp(var8, this.m_renderCellX, this.m_renderCellX + 300.0F * var7);
-            float var13 = PZMath.clamp(var9, this.m_renderCellY, this.m_renderCellY + 300.0F * var7);
-            float var14 = PZMath.clamp(var10, this.m_renderCellX, this.m_renderCellX + 300.0F * var7);
-            float var15 = PZMath.clamp(var11, this.m_renderCellY, this.m_renderCellY + 300.0F * var7);
+            float var12 = PZMath.clamp(var8, this.m_renderCellX, this.m_renderCellX + (float)IsoCell.CellSizeInSquares * var7);
+            float var13 = PZMath.clamp(var9, this.m_renderCellY, this.m_renderCellY + (float)IsoCell.CellSizeInSquares * var7);
+            float var14 = PZMath.clamp(var10, this.m_renderCellX, this.m_renderCellX + (float)IsoCell.CellSizeInSquares * var7);
+            float var15 = PZMath.clamp(var11, this.m_renderCellY, this.m_renderCellY + (float)IsoCell.CellSizeInSquares * var7);
             if (!(var12 >= var14) && !(var13 >= var15)) {
                float var16 = (float)var1.getWidth() / (float)(var5 - var3);
                float var17 = (float)var1.getHeight() / (float)(var6 - var4);
@@ -1327,39 +1404,37 @@ public final class WorldMapRenderer {
                GL11.glDisable(2929);
                if (var1.getID() == -1) {
                   var1.bind();
-               } else {
-                  GL11.glBindTexture(3553, Texture.lastTextureID = var1.getID());
-                  GL11.glTexParameteri(3553, 10241, 9728);
-                  GL11.glTexParameteri(3553, 10240, 9728);
                }
 
                float var18 = (var12 - var8) / ((float)var1.getWidthHW() * var7) * var16;
                float var19 = (var13 - var9) / ((float)var1.getHeightHW() * var7) * var17;
                float var20 = (var14 - var8) / ((float)var1.getWidthHW() * var7) * var16;
                float var21 = (var15 - var9) / ((float)var1.getHeightHW() * var7) * var17;
-               WorldMapRenderer.m_vboLinesUV.setMode(7);
-               WorldMapRenderer.m_vboLinesUV.startRun(var1.getTextureId());
-               WorldMapRenderer.m_vboLinesUV.addQuad(var12, var13, var18, var19, var14, var15, var20, var21, 0.0F, var2.r, var2.g, var2.b, var2.a);
+               WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColorUV);
+               WorldMapRenderer.m_vboLines.setMode(7);
+               WorldMapRenderer.m_vboLines.setTextureID(var1.getTextureId());
+               WorldMapRenderer.m_vboLines.setMinMagFilters(9728, 9728);
+               WorldMapRenderer.m_vboLines.addQuad(var12, var13, var18, var19, var14, var15, var20, var21, 0.0F, var2.r, var2.g, var2.b, var2.a);
+               WorldMapRenderer.m_vboLines.endRun();
             }
          }
       }
 
       public void drawTextureTiled(Texture var1, WorldMapStyleLayer.RGBAf var2, int var3, int var4, int var5, int var6, int var7, int var8) {
          if (var1 != null && var1.isReady()) {
-            if (var7 * 300 < var5 && (var7 + 1) * 300 > var3) {
-               if (var8 * 300 < var6 && (var8 + 1) * 300 > var4) {
-                  WorldMapRenderer.m_vboLines.flush();
+            if (var7 * IsoCell.CellSizeInSquares < var5 && (var7 + 1) * IsoCell.CellSizeInSquares > var3) {
+               if (var8 * IsoCell.CellSizeInSquares < var6 && (var8 + 1) * IsoCell.CellSizeInSquares > var4) {
                   float var9 = this.m_worldScale;
                   int var10 = var1.getWidth();
                   int var11 = var1.getHeight();
-                  int var12 = (int)(PZMath.floor((float)var7 * 300.0F / (float)var10) * (float)var10);
-                  int var13 = (int)(PZMath.floor((float)var8 * 300.0F / (float)var11) * (float)var11);
-                  int var14 = var12 + (int)Math.ceil((double)(((float)(var7 + 1) * 300.0F - (float)var12) / (float)var10)) * var10;
-                  int var15 = var13 + (int)Math.ceil((double)(((float)(var8 + 1) * 300.0F - (float)var13) / (float)var11)) * var11;
-                  float var16 = (float)PZMath.clamp(var12, var7 * 300, (var7 + 1) * 300);
-                  float var17 = (float)PZMath.clamp(var13, var8 * 300, (var8 + 1) * 300);
-                  float var18 = (float)PZMath.clamp(var14, var7 * 300, (var7 + 1) * 300);
-                  float var19 = (float)PZMath.clamp(var15, var8 * 300, (var8 + 1) * 300);
+                  int var12 = (int)(PZMath.floor((float)var7 * (float)IsoCell.CellSizeInSquares / (float)var10) * (float)var10);
+                  int var13 = (int)(PZMath.floor((float)var8 * (float)IsoCell.CellSizeInSquares / (float)var11) * (float)var11);
+                  int var14 = var12 + (int)Math.ceil((double)(((float)(var7 + 1) * (float)IsoCell.CellSizeInSquares - (float)var12) / (float)var10)) * var10;
+                  int var15 = var13 + (int)Math.ceil((double)(((float)(var8 + 1) * (float)IsoCell.CellSizeInSquares - (float)var13) / (float)var11)) * var11;
+                  float var16 = (float)PZMath.clamp(var12, var7 * IsoCell.CellSizeInSquares, (var7 + 1) * IsoCell.CellSizeInSquares);
+                  float var17 = (float)PZMath.clamp(var13, var8 * IsoCell.CellSizeInSquares, (var8 + 1) * IsoCell.CellSizeInSquares);
+                  float var18 = (float)PZMath.clamp(var14, var7 * IsoCell.CellSizeInSquares, (var7 + 1) * IsoCell.CellSizeInSquares);
+                  float var19 = (float)PZMath.clamp(var15, var8 * IsoCell.CellSizeInSquares, (var8 + 1) * IsoCell.CellSizeInSquares);
                   var16 = PZMath.clamp(var16, (float)var3, (float)var5);
                   var17 = PZMath.clamp(var17, (float)var4, (float)var6);
                   var18 = PZMath.clamp(var18, (float)var3, (float)var5);
@@ -1381,15 +1456,16 @@ public final class WorldMapRenderer {
                      var1.bind();
                   } else {
                      GL11.glBindTexture(3553, Texture.lastTextureID = var1.getID());
-                     GL11.glTexParameteri(3553, 10241, 9728);
-                     GL11.glTexParameteri(3553, 10240, 9728);
                      GL11.glTexParameteri(3553, 10242, 10497);
                      GL11.glTexParameteri(3553, 10243, 10497);
                   }
 
-                  WorldMapRenderer.m_vboLinesUV.setMode(7);
-                  WorldMapRenderer.m_vboLinesUV.startRun(var1.getTextureId());
-                  WorldMapRenderer.m_vboLinesUV.addQuad(var16, var17, var24, var25, var18, var19, var26, var27, 0.0F, var2.r, var2.g, var2.b, var2.a);
+                  WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColorUV);
+                  WorldMapRenderer.m_vboLines.setMode(7);
+                  WorldMapRenderer.m_vboLines.setTextureID(var1.getTextureId());
+                  WorldMapRenderer.m_vboLines.setMinMagFilters(9728, 9728);
+                  WorldMapRenderer.m_vboLines.addQuad(var16, var17, var24, var25, var18, var19, var26, var27, 0.0F, var2.r, var2.g, var2.b, var2.a);
+                  WorldMapRenderer.m_vboLines.endRun();
                   GL11.glDisable(3553);
                }
             }
@@ -1398,17 +1474,15 @@ public final class WorldMapRenderer {
 
       public void drawTextureTiled(Texture var1, WorldMapStyleLayer.RGBAf var2, int var3, int var4, int var5, int var6, int var7, int var8, int var9, int var10) {
          if (var1 != null && var1.isReady()) {
-            WorldMapRenderer.m_vboLines.flush();
-            WorldMapRenderer.m_vboLinesUV.flush();
             float var11 = this.m_worldScale;
             float var12 = (float)var3;
             float var13 = (float)var4;
             float var14 = (float)var5;
             float var15 = (float)var6;
-            float var16 = PZMath.clamp(var12, (float)(var9 * 300), (float)((var9 + 1) * 300));
-            float var17 = PZMath.clamp(var13, (float)(var10 * 300), (float)((var10 + 1) * 300));
-            float var18 = PZMath.clamp(var14, (float)(var9 * 300), (float)((var9 + 1) * 300));
-            float var19 = PZMath.clamp(var15, (float)(var10 * 300), (float)((var10 + 1) * 300));
+            float var16 = PZMath.clamp(var12, (float)(var9 * IsoCell.CellSizeInSquares), (float)((var9 + 1) * IsoCell.CellSizeInSquares));
+            float var17 = PZMath.clamp(var13, (float)(var10 * IsoCell.CellSizeInSquares), (float)((var10 + 1) * IsoCell.CellSizeInSquares));
+            float var18 = PZMath.clamp(var14, (float)(var9 * IsoCell.CellSizeInSquares), (float)((var9 + 1) * IsoCell.CellSizeInSquares));
+            float var19 = PZMath.clamp(var15, (float)(var10 * IsoCell.CellSizeInSquares), (float)((var10 + 1) * IsoCell.CellSizeInSquares));
             float var20 = (var16 - (float)var3) / (float)var7;
             float var21 = (var17 - (float)var4) / (float)var8;
             float var22 = (var18 - (float)var3) / (float)var7;
@@ -1464,15 +1538,111 @@ public final class WorldMapRenderer {
 
          this.m_zones.clear();
          this.m_zones.addAll(this.m_zoneSet);
+         this.renderZones(this.m_zones, "Water", 0.0F, 0.0F, 1.0F, 0.25F);
+         this.renderZones(this.m_zones, "WaterNoFish", 0.0F, 0.2F, 1.0F, 0.25F);
          this.renderZones(this.m_zones, "Forest", 0.0F, 1.0F, 0.0F, 0.25F);
          this.renderZones(this.m_zones, "DeepForest", 0.0F, 0.5F, 0.0F, 0.25F);
-         this.renderZones(this.m_zones, "Nav", 0.0F, 0.0F, 1.0F, 0.25F);
+         this.renderZones(this.m_zones, "ForagingNav", 0.5F, 0.0F, 1.0F, 0.25F);
          this.renderZones(this.m_zones, "Vegitation", 1.0F, 1.0F, 0.0F, 0.25F);
+         this.renderZones(this.m_zones, "TrailerPark", 0.0F, 0.5F, 1.0F, 0.25F);
+         this.renderZones(this.m_zones, "TownZone", 0.0F, 0.5F, 1.0F, 0.25F);
+         this.renderZones(this.m_zones, "Farm", 0.5F, 0.5F, 1.0F, 0.25F);
+         this.renderZones(this.m_zones, "FarmLand", 0.5F, 0.5F, 1.0F, 0.25F);
       }
 
-      void renderZones(ArrayList<IsoMetaGrid.Zone> var1, String var2, float var3, float var4, float var5, float var6) {
-         WorldMapRenderer.m_vboLinesUV.flush();
+      void renderOtherZones() {
+         this.m_zoneSet.clear();
+
+         for(int var1 = 0; var1 < this.m_rasterizeXY.size() - 1; var1 += 2) {
+            int var2 = this.m_rasterizeXY_ints[var1];
+            int var3 = this.m_rasterizeXY_ints[var1 + 1];
+            if (this.m_renderer.m_visited == null || this.m_renderer.m_visited.isCellVisible(var2, var3)) {
+               IsoMetaCell var4 = IsoWorld.instance.MetaGrid.getCellData(var2, var3);
+               if (var4 != null) {
+                  var4.getZonesUnique(this.m_zoneSet);
+               }
+            }
+         }
+
+         HashMap var10 = new HashMap();
+         HashMap var11 = new HashMap();
+         Iterator var12 = this.m_zoneSet.iterator();
+
+         while(var12.hasNext()) {
+            Zone var13 = (Zone)var12.next();
+            if (var13.type != null && !Objects.equals(var13.type, "DeepForest") && !Objects.equals(var13.type, "Farm") && !Objects.equals(var13.type, "FarmLand") && !Objects.equals(var13.type, "Forest") && !Objects.equals(var13.type, "ForagingNav") && !Objects.equals(var13.type, "TownZone") && !Objects.equals(var13.type, "TrailerPark") && !Objects.equals(var13.type, "Vegitation") && !Objects.equals(var13.type, "Foraging_None")) {
+               if (!var10.containsKey(var13.type)) {
+                  StringBuilder var5 = new StringBuilder(Integer.toHexString(var13.type.hashCode()));
+                  var5.append("0".repeat(Math.max(0, 6 - var5.length())));
+                  float var6 = (float)Integer.parseInt(var5.substring(0, 2), 16) / 255.0F;
+                  float var7 = (float)Integer.parseInt(var5.substring(2, 4), 16) / 255.0F;
+                  float var8 = (float)Integer.parseInt(var5.substring(4, 6), 16) / 255.0F;
+                  ColorInfo var9 = new ColorInfo(var6, var7, var8, 1.0F);
+                  var10.put(var13.type, var9);
+               }
+
+               if (!var11.containsKey(var13.type)) {
+                  var11.put(var13.type, new ArrayList());
+               }
+
+               ((ArrayList)var11.get(var13.type)).add(var13);
+            }
+         }
+
+         var12 = var11.entrySet().iterator();
+
+         while(var12.hasNext()) {
+            Map.Entry var14 = (Map.Entry)var12.next();
+            ColorInfo var15 = (ColorInfo)var10.get(var14.getKey());
+            this.renderZones((ArrayList)var14.getValue(), (String)null, var15.r, var15.g, var15.b, 0.05F);
+         }
+
+      }
+
+      void renderAnimalZones() {
+         IsoMetaGrid var1 = IsoWorld.instance.MetaGrid;
+         this.m_zoneSet.clear();
+
+         for(int var2 = 0; var2 < this.m_rasterizeXY.size() - 1; var2 += 2) {
+            int var3 = this.m_rasterizeXY_ints[var2];
+            int var4 = this.m_rasterizeXY_ints[var2 + 1];
+            if (this.m_renderer.m_visited == null || this.m_renderer.m_visited.isCellVisible(var3, var4)) {
+               IsoMetaCell var5 = var1.getCellData(var3, var4);
+               if (var5 != null) {
+                  for(int var6 = 0; var6 < var5.getAnimalZonesSize(); ++var6) {
+                     this.m_zoneSet.add(var5.getAnimalZone(var6));
+                  }
+               }
+            }
+         }
+
+         this.m_zones.clear();
+         this.m_zones.addAll(this.m_zoneSet);
+         this.renderZones(this.m_zones, "Animal", 0.0F, 0.5F, 1.0F, 1.0F);
+      }
+
+      void renderStoryZones() {
+         this.m_zoneSet.clear();
+
+         for(int var1 = 0; var1 < this.m_rasterizeXY.size() - 1; var1 += 2) {
+            int var2 = this.m_rasterizeXY_ints[var1];
+            int var3 = this.m_rasterizeXY_ints[var1 + 1];
+            if (this.m_renderer.m_visited == null || this.m_renderer.m_visited.isCellVisible(var2, var3)) {
+               IsoMetaCell var4 = IsoWorld.instance.MetaGrid.getCellData(var2, var3);
+               if (var4 != null) {
+                  var4.getZonesUnique(this.m_zoneSet);
+               }
+            }
+         }
+
+         this.m_zones.clear();
+         this.m_zones.addAll(this.m_zoneSet);
+         this.renderZones(this.m_zones, "ZoneStory", 1.0F, 0.5F, 0.5F, 1.0F);
+      }
+
+      void renderZones(ArrayList<Zone> var1, String var2, float var3, float var4, float var5, float var6) {
          float var7 = this.m_worldScale;
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
          WorldMapRenderer.m_vboLines.setMode(4);
          Iterator var8 = var1.iterator();
 
@@ -1486,26 +1656,29 @@ public final class WorldMapRenderer {
             float var16;
             float var17;
             do {
-               IsoMetaGrid.Zone var9;
-               label93:
+               Zone var9;
+               label107:
                do {
                   do {
                      do {
                         if (!var8.hasNext()) {
+                           WorldMapRenderer.m_vboLines.endRun();
+                           WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
                            WorldMapRenderer.m_vboLines.setMode(1);
                            WorldMapRenderer.m_vboLines.setLineWidth(2.0F);
                            var8 = var1.iterator();
 
                            while(true) {
-                              do {
+                              while(true) {
                                  do {
                                     do {
                                        if (!var8.hasNext()) {
+                                          WorldMapRenderer.m_vboLines.endRun();
                                           return;
                                        }
 
-                                       var9 = (IsoMetaGrid.Zone)var8.next();
-                                    } while(!var2.equals(var9.type));
+                                       var9 = (Zone)var8.next();
+                                    } while(var2 != null && !var2.equals(var9.type));
 
                                     float var20;
                                     if (var9.isRectangle()) {
@@ -1531,27 +1704,36 @@ public final class WorldMapRenderer {
                                  } while(!var9.isPolyline());
 
                                  var10 = var9.polylineOutlinePoints;
-                              } while(var10 == null);
-
-                              for(var11 = 0; var11 < var10.length; var11 += 2) {
-                                 var12 = (var10[var11] - this.m_centerWorldX) * var7;
-                                 var13 = (var10[var11 + 1] - this.m_centerWorldY) * var7;
-                                 var14 = (var10[(var11 + 2) % var10.length] - this.m_centerWorldX) * var7;
-                                 var15 = (var10[(var11 + 3) % var10.length] - this.m_centerWorldY) * var7;
-                                 WorldMapRenderer.m_vboLines.addLine(var12, var13, 0.0F, var14, var15, 0.0F, var3, var4, var5, 1.0F);
+                                 if (var10 == null) {
+                                    for(var11 = 0; var11 < var9.points.size() - 2; var11 += 2) {
+                                       var12 = ((float)var9.points.getQuick(var11) + 0.5F - this.m_centerWorldX) * var7;
+                                       var13 = ((float)var9.points.getQuick(var11 + 1) + 0.5F - this.m_centerWorldY) * var7;
+                                       var14 = ((float)var9.points.getQuick((var11 + 2) % var9.points.size()) + 0.5F - this.m_centerWorldX) * var7;
+                                       var15 = ((float)var9.points.getQuick((var11 + 3) % var9.points.size()) + 0.5F - this.m_centerWorldY) * var7;
+                                       WorldMapRenderer.m_vboLines.addLine(var12, var13, 0.0F, var14, var15, 0.0F, var3, var4, var5, 1.0F);
+                                    }
+                                 } else {
+                                    for(var11 = 0; var11 < var10.length; var11 += 2) {
+                                       var12 = (var10[var11] - this.m_centerWorldX) * var7;
+                                       var13 = (var10[var11 + 1] - this.m_centerWorldY) * var7;
+                                       var14 = (var10[(var11 + 2) % var10.length] - this.m_centerWorldX) * var7;
+                                       var15 = (var10[(var11 + 3) % var10.length] - this.m_centerWorldY) * var7;
+                                       WorldMapRenderer.m_vboLines.addLine(var12, var13, 0.0F, var14, var15, 0.0F, var3, var4, var5, 1.0F);
+                                    }
+                                 }
                               }
                            }
                         }
 
-                        var9 = (IsoMetaGrid.Zone)var8.next();
-                     } while(!var2.equals(var9.type));
+                        var9 = (Zone)var8.next();
+                     } while(var2 != null && !var2.equals(var9.type));
 
                      if (var9.isRectangle()) {
                         WorldMapRenderer.m_vboLines.addQuad(((float)var9.x - this.m_centerWorldX) * var7, ((float)var9.y - this.m_centerWorldY) * var7, ((float)(var9.x + var9.w) - this.m_centerWorldX) * var7, ((float)(var9.y + var9.h) - this.m_centerWorldY) * var7, 0.0F, var3, var4, var5, var6);
                      }
 
                      if (!var9.isPolygon()) {
-                        continue label93;
+                        continue label107;
                      }
 
                      var10 = var9.getPolygonTriangles();
@@ -1587,7 +1769,12 @@ public final class WorldMapRenderer {
          try {
             PZGLUtil.pushAndLoadMatrix(5889, this.m_projection);
             PZGLUtil.pushAndLoadMatrix(5888, this.m_modelView);
+            DefaultShader var10000 = SceneShaderStore.DefaultShader;
+            DefaultShader.isActive = false;
+            ShaderHelper.forgetCurrentlyBound();
+            GL20.glUseProgram(0);
             this.renderInternal();
+            ShaderHelper.glUseProgramObjectARB(0);
          } catch (Exception var5) {
             ExceptionLogger.logException(var5);
          } finally {
@@ -1599,10 +1786,10 @@ public final class WorldMapRenderer {
 
       private void renderInternal() {
          float var1 = this.m_worldScale;
-         int var2 = (int)Math.max(this.uiToWorldX(0.0F, 0.0F), (float)this.m_worldMap.getMinXInSquares()) / 300;
-         int var3 = (int)Math.max(this.uiToWorldY(0.0F, 0.0F), (float)this.m_worldMap.getMinYInSquares()) / 300;
-         int var4 = (int)Math.min(this.uiToWorldX((float)this.getWidth(), (float)this.getHeight()), (float)(this.m_worldMap.m_maxX * 300)) / 300;
-         int var5 = (int)Math.min(this.uiToWorldY((float)this.getWidth(), (float)this.getHeight()), (float)(this.m_worldMap.m_maxY * 300)) / 300;
+         int var2 = (int)Math.max(this.uiToWorldX(0.0F, 0.0F), (float)this.m_worldMap.getMinXInSquares()) / IsoCell.CellSizeInSquares;
+         int var3 = (int)Math.max(this.uiToWorldY(0.0F, 0.0F), (float)this.m_worldMap.getMinYInSquares()) / IsoCell.CellSizeInSquares;
+         int var4 = (int)Math.min(this.uiToWorldX((float)this.getWidth(), (float)this.getHeight()), (float)(this.m_worldMap.m_maxX * IsoCell.CellSizeInSquares)) / IsoCell.CellSizeInSquares;
+         int var5 = (int)Math.min(this.uiToWorldY((float)this.getWidth(), (float)this.getHeight()), (float)(this.m_worldMap.m_maxY * IsoCell.CellSizeInSquares)) / IsoCell.CellSizeInSquares;
          var2 = this.m_worldMap.getMinXInSquares();
          var3 = this.m_worldMap.getMinYInSquares();
          var4 = this.m_worldMap.m_maxX;
@@ -1620,8 +1807,20 @@ public final class WorldMapRenderer {
             this.renderCellFeatures();
          }
 
+         if (this.m_renderer.OtherZones.getValue()) {
+            this.renderOtherZones();
+         }
+
          if (this.m_renderer.ForestZones.getValue()) {
             this.renderZones();
+         }
+
+         if (this.m_renderer.Animals.getValue() || this.m_renderer.AnimalTracks.getValue()) {
+            this.renderAnimalZones();
+         }
+
+         if (this.m_renderer.StoryZones.getValue()) {
+            this.renderStoryZones();
          }
 
          if (this.m_renderer.VisibleCells.getValue()) {
@@ -1629,27 +1828,22 @@ public final class WorldMapRenderer {
          }
 
          WorldMapRenderer.m_vboLines.flush();
-         WorldMapRenderer.m_vboLinesUV.flush();
-         GL11.glEnableClientState(32884);
-         GL11.glEnableClientState(32886);
          GL13.glActiveTexture(33984);
-         GL13.glClientActiveTexture(33984);
-         GL11.glEnableClientState(32888);
          GL11.glTexEnvi(8960, 8704, 8448);
          GL11.glPolygonMode(1032, 6914);
          GL11.glEnable(3042);
          SpriteRenderer.ringBuffer.restoreBoundTextures = true;
          SpriteRenderer.ringBuffer.restoreVBOs = true;
          if (this.m_renderer.m_visited != null) {
-            this.m_renderer.m_visited.render(this.m_renderOriginX - (float)(this.m_worldMap.getMinXInSquares() - this.m_renderer.m_visited.getMinX() * 300) * var1, this.m_renderOriginY - (float)(this.m_worldMap.getMinYInSquares() - this.m_renderer.m_visited.getMinY() * 300) * var1, var2 / 300, var3 / 300, var4 / 300, var5 / 300, var1, this.m_renderer.BlurUnvisited.getValue());
+            this.m_renderer.m_visited.render(this.m_renderOriginX - (float)(this.m_worldMap.getMinXInSquares() - this.m_renderer.m_visited.getMinX() * IsoCell.CellSizeInSquares) * var1, this.m_renderOriginY - (float)(this.m_worldMap.getMinYInSquares() - this.m_renderer.m_visited.getMinY() * IsoCell.CellSizeInSquares) * var1, var2 / IsoCell.CellSizeInSquares, var3 / IsoCell.CellSizeInSquares, var4 / IsoCell.CellSizeInSquares, var5 / IsoCell.CellSizeInSquares, var1, this.m_renderer.BlurUnvisited.getValue());
             if (this.m_renderer.UnvisitedGrid.getValue()) {
-               this.m_renderer.m_visited.renderGrid(this.m_renderOriginX - (float)(this.m_worldMap.getMinXInSquares() - this.m_renderer.m_visited.getMinX() * 300) * var1, this.m_renderOriginY - (float)(this.m_worldMap.getMinYInSquares() - this.m_renderer.m_visited.getMinY() * 300) * var1, var2 / 300, var3 / 300, var4 / 300, var5 / 300, var1, this.m_zoomF);
+               this.m_renderer.m_visited.renderGrid(this.m_renderOriginX - (float)(this.m_worldMap.getMinXInSquares() - this.m_renderer.m_visited.getMinX() * IsoCell.CellSizeInSquares) * var1, this.m_renderOriginY - (float)(this.m_worldMap.getMinYInSquares() - this.m_renderer.m_visited.getMinY() * IsoCell.CellSizeInSquares) * var1, var2 / IsoCell.CellSizeInSquares, var3 / IsoCell.CellSizeInSquares, var4 / IsoCell.CellSizeInSquares, var5 / IsoCell.CellSizeInSquares, var1, this.m_zoomF);
             }
          }
 
          this.renderPlayers();
          if (this.m_renderer.CellGrid.getValue()) {
-            this.renderCellGrid(var2 / 300, var3 / 300, var4 / 300, var5 / 300);
+            this.renderCellGrid(var2 / IsoCell.CellSizeInSquares, var3 / IsoCell.CellSizeInSquares, var4 / IsoCell.CellSizeInSquares, var5 / IsoCell.CellSizeInSquares);
          }
 
          if (Core.bDebug) {
@@ -1661,7 +1855,6 @@ public final class WorldMapRenderer {
          }
 
          WorldMapRenderer.m_vboLines.flush();
-         WorldMapRenderer.m_vboLinesUV.flush();
          GL11.glViewport(0, 0, Core.width, Core.height);
       }
 
@@ -1700,7 +1893,7 @@ public final class WorldMapRenderer {
             this.m_rasterizeXY.clear();
 
             for(int var13 = this.m_worldMap.getMinYInCells(); var13 <= this.m_worldMap.getMaxYInCells(); ++var13) {
-               for(int var14 = this.m_worldMap.getMinXInCells(); var14 <= this.m_worldMap.getMaxYInCells(); ++var14) {
+               for(int var14 = this.m_worldMap.getMinXInCells(); var14 <= this.m_worldMap.getMaxXInCells(); ++var14) {
                   this.m_rasterizeXY.add(var14);
                   this.m_rasterizeXY.add(var13);
                }
@@ -1712,14 +1905,14 @@ public final class WorldMapRenderer {
 
             this.m_rasterizeXY_ints = this.m_rasterizeXY.toArray(this.m_rasterizeXY_ints);
          } else {
-            float var4 = this.uiToWorldX((float)var2 + 0.0F, (float)var2 + 0.0F) / 300.0F;
-            float var5 = this.uiToWorldY((float)var2 + 0.0F, (float)var2 + 0.0F) / 300.0F;
-            float var6 = this.uiToWorldX((float)(this.getWidth() - var2), 0.0F + (float)var2) / 300.0F;
-            float var7 = this.uiToWorldY((float)(this.getWidth() - var2), 0.0F + (float)var2) / 300.0F;
-            float var8 = this.uiToWorldX((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / 300.0F;
-            float var9 = this.uiToWorldY((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / 300.0F;
-            float var10 = this.uiToWorldX(0.0F + (float)var2, (float)(this.getHeight() - var2)) / 300.0F;
-            float var11 = this.uiToWorldY(0.0F + (float)var2, (float)(this.getHeight() - var2)) / 300.0F;
+            float var4 = this.uiToWorldX((float)var2 + 0.0F, (float)var2 + 0.0F) / (float)IsoCell.CellSizeInSquares;
+            float var5 = this.uiToWorldY((float)var2 + 0.0F, (float)var2 + 0.0F) / (float)IsoCell.CellSizeInSquares;
+            float var6 = this.uiToWorldX((float)(this.getWidth() - var2), 0.0F + (float)var2) / (float)IsoCell.CellSizeInSquares;
+            float var7 = this.uiToWorldY((float)(this.getWidth() - var2), 0.0F + (float)var2) / (float)IsoCell.CellSizeInSquares;
+            float var8 = this.uiToWorldX((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            float var9 = this.uiToWorldY((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            float var10 = this.uiToWorldX(0.0F + (float)var2, (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            float var11 = this.uiToWorldY(0.0F + (float)var2, (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
 
             int var12;
             for(var12 = 1; this.triangleArea(var10 / (float)var12, var11 / (float)var12, var8 / (float)var12, var9 / (float)var12, var6 / (float)var12, var7 / (float)var12) + this.triangleArea(var6 / (float)var12, var7 / (float)var12, var4 / (float)var12, var5 / (float)var12, var10 / (float)var12, var11 / (float)var12) > 80.0F; ++var12) {
@@ -1728,8 +1921,8 @@ public final class WorldMapRenderer {
             this.m_rasterizeMult = var12;
             this.m_rasterizeXY.clear();
             this.m_rasterizeSet.clear();
-            this.m_rasterize.scanTriangle(var10 / (float)var12, var11 / (float)var12, var8 / (float)var12, var9 / (float)var12, var6 / (float)var12, var7 / (float)var12, 0, 1000, this::rasterizeCellsCallback);
-            this.m_rasterize.scanTriangle(var6 / (float)var12, var7 / (float)var12, var4 / (float)var12, var5 / (float)var12, var10 / (float)var12, var11 / (float)var12, 0, 1000, this::rasterizeCellsCallback);
+            this.m_rasterize.scanTriangle(var10 / (float)var12, var11 / (float)var12, var8 / (float)var12, var9 / (float)var12, var6 / (float)var12, var7 / (float)var12, -1000, 1000, this::rasterizeCellsCallback);
+            this.m_rasterize.scanTriangle(var6 / (float)var12, var7 / (float)var12, var4 / (float)var12, var5 / (float)var12, var10 / (float)var12, var11 / (float)var12, -1000, 1000, this::rasterizeCellsCallback);
             if (this.m_rasterizeXY_ints == null || this.m_rasterizeXY_ints.length < this.m_rasterizeXY.size()) {
                this.m_rasterizeXY_ints = new int[this.m_rasterizeXY.size()];
             }
@@ -1743,6 +1936,7 @@ public final class WorldMapRenderer {
          int var2 = var1 ? 200 : 0;
          float var3 = this.m_worldScale;
          if (!(1.0F / var3 > 100.0F)) {
+            WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
             WorldMapRenderer.m_vboLines.setMode(4);
 
             float var7;
@@ -1752,35 +1946,47 @@ public final class WorldMapRenderer {
             for(int var4 = 0; var4 < this.m_rasterizeXY.size(); var4 += 2) {
                int var5 = this.m_rasterizeXY.get(var4);
                int var6 = this.m_rasterizeXY.get(var4 + 1);
-               var7 = this.m_renderOriginX + (float)(var5 * 300 - this.m_worldMap.getMinXInSquares()) * var3;
-               var8 = this.m_renderOriginY + (float)(var6 * 300 - this.m_worldMap.getMinYInSquares()) * var3;
-               var9 = this.m_renderOriginX + (float)((var5 + 1) * 300 - this.m_worldMap.getMinXInSquares()) * var3;
-               var10 = this.m_renderOriginY + (float)((var6 + 1) * 300 - this.m_worldMap.getMinYInSquares()) * var3;
+               var7 = this.m_renderOriginX + (float)(var5 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * var3;
+               var8 = this.m_renderOriginY + (float)(var6 * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * var3;
+               var9 = this.m_renderOriginX + (float)((var5 + 1) * IsoCell.CellSizeInSquares - this.m_worldMap.getMinXInSquares()) * var3;
+               var10 = this.m_renderOriginY + (float)((var6 + 1) * IsoCell.CellSizeInSquares - this.m_worldMap.getMinYInSquares()) * var3;
+               WorldMapRenderer.m_vboLines.reserve(3);
                WorldMapRenderer.m_vboLines.addElement(var7, var8, 0.0F, 0.0F, 1.0F, 0.0F, 0.2F);
                WorldMapRenderer.m_vboLines.addElement(var9, var8, 0.0F, 0.0F, 1.0F, 0.0F, 0.2F);
                WorldMapRenderer.m_vboLines.addElement(var7, var10, 0.0F, 0.0F, 1.0F, 0.0F, 0.2F);
+               WorldMapRenderer.m_vboLines.reserve(3);
                WorldMapRenderer.m_vboLines.addElement(var9, var8, 0.0F, 0.0F, 0.0F, 1.0F, 0.2F);
                WorldMapRenderer.m_vboLines.addElement(var9, var10, 0.0F, 0.0F, 0.0F, 1.0F, 0.2F);
                WorldMapRenderer.m_vboLines.addElement(var7, var10, 0.0F, 0.0F, 0.0F, 1.0F, 0.2F);
             }
 
-            WorldMapRenderer.m_vboLines.flush();
-            float var12 = this.uiToWorldX((float)var2 + 0.0F, (float)var2 + 0.0F) / 300.0F;
-            float var13 = this.uiToWorldY((float)var2 + 0.0F, (float)var2 + 0.0F) / 300.0F;
-            float var14 = this.uiToWorldX((float)(this.getWidth() - var2), 0.0F + (float)var2) / 300.0F;
-            var7 = this.uiToWorldY((float)(this.getWidth() - var2), 0.0F + (float)var2) / 300.0F;
-            var8 = this.uiToWorldX((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / 300.0F;
-            var9 = this.uiToWorldY((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / 300.0F;
-            var10 = this.uiToWorldX(0.0F + (float)var2, (float)(this.getHeight() - var2)) / 300.0F;
-            float var11 = this.uiToWorldY(0.0F + (float)var2, (float)(this.getHeight() - var2)) / 300.0F;
+            WorldMapRenderer.m_vboLines.endRun();
+            float var12 = this.uiToWorldX((float)var2 + 0.0F, (float)var2 + 0.0F) / (float)IsoCell.CellSizeInSquares;
+            float var13 = this.uiToWorldY((float)var2 + 0.0F, (float)var2 + 0.0F) / (float)IsoCell.CellSizeInSquares;
+            float var14 = this.uiToWorldX((float)(this.getWidth() - var2), 0.0F + (float)var2) / (float)IsoCell.CellSizeInSquares;
+            var7 = this.uiToWorldY((float)(this.getWidth() - var2), 0.0F + (float)var2) / (float)IsoCell.CellSizeInSquares;
+            var8 = this.uiToWorldX((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            var9 = this.uiToWorldY((float)(this.getWidth() - var2), (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            var10 = this.uiToWorldX(0.0F + (float)var2, (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            float var11 = this.uiToWorldY(0.0F + (float)var2, (float)(this.getHeight() - var2)) / (float)IsoCell.CellSizeInSquares;
+            WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
             WorldMapRenderer.m_vboLines.setMode(1);
             WorldMapRenderer.m_vboLines.setLineWidth(4.0F);
-            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var10 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var11 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var8 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var9 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
-            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var8 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var9 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var14 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var7 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
-            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var14 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var7 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var10 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var11 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 0.5F, 0.5F, 0.5F, 1.0F);
-            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var14 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var7 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var12 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var13 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
-            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var12 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var13 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var10 * 300.0F - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var11 * 300.0F - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var10 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var11 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var8 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var9 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var8 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var9 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var14 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var7 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var14 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var7 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var10 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var11 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 0.5F, 0.5F, 0.5F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var14 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var7 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var12 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var13 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
+            WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + (var12 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var13 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, this.m_renderOriginX + (var10 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinXInSquares()) * var3, this.m_renderOriginY + (var11 * (float)IsoCell.CellSizeInSquares - (float)this.m_worldMap.getMinYInSquares()) * var3, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
+            WorldMapRenderer.m_vboLines.endRun();
          }
+      }
+
+      double getZoomAdjustedForPyramidScale(float var1, WorldMapImages var2) {
+         double var3 = MapProjection.metersPerPixelAtZoom((double)var1, 256.0);
+         double var5 = (double)(256.0F * this.m_worldScale);
+         float var7 = this.uiToWorldX(256.0F, 0.0F) - this.uiToWorldX(0.0F, 0.0F);
+         double var8 = MapProjection.metersPerPixelAtZoom((double)var1, (double)((float)this.getHeight() * var2.getResolution() * 2.0F));
+         return MapProjection.zoomAtMetersPerPixel(var8, (double)this.getHeight());
       }
 
       void calcVisiblePyramidTiles(WorldMapImages var1) {
@@ -1790,9 +1996,10 @@ public final class WorldMapRenderer {
          boolean var2 = false;
          int var3 = var2 ? 200 : 0;
          float var4 = this.m_worldScale;
-         int var5 = var1.getZoom(this.m_zoomF);
+         int var5 = var1.getZoom((float)this.getZoomAdjustedForPyramidScale(this.m_zoomF, var1));
          short var6 = 256;
          float var7 = (float)(var6 * (1 << var5));
+         var7 *= var1.getResolution();
          int var8 = var1.getMinX();
          int var9 = var1.getMinY();
          float var10 = (this.uiToWorldX((float)var3 + 0.0F, (float)var3 + 0.0F) - (float)var8) / var7;
@@ -1804,6 +2011,7 @@ public final class WorldMapRenderer {
          float var16 = (this.uiToWorldX(0.0F + (float)var3, (float)(this.getHeight() - var3)) - (float)var8) / var7;
          float var17 = (this.uiToWorldY(0.0F + (float)var3, (float)(this.getHeight() - var3)) - (float)var9) / var7;
          if (var2) {
+            WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
             WorldMapRenderer.m_vboLines.setMode(1);
             WorldMapRenderer.m_vboLines.setLineWidth(4.0F);
             WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + var16 * var7 * var4, this.m_renderOriginY + var17 * var7 * var4, 0.0F, this.m_renderOriginX + var14 * var7 * var4, this.m_renderOriginY + var15 * var7 * var4, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
@@ -1811,6 +2019,7 @@ public final class WorldMapRenderer {
             WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + var12 * var7 * var4, this.m_renderOriginY + var13 * var7 * var4, 0.0F, this.m_renderOriginX + var16 * var7 * var4, this.m_renderOriginY + var17 * var7 * var4, 0.0F, 0.5F, 0.5F, 0.5F, 1.0F);
             WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + var12 * var7 * var4, this.m_renderOriginY + var13 * var7 * var4, 0.0F, this.m_renderOriginX + var10 * var7 * var4, this.m_renderOriginY + var11 * var7 * var4, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
             WorldMapRenderer.m_vboLines.addLine(this.m_renderOriginX + var10 * var7 * var4, this.m_renderOriginY + var11 * var7 * var4, 0.0F, this.m_renderOriginX + var16 * var7 * var4, this.m_renderOriginY + var17 * var7 * var4, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
+            WorldMapRenderer.m_vboLines.endRun();
          }
 
          this.m_rasterizeXY.clear();
@@ -1819,14 +2028,15 @@ public final class WorldMapRenderer {
          this.m_rasterizeMinTileY = (float)((int)((float)(this.m_worldMap.getMinYInSquares() - var1.getMinY()) / var7));
          this.m_rasterizeMaxTileX = (float)(this.m_worldMap.getMaxXInSquares() - var1.getMinX()) / var7;
          this.m_rasterizeMaxTileY = (float)(this.m_worldMap.getMaxYInSquares() - var1.getMinY()) / var7;
-         this.m_rasterize.scanTriangle(var16, var17, var14, var15, var12, var13, 0, 1000, this::rasterizeTilesCallback);
-         this.m_rasterize.scanTriangle(var12, var13, var10, var11, var16, var17, 0, 1000, this::rasterizeTilesCallback);
+         this.m_rasterize.scanTriangle(var16, var17, var14, var15, var12, var13, -1000, 1000, this::rasterizeTilesCallback);
+         this.m_rasterize.scanTriangle(var12, var13, var10, var11, var16, var17, -1000, 1000, this::rasterizeTilesCallback);
          if (this.m_rasterizeXY_ints == null || this.m_rasterizeXY_ints.length < this.m_rasterizeXY.size()) {
             this.m_rasterizeXY_ints = new int[this.m_rasterizeXY.size()];
          }
 
          this.m_rasterizeXY_ints = this.m_rasterizeXY.toArray(this.m_rasterizeXY_ints);
          if (var2) {
+            WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
             WorldMapRenderer.m_vboLines.setMode(4);
 
             for(int var18 = 0; var18 < this.m_rasterizeXY.size(); var18 += 2) {
@@ -1844,7 +2054,7 @@ public final class WorldMapRenderer {
                WorldMapRenderer.m_vboLines.addElement(var21, var24, 0.0F, 0.0F, 0.0F, 1.0F, 0.2F);
             }
 
-            WorldMapRenderer.m_vboLines.flush();
+            WorldMapRenderer.m_vboLines.endRun();
          }
 
       }
@@ -1861,12 +2071,12 @@ public final class WorldMapRenderer {
       void renderImagePyramid(WorldMapImages var1) {
          float var2 = this.m_worldScale;
          short var3 = 256;
-         int var4 = var1.getZoom(this.m_zoomF);
+         int var4 = var1.getZoom((float)this.getZoomAdjustedForPyramidScale(this.m_zoomF, var1));
          float var5 = (float)(var3 * (1 << var4));
+         var5 *= var1.getResolution();
          this.calcVisiblePyramidTiles(var1);
          GL11.glEnable(3553);
          GL11.glEnable(3042);
-         WorldMapRenderer.m_vboLinesUV.setMode(4);
          int var6 = PZMath.clamp(var1.getMinX(), this.m_worldMap.getMinXInSquares(), this.m_worldMap.getMaxXInSquares());
          int var7 = PZMath.clamp(var1.getMinY(), this.m_worldMap.getMinYInSquares(), this.m_worldMap.getMaxYInSquares());
          int var8 = PZMath.clamp(var1.getMaxX(), this.m_worldMap.getMinXInSquares(), this.m_worldMap.getMaxXInSquares() + 1);
@@ -1877,7 +2087,10 @@ public final class WorldMapRenderer {
             int var12 = this.m_rasterizeXY_ints[var10 + 1];
             TextureID var13 = var1.getPyramid().getTexture(var11, var12, var4);
             if (var13 != null && var13.isReady()) {
-               WorldMapRenderer.m_vboLinesUV.startRun(var13);
+               WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColorUV);
+               WorldMapRenderer.m_vboLines.setMode(7);
+               WorldMapRenderer.m_vboLines.setTextureID(var13);
+               WorldMapRenderer.m_vboLines.setMinMagFilters(9729, 9728);
                float var14 = (float)var1.getMinX() + (float)var11 * var5;
                float var15 = (float)var1.getMinY() + (float)var12 * var5;
                float var16 = var14 + var5;
@@ -1906,21 +2119,17 @@ public final class WorldMapRenderer {
                float var39 = 1.0F;
                float var40 = 1.0F;
                float var41 = 1.0F;
-               WorldMapRenderer.m_vboLinesUV.addElement(var22, var23, 0.0F, var30, var31, var38, var39, var40, var41);
-               WorldMapRenderer.m_vboLinesUV.addElement(var24, var25, 0.0F, var32, var33, var38, var39, var40, var41);
-               WorldMapRenderer.m_vboLinesUV.addElement(var28, var29, 0.0F, var36, var37, var38, var39, var40, var41);
-               WorldMapRenderer.m_vboLinesUV.addElement(var24, var25, 0.0F, var32, var33, var38, var39, var40, var41);
-               WorldMapRenderer.m_vboLinesUV.addElement(var26, var27, 0.0F, var34, var35, var38, var39, var40, var41);
-               WorldMapRenderer.m_vboLinesUV.addElement(var28, var29, 0.0F, var36, var37, var38, var39, var40, var41);
+               WorldMapRenderer.m_vboLines.addQuad(var22, var23, 0.0F, var30, var31, var24, var25, 0.0F, var32, var33, var26, var27, 0.0F, var34, var35, var28, var29, 0.0F, var36, var37, var38, var39, var40, var41);
+               WorldMapRenderer.m_vboLines.endRun();
                if (this.m_renderer.TileGrid.getValue()) {
-                  WorldMapRenderer.m_vboLinesUV.flush();
+                  WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
                   WorldMapRenderer.m_vboLines.setMode(1);
                   WorldMapRenderer.m_vboLines.setLineWidth(2.0F);
                   WorldMapRenderer.m_vboLines.addLine((var14 - this.m_centerWorldX) * var2, (var15 - this.m_centerWorldY) * var2, 0.0F, (var16 - this.m_centerWorldX) * var2, (var15 - this.m_centerWorldY) * var2, 0.0F, 1.0F, 0.0F, 0.0F, 0.5F);
                   WorldMapRenderer.m_vboLines.addLine((var14 - this.m_centerWorldX) * var2, (var17 - this.m_centerWorldY) * var2, 0.0F, (var16 - this.m_centerWorldX) * var2, (var17 - this.m_centerWorldY) * var2, 0.0F, 1.0F, 0.0F, 0.0F, 0.5F);
                   WorldMapRenderer.m_vboLines.addLine((var16 - this.m_centerWorldX) * var2, (var15 - this.m_centerWorldY) * var2, 0.0F, (var16 - this.m_centerWorldX) * var2, (var17 - this.m_centerWorldY) * var2, 0.0F, 1.0F, 0.0F, 0.0F, 0.5F);
                   WorldMapRenderer.m_vboLines.addLine((var14 - this.m_centerWorldX) * var2, (var15 - this.m_centerWorldY) * var2, 0.0F, (var14 - this.m_centerWorldX) * var2, (var17 - this.m_centerWorldY) * var2, 0.0F, 1.0F, 0.0F, 0.0F, 0.5F);
-                  WorldMapRenderer.m_vboLines.flush();
+                  WorldMapRenderer.m_vboLines.endRun();
                }
             }
          }
@@ -1930,8 +2139,9 @@ public final class WorldMapRenderer {
       void renderImagePyramidGrid(WorldMapImages var1) {
          float var2 = this.m_worldScale;
          short var3 = 256;
-         int var4 = var1.getZoom(this.m_zoomF);
+         int var4 = var1.getZoom((float)this.getZoomAdjustedForPyramidScale(this.m_zoomF, var1));
          float var5 = (float)(var3 * (1 << var4));
+         var5 *= var1.getResolution();
          float var6 = ((float)var1.getMinX() - this.m_centerWorldX) * var2;
          float var7 = ((float)var1.getMinY() - this.m_centerWorldY) * var2;
          int var8 = (int)Math.ceil((double)((float)(var1.getMaxX() - var1.getMinX()) / var5));
@@ -1940,6 +2150,7 @@ public final class WorldMapRenderer {
          float var11 = var7;
          float var12 = var6 + (float)var8 * var5 * var2;
          float var13 = var7 + (float)var9 * var5 * var2;
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
          WorldMapRenderer.m_vboLines.setMode(1);
          WorldMapRenderer.m_vboLines.setLineWidth(2.0F);
 
@@ -1952,7 +2163,7 @@ public final class WorldMapRenderer {
             WorldMapRenderer.m_vboLines.addLine(var10, var7 + (float)var14 * var5 * var2, 0.0F, var12, var7 + (float)var14 * var5 * var2, 0.0F, 1.0F, 0.0F, 0.0F, 0.5F);
          }
 
-         WorldMapRenderer.m_vboLines.flush();
+         WorldMapRenderer.m_vboLines.endRun();
       }
 
       float triangleArea(float var1, float var2, float var3, float var4, float var5, float var6) {
@@ -1964,42 +2175,41 @@ public final class WorldMapRenderer {
       }
 
       void paintAreasOutsideBounds(int var1, int var2, int var3, int var4, float var5) {
-         float var6 = this.m_renderOriginX - (float)(var1 % 300) * var5;
-         float var7 = this.m_renderOriginY - (float)(var2 % 300) * var5;
-         float var8 = this.m_renderOriginX + (float)((this.m_worldMap.getMaxXInCells() + 1) * 300 - var1) * var5;
-         float var9 = this.m_renderOriginY + (float)((this.m_worldMap.getMaxYInCells() + 1) * 300 - var2) * var5;
+         float var6 = this.m_renderOriginX - (float)(var1 % IsoCell.CellSizeInSquares) * var5;
+         float var7 = this.m_renderOriginY - (float)(var2 % IsoCell.CellSizeInSquares) * var5;
+         float var8 = this.m_renderOriginX + (float)((this.m_worldMap.getMaxXInCells() + 1) * IsoCell.CellSizeInSquares - var1) * var5;
+         float var9 = this.m_renderOriginY + (float)((this.m_worldMap.getMaxYInCells() + 1) * IsoCell.CellSizeInSquares - var2) * var5;
          float var10 = 0.0F;
          WorldMapStyleLayer.RGBAf var11 = this.m_fill;
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
+         WorldMapRenderer.m_vboLines.setMode(7);
          float var14;
-         if (var1 % 300 != 0) {
+         if (var1 % IsoCell.CellSizeInSquares != 0) {
             var14 = this.m_renderOriginX;
-            WorldMapRenderer.m_vboLines.setMode(4);
             WorldMapRenderer.m_vboLines.addQuad(var6, var7, var14, var9, var10, var11.r, var11.g, var11.b, var11.a);
          }
 
          float var12;
-         if (var2 % 300 != 0) {
+         if (var2 % IsoCell.CellSizeInSquares != 0) {
             var12 = this.m_renderOriginX;
             var14 = var12 + (float)this.m_worldMap.getWidthInSquares() * this.m_worldScale;
             float var15 = this.m_renderOriginY;
-            WorldMapRenderer.m_vboLines.setMode(4);
             WorldMapRenderer.m_vboLines.addQuad(var12, var7, var14, var15, var10, var11.r, var11.g, var11.b, var11.a);
          }
 
-         if (var3 + 1 != 0) {
+         if (var3 + 1 % IsoCell.CellSizeInSquares != 0) {
             var12 = this.m_renderOriginX + (float)(var3 - var1 + 1) * var5;
-            WorldMapRenderer.m_vboLines.setMode(4);
             WorldMapRenderer.m_vboLines.addQuad(var12, var7, var8, var9, var10, var11.r, var11.g, var11.b, var11.a);
          }
 
-         if (var4 + 1 != 0) {
+         if (var4 + 1 % IsoCell.CellSizeInSquares != 0) {
             var12 = this.m_renderOriginX;
             float var13 = this.m_renderOriginY + (float)this.m_worldMap.getHeightInSquares() * var5;
             var14 = this.m_renderOriginX + (float)this.m_worldMap.getWidthInSquares() * var5;
-            WorldMapRenderer.m_vboLines.setMode(4);
             WorldMapRenderer.m_vboLines.addQuad(var12, var13, var14, var9, var10, var11.r, var11.g, var11.b, var11.a);
          }
 
+         WorldMapRenderer.m_vboLines.endRun();
       }
 
       void renderWorldBounds() {
@@ -2008,6 +2218,7 @@ public final class WorldMapRenderer {
          float var3 = var1 + (float)this.m_worldMap.getWidthInSquares() * this.m_worldScale;
          float var4 = var2 + (float)this.m_worldMap.getHeightInSquares() * this.m_worldScale;
          this.renderDropShadow();
+         WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
          WorldMapRenderer.m_vboLines.setMode(1);
          WorldMapRenderer.m_vboLines.setLineWidth(2.0F);
          float var5 = 0.5F;
@@ -2015,6 +2226,7 @@ public final class WorldMapRenderer {
          WorldMapRenderer.m_vboLines.addLine(var3, var2, 0.0F, var3, var4, 0.0F, var5, var5, var5, 1.0F);
          WorldMapRenderer.m_vboLines.addLine(var3, var4, 0.0F, var1, var4, 0.0F, var5, var5, var5, 1.0F);
          WorldMapRenderer.m_vboLines.addLine(var1, var4, 0.0F, var1, var2, 0.0F, var5, var5, var5, 1.0F);
+         WorldMapRenderer.m_vboLines.endRun();
       }
 
       private void renderDropShadow() {
@@ -2024,19 +2236,25 @@ public final class WorldMapRenderer {
             float var3 = this.m_renderOriginY;
             float var4 = var2 + (float)this.m_worldMap.getWidthInSquares() * this.m_worldScale;
             float var5 = var3 + (float)this.m_worldMap.getHeightInSquares() * this.m_worldScale;
+            WorldMapRenderer.m_vboLines.startRun(WorldMapRenderer.m_vboLines.FORMAT_PositionColor);
             WorldMapRenderer.m_vboLines.setMode(4);
+            WorldMapRenderer.m_vboLines.reserve(3);
             WorldMapRenderer.m_vboLines.addElement(var2 + var1, var5, 0.0F, 0.5F, 0.5F, 0.5F, 0.5F);
             WorldMapRenderer.m_vboLines.addElement(var4, var5, 0.0F, 0.5F, 0.5F, 0.5F, 0.5F);
             WorldMapRenderer.m_vboLines.addElement(var2 + var1, var5 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.0F);
+            WorldMapRenderer.m_vboLines.reserve(3);
             WorldMapRenderer.m_vboLines.addElement(var4, var5, 0.0F, 0.5F, 0.5F, 0.5F, 0.5F);
             WorldMapRenderer.m_vboLines.addElement(var4 + var1, var5 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.0F);
             WorldMapRenderer.m_vboLines.addElement(var2 + var1, var5 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.0F);
+            WorldMapRenderer.m_vboLines.reserve(3);
             WorldMapRenderer.m_vboLines.addElement(var4, var3 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.5F);
             WorldMapRenderer.m_vboLines.addElement(var4 + var1, var3 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.0F);
             WorldMapRenderer.m_vboLines.addElement(var4, var5, 0.0F, 0.5F, 0.5F, 0.5F, 0.5F);
+            WorldMapRenderer.m_vboLines.reserve(3);
             WorldMapRenderer.m_vboLines.addElement(var4 + var1, var3 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.0F);
             WorldMapRenderer.m_vboLines.addElement(var4 + var1, var5 + var1, 0.0F, 0.5F, 0.5F, 0.5F, 0.0F);
             WorldMapRenderer.m_vboLines.addElement(var4, var5, 0.0F, 0.5F, 0.5F, 0.5F, 0.5F);
+            WorldMapRenderer.m_vboLines.endRun();
          }
       }
 

@@ -9,12 +9,14 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import zombie.AmbientStreamManager;
 import zombie.GameSounds;
 import zombie.audio.parameters.ParameterCurrentZone;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.math.PZMath;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
 import zombie.inventory.ItemContainer;
@@ -26,7 +28,9 @@ import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.objects.IsoBarricade;
 import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
 import zombie.network.GameServer;
 import zombie.popman.ObjectPool;
@@ -218,10 +222,7 @@ public final class ObjectAmbientEmitters {
             float var8 = var6.getY();
             float var9 = var6.getZ();
             float var10 = IsoUtils.DistanceToSquared(var7, var8, var9 * 3.0F, var1, var2, var3 * 3.0F);
-            if (var6.Traits.HardOfHearing.isSet()) {
-               var10 *= 4.5F;
-            }
-
+            var10 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
             if (var10 < var4) {
                var4 = var10;
             }
@@ -406,8 +407,17 @@ public final class ObjectAmbientEmitters {
 
       public void checkParameters(BaseSoundEmitter var1, long var2) {
          IsoDoor var4 = (IsoDoor)Type.tryCastTo(this.object, IsoDoor.class);
-         float var5 = var4.IsOpen() ? 1.0F : 0.0F;
-         this.setParameterValue1(var1, var2, "DoorWindowOpen", var5);
+         IsoThumpable var5 = (IsoThumpable)Type.tryCastTo(this.object, IsoThumpable.class);
+         float var6 = 0.0F;
+         if (var4 != null && var4.IsOpen()) {
+            var6 = 1.0F;
+         }
+
+         if (var5 != null && var5.IsOpen()) {
+            var6 = 1.0F;
+         }
+
+         this.setParameterValue1(var1, var2, "DoorWindowOpen", var6);
       }
    }
 
@@ -416,7 +426,7 @@ public final class ObjectAmbientEmitters {
       }
 
       public boolean shouldPlaySound() {
-         return true;
+         return AmbientStreamManager.instance.isParameterInsideTrue();
       }
 
       public String getSoundName() {
@@ -433,6 +443,20 @@ public final class ObjectAmbientEmitters {
       public void checkParameters(BaseSoundEmitter var1, long var2) {
          IsoWindow var4 = (IsoWindow)Type.tryCastTo(this.object, IsoWindow.class);
          float var5 = !var4.IsOpen() && !var4.isDestroyed() ? 0.0F : 1.0F;
+         if (var5 == 1.0F) {
+            IsoBarricade var6 = var4.getBarricadeOnSameSquare();
+            IsoBarricade var7 = var4.getBarricadeOnOppositeSquare();
+            int var8 = var6 == null ? 0 : var6.getNumPlanks();
+            int var9 = var7 == null ? 0 : var7.getNumPlanks();
+            if ((var6 == null || !var6.isMetal()) && (var7 == null || !var7.isMetal())) {
+               if (var8 > 0 || var9 > 0) {
+                  var5 = 1.0F - (float)PZMath.max(var8, var9) / 4.0F;
+               }
+            } else {
+               var5 = 0.0F;
+            }
+         }
+
          this.setParameterValue1(var1, var2, "DoorWindowOpen", var5);
       }
    }
@@ -455,6 +479,7 @@ public final class ObjectAmbientEmitters {
 
       public PerObjectLogic init(IsoObject var1) {
          this.object = var1;
+         this.parameterValue1 = 0.0F / 0.0F;
          return this;
       }
 
@@ -665,7 +690,16 @@ public final class ObjectAmbientEmitters {
    }
 
    public static final class FridgeHumLogic extends PerObjectLogic {
+      static String[] s_soundNames = new String[]{"FridgeHumA", "FridgeHumB", "FridgeHumC", "FridgeHumD", "FridgeHumE", "FridgeHumF"};
+      int choice = -1;
+
       public FridgeHumLogic() {
+      }
+
+      public PerObjectLogic init(IsoObject var1) {
+         super.init(var1);
+         this.choice = Rand.Next(6);
+         return this;
       }
 
       public boolean shouldPlaySound() {
@@ -674,7 +708,7 @@ public final class ObjectAmbientEmitters {
       }
 
       public String getSoundName() {
-         return "FridgeHum";
+         return s_soundNames[this.choice];
       }
 
       public void startPlaying(BaseSoundEmitter var1, long var2) {

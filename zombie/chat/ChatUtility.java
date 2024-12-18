@@ -87,11 +87,11 @@ public final class ChatUtility {
    }
 
    public static float getDistance(IsoObject var0, IsoPlayer var1) {
-      return var1 == null ? -1.0F : (float)Math.sqrt(Math.pow((double)(var0.getX() - var1.x), 2.0) + Math.pow((double)(var0.getY() - var1.y), 2.0));
+      return var1 == null ? -1.0F : (float)Math.sqrt(Math.pow((double)(var0.getX() - var1.getX()), 2.0) + Math.pow((double)(var0.getY() - var1.getY()), 2.0));
    }
 
    public static float getDistance(float var0, float var1, IsoPlayer var2) {
-      return var2 == null ? -1.0F : (float)Math.sqrt(Math.pow((double)(var0 - var2.x), 2.0) + Math.pow((double)(var1 - var2.y), 2.0));
+      return var2 == null ? -1.0F : (float)Math.sqrt(Math.pow((double)(var0 - var2.getX()), 2.0) + Math.pow((double)(var1 - var2.getY()), 2.0));
    }
 
    public static UdpConnection findConnection(short var0) {
@@ -132,7 +132,7 @@ public final class ChatUtility {
       }
 
       if (var1 == null) {
-         DebugLog.log("Player with nickname = '" + var0 + "' not found!");
+         DebugLog.DetailedInfo.trace("Player with nickname = '" + var0 + "' not found!");
       }
 
       return var1;
@@ -173,7 +173,7 @@ public final class ChatUtility {
       }
 
       if (var1 == null) {
-         DebugLog.log("Player with nickname = '" + var0 + "' not found!");
+         DebugLog.DetailedInfo.trace("Player with nickname = '" + var0 + "' not found!");
       }
 
       return var1;
@@ -212,7 +212,9 @@ public final class ChatUtility {
                var2.add(ChatType.faction);
                break;
             case "all":
-               var2.add(ChatType.general);
+               if (ServerOptions.getInstance().GlobalChat.getValue()) {
+                  var2.add(ChatType.general);
+               }
          }
       }
 

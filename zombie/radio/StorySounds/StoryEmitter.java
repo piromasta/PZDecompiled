@@ -5,7 +5,6 @@ import fmod.fmod.FMODManager;
 import java.util.ArrayList;
 import java.util.Stack;
 import zombie.GameSounds;
-import zombie.SoundManager;
 import zombie.audio.GameSound;
 import zombie.audio.GameSoundClip;
 import zombie.characters.IsoPlayer;
@@ -55,11 +54,11 @@ public final class StoryEmitter {
                var12.x = var3;
                var12.y = var4;
                var12.z = var5;
-               var12.volume = SoundManager.instance.getSoundVolume() * var2 * this.volumeMod;
+               var12.volume = var2 * this.volumeMod;
                var12.sound = var10;
                var12.channel = javafmod.FMOD_System_PlaySound(var10, true);
                this.ToStart.add(var12);
-               javafmod.FMOD_Channel_Set3DAttributes(var12.channel, var12.x - IsoPlayer.getInstance().x, var12.y - IsoPlayer.getInstance().y, var12.z - IsoPlayer.getInstance().z, 0.0F, 0.0F, 0.0F);
+               javafmod.FMOD_Channel_Set3DAttributes(var12.channel, var12.x - IsoPlayer.getInstance().getX(), var12.y - IsoPlayer.getInstance().getY(), var12.z - IsoPlayer.getInstance().getZ(), 0.0F, 0.0F, 0.0F);
                javafmod.FMOD_Channel_Set3DOcclusion(var12.channel, 1.0F, 1.0F);
                if (IsoPlayer.getInstance() != null && IsoPlayer.getInstance().Traits.Deaf.isSet()) {
                   javafmod.FMOD_Channel_SetVolume(var12.channel, 0.0F);
@@ -91,15 +90,15 @@ public final class StoryEmitter {
             this.Instances.remove(var2);
             --var1;
          } else {
-            float var3 = IsoUtils.DistanceManhatten(var2.x, var2.y, IsoPlayer.getInstance().x, IsoPlayer.getInstance().y, var2.z, IsoPlayer.getInstance().z) / var2.maxRange;
+            float var3 = IsoUtils.DistanceManhatten(var2.x, var2.y, IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY(), var2.z, IsoPlayer.getInstance().getZ()) / var2.maxRange;
             if (var3 > 1.0F) {
                var3 = 1.0F;
             }
 
             if (!this.coordinate3D) {
-               javafmod.FMOD_Channel_Set3DAttributes(var2.channel, Math.abs(var2.x - IsoPlayer.getInstance().x), Math.abs(var2.y - IsoPlayer.getInstance().y), Math.abs(var2.z - IsoPlayer.getInstance().z), 0.0F, 0.0F, 0.0F);
+               javafmod.FMOD_Channel_Set3DAttributes(var2.channel, Math.abs(var2.x - IsoPlayer.getInstance().getX()), Math.abs(var2.y - IsoPlayer.getInstance().getY()), Math.abs(var2.z - IsoPlayer.getInstance().getZ()), 0.0F, 0.0F, 0.0F);
             } else {
-               javafmod.FMOD_Channel_Set3DAttributes(var2.channel, Math.abs(var2.x - IsoPlayer.getInstance().x), Math.abs(var2.z - IsoPlayer.getInstance().z), Math.abs(var2.y - IsoPlayer.getInstance().y), 0.0F, 0.0F, 0.0F);
+               javafmod.FMOD_Channel_Set3DAttributes(var2.channel, Math.abs(var2.x - IsoPlayer.getInstance().getX()), Math.abs(var2.z - IsoPlayer.getInstance().getZ()), Math.abs(var2.y - IsoPlayer.getInstance().getY()), 0.0F, 0.0F, 0.0F);
             }
 
             javafmod.FMOD_System_SetReverbDefault(0, FMODManager.FMOD_PRESET_MOUNTAINS);
@@ -109,7 +108,7 @@ public final class StoryEmitter {
             float var5 = 0.0F;
             IsoGridSquare var6 = IsoPlayer.getInstance().getCurrentSquare();
             this.soundVect.set(var2.x, var2.y);
-            this.playerVect.set(IsoPlayer.getInstance().x, IsoPlayer.getInstance().y);
+            this.playerVect.set(IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY());
             float var7 = (float)Math.toDegrees((double)this.playerVect.angleTo(this.soundVect));
             float var8 = (float)Math.toDegrees((double)IsoPlayer.getInstance().getForwardDirection().getDirectionNeg());
             if (var8 >= 0.0F && var8 <= 90.0F) {

@@ -12,6 +12,7 @@ import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public abstract class ErosionCategory {
    public int ID;
@@ -183,9 +184,9 @@ public abstract class ErosionCategory {
 
    public abstract void init();
 
-   public abstract boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5);
+   public abstract boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6);
 
-   public abstract boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6);
+   public abstract boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7);
 
    public abstract void update(IsoGridSquare var1, ErosionData.Square var2, Data var3, ErosionData.Chunk var4, int var5);
 

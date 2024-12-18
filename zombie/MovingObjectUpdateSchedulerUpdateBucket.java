@@ -1,6 +1,7 @@
 package zombie;
 
 import java.util.ArrayList;
+import java.util.Objects;
 import zombie.characters.IsoZombie;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
@@ -31,14 +32,6 @@ public final class MovingObjectUpdateSchedulerUpdateBucket {
       for(int var1 = 0; var1 < this.buckets.length; ++var1) {
          ArrayList var2 = this.buckets[var1];
          var2.clear();
-      }
-
-   }
-
-   public void remove(IsoMovingObject var1) {
-      for(int var2 = 0; var2 < this.buckets.length; ++var2) {
-         ArrayList var3 = this.buckets[var2];
-         var3.remove(var1);
       }
 
    }
@@ -81,6 +74,25 @@ public final class MovingObjectUpdateSchedulerUpdateBucket {
             DebugLog.log(DebugType.Zombie, "REUSABLE ZOMBIE IN MovingObjectUpdateSchedulerUpdateBucket IGNORED " + var4);
          } else {
             var4.postupdate();
+         }
+      }
+
+      GameTime.getInstance().PerObjectMultiplier = 1.0F;
+   }
+
+   public void updateAnimation(int var1) {
+      GameTime.getInstance().PerObjectMultiplier = (float)this.frameMod;
+      ArrayList var2 = this.buckets[var1 % this.frameMod];
+
+      for(int var3 = 0; var3 < var2.size(); ++var3) {
+         IsoMovingObject var4 = (IsoMovingObject)var2.get(var3);
+         IsoZombie var5 = (IsoZombie)Type.tryCastTo(var4, IsoZombie.class);
+         if (var5 != null && VirtualZombieManager.instance.isReused(var5)) {
+            DebugLog.log(DebugType.Zombie, "REUSABLE ZOMBIE IN MovingObjectUpdateSchedulerUpdateBucket IGNORED " + var4);
+         } else {
+            GameProfiler var10000 = GameProfiler.getInstance();
+            Objects.requireNonNull(var4);
+            var10000.invokeAndMeasure("Update Anim", var4::updateAnimation);
          }
       }
 

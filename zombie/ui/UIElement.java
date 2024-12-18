@@ -14,8 +14,11 @@ import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugOptions;
 import zombie.input.Mouse;
+import zombie.inventory.InventoryItem;
+import zombie.iso.IsoObject;
+import zombie.scripting.objects.Item;
 
-public class UIElement {
+public class UIElement implements UIElementInterface {
    static final Color tempcol = new Color(0, 0, 0, 0);
    static final ArrayList<UIElement> toAdd = new ArrayList(0);
    static Texture white;
@@ -43,8 +46,8 @@ public class UIElement {
    public boolean anchorRight = false;
    public boolean anchorBottom = false;
    public int playerContext = -1;
-   boolean alwaysOnTop = false;
-   int maxDrawHeight = -1;
+   public boolean alwaysOnTop = false;
+   public int maxDrawHeight = -1;
    Double yScroll = 0.0;
    Double xScroll = 0.0;
    int scrollHeight = 0;
@@ -60,7 +63,9 @@ public class UIElement {
    private double clickY;
    private String uiname = "";
    private boolean bWantKeyEvents = false;
+   private boolean bWantExtraMouseEvents = false;
    private boolean bForceCursorVisible = false;
+   private boolean shaderStarted = false;
 
    public UIElement() {
    }
@@ -101,8 +106,16 @@ public class UIElement {
       this.alwaysOnTop = var1;
    }
 
+   public boolean isAlwaysOnTop() {
+      return this.alwaysOnTop;
+   }
+
    public void backMost() {
       this.alwaysBack = true;
+   }
+
+   public boolean isBackMost() {
+      return this.alwaysBack;
    }
 
    public void AddChild(UIElement var1) {
@@ -223,11 +236,20 @@ public class UIElement {
       if (this.isVisible()) {
          double var8 = var2 + this.getAbsoluteX();
          double var10 = var4 + this.getAbsoluteY();
-         var8 += (double)var1.offsetX;
-         var10 += (double)var1.offsetY;
-         int var12 = (int)(var10 + this.yScroll);
-         if (var12 + var1.getHeight() >= 0 && var12 <= 4096) {
-            SpriteRenderer.instance.renderi(var1, (int)(var8 + this.xScroll), (int)(var10 + this.yScroll), var1.getWidth(), var1.getHeight(), 1.0F, 1.0F, 1.0F, (float)var6, (Consumer)null);
+         double var12 = 0.0;
+         double var14 = 0.0;
+         double var16 = 0.0;
+         if (var1 != null) {
+            var8 += (double)var1.offsetX;
+            var10 += (double)var1.offsetY;
+            var12 = (double)var1.getHeight();
+            var14 = (double)var1.getWidth();
+            var16 = (double)var1.getHeight();
+         }
+
+         int var18 = (int)(var10 + this.yScroll);
+         if (!((double)var18 + var12 < 0.0) && var18 <= 4096) {
+            SpriteRenderer.instance.renderi(var1, (int)(var8 + this.xScroll), (int)(var10 + this.yScroll), (int)var14, (int)var16, 1.0F, 1.0F, 1.0F, (float)var6, (Consumer)null);
          }
       }
    }
@@ -306,6 +328,24 @@ public class UIElement {
       }
    }
 
+   public void DrawTextureScaledAspect3(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16) {
+      if (this.isVisible() && var1 != null) {
+         double var18 = var2 + this.getAbsoluteX();
+         double var20 = var4 + this.getAbsoluteY();
+         if (var1.getWidth() > 0 && var1.getHeight() > 0 && var6 > 0.0 && var8 > 0.0) {
+            double var22 = Math.max(var6 / (double)var1.getWidthOrig(), var8 / (double)var1.getHeightOrig());
+            double var24 = var6;
+            double var26 = var8;
+            var6 = (double)var1.getWidth() * var22;
+            var8 = (double)var1.getHeight() * var22;
+            var18 -= (var6 - var24) / 2.0;
+            var20 -= (var8 - var26) / 2.0;
+         }
+
+         SpriteRenderer.instance.renderi(var1, (int)(var18 + this.xScroll), (int)(var20 + this.yScroll), (int)var6, (int)var8, (float)var10, (float)var12, (float)var14, (float)var16, (Consumer)null);
+      }
+   }
+
    public void DrawTextureScaledCol(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16) {
       if (var1 != null) {
          boolean var18 = false;
@@ -343,6 +383,194 @@ public class UIElement {
       tempcol.b = (float)var10;
       tempcol.a = (float)var12;
       this.DrawTextureCol(var1, var2, var4, tempcol);
+   }
+
+   public void DrawLine(Texture var1, double var2, double var4, double var6, double var8, float var10, double var11, double var13, double var15, double var17) {
+      if (this.isVisible()) {
+         var2 += this.getAbsoluteX();
+         var4 += this.getAbsoluteY();
+         var6 += this.getAbsoluteX();
+         var8 += this.getAbsoluteY();
+         SpriteRenderer.instance.renderline(var1, (int)(var2 + this.xScroll), (int)(var4 + this.yScroll), (int)(var6 + this.xScroll), (int)(var8 + this.yScroll), (float)var11, (float)var13, (float)var15, (float)var17, var10);
+      }
+   }
+
+   public void DrawItemIcon(InventoryItem var1, double var2, double var4, double var6, double var8, double var10) {
+      if (this.isVisible() && var1 != null) {
+         Texture var12 = var1.getTex();
+         Float var13 = var1.getR();
+         Float var14 = var1.getG();
+         Float var15 = var1.getB();
+         if (var1.getTextureColorMask() != null) {
+            var13 = 1.0F;
+            var14 = 1.0F;
+            var15 = 1.0F;
+         }
+
+         if (var12 != null) {
+            Texture var16;
+            if (var1.getFluidContainer() != null && var1.getTextureFluidMask() != null) {
+               var16 = var1.getTextureFluidMask();
+               Color var17 = var1.getFluidContainer().getColor();
+               this.DrawTextureIcon(var12, var2, var4, var8, var10, (double)var13, (double)var14, (double)var15, var6);
+               double var18 = (double)(var1.getFluidContainer().getAmount() / var1.getFluidContainer().getCapacity());
+               this.DrawTextureIconMask(var16, var18, var2, var4, var8, var10, (double)var17.r, (double)var17.g, (double)var17.b, var6);
+            } else {
+               this.DrawTextureScaledAspect(var12, var2, var4, var8, var10, (double)var13, (double)var14, (double)var15, var6);
+            }
+
+            if (var1.getTextureColorMask() != null) {
+               var16 = var1.getTextureColorMask();
+               this.DrawTextureIconMask(var16, 1.0, var2, var4, var8, var10, (double)var1.getR(), (double)var1.getG(), (double)var1.getB(), var6);
+            }
+         }
+
+      }
+   }
+
+   public void DrawScriptItemIcon(Item var1, double var2, double var4, double var6, double var8, double var10) {
+      if (this.isVisible() && var1 != null) {
+         Texture var12 = var1.getNormalTexture();
+         if (var12 != null) {
+            this.DrawTextureScaledAspect(var12, var2, var4, var8, var10, (double)var1.getR(), (double)var1.getG(), (double)var1.getB(), var6);
+         }
+
+      }
+   }
+
+   public void DrawTextureIcon(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16) {
+      if (this.isVisible() && var1 != null) {
+         double var18 = var2 + this.getAbsoluteX();
+         double var20 = var4 + this.getAbsoluteY();
+         if (var1.getWidth() > 0 && var1.getHeight() > 0 && var6 > 0.0 && var8 > 0.0) {
+            double var22 = Math.min(var6 / (double)var1.getWidthOrig(), var8 / (double)var1.getHeightOrig());
+            double var24 = (double)((int)((double)var1.offsetX * var22));
+            double var26 = (double)((int)((double)var1.offsetY * var22));
+            var6 = (double)((int)((double)var1.getWidth() * var22));
+            var8 = (double)((int)((double)var1.getHeight() * var22));
+            var18 += var24;
+            var20 += var26;
+         }
+
+         SpriteRenderer.instance.renderi(var1, (int)(var18 + this.xScroll), (int)(var20 + this.yScroll), (int)var6, (int)var8, (float)var10, (float)var12, (float)var14, (float)var16, (Consumer)null);
+      }
+   }
+
+   public void DrawTextureIconMask(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16, double var18) {
+      if (this.isVisible() && var1 != null) {
+         double var20 = var4 + this.getAbsoluteX();
+         double var22 = var6 + this.getAbsoluteY();
+         double var24;
+         double var26;
+         double var28;
+         if (var1.getWidth() > 0 && var1.getHeight() > 0 && var8 > 0.0 && var10 > 0.0) {
+            var24 = Math.min(var8 / (double)var1.getWidthOrig(), var10 / (double)var1.getHeightOrig());
+            var26 = (double)((int)((double)var1.offsetX * var24));
+            var28 = (double)((int)((double)var1.offsetY * var24));
+            var8 = (double)((int)((double)var1.getWidth() * var24));
+            var10 = (double)((int)((double)var1.getHeight() * var24));
+            var20 += var26;
+            var22 += var28;
+         }
+
+         var2 = (double)PZMath.max(0.15F, (float)var2);
+         var24 = (double)((int)(var10 * var2));
+         var22 += var10 - var24;
+         var10 = var24;
+         var24 = (double)((int)((double)var1.getHeight() * var2));
+         var26 = 0.0;
+         var28 = (double)var1.getHeight() - var24;
+         double var30 = (double)var1.getWidth();
+         var20 += this.xScroll;
+         var22 += this.yScroll;
+         var20 = (double)((int)var20);
+         var22 = (double)((int)var22);
+         if (!(var22 + var10 < 0.0) && !(var22 > 4096.0)) {
+            float var34 = PZMath.clamp((float)var26, 0.0F, (float)var1.getWidth());
+            float var35 = PZMath.clamp((float)var28, 0.0F, (float)var1.getHeight());
+            float var36 = PZMath.clamp((float)((double)var34 + var30), 0.0F, (float)var1.getWidth()) - var34;
+            float var37 = PZMath.clamp((float)((double)var35 + var24), 0.0F, (float)var1.getHeight()) - var35;
+            float var38 = var34 / (float)var1.getWidth();
+            float var39 = var35 / (float)var1.getHeight();
+            float var40 = (var34 + var36) / (float)var1.getWidth();
+            float var41 = (var35 + var37) / (float)var1.getHeight();
+            float var42 = var1.getXEnd() - var1.getXStart();
+            float var43 = var1.getYEnd() - var1.getYStart();
+            var38 = var1.getXStart() + var38 * var42;
+            var40 = var1.getXStart() + var40 * var42;
+            var39 = var1.getYStart() + var39 * var43;
+            var41 = var1.getYStart() + var41 * var43;
+            SpriteRenderer.instance.render(var1, (float)var20, (float)var22, (float)var8, (float)var10, (float)var12, (float)var14, (float)var16, (float)var18, var38, var39, var40, var39, var40, var41, var38, var41);
+         }
+      }
+   }
+
+   public void DrawTexturePercentage(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16, double var18) {
+      if (this.isVisible() && var1 != null) {
+         double var20 = var4 + this.getAbsoluteX();
+         double var22 = var6 + this.getAbsoluteY();
+         var8 = (double)((int)(var8 * var2));
+         double var24 = 0.0;
+         double var26 = 0.0;
+         double var28 = (double)var1.getWidth() * var2;
+         double var30 = (double)var1.getHeight();
+         var20 += this.xScroll;
+         var22 += this.yScroll;
+         var20 = (double)((int)var20);
+         var22 = (double)((int)var22);
+         if (!(var22 + var10 < 0.0) && !(var22 > 4096.0)) {
+            float var32 = PZMath.clamp((float)var24, 0.0F, (float)var1.getWidth());
+            float var33 = PZMath.clamp((float)var26, 0.0F, (float)var1.getHeight());
+            float var34 = PZMath.clamp((float)((double)var32 + var28), 0.0F, (float)var1.getWidth()) - var32;
+            float var35 = PZMath.clamp((float)((double)var33 + var30), 0.0F, (float)var1.getHeight()) - var33;
+            float var36 = var32 / (float)var1.getWidth();
+            float var37 = var33 / (float)var1.getHeight();
+            float var38 = (var32 + var34) / (float)var1.getWidth();
+            float var39 = (var33 + var35) / (float)var1.getHeight();
+            float var40 = var1.getXEnd() - var1.getXStart();
+            float var41 = var1.getYEnd() - var1.getYStart();
+            var36 = var1.getXStart() + var36 * var40;
+            var38 = var1.getXStart() + var38 * var40;
+            var37 = var1.getYStart() + var37 * var41;
+            var39 = var1.getYStart() + var39 * var41;
+            SpriteRenderer.instance.render(var1, (float)var20, (float)var22, (float)var8, (float)var10, (float)var12, (float)var14, (float)var16, (float)var18, var36, var37, var38, var37, var38, var39, var36, var39);
+         }
+      }
+   }
+
+   public void DrawTexturePercentageBottomUp(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16, double var18) {
+      if (this.isVisible() && var1 != null) {
+         double var20 = var4 + this.getAbsoluteX();
+         double var22 = var6 + this.getAbsoluteY();
+         double var24 = (double)((int)(var10 * var2));
+         var22 += var10 - var24;
+         var10 = var24;
+         var24 = (double)((int)((double)var1.getHeight() * var2));
+         double var26 = 0.0;
+         double var28 = (double)var1.getHeight() - var24;
+         double var30 = (double)var1.getWidth();
+         var20 += this.xScroll;
+         var22 += this.yScroll;
+         var20 = (double)((int)var20);
+         var22 = (double)((int)var22);
+         if (!(var22 + var10 < 0.0) && !(var22 > 4096.0)) {
+            float var34 = PZMath.clamp((float)var26, 0.0F, (float)var1.getWidth());
+            float var35 = PZMath.clamp((float)var28, 0.0F, (float)var1.getHeight());
+            float var36 = PZMath.clamp((float)((double)var34 + var30), 0.0F, (float)var1.getWidth()) - var34;
+            float var37 = PZMath.clamp((float)((double)var35 + var24), 0.0F, (float)var1.getHeight()) - var35;
+            float var38 = var34 / (float)var1.getWidth();
+            float var39 = var35 / (float)var1.getHeight();
+            float var40 = (var34 + var36) / (float)var1.getWidth();
+            float var41 = (var35 + var37) / (float)var1.getHeight();
+            float var42 = var1.getXEnd() - var1.getXStart();
+            float var43 = var1.getYEnd() - var1.getYStart();
+            var38 = var1.getXStart() + var38 * var42;
+            var40 = var1.getXStart() + var40 * var42;
+            var39 = var1.getYStart() + var39 * var43;
+            var41 = var1.getYStart() + var41 * var43;
+            SpriteRenderer.instance.render(var1, (float)var20, (float)var22, (float)var8, (float)var10, (float)var12, (float)var14, (float)var16, (float)var18, var38, var39, var40, var39, var40, var41, var38, var41);
+         }
+      }
    }
 
    public void DrawSubTextureRGBA(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16, double var18, double var20, double var22, double var24) {
@@ -417,6 +645,28 @@ public class UIElement {
             }
 
             this.DrawSubTextureRGBA(var1, 0.0, 0.0, var20, var22, var2, var18, var20, var22, var10, var12, var14, var16);
+         }
+
+      }
+   }
+
+   public void DrawTextureTiledYOffset(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16) {
+      if (var1 != null && this.isVisible() && !(var6 <= 0.0) && !(var8 <= 0.0)) {
+         double var18 = var4 % (double)var1.getHeight();
+
+         for(double var20 = var4; var20 < var4 + var8; var18 = 0.0) {
+            double var24 = (double)var1.getHeight() - var18;
+            if (var24 == 0.0) {
+               var18 = 0.0;
+               var24 = (double)var1.getHeight();
+            }
+
+            if (var20 + var24 > var4 + var8) {
+               var24 = var4 + var8 - var20;
+            }
+
+            this.DrawSubTextureRGBA(var1, 0.0, var18, var6, var24, var2, var20, var6, var24, var10, var12, var14, var16);
+            var20 += var24;
          }
 
       }
@@ -537,8 +787,8 @@ public class UIElement {
    }
 
    void onRightMouseUpOutside(double var1, double var3) {
-      if (this.getTable() != null && this.getTable().rawget("onRightMouseUpOutside") != null) {
-         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onRightMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+      if (this.getTable() != null && UIManager.tableget(this.table, "onRightMouseUpOutside") != null) {
+         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onRightMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
       }
 
       for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
@@ -549,8 +799,8 @@ public class UIElement {
    }
 
    void onRightMouseDownOutside(double var1, double var3) {
-      if (this.getTable() != null && this.getTable().rawget("onRightMouseDownOutside") != null) {
-         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onRightMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+      if (this.getTable() != null && UIManager.tableget(this.table, "onRightMouseDownOutside") != null) {
+         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onRightMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
       }
 
       for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
@@ -561,8 +811,8 @@ public class UIElement {
    }
 
    public void onMouseUpOutside(double var1, double var3) {
-      if (this.getTable() != null && this.getTable().rawget("onMouseUpOutside") != null) {
-         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseUpOutside") != null) {
+         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
       }
 
       for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
@@ -573,8 +823,8 @@ public class UIElement {
    }
 
    void onMouseDownOutside(double var1, double var3) {
-      if (this.getTable() != null && this.getTable().rawget("onMouseDownOutside") != null) {
-         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseDownOutside") != null) {
+         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
       }
 
       for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
@@ -600,8 +850,8 @@ public class UIElement {
          } else if (!this.visible) {
             return Boolean.FALSE;
          } else {
-            if (this.getTable() != null && this.getTable().rawget("onFocus") != null) {
-               LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onFocus"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+            if (this.getTable() != null && UIManager.tableget(this.table, "onFocus") != null) {
+               LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onFocus"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
             }
 
             boolean var5 = false;
@@ -612,16 +862,16 @@ public class UIElement {
                   if (var7.onMouseDown(var1 - (double)var7.getXScrolled(this).intValue(), var3 - (double)var7.getYScrolled(this).intValue())) {
                      var5 = true;
                   }
-               } else if (var7.getTable() != null && var7.getTable().rawget("onMouseDownOutside") != null) {
-                  LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), var7.getTable().rawget("onMouseDownOutside"), var7.getTable(), BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+               } else if (var7.getTable() != null && UIManager.tableget(var7.getTable(), "onMouseDownOutside") != null) {
+                  LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(var7.getTable(), "onMouseDownOutside"), var7.getTable(), BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                }
             }
 
             if (this.getTable() != null) {
                Boolean var8;
                if (var5) {
-                  if (this.getTable().rawget("onMouseDownOutside") != null) {
-                     var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+                  if (UIManager.tableget(this.table, "onMouseDownOutside") != null) {
+                     var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                      if (var8 == null) {
                         return Boolean.TRUE;
                      }
@@ -630,8 +880,8 @@ public class UIElement {
                         return Boolean.TRUE;
                      }
                   }
-               } else if (this.getTable().rawget("onMouseDown") != null) {
-                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onMouseDown"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+               } else if (UIManager.tableget(this.table, "onMouseDown") != null) {
+                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseDown"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                   if (var8 == null) {
                      return Boolean.TRUE;
                   }
@@ -655,8 +905,8 @@ public class UIElement {
       } else if (!this.visible) {
          return Boolean.FALSE;
       } else {
-         if (this.getTable().rawget("onMouseDoubleClick") != null) {
-            Boolean var5 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onMouseDoubleClick"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+         if (UIManager.tableget(this.table, "onMouseDoubleClick") != null) {
+            Boolean var5 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseDoubleClick"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
             if (var5 == null) {
                return Boolean.TRUE;
             }
@@ -670,24 +920,37 @@ public class UIElement {
       }
    }
 
+   public Boolean onConsumeMouseWheel(double var1, double var3, double var5) {
+      if (!this.isIgnoreLossControl() && TutorialManager.instance.StealControl) {
+         return false;
+      } else {
+         return !this.isVisible() ? false : this.onMouseWheel(var1);
+      }
+   }
+
    public Boolean onMouseWheel(double var1) {
       int var3 = Mouse.getXA();
       int var4 = Mouse.getYA();
-      if (this.getTable() != null && this.getTable().rawget("onMouseWheel") != null) {
-         Boolean var5 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onMouseWheel"), this.table, BoxedStaticValues.toDouble(var1));
-         if (var5 == Boolean.TRUE) {
-            return Boolean.TRUE;
-         }
-      }
 
-      for(int var7 = this.getControls().size() - 1; var7 >= 0; --var7) {
-         UIElement var6 = (UIElement)this.getControls().get(var7);
+      for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
+         UIElement var6 = (UIElement)this.getControls().get(var5);
          if (var6.isVisible() && ((double)var3 >= var6.getAbsoluteX() && (double)var4 >= var6.getAbsoluteY() && (double)var3 < var6.getAbsoluteX() + var6.getWidth() && (double)var4 < var6.getAbsoluteY() + var6.getHeight() || var6.isCapture()) && var6.onMouseWheel(var1)) {
             return this.bConsumeMouseEvents ? Boolean.TRUE : Boolean.FALSE;
          }
       }
 
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseWheel") != null) {
+         Boolean var7 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseWheel"), this.table, BoxedStaticValues.toDouble(var1));
+         if (var7 == Boolean.TRUE) {
+            return Boolean.TRUE;
+         }
+      }
+
       return Boolean.FALSE;
+   }
+
+   public Boolean onConsumeMouseMove(double var1, double var3, double var5, double var7) {
+      return this.onMouseMove(var1, var3);
    }
 
    public Boolean onMouseMove(double var1, double var3) {
@@ -700,8 +963,8 @@ public class UIElement {
       } else if (!this.visible) {
          return Boolean.FALSE;
       } else {
-         if (this.getTable() != null && this.getTable().rawget("onMouseMove") != null) {
-            LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onMouseMove"), this.table, BoxedStaticValues.toDouble(var1), BoxedStaticValues.toDouble(var3));
+         if (this.getTable() != null && UIManager.tableget(this.table, "onMouseMove") != null) {
+            LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseMove"), this.table, BoxedStaticValues.toDouble(var1), BoxedStaticValues.toDouble(var3));
          }
 
          boolean var7 = false;
@@ -710,7 +973,7 @@ public class UIElement {
             UIElement var9 = (UIElement)this.getControls().get(var8);
             if ((!((double)var5 >= var9.getAbsoluteX()) || !((double)var6 >= var9.getAbsoluteY()) || !((double)var5 < var9.getAbsoluteX() + var9.getWidth()) || !((double)var6 < var9.getAbsoluteY() + var9.getHeight())) && !var9.isCapture()) {
                var9.onMouseMoveOutside(var1, var3);
-            } else if (!var7 && var9.onMouseMove(var1, var3)) {
+            } else if ((!var7 || var9.isCapture()) && var9.onMouseMove(var1, var3)) {
                var7 = true;
             }
          }
@@ -719,9 +982,13 @@ public class UIElement {
       }
    }
 
+   public void onExtendMouseMoveOutside(double var1, double var3, double var5, double var7) {
+      this.onMouseMoveOutside(var1, var3);
+   }
+
    public void onMouseMoveOutside(double var1, double var3) {
-      if (this.getTable() != null && this.getTable().rawget("onMouseMoveOutside") != null) {
-         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), this.getTable().rawget("onMouseMoveOutside"), this.table, BoxedStaticValues.toDouble(var1), BoxedStaticValues.toDouble(var3));
+      if (this.getTable() != null && UIManager.tableget(this.table, "onMouseMoveOutside") != null) {
+         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseMoveOutside"), this.table, BoxedStaticValues.toDouble(var1), BoxedStaticValues.toDouble(var3));
       }
 
       for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
@@ -757,8 +1024,8 @@ public class UIElement {
          if (this.getTable() != null) {
             Boolean var8;
             if (var5) {
-               if (this.getTable().rawget("onMouseUpOutside") != null) {
-                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+               if (UIManager.tableget(this.table, "onMouseUpOutside") != null) {
+                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                   if (var8 == null) {
                      return Boolean.TRUE;
                   }
@@ -767,8 +1034,8 @@ public class UIElement {
                      return Boolean.TRUE;
                   }
                }
-            } else if (this.getTable().rawget("onMouseUp") != null) {
-               var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onMouseUp"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+            } else if (UIManager.tableget(this.table, "onMouseUp") != null) {
+               var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onMouseUp"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                if (var8 == null) {
                   return Boolean.TRUE;
                }
@@ -781,6 +1048,55 @@ public class UIElement {
 
          return var5 ? Boolean.TRUE : Boolean.FALSE;
       }
+   }
+
+   public void onMouseButtonDown(int var1, double var2, double var4) {
+      if (this.bWantExtraMouseEvents && this.getTable() != null && UIManager.tableget(this.getTable(), "onMouseButtonDown") != null) {
+         for(int var6 = this.getControls().size() - 1; var6 >= 0; --var6) {
+            if (((UIElement)this.getControls().get(var6)).isMouseOver()) {
+               return;
+            }
+         }
+
+         LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(this.getTable(), "onMouseButtonDown"), this.getTable(), BoxedStaticValues.toDouble((double)var1));
+      }
+   }
+
+   public boolean onConsumeMouseButtonDown(int var1, double var2, double var4) {
+      if (var1 == 0) {
+         return this.onMouseDown(var2, var4);
+      } else if (var1 == 1) {
+         return this.onRightMouseDown(var2, var4);
+      } else {
+         this.onMouseButtonDown(var1, var2, var4);
+         return false;
+      }
+   }
+
+   public void onMouseButtonDownOutside(int var1, double var2, double var4) {
+      if (var1 == 0) {
+         this.onMouseDownOutside(var2, var4);
+      } else if (var1 == 1) {
+         this.onRightMouseDownOutside(var2, var4);
+      }
+
+   }
+
+   public boolean onConsumeMouseButtonUp(int var1, double var2, double var4) {
+      if (var1 == 0) {
+         return this.onMouseUp(var2, var4);
+      } else {
+         return var1 == 1 ? this.onRightMouseUp(var2, var4) : false;
+      }
+   }
+
+   public void onMouseButtonUpOutside(int var1, double var2, double var4) {
+      if (var1 == 0) {
+         this.onMouseUpOutside(var2, var4);
+      } else if (var1 == 1) {
+         this.onRightMouseUpOutside(var2, var4);
+      }
+
    }
 
    public void onresize() {
@@ -807,8 +1123,8 @@ public class UIElement {
          }
       }
 
-      if (this.getTable() != null && this.getTable().rawget("onResize") != null) {
-         LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), this.getTable().rawget("onResize"), this.table, this.getWidth(), this.getHeight());
+      if (this.getTable() != null && UIManager.tableget(this.table, "onResize") != null) {
+         LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onResize"), this.table, this.getWidth(), this.getHeight());
       }
 
       for(int var5 = this.getControls().size() - 1; var5 >= 0; --var5) {
@@ -841,16 +1157,16 @@ public class UIElement {
                if (var7.onRightMouseDown(var1 - (double)var7.getXScrolled(this).intValue(), var3 - (double)var7.getYScrolled(this).intValue())) {
                   var5 = true;
                }
-            } else if (var7.getTable() != null && var7.getTable().rawget("onRightMouseDownOutside") != null) {
-               LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), var7.getTable().rawget("onRightMouseDownOutside"), var7.getTable(), BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+            } else if (var7.getTable() != null && UIManager.tableget(var7.getTable(), "onRightMouseDownOutside") != null) {
+               LuaManager.caller.protectedCallVoid(UIManager.getDefaultThread(), UIManager.tableget(var7.getTable(), "onRightMouseDownOutside"), var7.getTable(), BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
             }
          }
 
          if (this.getTable() != null) {
             Boolean var8;
             if (var5) {
-               if (this.getTable().rawget("onRightMouseDownOutside") != null) {
-                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onRightMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+               if (UIManager.tableget(this.table, "onRightMouseDownOutside") != null) {
+                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onRightMouseDownOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                   if (var8 == null) {
                      return Boolean.TRUE;
                   }
@@ -859,8 +1175,8 @@ public class UIElement {
                      return Boolean.TRUE;
                   }
                }
-            } else if (this.getTable().rawget("onRightMouseDown") != null) {
-               var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onRightMouseDown"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+            } else if (UIManager.tableget(this.table, "onRightMouseDown") != null) {
+               var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onRightMouseDown"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                if (var8 == null) {
                   return Boolean.TRUE;
                }
@@ -899,8 +1215,8 @@ public class UIElement {
          if (this.getTable() != null) {
             Boolean var8;
             if (var5) {
-               if (this.getTable().rawget("onRightMouseUpOutside") != null) {
-                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onRightMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+               if (UIManager.tableget(this.table, "onRightMouseUpOutside") != null) {
+                  var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onRightMouseUpOutside"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                   if (var8 == null) {
                      return Boolean.TRUE;
                   }
@@ -909,8 +1225,8 @@ public class UIElement {
                      return Boolean.TRUE;
                   }
                }
-            } else if (this.getTable().rawget("onRightMouseUp") != null) {
-               var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), this.getTable().rawget("onRightMouseUp"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
+            } else if (UIManager.tableget(this.table, "onRightMouseUp") != null) {
+               var8 = LuaManager.caller.protectedCallBoolean(UIManager.getDefaultThread(), UIManager.tableget(this.table, "onRightMouseUp"), this.table, BoxedStaticValues.toDouble(var1 - this.xScroll), BoxedStaticValues.toDouble(var3 - this.yScroll));
                if (var8 == null) {
                   return Boolean.TRUE;
                }
@@ -943,39 +1259,46 @@ public class UIElement {
                   }
                }
 
-               if (this.getTable() != null && this.getTable().rawget("prerender") != null) {
-                  try {
-                     LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), this.getTable().rawget("prerender"), this.table);
-                  } catch (Exception var7) {
-                     boolean var9 = false;
+               Object var8;
+               if (this.getTable() != null) {
+                  var8 = UIManager.tableget(this.table, "prerender");
+                  if (var8 != null) {
+                     try {
+                        LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), var8, this.table);
+                     } catch (Exception var7) {
+                        boolean var3 = false;
+                     }
                   }
                }
 
-               for(int var8 = 0; var8 < this.getControls().size(); ++var8) {
-                  ((UIElement)this.getControls().get(var8)).render();
+               for(int var9 = 0; var9 < this.getControls().size(); ++var9) {
+                  ((UIElement)this.getControls().get(var9)).render();
                }
 
-               if (this.getTable() != null && this.getTable().rawget("render") != null) {
-                  LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), this.getTable().rawget("render"), this.table);
+               if (this.getTable() != null) {
+                  var8 = UIManager.tableget(this.table, "render");
+                  if (var8 != null) {
+                     LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), var8, this.table);
+                  }
                }
 
                if (Core.bDebug && DebugOptions.instance.UIRenderOutline.getValue()) {
-                  if (this.table != null && "ISScrollingListBox".equals(this.table.rawget("Type"))) {
+                  if (this.table != null && "ISScrollingListBox".equals(UIManager.tableget(this.table, "Type"))) {
                      this.repaintStencilRect(0.0, 0.0, (double)((int)this.width), (double)((int)this.height));
                   }
 
                   var1 = -this.getXScroll();
                   Double var10 = -this.getYScroll();
-                  double var3 = 1.0;
+                  double var11 = 1.0;
                   if (this.isMouseOver()) {
-                     var3 = 0.0;
+                     var11 = 0.0;
                   }
 
                   double var5 = this.maxDrawHeight == -1 ? (double)this.height : (double)this.maxDrawHeight;
-                  this.DrawTextureScaledColor((Texture)null, var1, var10, 1.0, var5, var3, 1.0, 1.0, 0.5);
-                  this.DrawTextureScaledColor((Texture)null, var1 + 1.0, var10, (double)this.width - 2.0, 1.0, var3, 1.0, 1.0, 0.5);
-                  this.DrawTextureScaledColor((Texture)null, var1 + (double)this.width - 1.0, var10, 1.0, var5, var3, 1.0, 1.0, 0.5);
-                  this.DrawTextureScaledColor((Texture)null, var1 + 1.0, var10 + var5 - 1.0, (double)this.width - 2.0, 1.0, var3, 1.0, 1.0, 0.5);
+                  this.DrawTextureScaledColor((Texture)null, var1, var10, 1.0, var5, var11, 1.0, 1.0, 0.5);
+                  this.DrawTextureScaledColor((Texture)null, var1 + 1.0, var10, (double)this.width - 2.0, 1.0, var11, 1.0, 1.0, 0.5);
+                  this.DrawTextureScaledColor((Texture)null, var1 + (double)this.width - 1.0, var10, 1.0, var5, var11, 1.0, 1.0, 0.5);
+                  this.DrawTextureScaledColor((Texture)null, var1 + 1.0, var10 + var5 - 1.0, (double)this.width - 2.0, 1.0, var11, 1.0, 1.0, 0.5);
                }
 
             }
@@ -997,8 +1320,8 @@ public class UIElement {
          this.Controls.addAll(toAdd);
          toAdd.clear();
          this.toTop.clear();
-         if (UIManager.doTick && this.getTable() != null && this.getTable().rawget("update") != null) {
-            LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), this.getTable().rawget("update"), this.table);
+         if (UIManager.doTick && this.getTable() != null && UIManager.tableget(this.table, "update") != null) {
+            LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), UIManager.tableget(this.table, "update"), this.table);
          }
 
          if (this.bResizeDirty) {
@@ -1097,6 +1420,16 @@ public class UIElement {
       this.visible = var1;
    }
 
+   public boolean isReallyVisible() {
+      if (!this.isVisible()) {
+         return false;
+      } else if (this.getParent() != null) {
+         return !this.getParent().getControls().contains(this) ? false : this.getParent().isReallyVisible();
+      } else {
+         return UIManager.getUI().contains(this);
+      }
+   }
+
    public Double getWidth() {
       return BoxedStaticValues.toDouble((double)this.width);
    }
@@ -1140,6 +1473,10 @@ public class UIElement {
 
    public void setY(double var1) {
       this.y = (double)((float)var1);
+   }
+
+   public boolean isOverElement(double var1, double var3) {
+      return var1 >= this.x && var3 >= this.y && var1 < this.x + (double)this.width && var3 < this.y + (double)this.height;
    }
 
    public void suspendStencil() {
@@ -1287,7 +1624,29 @@ public class UIElement {
    }
 
    public String getUIName() {
-      return this.uiname;
+      if (this.uiname.length() == 0) {
+         if (this instanceof TextBox) {
+            TextBox var4 = (TextBox)this;
+            return "Text: " + var4.Text;
+         } else {
+            if (this.table != null) {
+               Object var1 = this.table.rawget("name");
+               Object var2 = this.table.rawget("Type");
+               if (var2 != null) {
+                  if (var1 != null) {
+                     String var3 = var1.toString();
+                     return "" + var2 + ": " + var3;
+                  }
+
+                  return var2.toString();
+               }
+            }
+
+            return "UI: " + String.valueOf(this.hashCode());
+         }
+      } else {
+         return this.uiname;
+      }
    }
 
    public void setUIName(String var1) {
@@ -1346,7 +1705,7 @@ public class UIElement {
                ArrayList var13 = UIManager.getUI();
 
                for(int var14 = var13.size() - 1; var14 >= 0; --var14) {
-                  UIElement var12 = (UIElement)var13.get(var14);
+                  UIElementInterface var12 = (UIElementInterface)var13.get(var14);
                   if (var12 == this) {
                      break;
                   }
@@ -1391,7 +1750,7 @@ public class UIElement {
    }
 
    protected Object tryGetTableValue(String var1) {
-      return this.getTable() == null ? null : this.getTable().rawget(var1);
+      return this.getTable() == null ? null : UIManager.tableget(this.table, var1);
    }
 
    public void setWantKeyEvents(boolean var1) {
@@ -1400,6 +1759,14 @@ public class UIElement {
 
    public boolean isWantKeyEvents() {
       return this.bWantKeyEvents;
+   }
+
+   public void setWantExtraMouseEvents(boolean var1) {
+      this.bWantExtraMouseEvents = var1;
+   }
+
+   public boolean isWantExtraMouseEvents() {
+      return this.bWantExtraMouseEvents;
    }
 
    public boolean isKeyConsumed(int var1) {
@@ -1412,6 +1779,11 @@ public class UIElement {
       }
    }
 
+   public boolean onConsumeKeyPress(int var1) {
+      this.onKeyPress(var1);
+      return this.isKeyConsumed(var1);
+   }
+
    public void onKeyPress(int var1) {
       Object var2 = this.tryGetTableValue("onKeyPress");
       if (var2 != null) {
@@ -1419,11 +1791,21 @@ public class UIElement {
       }
    }
 
+   public boolean onConsumeKeyRepeat(int var1) {
+      this.onKeyRepeat(var1);
+      return this.isKeyConsumed(var1);
+   }
+
    public void onKeyRepeat(int var1) {
       Object var2 = this.tryGetTableValue("onKeyRepeat");
       if (var2 != null) {
          LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), var2, this.getTable(), BoxedStaticValues.toDouble((double)var1));
       }
+   }
+
+   public boolean onConsumeKeyRelease(int var1) {
+      this.onKeyRelease(var1);
+      return this.isKeyConsumed(var1);
    }
 
    public void onKeyRelease(int var1) {
@@ -1439,5 +1821,23 @@ public class UIElement {
 
    public void setForceCursorVisible(boolean var1) {
       this.bForceCursorVisible = var1;
+   }
+
+   public void StartOutline(Texture var1, float var2, float var3, float var4, float var5, float var6) {
+      if (IsoObject.OutlineShader.instance.StartShader()) {
+         this.shaderStarted = true;
+         IsoObject.OutlineShader.instance.setOutlineColor(var3, var4, var5, var6);
+         if (var1 != null) {
+            IsoObject.OutlineShader.instance.setStepSize(var2, var1.getWidthOrig(), var1.getHeightOrig());
+         }
+      }
+
+   }
+
+   public void EndOutline() {
+      if (this.shaderStarted) {
+         IndieGL.EndShader();
+      }
+
    }
 }

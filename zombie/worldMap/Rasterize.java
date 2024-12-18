@@ -46,7 +46,7 @@ public final class Rasterize {
 
    }
 
-   void scanTriangle(float var1, float var2, float var3, float var4, float var5, float var6, int var7, int var8, BiConsumer<Integer, Integer> var9) {
+   public void scanTriangle(float var1, float var2, float var3, float var4, float var5, float var6, int var7, int var8, BiConsumer<Integer, Integer> var9) {
       Edge var10 = this.edge1.init(var1, var2, var3, var4);
       Edge var11 = this.edge2.init(var3, var4, var5, var6);
       Edge var12 = this.edge3.init(var5, var6, var1, var2);

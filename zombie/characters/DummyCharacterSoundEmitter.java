@@ -3,7 +3,7 @@ package zombie.characters;
 import fmod.fmod.FMOD_STUDIO_PARAMETER_DESCRIPTION;
 import java.util.HashMap;
 import java.util.Iterator;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoObject;
 import zombie.network.GameClient;
 
@@ -82,6 +82,10 @@ public final class DummyCharacterSoundEmitter extends BaseCharacterSoundEmitter 
       this.sounds.remove(var1);
    }
 
+   public void stopOrTriggerSoundLocal(long var1) {
+      this.sounds.remove(var1);
+   }
+
    public void stopOrTriggerSound(long var1) {
       if (GameClient.bClient) {
          GameClient.instance.StopSound(this.character, (String)this.sounds.get(var1), true);
@@ -125,6 +129,9 @@ public final class DummyCharacterSoundEmitter extends BaseCharacterSoundEmitter 
    }
 
    public void setParameterValue(long var1, FMOD_STUDIO_PARAMETER_DESCRIPTION var3, float var4) {
+   }
+
+   public void setParameterValueByName(long var1, String var3, float var4) {
    }
 
    public boolean hasSustainPoints(long var1) {

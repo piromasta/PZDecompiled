@@ -11,6 +11,7 @@ public class ProcessedAiSceneParams {
    public String meshName;
    public float animBonesScaleModifier;
    public Quaternion animBonesRotateModifier;
+   public boolean bAllMeshes;
 
    ProcessedAiSceneParams() {
       this.mode = JAssImpImporter.LoadMode.Normal;
@@ -18,6 +19,7 @@ public class ProcessedAiSceneParams {
       this.meshName = null;
       this.animBonesScaleModifier = 1.0F;
       this.animBonesRotateModifier = null;
+      this.bAllMeshes = false;
    }
 
    public static ProcessedAiSceneParams create() {
@@ -31,5 +33,6 @@ public class ProcessedAiSceneParams {
       this.meshName = var1.meshName;
       this.animBonesScaleModifier = var1.animBonesScaleModifier;
       this.animBonesRotateModifier = var1.animBonesRotateModifier;
+      this.bAllMeshes = var1.bAllMeshes;
    }
 }

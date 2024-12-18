@@ -9,6 +9,7 @@ import zombie.core.Core;
 import zombie.core.znet.ZNetStatistics;
 import zombie.debug.DebugLog;
 import zombie.network.GameClient;
+import zombie.network.GameServer;
 
 public class RakNetPeerInterface {
    private static Thread mainThread;
@@ -60,10 +61,10 @@ public class RakNetPeerInterface {
 
    public native void Init(boolean var1);
 
-   private native int Startup(int var1, String var2);
+   private native int Startup(int var1, String var2, boolean var3);
 
    public int Startup(int var1) {
-      return this.Startup(var1, Core.getInstance().getVersion());
+      return this.Startup(var1, Core.getInstance().getVersionNumber(), GameServer.bServer);
    }
 
    public native void Shutdown();

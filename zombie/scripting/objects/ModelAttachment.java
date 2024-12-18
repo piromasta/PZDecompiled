@@ -2,12 +2,15 @@ package zombie.scripting.objects;
 
 import java.util.ArrayList;
 import org.joml.Vector3f;
+import zombie.core.math.PZMath;
 import zombie.util.StringUtils;
 
 public final class ModelAttachment {
+   private IModelAttachmentOwner owner;
    private String id;
    private final Vector3f offset = new Vector3f();
    private final Vector3f rotate = new Vector3f();
+   private float scale = 1.0F;
    private String bone;
    private ArrayList<String> canAttach;
    private float zoffset;
@@ -15,6 +18,10 @@ public final class ModelAttachment {
 
    public ModelAttachment(String var1) {
       this.setId(var1);
+   }
+
+   public void setOwner(IModelAttachmentOwner var1) {
+      this.owner = var1;
    }
 
    public String getId() {
@@ -25,7 +32,15 @@ public final class ModelAttachment {
       if (StringUtils.isNullOrWhitespace(var1)) {
          throw new IllegalArgumentException("ModelAttachment id is null or empty");
       } else {
+         if (this.owner != null) {
+            this.owner.beforeRenameAttachment(this);
+         }
+
          this.id = var1;
+         if (this.owner != null) {
+            this.owner.afterRenameAttachment(this);
+         }
+
       }
    }
 
@@ -35,6 +50,14 @@ public final class ModelAttachment {
 
    public Vector3f getRotate() {
       return this.rotate;
+   }
+
+   public float getScale() {
+      return this.scale;
+   }
+
+   public void setScale(float var1) {
+      this.scale = PZMath.max(var1, 0.01F);
    }
 
    public String getBone() {

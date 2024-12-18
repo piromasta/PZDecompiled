@@ -4,7 +4,8 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import zombie.GameTime;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.logger.ExceptionLogger;
+import zombie.core.random.Rand;
 import zombie.iso.IsoObject;
 import zombie.iso.weather.ClimateManager;
 import zombie.network.GameServer;
@@ -319,7 +320,7 @@ public class ObjectRenderEffects {
             var5 = ClimateManager.clamp01(1.0F - var1);
             this.curTime = 0.0F;
             this.maxTime = Rand.Next(20.0F + 100.0F * var5, 70.0F + 200.0F * var5) * T_MOD;
-            if (var1 <= 0.01F || !Core.OptionDoWindSpriteEffects) {
+            if (var1 <= 0.01F || !Core.getInstance().getOptionDoWindSpriteEffects()) {
                this.tx1 = 0.0;
                this.tx2 = 0.0;
                this.ty1 = 0.0;
@@ -364,7 +365,7 @@ public class ObjectRenderEffects {
             var4 = ClimateManager.clamp01(1.0F - var1);
             this.curTime = 0.0F;
             this.maxTime = Rand.Next(20.0F + 50.0F * var4, 60.0F + 100.0F * var4) * T_MOD;
-            if (var1 <= 0.05F || !Core.OptionDoWindSpriteEffects) {
+            if (var1 <= 0.05F || !Core.getInstance().getOptionDoWindSpriteEffects()) {
                this.tx1 = 0.0;
                this.tx2 = 0.0;
                this.ty1 = 0.0;
@@ -538,7 +539,7 @@ public class ObjectRenderEffects {
                }
             }
          } catch (Exception var5) {
-            var5.printStackTrace();
+            ExceptionLogger.logException(var5);
          }
 
       }

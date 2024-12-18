@@ -4,6 +4,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Paths;
 import zombie.DebugFileWatcher;
+import zombie.GameWindow;
 import zombie.PredicatedFileWatcher;
 import zombie.asset.Asset;
 import zombie.asset.AssetManager;
@@ -12,6 +13,7 @@ import zombie.asset.AssetTask_RunFileTask;
 import zombie.debug.DebugLog;
 import zombie.fileSystem.FileSystem;
 import zombie.fileSystem.FileTask;
+import zombie.gameStates.IngameState;
 
 public final class WorldMapDataAssetManager extends AssetManager {
    public static final WorldMapDataAssetManager instance = new WorldMapDataAssetManager();
@@ -34,7 +36,12 @@ public final class WorldMapDataAssetManager extends AssetManager {
          });
       }
 
-      ((FileTask)var4).setPriority(4);
+      if (GameWindow.states.current == IngameState.instance) {
+         ((FileTask)var4).setPriority(4);
+      } else {
+         ((FileTask)var4).setPriority(6);
+      }
+
       AssetTask_RunFileTask var6 = new AssetTask_RunFileTask((FileTask)var4, var1);
       this.setTask(var1, var6);
       var6.execute();

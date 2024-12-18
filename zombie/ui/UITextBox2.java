@@ -5,6 +5,9 @@ import java.util.Stack;
 import org.lwjglx.input.Keyboard;
 import zombie.GameTime;
 import zombie.Lua.LuaManager;
+import zombie.characters.Capability;
+import zombie.characters.IsoPlayer;
+import zombie.core.Clipboard;
 import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.fonts.AngelCodeFont;
@@ -12,8 +15,9 @@ import zombie.core.math.PZMath;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.input.Mouse;
+import zombie.network.GameClient;
 
-public class UITextBox2 extends UIElement {
+public class UITextBox2 extends UIElement implements UITextEntryInterface {
    public static boolean ConsoleHasFocus = false;
    public Stack<String> Lines = new Stack();
    public UINineGrid Frame = null;
@@ -57,9 +61,11 @@ public class UITextBox2 extends UIElement {
    private int XOffset;
    private int maxLines;
    private boolean onlyNumbers;
+   private boolean onlyText;
    private Texture clearButtonTexture;
    private boolean bClearButton;
    private UITransition clearButtonTransition;
+   private boolean bWrapLines;
    public boolean bAlwaysPaginate;
    public boolean bTextChanged;
    private int paginateWidth;
@@ -76,7 +82,9 @@ public class UITextBox2 extends UIElement {
       this.XOffset = 0;
       this.maxLines = 1;
       this.onlyNumbers = false;
+      this.onlyText = false;
       this.bClearButton = false;
+      this.bWrapLines = true;
       this.bAlwaysPaginate = true;
       this.bTextChanged = false;
       this.paginateWidth = -1;
@@ -269,6 +277,10 @@ public class UITextBox2 extends UIElement {
       this.textColor = var1;
    }
 
+   public void setTextRGBA(float var1, float var2, float var3, float var4) {
+      this.textColor.set(var1, var2, var3, var4);
+   }
+
    private void keepCursorVisible() {
       if (!this.Lines.isEmpty() && this.DoingTextEntry && !this.multipleLine) {
          if (this.TextEntryCursorPos > this.Text.length()) {
@@ -322,7 +334,7 @@ public class UITextBox2 extends UIElement {
 
    public void update() {
       if (this.maxTextLength > -1 && this.internalText.length() > this.maxTextLength) {
-         this.internalText = this.internalText.substring(this.maxTextLength);
+         this.internalText = this.internalText.substring(0, this.maxTextLength);
       }
 
       if (this.forceUpperCase) {
@@ -444,7 +456,7 @@ public class UITextBox2 extends UIElement {
 
                      int var11 = TextManager.instance.MeasureStringX(this.font, var7.substring(0, var10));
                      byte var12 = 17;
-                     if ((double)var11 >= this.getWidth() - (double)(this.getInset() * 2) - (double)var12 && var8 > 0) {
+                     if (this.bWrapLines && (double)var11 >= this.getWidth() - (double)(this.getInset() * 2) - (double)var12 && var8 > 0) {
                         String var13 = var7.substring(0, var8);
                         var7 = var7.substring(var8 + 1);
                         this.Lines.add(var13);
@@ -630,14 +642,14 @@ public class UITextBox2 extends UIElement {
          } else {
             if (Core.CurrentTextEntryBox != this) {
                if (Core.CurrentTextEntryBox != null) {
-                  Core.CurrentTextEntryBox.DoingTextEntry = false;
-                  if (Core.CurrentTextEntryBox.Frame != null) {
-                     Core.CurrentTextEntryBox.Frame.Colour = this.StandardFrameColour;
+                  Core.CurrentTextEntryBox.setDoingTextEntry(false);
+                  if (Core.CurrentTextEntryBox.getFrame() != null) {
+                     Core.CurrentTextEntryBox.getFrame().Colour = this.StandardFrameColour;
                   }
                }
 
                Core.CurrentTextEntryBox = this;
-               Core.CurrentTextEntryBox.SelectingRange = true;
+               Core.CurrentTextEntryBox.setSelectingRange(true);
             }
 
             if (!this.DoingTextEntry) {
@@ -735,36 +747,36 @@ public class UITextBox2 extends UIElement {
    }
 
    public void onPressUp() {
-      if (this.getTable() != null && this.getTable().rawget("onPressUp") != null) {
-         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onPressUp"), this.getTable());
+      if (this.getTable() != null && UIManager.tableget(this.table, "onPressUp") != null) {
+         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onPressUp"), this.getTable());
       }
 
    }
 
    public void onPressDown() {
-      if (this.getTable() != null && this.getTable().rawget("onPressDown") != null) {
-         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onPressDown"), this.getTable());
+      if (this.getTable() != null && UIManager.tableget(this.table, "onPressDown") != null) {
+         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onPressDown"), this.getTable());
       }
 
    }
 
    public void onCommandEntered() {
-      if (this.getTable() != null && this.getTable().rawget("onCommandEntered") != null) {
-         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onCommandEntered"), this.getTable());
+      if (this.getTable() != null && UIManager.tableget(this.table, "onCommandEntered") != null) {
+         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onCommandEntered"), this.getTable());
       }
 
    }
 
    public void onTextChange() {
-      if (this.getTable() != null && this.getTable().rawget("onTextChange") != null) {
-         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onTextChange"), this.getTable());
+      if (this.getTable() != null && UIManager.tableget(this.table, "onTextChange") != null) {
+         Object[] var1 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onTextChange"), this.getTable());
       }
 
    }
 
    public void onOtherKey(int var1) {
-      if (this.getTable() != null && this.getTable().rawget("onOtherKey") != null) {
-         Object[] var2 = LuaManager.caller.pcall(LuaManager.thread, this.getTable().rawget("onOtherKey"), new Object[]{this.getTable(), var1});
+      if (this.getTable() != null && UIManager.tableget(this.table, "onOtherKey") != null) {
+         Object[] var2 = LuaManager.caller.pcall(LuaManager.thread, UIManager.tableget(this.table, "onOtherKey"), new Object[]{this.getTable(), var1});
       }
 
    }
@@ -870,6 +882,14 @@ public class UITextBox2 extends UIElement {
       this.onlyNumbers = var1;
    }
 
+   public boolean isOnlyText() {
+      return this.onlyText;
+   }
+
+   public void setOnlyText(boolean var1) {
+      this.onlyText = var1;
+   }
+
    public void resetBlink() {
       this.BlinkState = true;
       this.BlinkFrame = (float)this.BlinkFramesOn;
@@ -878,5 +898,305 @@ public class UITextBox2 extends UIElement {
    public void selectAll() {
       this.TextEntryCursorPos = this.internalText.length();
       this.ToSelectionIndex = 0;
+   }
+
+   public boolean isDoingTextEntry() {
+      return this.DoingTextEntry;
+   }
+
+   public void setDoingTextEntry(boolean var1) {
+      this.DoingTextEntry = var1;
+   }
+
+   public UINineGrid getFrame() {
+      return this.Frame;
+   }
+
+   public boolean isIgnoreFirst() {
+      return this.ignoreFirst;
+   }
+
+   public void setIgnoreFirst(boolean var1) {
+      this.ignoreFirst = var1;
+   }
+
+   public void setSelectingRange(boolean var1) {
+      this.SelectingRange = var1;
+   }
+
+   public Color getStandardFrameColour() {
+      return this.StandardFrameColour;
+   }
+
+   public void onKeyEnter() {
+      boolean var1 = false;
+      if (UIManager.getDebugConsole() != null && this == UIManager.getDebugConsole().CommandLine) {
+         var1 = true;
+      }
+
+      if (this.multipleLine) {
+         if (this.Lines.size() < this.getMaxLines()) {
+            int var2;
+            if (this.TextEntryCursorPos != this.ToSelectionIndex) {
+               var2 = Math.min(this.TextEntryCursorPos, this.ToSelectionIndex);
+               int var3 = Math.max(this.TextEntryCursorPos, this.ToSelectionIndex);
+               if (this.internalText.length() > 0) {
+                  String var10001 = this.internalText.substring(0, var2);
+                  this.internalText = var10001 + "\n" + this.internalText.substring(var3);
+               } else {
+                  this.internalText = "\n";
+               }
+
+               this.TextEntryCursorPos = var2 + 1;
+            } else {
+               var2 = this.TextEntryCursorPos;
+               String var10000 = this.internalText.substring(0, var2);
+               String var4 = var10000 + "\n" + this.internalText.substring(var2);
+               this.SetText(var4);
+               this.TextEntryCursorPos = var2 + 1;
+            }
+
+            this.ToSelectionIndex = this.TextEntryCursorPos;
+            this.CursorLine = this.toDisplayLine(this.TextEntryCursorPos);
+         }
+      } else {
+         this.onCommandEntered();
+      }
+
+      if (var1 && (!GameClient.bClient || IsoPlayer.getInstance().getRole().haveCapability(Capability.UIManagerProcessCommands) || GameClient.connection != null && GameClient.connection.isCoopHost)) {
+         UIManager.getDebugConsole().ProcessCommand();
+      }
+
+   }
+
+   public void onKeyHome() {
+      boolean var1 = Keyboard.isKeyDown(42) || Keyboard.isKeyDown(54);
+      this.TextEntryCursorPos = 0;
+      if (!this.Lines.isEmpty()) {
+         this.TextEntryCursorPos = this.TextOffsetOfLineStart.get(this.CursorLine);
+      }
+
+      if (!var1) {
+         this.ToSelectionIndex = this.TextEntryCursorPos;
+      }
+
+      this.resetBlink();
+   }
+
+   public void onKeyEnd() {
+      boolean var1 = Keyboard.isKeyDown(42) || Keyboard.isKeyDown(54);
+      this.TextEntryCursorPos = this.internalText.length();
+      if (!this.Lines.isEmpty()) {
+         this.TextEntryCursorPos = this.TextOffsetOfLineStart.get(this.CursorLine) + ((String)this.Lines.get(this.CursorLine)).length();
+      }
+
+      if (!var1) {
+         this.ToSelectionIndex = this.TextEntryCursorPos;
+      }
+
+      this.resetBlink();
+   }
+
+   public void onKeyUp() {
+      boolean var1 = Keyboard.isKeyDown(42) || Keyboard.isKeyDown(54);
+      if (this.CursorLine > 0) {
+         int var2 = this.TextEntryCursorPos - this.TextOffsetOfLineStart.get(this.CursorLine);
+         --this.CursorLine;
+         if (var2 > ((String)this.Lines.get(this.CursorLine)).length()) {
+            var2 = ((String)this.Lines.get(this.CursorLine)).length();
+         }
+
+         this.TextEntryCursorPos = this.TextOffsetOfLineStart.get(this.CursorLine) + var2;
+         if (!var1) {
+            this.ToSelectionIndex = this.TextEntryCursorPos;
+         }
+      }
+
+      this.onPressUp();
+   }
+
+   public void onKeyDown() {
+      boolean var1 = Keyboard.isKeyDown(42) || Keyboard.isKeyDown(54);
+      if (this.Lines.size() - 1 > this.CursorLine && this.CursorLine + 1 < this.getMaxLines()) {
+         int var2 = this.TextEntryCursorPos - this.TextOffsetOfLineStart.get(this.CursorLine);
+         ++this.CursorLine;
+         if (var2 > ((String)this.Lines.get(this.CursorLine)).length()) {
+            var2 = ((String)this.Lines.get(this.CursorLine)).length();
+         }
+
+         this.TextEntryCursorPos = this.TextOffsetOfLineStart.get(this.CursorLine) + var2;
+         if (!var1) {
+            this.ToSelectionIndex = this.TextEntryCursorPos;
+         }
+      }
+
+      this.onPressDown();
+   }
+
+   public void onKeyLeft() {
+      boolean var1 = Keyboard.isKeyDown(42) || Keyboard.isKeyDown(54);
+      --this.TextEntryCursorPos;
+      if (this.TextEntryCursorPos < 0) {
+         this.TextEntryCursorPos = 0;
+      }
+
+      if (!var1) {
+         this.ToSelectionIndex = this.TextEntryCursorPos;
+      }
+
+      this.resetBlink();
+   }
+
+   public void onKeyRight() {
+      boolean var1 = Keyboard.isKeyDown(42) || Keyboard.isKeyDown(54);
+      ++this.TextEntryCursorPos;
+      if (this.TextEntryCursorPos > this.internalText.length()) {
+         this.TextEntryCursorPos = this.internalText.length();
+      }
+
+      if (!var1) {
+         this.ToSelectionIndex = this.TextEntryCursorPos;
+      }
+
+      this.resetBlink();
+   }
+
+   void onTextDelete() {
+      int var1 = Math.min(this.TextEntryCursorPos, this.ToSelectionIndex);
+      int var2 = Math.max(this.TextEntryCursorPos, this.ToSelectionIndex);
+      String var10001 = this.internalText.substring(0, var1);
+      this.internalText = var10001 + this.internalText.substring(var2);
+      this.CursorLine = this.toDisplayLine(var1);
+      this.ToSelectionIndex = var1;
+      this.TextEntryCursorPos = var1;
+      this.onTextChange();
+   }
+
+   public void onKeyBack() {
+      if (this.TextEntryCursorPos != this.ToSelectionIndex) {
+         this.onTextDelete();
+      }
+
+      if (this.internalText.length() != 0 && this.TextEntryCursorPos > 0) {
+         if (this.TextEntryCursorPos > this.internalText.length()) {
+            this.internalText = this.internalText.substring(0, this.internalText.length() - 1);
+         } else {
+            int var1 = this.TextEntryCursorPos;
+            String var10001 = this.internalText.substring(0, var1 - 1);
+            this.internalText = var10001 + this.internalText.substring(var1);
+         }
+
+         --this.TextEntryCursorPos;
+         this.ToSelectionIndex = this.TextEntryCursorPos;
+         this.onTextChange();
+      }
+   }
+
+   public void onKeyDelete() {
+      if (this.TextEntryCursorPos != this.ToSelectionIndex) {
+         this.onTextDelete();
+      }
+
+      if (this.internalText.length() != 0 && this.TextEntryCursorPos < this.internalText.length()) {
+         if (this.TextEntryCursorPos > 0) {
+            String var10001 = this.internalText.substring(0, this.TextEntryCursorPos);
+            this.internalText = var10001 + this.internalText.substring(this.TextEntryCursorPos + 1);
+         } else {
+            this.internalText = this.internalText.substring(1);
+         }
+
+         this.onTextChange();
+      }
+   }
+
+   public void pasteFromClipboard() {
+      String var1 = Clipboard.getClipboard();
+      if (var1 != null) {
+         if (this.TextEntryCursorPos != this.ToSelectionIndex) {
+            int var2 = Math.min(this.TextEntryCursorPos, this.ToSelectionIndex);
+            int var3 = Math.max(this.TextEntryCursorPos, this.ToSelectionIndex);
+            this.internalText = this.internalText.substring(0, var2) + var1 + this.internalText.substring(var3);
+            this.ToSelectionIndex = var2 + var1.length();
+            this.TextEntryCursorPos = var2 + var1.length();
+         } else {
+            if (this.TextEntryCursorPos < this.internalText.length()) {
+               this.internalText = this.internalText.substring(0, this.TextEntryCursorPos) + var1 + this.internalText.substring(this.TextEntryCursorPos);
+            } else {
+               this.internalText = this.internalText + var1;
+            }
+
+            this.TextEntryCursorPos += var1.length();
+            this.ToSelectionIndex += var1.length();
+         }
+
+         this.onTextChange();
+      }
+   }
+
+   public void cutToClipboard() {
+      if (this.TextEntryCursorPos != this.ToSelectionIndex) {
+         this.updateText();
+         int var1 = Math.min(this.TextEntryCursorPos, this.ToSelectionIndex);
+         int var2 = Math.max(this.TextEntryCursorPos, this.ToSelectionIndex);
+         String var3 = this.Text.substring(var1, var2);
+         if (var3 != null && var3.length() > 0) {
+            Clipboard.setClipboard(var3);
+         }
+
+         String var10001 = this.internalText.substring(0, var1);
+         this.internalText = var10001 + this.internalText.substring(var2);
+         this.ToSelectionIndex = var1;
+         this.TextEntryCursorPos = var1;
+      }
+   }
+
+   public void copyToClipboard() {
+      if (this.TextEntryCursorPos != this.ToSelectionIndex) {
+         this.updateText();
+         int var1 = Math.min(this.TextEntryCursorPos, this.ToSelectionIndex);
+         int var2 = Math.max(this.TextEntryCursorPos, this.ToSelectionIndex);
+         String var3 = this.Text.substring(var1, var2);
+         if (var3 != null && var3.length() > 0) {
+            Clipboard.setClipboard(var3);
+         }
+
+      }
+   }
+
+   public boolean isTextLimit() {
+      return this.internalText.length() >= this.TextEntryMaxLength;
+   }
+
+   public void putCharacter(char var1) {
+      int var2;
+      if (this.TextEntryCursorPos == this.ToSelectionIndex) {
+         var2 = this.TextEntryCursorPos;
+         if (var2 < this.internalText.length()) {
+            this.internalText = this.internalText.substring(0, var2) + var1 + this.internalText.substring(var2);
+         } else {
+            this.internalText = this.internalText + var1;
+         }
+
+         ++this.TextEntryCursorPos;
+         ++this.ToSelectionIndex;
+         this.onTextChange();
+      } else {
+         var2 = Math.min(this.TextEntryCursorPos, this.ToSelectionIndex);
+         int var3 = Math.max(this.TextEntryCursorPos, this.ToSelectionIndex);
+         if (this.internalText.length() > 0) {
+            this.internalText = this.internalText.substring(0, var2) + var1 + this.internalText.substring(var3);
+         } else {
+            this.internalText = "" + var1;
+         }
+
+         this.ToSelectionIndex = var2 + 1;
+         this.TextEntryCursorPos = var2 + 1;
+         this.onTextChange();
+      }
+
+   }
+
+   public void setWrapLines(boolean var1) {
+      this.bWrapLines = var1;
    }
 }

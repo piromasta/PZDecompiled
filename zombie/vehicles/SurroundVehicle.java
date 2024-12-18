@@ -8,7 +8,10 @@ import org.joml.Vector3f;
 import zombie.VirtualZombieManager;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
+import zombie.core.math.PZMath;
 import zombie.iso.IsoUtils;
+import zombie.pathfind.PolygonalMap2;
+import zombie.pathfind.VehiclePoly;
 import zombie.popman.ObjectPool;
 import zombie.scripting.objects.VehicleScript;
 import zombie.util.Type;
@@ -121,7 +124,7 @@ public final class SurroundVehicle {
          }
       }
 
-      PolygonalMap2.VehiclePoly var3 = this.m_vehicle.getPoly();
+      VehiclePoly var3 = this.m_vehicle.getPoly();
       this.x1p = var3.x1;
       this.x2p = var3.x2;
       this.x3p = var3.x3;
@@ -140,16 +143,16 @@ public final class SurroundVehicle {
          for(int var4 = 0; var4 < this.m_positions.size(); ++var4) {
             Position var5 = (Position)this.m_positions.get(var4);
             if (!var5.bBlocked) {
-               float var6 = IsoUtils.DistanceToSquared(var1.x, var1.y, var5.posWorld.x, var5.posWorld.y);
+               float var6 = IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), var5.posWorld.x, var5.posWorld.y);
                float var7;
                if (var5.isOccupied()) {
-                  var7 = IsoUtils.DistanceToSquared(var5.zombie.x, var5.zombie.y, var5.posWorld.x, var5.posWorld.y);
+                  var7 = IsoUtils.DistanceToSquared(var5.zombie.getX(), var5.zombie.getY(), var5.posWorld.x, var5.posWorld.y);
                   if (var7 < var6) {
                      continue;
                   }
                }
 
-               var7 = IsoUtils.DistanceToSquared(var1.getTarget().x, var1.getTarget().y, var5.posWorld.x, var5.posWorld.y);
+               var7 = IsoUtils.DistanceToSquared(var1.getTarget().getX(), var1.getTarget().getY(), var5.posWorld.x, var5.posWorld.y);
                if (var7 < var2) {
                   var2 = var7;
                   var3 = var5;
@@ -164,10 +167,10 @@ public final class SurroundVehicle {
    }
 
    public Vector2f getPositionForZombie(IsoZombie var1, Vector2f var2) {
-      if ((!var1.isOnFloor() || var1.isCanWalk()) && (int)var1.getZ() == (int)this.m_vehicle.getZ()) {
-         float var3 = IsoUtils.DistanceToSquared(var1.x, var1.y, this.m_vehicle.x, this.m_vehicle.y);
+      if ((!var1.isOnFloor() || var1.isCanWalk()) && PZMath.fastfloor(var1.getZ()) == PZMath.fastfloor(this.m_vehicle.getZ())) {
+         float var3 = IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), this.m_vehicle.getX(), this.m_vehicle.getY());
          if (var3 > 100.0F) {
-            return var2.set(this.m_vehicle.x, this.m_vehicle.y);
+            return var2.set(this.m_vehicle.getX(), this.m_vehicle.getY());
          } else {
             if (this.checkPosition()) {
                this.m_bMoved = true;
@@ -189,13 +192,13 @@ public final class SurroundVehicle {
                return null;
             } else {
                var6.zombie = var1;
-               var6.targetX = var1.getTarget().x;
-               var6.targetY = var1.getTarget().y;
+               var6.targetX = var1.getTarget().getX();
+               var6.targetY = var1.getTarget().getY();
                return var2.set(var6.posWorld.x, var6.posWorld.y);
             }
          }
       } else {
-         return var2.set(this.m_vehicle.x, this.m_vehicle.y);
+         return var2.set(this.m_vehicle.getX(), this.m_vehicle.getY());
       }
    }
 
@@ -208,7 +211,7 @@ public final class SurroundVehicle {
             this.x1 = -1.0F;
          }
 
-         PolygonalMap2.VehiclePoly var1 = this.m_vehicle.getPoly();
+         VehiclePoly var1 = this.m_vehicle.getPoly();
          if (this.x1 == var1.x1 && this.x2 == var1.x2 && this.x3 == var1.x3 && this.x4 == var1.x4 && this.y1 == var1.y1 && this.y2 == var1.y2 && this.y3 == var1.y3 && this.y4 == var1.y4) {
             return false;
          } else {
@@ -227,7 +230,7 @@ public final class SurroundVehicle {
    }
 
    private boolean movedSincePositionsWereCalculated() {
-      PolygonalMap2.VehiclePoly var1 = this.m_vehicle.getPoly();
+      VehiclePoly var1 = this.m_vehicle.getPoly();
       return this.x1p != var1.x1 || this.x2p != var1.x2 || this.x3p != var1.x3 || this.x4p != var1.x4 || this.y1p != var1.y1 || this.y2p != var1.y2 || this.y3p != var1.y3 || this.y4p != var1.y4;
    }
 
@@ -268,13 +271,13 @@ public final class SurroundVehicle {
             }
 
             if (var5.zombie != null) {
-               float var6 = IsoUtils.DistanceToSquared(var5.zombie.x, var5.zombie.y, this.m_vehicle.x, this.m_vehicle.y);
+               float var6 = IsoUtils.DistanceToSquared(var5.zombie.getX(), var5.zombie.getY(), this.m_vehicle.getX(), this.m_vehicle.getY());
                if (var6 > 100.0F) {
                   var5.zombie = null;
                } else {
                   IsoGameCharacter var7 = (IsoGameCharacter)Type.tryCastTo(var5.zombie.getTarget(), IsoGameCharacter.class);
                   if (!var5.zombie.isDead() && !VirtualZombieManager.instance.isReused(var5.zombie) && !var5.zombie.isOnFloor() && var7 != null && this.m_vehicle.getSeat(var7) != -1) {
-                     if (IsoUtils.DistanceToSquared(var5.targetX, var5.targetY, var7.x, var7.y) > 0.1F) {
+                     if (IsoUtils.DistanceToSquared(var5.targetX, var5.targetY, var7.getX(), var7.getY()) > 0.1F) {
                         var5.zombie = null;
                      }
                   } else {
@@ -342,9 +345,9 @@ public final class SurroundVehicle {
       }
 
       void checkBlocked(BaseVehicle var1) {
-         this.bBlocked = PolygonalMap2.instance.lineClearCollide(this.posWorld.x, this.posWorld.y, this.posAxis.x, this.posAxis.y, (int)var1.z, var1);
+         this.bBlocked = PolygonalMap2.instance.lineClearCollide(this.posWorld.x, this.posWorld.y, this.posAxis.x, this.posAxis.y, PZMath.fastfloor(var1.getZ()), var1);
          if (!this.bBlocked) {
-            this.bBlocked = !PolygonalMap2.instance.canStandAt(this.posWorld.x, this.posWorld.y, (int)var1.z, var1, false, false);
+            this.bBlocked = !PolygonalMap2.instance.canStandAt(this.posWorld.x, this.posWorld.y, PZMath.fastfloor(var1.getZ()), var1, false, false);
          }
 
       }

@@ -1,12 +1,17 @@
 package zombie.inventory;
 
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Iterator;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.skills.PerkFactory;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.debug.DebugLog;
 import zombie.inventory.types.DrainableComboItem;
 import zombie.inventory.types.HandWeapon;
+import zombie.inventory.types.WeaponPart;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Fixing;
 
@@ -16,7 +21,7 @@ public final class FixingManager {
 
    public static ArrayList<Fixing> getFixes(InventoryItem var0) {
       ArrayList var1 = new ArrayList();
-      List var2 = ScriptManager.instance.getAllFixing(new ArrayList());
+      ArrayList var2 = ScriptManager.instance.getAllFixing(new ArrayList());
 
       for(int var3 = 0; var3 < var2.size(); ++var3) {
          Fixing var4 = (Fixing)var2.get(var3);
@@ -30,18 +35,22 @@ public final class FixingManager {
 
    public static InventoryItem fixItem(InventoryItem var0, IsoGameCharacter var1, Fixing var2, Fixing.Fixer var3) {
       if ((double)Rand.Next(100) >= getChanceOfFail(var0, var1, var2, var3)) {
+         addXp(var1, var3);
          double var4 = getCondRepaired(var0, var1, var2, var3);
          int var6 = var0.getConditionMax() - var0.getCondition();
-         Double var7 = new Double((double)var6 * (var4 / 100.0));
-         int var8 = (int)Math.round(var7);
-         if (var8 == 0) {
-            var8 = 1;
+         double var7 = (double)var6 * (var4 / 100.0);
+         int var9 = (int)Math.round(var7);
+         if (var9 == 0) {
+            var9 = 1;
          }
 
-         var0.setCondition(var0.getCondition() + var8);
+         DebugLog.Action.debugln("Fix item \"%s\" id=%d condition=%d new-condition=%d missed=%d repaired=%f", var0.getDisplayName(), var0.getID(), var0.getCondition(), var9, var6, var4);
+         var0.setConditionNoSound(var0.getCondition() + var9);
          var0.setHaveBeenRepaired(var0.getHaveBeenRepaired() + 1);
-      } else if (var0.getCondition() > 0 && Rand.Next(5) == 0) {
+         var0.syncItemFields();
+      } else if (var0.getCondition() > 0) {
          var0.setCondition(var0.getCondition() - 1);
+         var0.syncItemFields();
          var1.getEmitter().playSound("FixingItemFailed");
       }
 
@@ -50,15 +59,21 @@ public final class FixingManager {
          useFixer(var1, var2.getGlobalItem(), var0);
       }
 
-      addXp(var1, var3);
       return var0;
    }
 
    private static void addXp(IsoGameCharacter var0, Fixing.Fixer var1) {
       if (var1.getFixerSkills() != null) {
-         for(int var2 = 0; var2 < var1.getFixerSkills().size(); ++var2) {
-            Fixing.FixerSkill var3 = (Fixing.FixerSkill)var1.getFixerSkills().get(var2);
-            var0.getXp().AddXP(PerkFactory.Perks.FromString(var3.getSkillName()), (float)Rand.Next(3, 6));
+         boolean var2 = false;
+
+         for(int var3 = 0; var3 < var1.getFixerSkills().size(); ++var3) {
+            Fixing.FixerSkill var4 = (Fixing.FixerSkill)var1.getFixerSkills().get(var3);
+            int var5 = Rand.Next(3, 6);
+            if (GameServer.bServer) {
+               GameServer.addXp((IsoPlayer)var0, PerkFactory.Perks.FromString(var4.getSkillName()), (float)var5);
+            } else if (!GameClient.bClient) {
+               var0.getXp().AddXP(PerkFactory.Perks.FromString(var4.getSkillName()), (float)var5);
+            }
          }
 
       }
@@ -71,18 +86,18 @@ public final class FixingManager {
          if (var2 != var0.getInventory().getItems().get(var4)) {
             InventoryItem var5 = (InventoryItem)var0.getInventory().getItems().get(var4);
             if (var5 != null && var5.getType().equals(var1.getFixerName())) {
-               int var7;
                int var11;
+               int var13;
                if (var5 instanceof DrainableComboItem) {
                   if ("DuctTape".equals(var5.getType()) || "Scotchtape".equals(var5.getType())) {
                      var0.getEmitter().playSound("FixWithTape");
                   }
 
-                  int var10 = ((DrainableComboItem)var5).getDrainableUsesInt();
-                  var7 = Math.min(var10, var3);
+                  int var10 = ((DrainableComboItem)var5).getCurrentUses();
+                  var11 = Math.min(var10, var3);
 
-                  for(var11 = 0; var11 < var7; ++var11) {
-                     var5.Use();
+                  for(var13 = 0; var13 < var11; ++var13) {
+                     var5.UseAndSync();
                      --var3;
                      if (!var0.getInventory().getItems().contains(var5)) {
                         --var4;
@@ -100,52 +115,48 @@ public final class FixingManager {
                      }
 
                      HandWeapon var6 = (HandWeapon)var5;
-                     if (var6.getScope() != null) {
-                        var0.getInventory().AddItem((InventoryItem)var6.getScope());
+                     Iterator var7 = var6.getAllWeaponParts().iterator();
+
+                     while(var7.hasNext()) {
+                        WeaponPart var8 = (WeaponPart)var7.next();
+                        var0.getInventory().AddItem((InventoryItem)var8);
+                        if (GameServer.bServer) {
+                           GameServer.sendAddItemToContainer(var0.getInventory(), var8);
+                        }
                      }
 
-                     if (var6.getClip() != null) {
-                        var0.getInventory().AddItem((InventoryItem)var6.getClip());
-                     }
-
-                     if (var6.getSling() != null) {
-                        var0.getInventory().AddItem((InventoryItem)var6.getSling());
-                     }
-
-                     if (var6.getStock() != null) {
-                        var0.getInventory().AddItem((InventoryItem)var6.getStock());
-                     }
-
-                     if (var6.getCanon() != null) {
-                        var0.getInventory().AddItem((InventoryItem)var6.getCanon());
-                     }
-
-                     if (var6.getRecoilpad() != null) {
-                        var0.getInventory().AddItem((InventoryItem)var6.getRecoilpad());
-                     }
-
-                     var7 = 0;
+                     var11 = 0;
                      if (var6.getMagazineType() != null && var6.isContainsClip()) {
-                        InventoryItem var8 = InventoryItemFactory.CreateItem(var6.getMagazineType());
-                        var8.setCurrentAmmoCount(var6.getCurrentAmmoCount());
-                        var0.getInventory().AddItem(var8);
+                        InventoryItem var12 = InventoryItemFactory.CreateItem(var6.getMagazineType());
+                        var12.setCurrentAmmoCount(var6.getCurrentAmmoCount());
+                        var0.getInventory().AddItem(var12);
+                        if (GameServer.bServer) {
+                           GameServer.sendAddItemToContainer(var0.getInventory(), var12);
+                        }
                      } else if (var6.getCurrentAmmoCount() > 0) {
-                        var7 += var6.getCurrentAmmoCount();
+                        var11 += var6.getCurrentAmmoCount();
                      }
 
                      if (var6.haveChamber() && var6.isRoundChambered()) {
-                        ++var7;
+                        ++var11;
                      }
 
-                     if (var7 > 0) {
-                        for(var11 = 0; var11 < var7; ++var11) {
+                     if (var11 > 0) {
+                        for(var13 = 0; var13 < var11; ++var13) {
                            InventoryItem var9 = InventoryItemFactory.CreateItem(var6.getAmmoType());
                            var0.getInventory().AddItem(var9);
+                           if (GameServer.bServer) {
+                              GameServer.sendAddItemToContainer(var0.getInventory(), var9);
+                           }
                         }
                      }
                   }
 
                   var0.getInventory().Remove(var5);
+                  if (GameServer.bServer) {
+                     GameServer.sendRemoveItemFromContainer(var0.getInventory(), var5);
+                  }
+
                   --var4;
                   --var3;
                }
@@ -171,7 +182,7 @@ public final class FixingManager {
          }
       }
 
-      var4 += (double)(var0.getHaveBeenRepaired() * 2);
+      var4 += (double)((var0.getHaveBeenRepaired() + 1) * 2);
       if (var1.Traits.Lucky.isSet()) {
          var4 -= 5.0;
       }
@@ -195,13 +206,13 @@ public final class FixingManager {
       double var4 = 0.0;
       switch (var2.getFixers().indexOf(var3)) {
          case 0:
-            var4 = 50.0 * (1.0 / (double)var0.getHaveBeenRepaired());
+            var4 = 50.0 * (1.0 / (double)(var0.getHaveBeenRepaired() + 1));
             break;
          case 1:
-            var4 = 20.0 * (1.0 / (double)var0.getHaveBeenRepaired());
+            var4 = 20.0 * (1.0 / (double)(var0.getHaveBeenRepaired() + 1));
             break;
          default:
-            var4 = 10.0 * (1.0 / (double)var0.getHaveBeenRepaired());
+            var4 = 10.0 * (1.0 / (double)(var0.getHaveBeenRepaired() + 1));
       }
 
       if (var3.getFixerSkills() != null) {

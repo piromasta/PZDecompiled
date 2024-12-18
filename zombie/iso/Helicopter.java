@@ -3,6 +3,7 @@ package zombie.iso;
 import fmod.javafmod;
 import fmod.fmod.FMODManager;
 import fmod.fmod.FMOD_STUDIO_EVENT_DESCRIPTION;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import zombie.GameSounds;
 import zombie.GameTime;
@@ -13,9 +14,11 @@ import zombie.audio.GameSoundClip;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.zones.Zone;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
@@ -73,10 +76,10 @@ public class Helicopter {
 
    public void setTarget(IsoGameCharacter var1) {
       this.target = var1;
-      this.x = this.target.x + 1000.0F;
-      this.y = this.target.y + 1000.0F;
-      this.targetX = this.target.x;
-      this.targetY = this.target.y;
+      this.x = this.target.getX() + 1000.0F;
+      this.y = this.target.getY() + 1000.0F;
+      this.targetX = this.target.getX();
+      this.targetY = this.target.getY();
       this.move.x = this.targetX - this.x;
       this.move.y = this.targetY - this.y;
       this.move.normalize();
@@ -95,6 +98,7 @@ public class Helicopter {
       if (this.bActive) {
          if (GameClient.bClient) {
             this.updateSound();
+            this.checkMusicIntensityEvent();
          } else {
             float var1 = 1.0F;
             if (GameServer.bServer) {
@@ -114,8 +118,8 @@ public class Helicopter {
                         this.searchTime = 0.0F;
                         this.timeSinceChopperSawPlayer = 0.0F;
                      } else {
-                        this.targetX = this.target.x;
-                        this.targetY = this.target.y;
+                        this.targetX = this.target.getX();
+                        this.targetY = this.target.getY();
                         this.move.x = this.targetX - this.x;
                         this.move.y = this.targetY - this.y;
                         this.move.normalize();
@@ -140,8 +144,8 @@ public class Helicopter {
                         }
 
                         if (IsoUtils.DistanceToSquared(this.x, this.y, this.targetX, this.targetY) < 1.0F) {
-                           this.targetX = this.target.x + (float)(Rand.Next(RADIUS_HOVER * 2) - RADIUS_HOVER);
-                           this.targetY = this.target.y + (float)(Rand.Next(RADIUS_HOVER * 2) - RADIUS_HOVER);
+                           this.targetX = this.target.getX() + (float)(Rand.Next(RADIUS_HOVER * 2) - RADIUS_HOVER);
+                           this.targetY = this.target.getY() + (float)(Rand.Next(RADIUS_HOVER * 2) - RADIUS_HOVER);
                            this.move.x = this.targetX - this.x;
                            this.move.y = this.targetY - this.y;
                            this.move.normalize();
@@ -161,8 +165,8 @@ public class Helicopter {
                         this.timeSinceChopperSawPlayer = 0.0F;
                         this.changeState(Helicopter.State.Hovering);
                      } else if (IsoUtils.DistanceToSquared(this.x, this.y, this.targetX, this.targetY) < 1.0F) {
-                        this.targetX = this.target.x + (float)(Rand.Next(RADIUS_SEARCH * 2) - RADIUS_SEARCH);
-                        this.targetY = this.target.y + (float)(Rand.Next(RADIUS_SEARCH * 2) - RADIUS_SEARCH);
+                        this.targetX = this.target.getX() + (float)(Rand.Next(RADIUS_SEARCH * 2) - RADIUS_SEARCH);
+                        this.targetY = this.target.getY() + (float)(Rand.Next(RADIUS_SEARCH * 2) - RADIUS_SEARCH);
                         this.move.x = this.targetX - this.x;
                         this.move.y = this.targetY - this.y;
                         this.move.normalize();
@@ -201,11 +205,11 @@ public class Helicopter {
             }
 
             if (Rand.Next(Rand.AdjustForFramerate(300)) == 0) {
-               WorldSoundManager.instance.addSound((Object)null, (int)this.x, (int)this.y, 0, 500, 500);
+               WorldSoundManager.instance.addSound((Object)null, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), 0, 500, 500);
             }
 
-            float var6 = this.move.x * (GameTime.getInstance().getMultiplier() / 1.6F);
-            float var8 = this.move.y * (GameTime.getInstance().getMultiplier() / 1.6F);
+            float var6 = this.move.x * GameTime.getInstance().getThirtyFPSMultiplier();
+            float var8 = this.move.y * GameTime.getInstance().getThirtyFPSMultiplier();
             if (this.state != Helicopter.State.Leaving && IsoUtils.DistanceToSquared(this.x + var6, this.y + var8, this.targetX, this.targetY) > IsoUtils.DistanceToSquared(this.x, this.y, this.targetX, this.targetY)) {
                this.x = this.targetX;
                this.y = this.targetY;
@@ -219,6 +223,7 @@ public class Helicopter {
             }
 
             this.updateSound();
+            this.checkMusicIntensityEvent();
          }
       }
    }
@@ -240,6 +245,7 @@ public class Helicopter {
 
                   if (inst != 0L) {
                      float var5 = SoundManager.instance.getSoundVolume();
+                     var5 = 1.0F;
                      var5 *= var1.getUserVolume();
                      if (var5 != this.volume) {
                         javafmod.FMOD_Studio_EventInstance_SetVolume(inst, var5);
@@ -280,7 +286,7 @@ public class Helicopter {
          } else if (!var1.getProperties().Is(IsoFlagType.exterior)) {
             return false;
          } else {
-            IsoMetaGrid.Zone var2 = var1.getZone();
+            Zone var2 = var1.getZone();
             if (var2 == null) {
                return true;
             } else {
@@ -322,6 +328,53 @@ public class Helicopter {
          }
 
          this.bActive = var3;
+      }
+   }
+
+   public void save(ByteBuffer var1) {
+      var1.put((byte)(this.bActive ? 1 : 0));
+      var1.putInt(this.state == null ? 0 : this.state.ordinal());
+      var1.putFloat(this.x);
+      var1.putFloat(this.y);
+   }
+
+   public void load(ByteBuffer var1, int var2) {
+      this.bActive = var1.get() == 1;
+      this.state = Helicopter.State.values()[var1.getInt()];
+      this.x = var1.getFloat();
+      this.y = var1.getFloat();
+      DebugLog.General.debugln("Re-Initializing Chopper %s", this.bActive);
+      if (this.bActive && !GameServer.bServer && !GameClient.bClient) {
+         this.target = IsoPlayer.players[0];
+         if (this.target == null) {
+            this.bActive = false;
+         } else {
+            this.targetX = this.target.getX();
+            this.targetY = this.target.getY();
+            DebugLog.General.debugln("target at %.4f/%.4f", this.targetX, this.targetY);
+            this.move.x = this.targetX - this.x;
+            this.move.y = this.targetY - this.y;
+            this.move.normalize();
+            this.move.setLength(0.5F);
+         }
+      }
+   }
+
+   private void checkMusicIntensityEvent() {
+      if (!GameServer.bServer) {
+         if (this.bActive) {
+            for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
+               IsoPlayer var2 = IsoPlayer.players[var1];
+               if (var2 != null && !var2.isDeaf() && !var2.isDead()) {
+                  float var3 = IsoUtils.DistanceToSquared(this.x, this.y, var2.getX(), var2.getY());
+                  if (!(var3 > 2500.0F)) {
+                     var2.triggerMusicIntensityEvent("HelicopterOverhead");
+                     break;
+                  }
+               }
+            }
+
+         }
       }
    }
 

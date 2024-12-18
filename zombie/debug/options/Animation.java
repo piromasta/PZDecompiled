@@ -3,42 +3,32 @@ package zombie.debug.options;
 import zombie.debug.BooleanDebugOption;
 
 public final class Animation extends OptionGroup {
-   public final BooleanDebugOption Debug;
-   public final BooleanDebugOption AllowEarlyTransitionOut;
-   public final AnimLayerOG AnimLayer;
-   public final SharedSkelesOG SharedSkeles;
-   public final BooleanDebugOption AnimRenderPicker;
-   public final BooleanDebugOption BlendUseFbx;
+   public final AnimLayerOG AnimLayer = (AnimLayerOG)this.newOptionGroup(new AnimLayerOG());
+   public final SharedSkelesOG SharedSkeles = (SharedSkelesOG)this.newOptionGroup(new SharedSkelesOG());
+   public final BooleanDebugOption DancingDoors = this.newDebugOnlyOption("DancingDoors", false);
+   public final BooleanDebugOption Debug = this.newDebugOnlyOption("Debug", false);
+   public final BooleanDebugOption AllowEarlyTransitionOut = this.newDebugOnlyOption("AllowEarlyTransitionOut", true);
+   public final BooleanDebugOption AnimRenderPicker = this.newDebugOnlyOption("Render.Picker", false);
+   public final BooleanDebugOption BlendUseFbx = this.newDebugOnlyOption("BlendUseFbx", false);
+   public final BooleanDebugOption DisableAnimationBlends = this.newDebugOnlyOption("DisableAnimationBlends", false);
 
    public Animation() {
-      super("Animation");
-      this.Debug = newDebugOnlyOption(this.Group, "Debug", false);
-      this.AllowEarlyTransitionOut = newDebugOnlyOption(this.Group, "AllowEarlyTransitionOut", true);
-      this.AnimLayer = new AnimLayerOG(this.Group);
-      this.SharedSkeles = new SharedSkelesOG(this.Group);
-      this.AnimRenderPicker = newDebugOnlyOption(this.Group, "Render.Picker", false);
-      this.BlendUseFbx = newDebugOnlyOption(this.Group, "BlendUseFbx", false);
    }
 
    public static final class AnimLayerOG extends OptionGroup {
-      public final BooleanDebugOption LogStateChanges;
-      public final BooleanDebugOption AllowAnimNodeOverride;
+      public final BooleanDebugOption LogStateChanges = this.newDebugOnlyOption("Debug.LogStateChanges", false);
+      public final BooleanDebugOption AllowAnimNodeOverride = this.newDebugOnlyOption("Debug.AllowAnimNodeOverride", false);
+      public final BooleanDebugOption LogNodeConditions = this.newDebugOnlyOption("Debug.LogNodeConditions", false);
 
-      AnimLayerOG(IDebugOptionGroup var1) {
-         super(var1, "AnimLayer");
-         this.LogStateChanges = newDebugOnlyOption(this.Group, "Debug.LogStateChanges", false);
-         this.AllowAnimNodeOverride = newDebugOnlyOption(this.Group, "Debug.AllowAnimNodeOverride", false);
+      public AnimLayerOG() {
       }
    }
 
    public static final class SharedSkelesOG extends OptionGroup {
-      public final BooleanDebugOption Enabled;
-      public final BooleanDebugOption AllowLerping;
+      public final BooleanDebugOption Enabled = this.newDebugOnlyOption("Enabled", true);
+      public final BooleanDebugOption AllowLerping = this.newDebugOnlyOption("AllowLerping", true);
 
-      SharedSkelesOG(IDebugOptionGroup var1) {
-         super(var1, "SharedSkeles");
-         this.Enabled = newDebugOnlyOption(this.Group, "Enabled", true);
-         this.AllowLerping = newDebugOnlyOption(this.Group, "AllowLerping", true);
+      public SharedSkelesOG() {
       }
    }
 }

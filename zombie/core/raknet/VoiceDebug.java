@@ -1,6 +1,5 @@
 package zombie.core.raknet;
 
-import fmod.FMODSoundBuffer;
 import fmod.SoundBuffer;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -141,7 +140,7 @@ public class VoiceDebug extends JPanel {
       frame.setVisible(true);
    }
 
-   public static void updateGui(SoundBuffer var0, FMODSoundBuffer var1) {
+   public static void updateGui(SoundBuffer var0, byte[] var1) {
       mainPanel.scores.clear();
       int var2;
       if (var0 != null) {
@@ -162,8 +161,8 @@ public class VoiceDebug extends JPanel {
       mainPanel3.scores.clear();
       mainPanel4.scores.clear();
 
-      for(var2 = 0; var2 < var1.buf().length / 2; var2 += 2) {
-         mainPanel4.scores.add(var1.buf()[var2 + 1] * 256 + var1.buf()[var2]);
+      for(var2 = 0; var2 < var1.length / 2; var2 += 2) {
+         mainPanel4.scores.add(var1[var2 + 1] * 256 + var1[var2]);
       }
 
       frame.repaint();

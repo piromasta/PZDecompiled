@@ -1,15 +1,17 @@
 package zombie.network;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 
 public class IsoObjectID<T> implements Iterable<T> {
    public static final short incorrect = -1;
    private final ConcurrentHashMap<Short, T> IDToObjectMap = new ConcurrentHashMap();
    private final String objectType;
    private short nextID = (short)Rand.Next(32766);
+   private final ArrayList<T> temp = new ArrayList();
 
    public IsoObjectID(Class<T> var1) {
       this.objectType = var1.getSimpleName();
@@ -57,5 +59,11 @@ public class IsoObjectID<T> implements Iterable<T> {
 
    public void getObjects(Collection<T> var1) {
       var1.addAll(this.IDToObjectMap.values());
+   }
+
+   public ArrayList<T> asList() {
+      this.temp.clear();
+      this.temp.addAll(this.IDToObjectMap.values());
+      return this.temp;
    }
 }

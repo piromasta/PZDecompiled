@@ -4,14 +4,21 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import org.joml.Vector2f;
+import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.ZombiesZoneDefinition;
 import zombie.characters.action.ActionGroup;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
+import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
+import zombie.inventory.ItemPickerJava;
 import zombie.inventory.types.HandWeapon;
+import zombie.inventory.types.InventoryContainer;
+import zombie.iso.BuildingDef;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -26,9 +33,10 @@ import zombie.iso.objects.IsoFireManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
+import zombie.pathfind.PolygonalMap2;
 import zombie.popman.NetworkZombieSimulator;
 import zombie.popman.ZombiePopulationManager;
-import zombie.vehicles.PolygonalMap2;
+import zombie.vehicles.BaseVehicle;
 
 public final class VirtualZombieManager {
    private final ArrayDeque<IsoZombie> ReusableZombies = new ArrayDeque();
@@ -51,6 +59,15 @@ public final class VirtualZombieManager {
    private int NO_SQUARE_E = 128;
 
    public VirtualZombieManager() {
+   }
+
+   public float getKeySpawnChanceD100() {
+      float var1 = (float)SandboxOptions.getInstance().KeyLootNew.getValue() * 50.0F;
+      if (var1 > 90.0F) {
+         var1 = 90.0F;
+      }
+
+      return var1;
    }
 
    public boolean removeZombieFromWorld(IsoZombie var1) {
@@ -112,6 +129,9 @@ public final class VirtualZombieManager {
             var2.getEmitter().stopSoundLocal(var2.vocalEvent);
             var2.vocalEvent = 0L;
          }
+
+         var2.getAdvancedAnimator().Reset();
+         var2.releaseAnimationPlayer();
       }
 
       this.bestchoices.clear();
@@ -190,6 +210,8 @@ public final class VirtualZombieManager {
          IsoGridSquare var5 = (IsoGridSquare)this.choices.get(Rand.Next(this.choices.size()));
          if (var5 == null) {
             return null;
+         } else if (var5.isWaterSquare()) {
+            return null;
          } else {
             if (this.w == null) {
                this.w = (HandWeapon)InventoryItemFactory.CreateItem("Base.Axe");
@@ -216,6 +238,7 @@ public final class VirtualZombieManager {
                var4.setOnDeathDone(false);
                var4.setOnKillDone(false);
                var4.setDoDeathSound(true);
+               var4.setKilledByFall(false);
                var4.setHitTime(0);
                var4.setFallOnFront(false);
                var4.setFakeDead(false);
@@ -253,7 +276,7 @@ public final class VirtualZombieManager {
                var4.setJawStabAttach(false);
                var4.setCrawler(false);
                var4.initializeStates();
-               var4.actionContext.setGroup(ActionGroup.getActionGroup("zombie"));
+               var4.getActionContext().setGroup(ActionGroup.getActionGroup("zombie"));
                var4.advancedAnimator.OnAnimDataChanged(false);
                var4.setDefaultState();
                var4.getAnimationPlayer().resetBoneModelTransforms();
@@ -288,15 +311,15 @@ public final class VirtualZombieManager {
                var4.setHealth(0.5F + Rand.Next(0.0F, 0.3F));
             }
 
-            float var11 = (float)Rand.Next(0, 1000);
+            float var12 = (float)Rand.Next(0, 1000);
             float var7 = (float)Rand.Next(0, 1000);
-            var11 /= 1000.0F;
+            var12 /= 1000.0F;
             var7 /= 1000.0F;
-            var11 += (float)var5.getX();
+            var12 += (float)var5.getX();
             var7 += (float)var5.getY();
             var4.setCurrent(var5);
             var4.setMovingSquareNow();
-            var4.setX(var11);
+            var4.setX(var12);
             var4.setY(var7);
             var4.setZ((float)var5.getZ());
             if ((GameClient.bClient || GameServer.bServer) && var4.networkAI != null) {
@@ -314,6 +337,7 @@ public final class VirtualZombieManager {
                new IsoDeadBody(var4, true);
                return var4;
             } else {
+               LuaEventManager.triggerEvent("OnZombieCreate", var4);
                synchronized(IsoWorld.instance.CurrentCell.getZombieList()) {
                   var4.getEmitter().register();
                   IsoWorld.instance.CurrentCell.getZombieList().add(var4);
@@ -331,6 +355,11 @@ public final class VirtualZombieManager {
                      }
 
                      ServerMap.instance.ZombieMap.put(var4.OnlineID, var4);
+                  }
+
+                  int var9 = Rand.Next(100);
+                  if ((float)var9 < this.getKeySpawnChanceD100()) {
+                     this.checkAndSpawnZombieForBuildingKey(var4);
                   }
 
                   return var4;
@@ -354,8 +383,8 @@ public final class VirtualZombieManager {
    public void createEatingZombies(IsoDeadBody var1, int var2) {
       if (!IsoWorld.getZombiesDisabled()) {
          for(int var3 = 0; var3 < var2; ++var3) {
-            float var4 = var1.x;
-            float var5 = var1.y;
+            float var4 = var1.getX();
+            float var5 = var1.getY();
             switch (var3) {
                case 0:
                   var4 -= 0.5F;
@@ -370,7 +399,7 @@ public final class VirtualZombieManager {
                   var5 += 0.5F;
             }
 
-            IsoGridSquare var6 = this.pickEatingZombieSquare(var1.x, var1.y, var4, var5, (int)var1.z);
+            IsoGridSquare var6 = this.pickEatingZombieSquare(var1.getX(), var1.getY(), var4, var5, PZMath.fastfloor(var1.getZ()));
             if (var6 != null) {
                this.choices.clear();
                this.choices.add(var6);
@@ -380,8 +409,8 @@ public final class VirtualZombieManager {
                   var7.bDressInRandomOutfit = true;
                   var7.setX(var4);
                   var7.setY(var5);
-                  var7.setZ(var1.z);
-                  var7.faceLocationF(var1.x, var1.y);
+                  var7.setZ(var1.getZ());
+                  var7.faceLocationF(var1.getX(), var1.getY());
                   var7.setEatBodyTarget(var1, true);
                }
             }
@@ -427,6 +456,32 @@ public final class VirtualZombieManager {
          }
       }
 
+   }
+
+   public boolean shouldSpawnZombiesOnLevel(int var1) {
+      if (GameServer.bServer) {
+         ArrayList var5 = GameServer.getPlayers();
+
+         for(int var6 = 0; var6 < var5.size(); ++var6) {
+            IsoPlayer var4 = (IsoPlayer)var5.get(var6);
+            if (PZMath.abs((float)(var1 - PZMath.fastfloor(var4.getZ()))) <= 1.0F) {
+               return true;
+            }
+         }
+
+         return false;
+      } else if (GameClient.bClient) {
+         return false;
+      } else {
+         for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
+            IsoPlayer var3 = IsoPlayer.players[var2];
+            if (var3 != null && PZMath.abs((float)(var1 - PZMath.fastfloor(var3.getZ()))) <= 1.0F) {
+               return true;
+            }
+         }
+
+         return false;
+      }
    }
 
    public ArrayList<IsoZombie> addZombiesToMap(int var1, RoomDef var2) {
@@ -488,8 +543,8 @@ public final class VirtualZombieManager {
                      var14.bDressInRandomOutfit = true;
                   }
 
-                  var14.setX((float)((int)var14.getX()) + (float)Rand.Next(2, 8) / 10.0F);
-                  var14.setY((float)((int)var14.getY()) + (float)Rand.Next(2, 8) / 10.0F);
+                  var14.setX((float)PZMath.fastfloor(var14.getX()) + (float)Rand.Next(2, 8) / 10.0F);
+                  var14.setY((float)PZMath.fastfloor(var14.getY()) + (float)Rand.Next(2, 8) / 10.0F);
                   this.choices.remove(var14.getSquare());
                   this.choices.remove(var14.getSquare());
                   this.choices.remove(var14.getSquare());
@@ -545,8 +600,8 @@ public final class VirtualZombieManager {
             if (var11 != null && var11.getSquare() != null) {
                ZombieSpawnRecorder.instance.record(var11, "addIndoorZombies");
                var11.bIndoorZombie = true;
-               var11.setX((float)((int)var11.getX()) + (float)Rand.Next(2, 8) / 10.0F);
-               var11.setY((float)((int)var11.getY()) + (float)Rand.Next(2, 8) / 10.0F);
+               var11.setX((float)PZMath.fastfloor(var11.getX()) + (float)Rand.Next(2, 8) / 10.0F);
+               var11.setY((float)PZMath.fastfloor(var11.getY()) + (float)Rand.Next(2, 8) / 10.0F);
                this.choices.remove(var11.getSquare());
                this.choices.remove(var11.getSquare());
                this.choices.remove(var11.getSquare());
@@ -571,14 +626,14 @@ public final class VirtualZombieManager {
             int var8;
             for(var8 = 0; var8 < var2.rects.size(); ++var8) {
                RoomDef.RoomRect var9 = (RoomDef.RoomRect)var2.rects.get(var8);
-               int var10 = Math.max(var1.wx * 10, var9.x);
-               int var11 = Math.max(var1.wy * 10, var9.y);
-               int var12 = Math.min((var1.wx + 1) * 10, var9.x + var9.w);
-               int var13 = Math.min((var1.wy + 1) * 10, var9.y + var9.h);
+               int var10 = Math.max(var1.wx * 8, var9.x);
+               int var11 = Math.max(var1.wy * 8, var9.y);
+               int var12 = Math.min((var1.wx + 1) * 8, var9.x + var9.w);
+               int var13 = Math.min((var1.wy + 1) * 8, var9.y + var9.h);
 
                for(int var14 = var10; var14 < var12; ++var14) {
                   for(int var15 = var11; var15 < var13; ++var15) {
-                     IsoGridSquare var16 = var1.getGridSquare(var14 - var1.wx * 10, var15 - var1.wy * 10, var7);
+                     IsoGridSquare var16 = var1.getGridSquare(var14 - var1.wx * 8, var15 - var1.wy * 8, var7);
                      if (var16 != null && this.canSpawnAt(var14, var15, var7)) {
                         this.choices.add(var16);
                      }
@@ -597,8 +652,8 @@ public final class VirtualZombieManager {
                         var17.bDressInRandomOutfit = true;
                      }
 
-                     var17.setX((float)((int)var17.getX()) + (float)Rand.Next(2, 8) / 10.0F);
-                     var17.setY((float)((int)var17.getY()) + (float)Rand.Next(2, 8) / 10.0F);
+                     var17.setX((float)PZMath.fastfloor(var17.getX()) + (float)Rand.Next(2, 8) / 10.0F);
+                     var17.setY((float)PZMath.fastfloor(var17.getY()) + (float)Rand.Next(2, 8) / 10.0F);
                      this.choices.remove(var17.getSquare());
                      var4.add(var17);
                   }
@@ -694,7 +749,7 @@ public final class VirtualZombieManager {
    }
 
    public void createHordeFromTo(float var1, float var2, float var3, float var4, int var5) {
-      ZombiePopulationManager.instance.createHordeFromTo((int)var1, (int)var2, (int)var3, (int)var4, var5);
+      ZombiePopulationManager.instance.createHordeFromTo(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3), PZMath.fastfloor(var4), var5);
    }
 
    public IsoZombie createRealZombie(float var1, float var2, float var3) {
@@ -731,6 +786,8 @@ public final class VirtualZombieManager {
          return 0;
       } else if (Core.bLastStand) {
          return 0;
+      } else if (var1.def != null && var1.def.isEmptyOutside()) {
+         return 0;
       } else {
          int var2 = 7;
          if (SandboxOptions.instance.Zombies.getValue() == 1) {
@@ -744,7 +801,7 @@ public final class VirtualZombieManager {
          }
 
          float var3 = 0.0F;
-         IsoMetaChunk var4 = IsoWorld.instance.getMetaChunk(var1.def.x / 10, var1.def.y / 10);
+         IsoMetaChunk var4 = IsoWorld.instance.getMetaChunk(var1.def.x / 8, var1.def.y / 8);
          if (var4 != null) {
             var3 = var4.getLootZombieIntensity();
             if (var3 > 4.0F) {
@@ -772,7 +829,7 @@ public final class VirtualZombieManager {
                   var6 += 7;
                } else if (SandboxOptions.instance.Zombies.getValue() == 3) {
                   var6 += 5;
-               } else if (SandboxOptions.instance.Zombies.getValue() == 4) {
+               } else if (SandboxOptions.instance.Zombies.getValue() == 5) {
                   var6 -= 10;
                }
 
@@ -991,5 +1048,228 @@ public final class VirtualZombieManager {
 
    public int reusableZombiesSize() {
       return this.ReusableZombies.size();
+   }
+
+   public boolean checkZombieKeyForBuilding(String var1, IsoGridSquare var2) {
+      if (var1 == null) {
+         return false;
+      } else if (var2 == null) {
+         return false;
+      } else if (var2.getBuilding() == null) {
+         return false;
+      } else if (!var1.contains("Survivalist") && !var1.equals("Security")) {
+         if (!var1.equals("Young") && !var1.equals("Student")) {
+            if (!var1.contains("Generic") && !var1.contains("Dress")) {
+               if ((var1.contains("Army") || var1.contains("Ghillie")) && (var2.getBuilding().getRandomRoom("armyhanger") != null || var2.getBuilding().getRandomRoom("armystorage") != null)) {
+                  return true;
+               } else if (var1.contains("Police") && var2.getBuilding().getRandomRoom("policestorage") != null) {
+                  return true;
+               } else if (var1.contains("PrisonGuard") && var2.getBuilding().getRandomRoom("prisoncells") != null) {
+                  return true;
+               } else if ((var1.contains("AmbulanceDriver") || var1.contains("Doctor") || var1.contains("Nurse") || var1.contains("Pharmacist")) && var2.getBuilding().getRandomRoom("hospitalroom") != null) {
+                  return true;
+               } else if (!var1.contains("Fireman") && !var1.contains("Police") && !var1.contains("Ranger") && !var1.contains("AmbulanceDriver") && !var1.contains("Ghillie") && !var1.contains("PrisonGuard") && !var1.contains("Tourist")) {
+                  if (var1.contains("Army")) {
+                     return var2.getBuilding().getRandomRoom("bedroom") != null;
+                  } else if (var2.getBuilding().getRandomRoom("prisoncells") == null && var2.getBuilding().getRandomRoom("policestorage") == null) {
+                     if (var2.getBuilding().getRandomRoom("bedroom") != null && var2.getBuilding().getRandomRoom("livingroom") != null && var2.getBuilding().getRandomRoom("kitchen") != null) {
+                        return true;
+                     } else if (var2.getBuilding().getRandomRoom("storageunit") != null) {
+                        return true;
+                     } else if (var1.contains("Trader") && var2.getBuilding().getRandomRoom("bank") != null) {
+                        return true;
+                     } else if (!var1.contains("OfficeWorker") && !var1.contains("Trader") || var2.getBuilding().getRandomRoom("cardealershipoffice") == null && var2.getBuilding().getRandomRoom("office") == null) {
+                        if (var1.contains("Priest") && var2.getBuilding().getRandomRoom("church") != null) {
+                           return true;
+                        } else if (var1.contains("Teacher") && var2.getBuilding().getRandomRoom("classroom") != null) {
+                           return true;
+                        } else if ((var1.contains("ConstructionWorker") || var1.contains("Foreman") || var1.contains("Mechanic") || var1.contains("MetalWorker")) && var2.getBuilding().getRandomRoom("construction") != null) {
+                           return true;
+                        } else if ((var1.contains("Biker") || var1.contains("Punk") || var1.contains("Redneck") || var1.contains("Thug") || var1.contains("Veteran")) && (var2.getBuilding().getRandomRoom("druglab") != null || var2.getBuilding().getRandomRoom("drugshack") != null)) {
+                           return true;
+                        } else if (!var1.contains("Farmer") || var2.getBuilding().getRandomRoom("farmstorage") == null && var2.getBuilding().getRandomRoom("producestorage") == null) {
+                           if (var1.contains("Fireman") && var2.getBuilding().getRandomRoom("firestorage") != null) {
+                              return true;
+                           } else if (var1.contains("Fossoil") && var2.getBuilding().getRandomRoom("fossoil") != null) {
+                              return true;
+                           } else if ((var1.contains("Gas2Go") || var1.contains("ThunderGas")) && var2.getBuilding().getRandomRoom("gasstore") != null) {
+                              return true;
+                           } else if ((var1.contains("GigaMart") || var1.contains("Cook_Generic")) && var2.getBuilding().getRandomRoom("gigamart") != null) {
+                              return true;
+                           } else if (!var1.contains("McCoys") && !var1.contains("Foreman") || var2.getBuilding().getRandomRoom("loggingfactory") == null && var2.getBuilding().getRandomRoom("loggingwarehouse") == null) {
+                              if ((var1.contains("Mechanic") || var1.contains("MetalWorker")) && var2.getBuilding().getRandomRoom("mechanic") != null) {
+                                 return true;
+                              } else if ((var1.contains("Doctor") || var1.contains("Nurse")) && var2.getBuilding().getRandomRoom("medical") != null) {
+                                 return true;
+                              } else if (var1.contains("Doctor") && var2.getBuilding().getRandomRoom("morgue") != null) {
+                                 return true;
+                              } else if ((var1.contains("Generic") || var1.contains("Dress") || var1.contains("Golfer") || var1.contains("Classy") || var1.contains("Tourist")) && var2.getBuilding().getRandomRoom("motelroom") != null) {
+                                 return true;
+                              } else if ((var1.contains("Waiter_PileOCrepe") || var1.contains("Chef")) && var2.getBuilding().getRandomRoom("pileocrepe") != null) {
+                                 return true;
+                              } else if ((var1.contains("Waiter_PizzaWhirled") || var1.contains("Cook_Generic")) && var2.getBuilding().getRandomRoom("pizzawhirled") != null) {
+                                 return true;
+                              } else if (var1.contains("Pharmacist") && var2.getBuilding().getRandomRoom("pharmacy") != null) {
+                                 return true;
+                              } else if (var1.contains("Postal") && var2.getBuilding().getRandomRoom("post") != null) {
+                                 return true;
+                              } else if ((var1.contains("Waiter_Restaurant") || var1.contains("Cook_Generic")) && var2.getBuilding().getRandomRoom("chineserestaurant") != null && var2.getBuilding().getRandomRoom("italianrestaurant") != null && var2.getBuilding().getRandomRoom("restaurant") != null) {
+                                 return true;
+                              } else if (var1.contains("Spiffo") && var2.getBuilding().getRandomRoom("spiffoskitchen") != null) {
+                                 return true;
+                              } else if (var1.contains("WaiterStripper") && var2.getBuilding().getRandomRoom("stripclub") != null) {
+                                 return true;
+                              } else if (var1.contains("Cook_Generic") && (var2.getBuilding().getRandomRoom("bakerykitchen") != null || var2.getBuilding().getRandomRoom("burgerkitchen") != null || var2.getBuilding().getRandomRoom("cafekitchen") != null || var2.getBuilding().getRandomRoom("cafeteriakitchen") != null || var2.getBuilding().getRandomRoom("chinesekitchen") != null || var2.getBuilding().getRandomRoom("deepfry_kitchen") != null || var2.getBuilding().getRandomRoom("deepfry_kitchen") != null || var2.getBuilding().getRandomRoom("dinerkitchen") != null || var2.getBuilding().getRandomRoom("donut_kitchen") != null || var2.getBuilding().getRandomRoom("fishchipskitchen") != null || var2.getBuilding().getRandomRoom("gigamartkitchen") != null || var2.getBuilding().getRandomRoom("icecreamkitchen") != null || var2.getBuilding().getRandomRoom("italiankitchen") != null || var2.getBuilding().getRandomRoom("jayschicken_kitchen") != null || var2.getBuilding().getRandomRoom("restaurantkitchen") != null || var2.getBuilding().getRandomRoom("italiankitchen") != null || var2.getBuilding().getRandomRoom("jayschicken_kitchen") != null || var2.getBuilding().getRandomRoom("kitchen_crepe") != null || var2.getBuilding().getRandomRoom("mexicankitchen") != null || var2.getBuilding().getRandomRoom("pizzakitchen") != null || var2.getBuilding().getRandomRoom("restaurantkitchen") != null || var2.getBuilding().getRandomRoom("seafoodkitchen") != null || var2.getBuilding().getRandomRoom("sushikitchen") != null)) {
+                                 return true;
+                              } else {
+                                 return !var1.contains("ConstructionWorker") && !var1.contains("Foreman") && !var1.contains("Mechanic") && !var1.contains("MetalWorker") || var2.getBuilding().getRandomRoom("batfactory") == null && var2.getBuilding().getRandomRoom("batteryfactory") == null && var2.getBuilding().getRandomRoom("brewery") == null && var2.getBuilding().getRandomRoom("cabinetfactory") == null && var2.getBuilding().getRandomRoom("dogfoodfactory") == null && var2.getBuilding().getRandomRoom("factory") == null && var2.getBuilding().getRandomRoom("fryshipping") == null && var2.getBuilding().getRandomRoom("metalshop") == null && var2.getBuilding().getRandomRoom("radiofactory") == null && var2.getBuilding().getRandomRoom("warehouse") == null && var2.getBuilding().getRandomRoom("warehouse") == null ? true : true;
+                              }
+                           } else {
+                              return true;
+                           }
+                        } else {
+                           return true;
+                        }
+                     } else {
+                        return true;
+                     }
+                  } else {
+                     return false;
+                  }
+               } else {
+                  return false;
+               }
+            } else {
+               return var2.getBuilding().getRandomRoom("bedroom") != null && var2.getBuilding().getRandomRoom("livingroom") != null && var2.getBuilding().getRandomRoom("kitchen") != null;
+            }
+         } else {
+            return var2.getBuilding().getRandomRoom("bedroom") != null && var2.getBuilding().getRandomRoom("livingroom") != null && var2.getBuilding().getRandomRoom("kitchen") != null;
+         }
+      } else {
+         return true;
+      }
+   }
+
+   public boolean spawnBuildingKeyOnZombie(IsoZombie var1) {
+      IsoGridSquare var2 = var1.getSquare();
+      return var2 != null && var2.getBuilding() != null && var2.getBuilding().getDef() != null ? this.spawnBuildingKeyOnZombie(var1, var2.getBuilding().getDef()) : false;
+   }
+
+   public boolean spawnBuildingKeyOnZombie(IsoZombie var1, BuildingDef var2) {
+      if ((float)Rand.Next(100) >= 1.0F * this.getKeySpawnChanceD100()) {
+         String var3 = "Base.Key1";
+         InventoryItem var4 = InventoryItemFactory.CreateItem(var3);
+         if (var4 != null) {
+            var4.setKeyId(var2.getKeyId());
+            ItemPickerJava.KeyNamer.nameKey(var4, var2.getFreeSquareInRoom());
+            var1.addItemToSpawnAtDeath(var4);
+            return true;
+         }
+      } else {
+         InventoryItem var11 = InventoryItemFactory.CreateItem("Base.KeyRing");
+         if (var11 instanceof InventoryContainer) {
+            InventoryContainer var12 = (InventoryContainer)var11;
+            String var5 = "Base.Key1";
+            InventoryItem var6 = var12.getInventory().AddItem(var5);
+            if (var6 != null) {
+               ItemPickerJava.KeyNamer.nameKey(var6, var2.getFreeSquareInRoom());
+               var6.setKeyId(var2.getKeyId());
+               if ((float)Rand.Next(100) < 1.0F * this.getKeySpawnChanceD100()) {
+                  ArrayList var7 = IsoWorld.instance.CurrentCell.getVehicles();
+                  if (var7.size() > 0) {
+                     BaseVehicle var8 = var1.getNearVehicle();
+                     boolean var9 = var8 != null && !var8.isPreviouslyMoved() && !var8.getKeySpawned() && var8.checkZombieKeyForVehicle(var1, var8.getScriptName());
+                     if (!var9) {
+                        var8 = (BaseVehicle)var7.get(Rand.Next(var7.size()));
+                     }
+
+                     var9 = var8 != null && !var8.isPreviouslyMoved() && !var8.getKeySpawned() && var8.checkZombieKeyForVehicle(var1, var8.getScriptName());
+                     if (var9) {
+                        InventoryItem var10 = var8.createVehicleKey();
+                        var8.keySpawned = 1;
+                        var8.setPreviouslyMoved(true);
+                        var8.keyNamerVehicle(var6);
+                        var12.getInventory().AddItem(var10);
+                     }
+                  }
+               }
+
+               var1.addItemToSpawnAtDeath(var11);
+               return true;
+            }
+         }
+      }
+
+      return false;
+   }
+
+   public boolean checkAndSpawnZombieForBuildingKey(IsoZombie var1) {
+      return this.checkAndSpawnZombieForBuildingKey(var1, false);
+   }
+
+   public boolean checkAndSpawnZombieForBuildingKey(IsoZombie var1, boolean var2) {
+      Boolean var3 = var1.shouldZombieHaveKey(var2);
+      if (!var3) {
+         return false;
+      } else {
+         IsoGridSquare var5 = null;
+         boolean var6 = false;
+         BuildingDef var4;
+         if (var1.getBuilding() != null && var1.getBuilding().getDef() != null && var1.getBuilding().getDef().getKeyId() != -1) {
+            var4 = var1.getBuilding().getDef();
+            var5 = var1.getSquare();
+         } else {
+            float var7 = var1.getX();
+            float var8 = var1.getY();
+            Vector2f var9 = new Vector2f();
+            var4 = AmbientStreamManager.getNearestBuilding(var7, var8, var9);
+            if (var4 != null && !var4.isAllExplored()) {
+               var6 = true;
+               var5 = var4.getFreeSquareInRoom();
+            }
+         }
+
+         if (var5 != null && this.checkZombieKeyForBuilding(var1.getOutfitName(), var5)) {
+            String var10 = null;
+            boolean var11 = true;
+            if (!var6 && var1.getSquare().getRoom() != null) {
+               var10 = var1.getSquare().getRoom().getName();
+            }
+
+            if (var10 != null) {
+               String var12 = var1.getOutfitName();
+               if (var10.equals("cells") || var10.equals("prisoncells") && !var12.contains("Police") && !var12.equals("PrisonGuard")) {
+                  var11 = false;
+               }
+            }
+
+            if (var11) {
+               return this.spawnBuildingKeyOnZombie(var1, var4);
+            }
+         }
+
+         return false;
+      }
+   }
+
+   private static float doKeySandboxSettings(int var0) {
+      switch (var0) {
+         case 1:
+            return 0.0F;
+         case 2:
+            return 0.05F;
+         case 3:
+            return 0.2F;
+         case 4:
+            return 0.6F;
+         case 5:
+            return 1.0F;
+         case 6:
+            return 2.0F;
+         case 7:
+            return 2.4F;
+         default:
+            return 0.6F;
+      }
    }
 }

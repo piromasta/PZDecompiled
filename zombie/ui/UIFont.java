@@ -21,7 +21,17 @@ public enum UIFont {
    Intro,
    Handwritten,
    DebugConsole,
-   Title;
+   Title,
+   SdfRegular,
+   SdfBold,
+   SdfItalic,
+   SdfBoldItalic,
+   SdfOldRegular,
+   SdfOldBold,
+   SdfOldItalic,
+   SdfOldBoldItalic,
+   SdfRobertoSans,
+   SdfCaveat;
 
    private UIFont() {
    }

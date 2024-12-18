@@ -1,7 +1,8 @@
 package zombie.characters;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.Translator;
+import zombie.core.random.Rand;
 import zombie.iso.IsoCell;
 
 public final class SurvivorFactory {
@@ -91,15 +92,15 @@ public final class SurvivorFactory {
    }
 
    public static void addSurname(String var0) {
-      Surnames.add(var0);
+      Surnames.add(Translator.getText("SurvivorSurname_" + var0));
    }
 
    public static void addFemaleForename(String var0) {
-      FemaleForenames.add(var0);
+      FemaleForenames.add(Translator.getText("SurvivorName_" + var0));
    }
 
    public static void addMaleForename(String var0) {
-      MaleForenames.add(var0);
+      MaleForenames.add(Translator.getText("SurvivorName_" + var0));
    }
 
    public static String getRandomSurname() {

@@ -3,6 +3,7 @@ package zombie.gameStates;
 import java.util.ArrayList;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.Lua.LuaManager;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.chat.ChatElement;
 import zombie.core.BoxedStaticValues;
@@ -23,7 +24,7 @@ import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.sprite.IsoSprite;
 import zombie.ui.TextDrawObject;
-import zombie.ui.UIElement;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIFont;
 import zombie.ui.UIManager;
 import zombie.vehicles.EditVehicleState;
@@ -32,8 +33,8 @@ public final class DebugGlobalObjectState extends GameState {
    public static DebugGlobalObjectState instance;
    private EditVehicleState.LuaEnvironment m_luaEnv;
    private boolean bExit = false;
-   private final ArrayList<UIElement> m_gameUI = new ArrayList();
-   private final ArrayList<UIElement> m_selfUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_gameUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_selfUI = new ArrayList();
    private boolean m_bSuspendUI;
    private KahluaTable m_table = null;
    private int m_playerIndex = 0;
@@ -56,7 +57,7 @@ public final class DebugGlobalObjectState extends GameState {
       this.saveGameUI();
       if (this.m_selfUI.size() == 0) {
          IsoPlayer var1 = IsoPlayer.players[this.m_playerIndex];
-         this.m_z = var1 == null ? 0 : (int)var1.z;
+         this.m_z = var1 == null ? 0 : PZMath.fastfloor(var1.getZ());
          this.m_luaEnv.caller.pcall(this.m_luaEnv.thread, this.m_luaEnv.env.rawget("DebugGlobalObjectState_InitUI"), this);
       } else {
          UIManager.UI.addAll(this.m_selfUI);
@@ -85,7 +86,7 @@ public final class DebugGlobalObjectState extends GameState {
 
    public void render() {
       IsoPlayer.setInstance(IsoPlayer.players[this.m_playerIndex]);
-      IsoCamera.CamCharacter = IsoPlayer.players[this.m_playerIndex];
+      IsoCamera.setCameraCharacter(IsoPlayer.players[this.m_playerIndex]);
       boolean var1 = true;
 
       int var2;
@@ -127,40 +128,41 @@ public final class DebugGlobalObjectState extends GameState {
 
    public void renderScene() {
       IsoCamera.frameState.set(this.m_playerIndex);
-      SpriteRenderer.instance.doCoreIntParam(0, IsoCamera.CamCharacter.x);
-      SpriteRenderer.instance.doCoreIntParam(1, IsoCamera.CamCharacter.y);
-      SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.CamCharacter.z);
+      IsoGameCharacter var1 = IsoCamera.getCameraCharacter();
+      SpriteRenderer.instance.doCoreIntParam(0, var1.getX());
+      SpriteRenderer.instance.doCoreIntParam(1, var1.getY());
+      SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.frameState.CamCharacterZ);
       IsoSprite.globalOffsetX = -1.0F;
       IsoWorld.instance.CurrentCell.render();
-      IsoChunkMap var1 = IsoWorld.instance.CurrentCell.ChunkMap[this.m_playerIndex];
-      int var2 = var1.getWorldXMin();
-      int var3 = var1.getWorldYMin();
-      int var4 = var2 + IsoChunkMap.ChunkGridWidth;
+      IsoChunkMap var2 = IsoWorld.instance.CurrentCell.ChunkMap[this.m_playerIndex];
+      int var3 = var2.getWorldXMin();
+      int var4 = var2.getWorldYMin();
       int var5 = var3 + IsoChunkMap.ChunkGridWidth;
-      int var6 = CGlobalObjects.getSystemCount();
+      int var6 = var4 + IsoChunkMap.ChunkGridWidth;
+      int var7 = CGlobalObjects.getSystemCount();
 
-      for(int var7 = 0; var7 < var6; ++var7) {
-         CGlobalObjectSystem var8 = CGlobalObjects.getSystemByIndex(var7);
+      for(int var8 = 0; var8 < var7; ++var8) {
+         CGlobalObjectSystem var9 = CGlobalObjects.getSystemByIndex(var8);
 
-         for(int var9 = var3; var9 < var5; ++var9) {
-            for(int var10 = var2; var10 < var4; ++var10) {
-               ArrayList var11 = var8.getObjectsInChunk(var10, var9);
+         for(int var10 = var4; var10 < var6; ++var10) {
+            for(int var11 = var3; var11 < var5; ++var11) {
+               ArrayList var12 = var9.getObjectsInChunk(var11, var10);
 
-               for(int var12 = 0; var12 < var11.size(); ++var12) {
-                  GlobalObject var13 = (GlobalObject)var11.get(var12);
-                  float var14 = 1.0F;
+               for(int var13 = 0; var13 < var12.size(); ++var13) {
+                  GlobalObject var14 = (GlobalObject)var12.get(var13);
                   float var15 = 1.0F;
                   float var16 = 1.0F;
-                  if (var13.getZ() != this.m_z) {
+                  float var17 = 1.0F;
+                  if (var14.getZ() != this.m_z) {
+                     var17 = 0.5F;
                      var16 = 0.5F;
                      var15 = 0.5F;
-                     var14 = 0.5F;
                   }
 
-                  this.DrawIsoRect((float)var13.getX(), (float)var13.getY(), (float)var13.getZ(), 1.0F, 1.0F, var14, var15, var16, 1.0F, 1);
+                  this.DrawIsoRect((float)var14.getX(), (float)var14.getY(), (float)var14.getZ(), 1.0F, 1.0F, var15, var16, var17, 1.0F, 1);
                }
 
-               var8.finishedWithList(var11);
+               var9.finishedWithList(var12);
             }
          }
       }
@@ -179,7 +181,7 @@ public final class DebugGlobalObjectState extends GameState {
 
    public GameStateMachine.StateAction updateScene() {
       IsoPlayer.setInstance(IsoPlayer.players[this.m_playerIndex]);
-      IsoCamera.CamCharacter = IsoPlayer.players[this.m_playerIndex];
+      IsoCamera.setCameraCharacter(IsoPlayer.players[this.m_playerIndex]);
       UIManager.setPicked(IsoObjectPicker.Instance.ContextPick(Mouse.getXA(), Mouse.getYA()));
       IsoObject var1 = UIManager.getPicked() == null ? null : UIManager.getPicked().tile;
       UIManager.setLastPicked(var1);
@@ -196,7 +198,7 @@ public final class DebugGlobalObjectState extends GameState {
       var3 -= (float)IsoCamera.getScreenTop(var1);
       var2 *= Core.getInstance().getZoom(var1);
       var3 *= Core.getInstance().getZoom(var1);
-      int var4 = this.m_z;
+      int var4 = PZMath.fastfloor((float)this.m_z);
       this.gridX = (int)IsoUtils.XToIso(var2, var3, (float)var4);
       this.gridY = (int)IsoUtils.YToIso(var2, var3, (float)var4);
    }

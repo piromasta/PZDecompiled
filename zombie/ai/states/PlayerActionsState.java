@@ -9,6 +9,7 @@ import zombie.inventory.InventoryItem;
 import zombie.inventory.types.HandWeapon;
 import zombie.network.GameClient;
 import zombie.util.StringUtils;
+import zombie.util.Type;
 
 public final class PlayerActionsState extends State {
    private static final PlayerActionsState _instance = new PlayerActionsState();
@@ -51,6 +52,7 @@ public final class PlayerActionsState extends State {
 
    public void exit(IsoGameCharacter var1) {
       var1.setHideWeaponModel(false);
+      var1.clearVariable("PlayerVoiceSound");
       if (GameClient.bClient && var1 instanceof IsoPlayer && var1.isLocal() && var1.getNetworkCharacterAI().getAction() != null) {
          GameClient.sendAction(var1.getNetworkCharacterAI().getAction(), false);
          var1.getNetworkCharacterAI().setAction((BaseAction)null);
@@ -59,11 +61,34 @@ public final class PlayerActionsState extends State {
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
-      if (GameClient.bClient && var2 != null && var1 instanceof IsoPlayer && var1.getNetworkCharacterAI().getAction() != null && !var1.isLocal() && "changeWeaponSprite".equalsIgnoreCase(var2.m_EventName) && !StringUtils.isNullOrEmpty(var2.m_ParameterValue)) {
-         if ("original".equals(var2.m_ParameterValue)) {
-            var1.getNetworkCharacterAI().setOverride(false, (String)null, (String)null);
-         } else {
-            var1.getNetworkCharacterAI().setOverride(true, var2.m_ParameterValue, (String)null);
+      var1.getStateMachineParams(this);
+      IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      if (var2.m_EventName.equalsIgnoreCase("PlayerVoiceSound")) {
+         if (var1.getVariableBoolean("PlayerVoiceSound")) {
+            return;
+         }
+
+         if (var4 == null) {
+            return;
+         }
+
+         var1.setVariable("PlayerVoiceSound", true);
+         var4.stopPlayerVoiceSound(var2.m_ParameterValue);
+         var4.playerVoiceSound(var2.m_ParameterValue);
+      }
+
+      if (GameClient.bClient && var2 != null && var1 instanceof IsoPlayer && var1.getNetworkCharacterAI().getAction() != null && !var1.isLocal()) {
+         if ("changeWeaponSprite".equalsIgnoreCase(var2.m_EventName) && !StringUtils.isNullOrEmpty(var2.m_ParameterValue)) {
+            if ("original".equals(var2.m_ParameterValue)) {
+               var1.getNetworkCharacterAI().setOverride(false, (String)null, (String)null);
+            } else {
+               var1.getNetworkCharacterAI().setOverride(true, var2.m_ParameterValue, (String)null);
+            }
+         }
+
+         if ("attachConnect".equalsIgnoreCase(var2.m_EventName)) {
+            var1.setPrimaryHandItem((InventoryItem)null);
+            var1.setSecondaryHandItem((InventoryItem)null);
          }
       }
 

@@ -2,7 +2,8 @@ package zombie.randomizedWorld.randomizedBuilding;
 
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.stash.StashSystem;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -17,9 +18,8 @@ public final class RBBurntFireman extends RandomizedBuildingBase {
       var1.setHasBeenVisited(true);
       IsoCell var3 = IsoWorld.instance.CurrentCell;
 
-      int var5;
       for(int var4 = var1.x - 1; var4 < var1.x2 + 1; ++var4) {
-         for(var5 = var1.y - 1; var5 < var1.y2 + 1; ++var5) {
+         for(int var5 = var1.y - 1; var5 < var1.y2 + 1; ++var5) {
             for(int var6 = 0; var6 < 8; ++var6) {
                IsoGridSquare var7 = var3.getGridSquare(var4, var5, var6);
                if (var7 != null && Rand.Next(100) < 70) {
@@ -30,25 +30,30 @@ public final class RBBurntFireman extends RandomizedBuildingBase {
       }
 
       var1.setAllExplored(true);
-      ArrayList var8 = this.addZombies(var1, var2, "FiremanFullSuit", 35, this.getLivingRoomOrKitchen(var1));
-
-      for(var5 = 0; var5 < var8.size(); ++var5) {
-         ((IsoZombie)var8.get(var5)).getInventory().setExplored(true);
-      }
-
-      BaseVehicle var9;
+      BaseVehicle var8;
       if (Rand.NextBool(2)) {
-         var9 = this.spawnCarOnNearestNav("Base.PickUpVanLightsFire", var1);
+         var8 = this.spawnCarOnNearestNav("Base.PickUpVanLightsFire", var1);
       } else {
-         var9 = this.spawnCarOnNearestNav("Base.PickUpTruckLightsFire", var1);
+         var8 = this.spawnCarOnNearestNav("Base.PickUpTruckLightsFire", var1);
       }
 
-      if (var9 != null) {
-         var9.setAlarmed(false);
+      if (var8 != null) {
+         var8.setAlarmed(false);
       }
 
-      if (var9 != null && !var8.isEmpty()) {
-         ((IsoZombie)var8.get(Rand.Next(var8.size()))).addItemToSpawnAtDeath(var9.createVehicleKey());
+      String var9 = "FiremanFullSuit";
+      if (var8 != null && var8.getZombieType() != null) {
+         var9 = var8.getFirstZombieType();
+      }
+
+      ArrayList var10 = this.addZombies(var1, var2, var9, 35, this.getLivingRoomOrKitchen(var1));
+
+      for(int var11 = 0; var11 < var10.size(); ++var11) {
+         ((IsoZombie)var10.get(var11)).getInventory().setExplored(true);
+      }
+
+      if (var8 != null && !var10.isEmpty()) {
+         ((IsoZombie)var10.get(Rand.Next(var10.size()))).addItemToSpawnAtDeath(var8.createVehicleKey());
       }
 
    }
@@ -58,8 +63,14 @@ public final class RBBurntFireman extends RandomizedBuildingBase {
          return false;
       } else if (var1.getRooms().size() > 20) {
          return false;
+      } else if (SpawnPoints.instance.isSpawnBuilding(var1)) {
+         this.debugLine = "Spawn houses are invalid";
+         return false;
+      } else if (StashSystem.isStashBuilding(var1)) {
+         this.debugLine = "Stash buildings are invalid";
+         return false;
       } else {
-         return !SpawnPoints.instance.isSpawnBuilding(var1);
+         return true;
       }
    }
 

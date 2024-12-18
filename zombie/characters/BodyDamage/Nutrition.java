@@ -19,25 +19,25 @@ public final class Nutrition {
    private float lipids = 0.0F;
    private float proteins = 0.0F;
    private float calories = 0.0F;
-   private float carbohydratesDecreraseFemale = 0.0032F;
-   private float carbohydratesDecreraseMale = 0.0035F;
-   private float lipidsDecreraseFemale = 7.0E-4F;
-   private float lipidsDecreraseMale = 0.00113F;
-   private float proteinsDecreraseFemale = 7.0E-4F;
-   private float proteinsDecreraseMale = 8.6E-4F;
-   private float caloriesDecreraseFemaleNormal = 0.016F;
-   private float caloriesDecreaseMaleNormal = 0.016F;
-   private float caloriesDecreraseFemaleExercise = 0.13F;
-   private float caloriesDecreaseMaleExercise = 0.13F;
-   private float caloriesDecreraseFemaleSleeping = 0.003F;
-   private float caloriesDecreaseMaleSleeping = 0.003F;
-   private int caloriesToGainWeightMale = 1100;
-   private int caloriesToGainWeightMaxMale = 4000;
-   private int caloriesToGainWeightFemale = 1000;
-   private int caloriesToGainWeightMaxFemale = 3000;
-   private int caloriesDecreaseMax = 2500;
-   private float weightGain = 1.3E-5F;
-   private float weightLoss = 8.5E-6F;
+   private final float carbohydratesDecreraseFemale = 0.0032F;
+   private final float carbohydratesDecreraseMale = 0.0035F;
+   private final float lipidsDecreraseFemale = 7.0E-4F;
+   private final float lipidsDecreraseMale = 0.00113F;
+   private final float proteinsDecreraseFemale = 7.0E-4F;
+   private final float proteinsDecreraseMale = 8.6E-4F;
+   private final float caloriesDecreraseFemaleNormal = 0.016F;
+   private final float caloriesDecreaseMaleNormal = 0.016F;
+   private final float caloriesDecreraseFemaleExercise = 0.13F;
+   private final float caloriesDecreaseMaleExercise = 0.13F;
+   private final float caloriesDecreraseFemaleSleeping = 0.003F;
+   private final float caloriesDecreaseMaleSleeping = 0.003F;
+   private final int caloriesToGainWeightMale = 1100;
+   private final int caloriesToGainWeightMaxMale = 4000;
+   private final int caloriesToGainWeightFemale = 1000;
+   private final int caloriesToGainWeightMaxFemale = 3000;
+   private final int caloriesDecreaseMax = 2500;
+   private final float weightGain = 1.3E-5F;
+   private final float weightLoss = 8.5E-6F;
    private double weight = 60.0;
    private int updatedWeight = 0;
    private boolean isFemale = false;
@@ -64,11 +64,13 @@ public final class Nutrition {
          if (SandboxOptions.instance.Nutrition.getValue()) {
             if (this.parent != null && !this.parent.isDead()) {
                if (!GameClient.bClient || this.parent.isLocalPlayer()) {
-                  this.setCarbohydrates(this.getCarbohydrates() - (this.isFemale ? this.carbohydratesDecreraseFemale : this.carbohydratesDecreraseMale) * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
-                  this.setLipids(this.getLipids() - (this.isFemale ? this.lipidsDecreraseFemale : this.lipidsDecreraseMale) * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
-                  this.setProteins(this.getProteins() - (this.isFemale ? this.proteinsDecreraseFemale : this.proteinsDecreraseMale) * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
-                  this.updateCalories();
-                  this.updateWeight();
+                  if (!this.parent.isGodMod()) {
+                     this.setCarbohydrates(this.getCarbohydrates() - (this.isFemale ? 0.0032F : 0.0035F) * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+                     this.setLipids(this.getLipids() - (this.isFemale ? 7.0E-4F : 0.00113F) * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+                     this.setProteins(this.getProteins() - (this.isFemale ? 7.0E-4F : 8.6E-4F) * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+                     this.updateCalories();
+                     this.updateWeight();
+                  }
                }
             }
          }
@@ -93,17 +95,17 @@ public final class Nutrition {
       float var3 = (float)(this.getWeight() / 80.0);
       if (this.parent.IsRunning() && this.parent.isPlayerMoving()) {
          var1 = 1.0F;
-         this.setCalories(this.getCalories() - (this.isFemale ? this.caloriesDecreraseFemaleExercise : this.caloriesDecreaseMaleExercise) * var1 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+         this.setCalories(this.getCalories() - (this.isFemale ? 0.13F : 0.13F) * var1 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
       } else if (this.parent.isSprinting() && this.parent.isPlayerMoving()) {
          var1 = 1.3F;
-         this.setCalories(this.getCalories() - (this.isFemale ? this.caloriesDecreraseFemaleExercise : this.caloriesDecreaseMaleExercise) * var1 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+         this.setCalories(this.getCalories() - (this.isFemale ? 0.13F : 0.13F) * var1 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
       } else if (this.parent.isPlayerMoving()) {
          var1 = 0.6F;
-         this.setCalories(this.getCalories() - (this.isFemale ? this.caloriesDecreraseFemaleExercise : this.caloriesDecreaseMaleExercise) * var1 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+         this.setCalories(this.getCalories() - (this.isFemale ? 0.13F : 0.13F) * var1 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
       } else if (this.parent.isAsleep()) {
-         this.setCalories(this.getCalories() - (this.isFemale ? this.caloriesDecreraseFemaleSleeping : this.caloriesDecreaseMaleSleeping) * var1 * var2 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+         this.setCalories(this.getCalories() - (this.isFemale ? 0.003F : 0.003F) * var1 * var2 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
       } else {
-         this.setCalories(this.getCalories() - (this.isFemale ? this.caloriesDecreraseFemaleNormal : this.caloriesDecreaseMaleNormal) * var1 * var2 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
+         this.setCalories(this.getCalories() - (this.isFemale ? 0.016F : 0.016F) * var1 * var2 * var3 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate());
       }
 
       if (this.getCalories() > this.caloriesMax) {
@@ -120,16 +122,24 @@ public final class Nutrition {
       this.setIncWeight(false);
       this.setIncWeightLot(false);
       this.setDecWeight(false);
-      float var1 = (float)this.caloriesToGainWeightMale;
-      float var2 = (float)this.caloriesToGainWeightMaxMale;
+      float var1 = 1100.0F;
+      float var2 = 4000.0F;
       float var3 = 0.0F;
       if (this.isFemale) {
-         var1 = (float)this.caloriesToGainWeightFemale;
-         var2 = (float)this.caloriesToGainWeightMaxFemale;
+         var1 = 1000.0F;
+         var2 = 3000.0F;
+      }
+
+      if (this.getWeight() < 90.0 && this.parent.Traits.WeightGain.isSet()) {
+         var1 = 1280.0F;
+      }
+
+      if (this.getWeight() > 70.0 && this.parent.Traits.WeightLoss.isSet()) {
+         var1 = 1920.0001F;
       }
 
       float var4 = (float)((this.getWeight() - 80.0) * 40.0);
-      var1 = 1600.0F + var4;
+      var1 += var4;
       var3 = (float)((this.getWeight() - 70.0) * 30.0);
       if (var3 > 0.0F) {
          var3 = 0.0F;
@@ -143,7 +153,7 @@ public final class Nutrition {
             var5 = 1.0F;
          }
 
-         float var6 = this.weightGain;
+         float var6 = 1.3E-5F;
          if (!(this.getCarbohydrates() > 700.0F) && !(this.getLipids() > 700.0F)) {
             if (this.getCarbohydrates() > 400.0F || this.getLipids() > 400.0F) {
                var6 *= 2.0F;
@@ -157,12 +167,12 @@ public final class Nutrition {
          this.setWeight(this.getWeight() + (double)(var6 * var5 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate()));
       } else if (this.getCalories() < var3) {
          this.setDecWeight(true);
-         var5 = Math.abs(this.getCalories()) / (float)this.caloriesDecreaseMax;
+         var5 = Math.abs(this.getCalories()) / 2500.0F;
          if (var5 > 1.0F) {
             var5 = 1.0F;
          }
 
-         this.setWeight(this.getWeight() - (double)(this.weightLoss * var5 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate()));
+         this.setWeight(this.getWeight() - (double)(8.5E-6F * var5 * GameTime.getInstance().getGameWorldSecondsSinceLastUpdate()));
       }
 
       ++this.updatedWeight;

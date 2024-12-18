@@ -1,5 +1,6 @@
 package zombie.iso;
 
+import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import zombie.GameWindow;
 import zombie.characters.IsoGameCharacter;
@@ -7,11 +8,13 @@ import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
 import zombie.core.math.PZMath;
+import zombie.debug.DebugOptions;
 import zombie.input.GameKeyboard;
 import zombie.input.JoypadManager;
 import zombie.input.Mouse;
 import zombie.iso.sprite.IsoSprite;
 import zombie.network.GameServer;
+import zombie.ui.SpeedControls;
 import zombie.ui.UIManager;
 import zombie.vehicles.BaseVehicle;
 
@@ -19,8 +22,8 @@ public final class PlayerCamera {
    public final int playerIndex;
    public float OffX;
    public float OffY;
-   public float TOffX;
-   public float TOffY;
+   private float TOffX;
+   private float TOffY;
    public float lastOffX;
    public float lastOffY;
    public float RightClickTargetX;
@@ -34,10 +37,20 @@ public final class PlayerCamera {
    public float zoom;
    public int OffscreenWidth;
    public int OffscreenHeight;
+   public final Matrix4f PROJECTION = new Matrix4f();
+   public final Matrix4f MODELVIEW = new Matrix4f();
    private static final Vector2 offVec = new Vector2();
    private static float PAN_SPEED = 1.0F;
    private long panTime = -1L;
    private final Vector3f m_lastVehicleForwardDirection = new Vector3f();
+   public int Width;
+   public int Height;
+   public float fixJigglyModelsX;
+   public float fixJigglyModelsY;
+   public float fixJigglyModelsSquareX;
+   public float fixJigglyModelsSquareY;
+   private static final int[] s_viewport = new int[]{0, 0, 0, 0};
+   private static final Vector3f s_tempVector3f_1 = new Vector3f();
 
    public PlayerCamera(int var1) {
       this.playerIndex = var1;
@@ -46,12 +59,13 @@ public final class PlayerCamera {
    public void center() {
       float var1 = this.OffX;
       float var2 = this.OffY;
-      if (IsoCamera.CamCharacter != null) {
-         IsoGameCharacter var3 = IsoCamera.CamCharacter;
-         var1 = IsoUtils.XToScreen(var3.x + this.DeferedX, var3.y + this.DeferedY, var3.z, 0);
-         var2 = IsoUtils.YToScreen(var3.x + this.DeferedX, var3.y + this.DeferedY, var3.z, 0);
-         var1 -= (float)(IsoCamera.getOffscreenWidth(this.playerIndex) / 2);
-         var2 -= (float)(IsoCamera.getOffscreenHeight(this.playerIndex) / 2);
+      IsoGameCharacter var3 = IsoCamera.getCameraCharacter();
+      if (var3 != null) {
+         float var4 = IsoCamera.frameState.calculateCameraZ(var3);
+         var1 = IsoUtils.XToScreen(var3.getX() + this.DeferedX, var3.getY() + this.DeferedY, var4, 0);
+         var2 = IsoUtils.YToScreen(var3.getX() + this.DeferedX, var3.getY() + this.DeferedY, var4, 0);
+         var1 -= (float)IsoCamera.getOffscreenWidth(this.playerIndex) / 2.0F;
+         var2 -= (float)IsoCamera.getOffscreenHeight(this.playerIndex) / 2.0F;
          var2 -= var3.getOffsetY() * 1.5F;
          var1 += (float)IsoCamera.PLAYER_OFFSET_X;
          var2 += (float)IsoCamera.PLAYER_OFFSET_Y;
@@ -103,8 +117,8 @@ public final class PlayerCamera {
             this.m_lastVehicleForwardDirection.set(var27);
          }
 
-         this.RightClickTargetX = (float)((int)IsoUtils.XToScreen(var27.x * var25, var27.z * var25, var6.z, 0));
-         this.RightClickTargetY = (float)((int)IsoUtils.YToScreen(var27.x * var25, var27.z * var25, var6.z, 0));
+         this.RightClickTargetX = (float)((int)IsoUtils.XToScreen(var27.x * var25, var27.z * var25, var6.getZ(), 0));
+         this.RightClickTargetY = (float)((int)IsoUtils.YToScreen(var27.x * var25, var27.z * var25, var6.getZ(), 0));
          ((BaseVehicle.Vector3fObjectPool)BaseVehicle.TL_vector3f_pool.get()).release(var27);
          byte var31 = 0;
          byte var33 = 0;
@@ -120,8 +134,8 @@ public final class PlayerCamera {
             this.returnToCenter(1.0F / (16.0F * var5 / var20));
          } else {
             var5 /= 0.5F * var23;
-            var20 = IsoUtils.XToScreenExact(var6.x, var6.y, var6.z, 0);
-            float var21 = IsoUtils.YToScreenExact(var6.x, var6.y, var6.z, 0);
+            var20 = IsoUtils.XToScreenExact(var6.getX(), var6.getY(), var6.getZ(), 0);
+            float var21 = IsoUtils.YToScreenExact(var6.getX(), var6.getY(), var6.getZ(), 0);
             if (var20 < var19 / 2.0F || var20 > (float)var15 - var19 / 2.0F || var21 < var19 / 2.0F || var21 > (float)var34 - var19 / 2.0F) {
                var5 /= 4.0F;
             }
@@ -146,7 +160,7 @@ public final class PlayerCamera {
          }
       } else {
          int var12;
-         if (this.playerIndex == 0 && var6 != null && !var6.isBlockMovement() && GameKeyboard.isKeyDown(Core.getInstance().getKey("PanCamera"))) {
+         if (this.playerIndex == 0 && var6 != null && !var6.isBlockMovement() && GameKeyboard.isKeyDown("PanCamera")) {
             int var22 = IsoCamera.getScreenWidth(this.playerIndex);
             int var24 = IsoCamera.getScreenHeight(this.playerIndex);
             int var26 = IsoCamera.getScreenLeft(this.playerIndex);
@@ -176,7 +190,7 @@ public final class PlayerCamera {
             this.RightClickY = (float)((int)this.RightClickY_f);
             var6.dirtyRecalcGridStackTime = 2.0F;
             IsoSprite.globalOffsetX = -1.0F;
-         } else if (this.playerIndex == 0 && Core.getInstance().getOptionPanCameraWhileAiming()) {
+         } else if (this.playerIndex == 0 && Core.getInstance().getOptionPanCameraWhileAiming() && SpeedControls.instance.getCurrentGameSpeed() > 0) {
             boolean var9 = !GameServer.bServer;
             boolean var10 = !UIManager.isMouseOverInventory() && var6 != null && var6.isAiming();
             boolean var11 = !var7 && var6 != null && !var6.isDead();
@@ -327,6 +341,14 @@ public final class PlayerCamera {
       this.zoom = var1.zoom;
       this.OffscreenWidth = var1.OffscreenWidth;
       this.OffscreenHeight = var1.OffscreenHeight;
+      this.Width = var1.Width;
+      this.Height = var1.Height;
+      this.fixJigglyModelsX = var1.fixJigglyModelsX;
+      this.fixJigglyModelsY = var1.fixJigglyModelsY;
+      this.fixJigglyModelsSquareX = var1.fixJigglyModelsSquareX;
+      this.fixJigglyModelsSquareY = var1.fixJigglyModelsSquareY;
+      this.PROJECTION.set(var1.PROJECTION);
+      this.MODELVIEW.set(var1.MODELVIEW);
    }
 
    public void initFromIsoCamera(int var1) {
@@ -334,5 +356,79 @@ public final class PlayerCamera {
       this.zoom = Core.getInstance().getZoom(var1);
       this.OffscreenWidth = IsoCamera.getOffscreenWidth(var1);
       this.OffscreenHeight = IsoCamera.getOffscreenHeight(var1);
+      this.Width = IsoCamera.getScreenWidth(var1);
+      this.Height = IsoCamera.getScreenHeight(var1);
+   }
+
+   public void calculateModelViewProjection(float var1, float var2, float var3) {
+      this.OffscreenWidth = IsoCamera.getOffscreenWidth(this.playerIndex);
+      this.OffscreenHeight = IsoCamera.getOffscreenHeight(this.playerIndex);
+      this.zoom = Core.getInstance().getZoom(this.playerIndex);
+      float var5 = this.RightClickX;
+      float var6 = this.RightClickY;
+      float var7 = this.getTOffX();
+      float var8 = this.getTOffY();
+      float var9 = this.DeferedX;
+      float var10 = this.DeferedY;
+      IsoGameCharacter var11 = IsoCamera.getCameraCharacter();
+      float var12 = var11.getX();
+      float var13 = var11.getY();
+      float var14 = IsoCamera.frameState.calculateCameraZ(var11);
+      var12 -= this.XToIso(-var7 - var5, -var8 - var6, 0.0F);
+      var13 -= this.YToIso(-var7 - var5, -var8 - var6, 0.0F);
+      var12 += var9;
+      var13 += var10;
+      double var15 = (double)((float)this.OffscreenWidth / 1920.0F);
+      double var17 = (double)((float)this.OffscreenHeight / 1920.0F);
+      this.PROJECTION.setOrtho(-((float)var15) / 2.0F, (float)var15 / 2.0F, -((float)var17) / 2.0F, (float)var17 / 2.0F, -10.0F, 10.0F);
+      this.MODELVIEW.scaling(Core.scale);
+      this.MODELVIEW.scale((float)Core.TileScale / 2.0F);
+      this.MODELVIEW.rotate(0.5235988F, 1.0F, 0.0F, 0.0F);
+      this.MODELVIEW.rotate(2.3561945F, 0.0F, 1.0F, 0.0F);
+      double var19 = (double)(var1 - var12);
+      double var21 = (double)(var2 - var13);
+      this.MODELVIEW.translate(-((float)var19), (var3 - var14) * 2.44949F, -((float)var21));
+      this.MODELVIEW.rotate(3.1415927F, 0.0F, 1.0F, 0.0F);
+      this.MODELVIEW.translate(0.0F, -0.71999997F, 0.0F);
+   }
+
+   public void calculateFixForJigglyModels(float var1, float var2, float var3) {
+      if (!DebugOptions.instance.FBORenderChunk.FixJigglyModels.getValue()) {
+         this.fixJigglyModelsX = 0.0F;
+         this.fixJigglyModelsY = 0.0F;
+         this.fixJigglyModelsSquareX = 0.0F;
+         this.fixJigglyModelsSquareY = 0.0F;
+      } else {
+         int var4 = PZMath.fastfloor(var1 / 8.0F);
+         int var5 = PZMath.fastfloor(var2 / 8.0F);
+         float var6 = IsoCamera.frameState.calculateCameraZ(IsoCamera.getCameraCharacter());
+         float var7 = IsoUtils.XToScreen((float)(var4 * 8), (float)(var5 * 8), var6, 0);
+         float var8 = IsoUtils.YToScreen((float)(var4 * 8), (float)(var5 * 8), var6, 0);
+         var7 -= this.getOffX();
+         var8 -= this.getOffY();
+         var7 /= this.zoom;
+         var8 /= this.zoom;
+         Vector3f var9 = this.worldToUI((float)(var4 * 8), (float)(var5 * 8), var6, s_tempVector3f_1);
+         float var10 = var9.x;
+         float var11 = (float)IsoCamera.getScreenHeight(this.playerIndex) - var9.y;
+         this.fixJigglyModelsX = var10 - var7;
+         this.fixJigglyModelsY = var11 - var8;
+         float var12 = this.fixJigglyModelsX * this.zoom;
+         float var13 = this.fixJigglyModelsY * this.zoom;
+         this.fixJigglyModelsSquareX = (var12 + 2.0F * var13) / (64.0F * (float)Core.TileScale);
+         this.fixJigglyModelsSquareY = (var12 - 2.0F * var13) / (-64.0F * (float)Core.TileScale);
+      }
+   }
+
+   private Vector3f worldToUI(float var1, float var2, float var3, Vector3f var4) {
+      Matrix4f var6 = BaseVehicle.allocMatrix4f();
+      var6.set(this.PROJECTION);
+      var6.mul(this.MODELVIEW);
+      s_viewport[2] = IsoCamera.getScreenWidth(this.playerIndex);
+      s_viewport[3] = IsoCamera.getScreenHeight(this.playerIndex);
+      IsoGameCharacter var7 = IsoCamera.getCameraCharacter();
+      var6.project(var1 - var7.getX(), (var3 - var7.getZ()) * 3.0F * 0.8164967F, var2 - var7.getY(), s_viewport, var4);
+      BaseVehicle.releaseMatrix4f(var6);
+      return var4;
    }
 }

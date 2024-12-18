@@ -6,7 +6,7 @@ import zombie.debug.DebugOptions;
 import zombie.iso.IsoDirections;
 import zombie.iso.Vector2;
 import zombie.network.GameClient;
-import zombie.vehicles.PathFindBehavior2;
+import zombie.pathfind.PathFindBehavior2;
 
 public class MPDebugAI {
    private static final Vector2 tempo = new Vector2();
@@ -36,10 +36,10 @@ public class MPDebugAI {
    }
 
    public static boolean updateMovementFromInput(IsoPlayer var0, IsoPlayer.MoveVars var1) {
-      if (GameClient.bClient && var0.isLocalPlayer() && (DebugOptions.instance.MultiplayerAttackPlayer.getValue() || DebugOptions.instance.MultiplayerFollowPlayer.getValue())) {
+      if (GameClient.bClient && var0.isLocalPlayer() && (DebugOptions.instance.Multiplayer.Debug.AttackPlayer.getValue() || DebugOptions.instance.Multiplayer.Debug.FollowPlayer.getValue())) {
          IsoPlayer var2 = getNearestPlayer(var0);
          if (var2 != null) {
-            Vector2 var3 = new Vector2(var2.x - var0.x, var0.y - var2.y);
+            Vector2 var3 = new Vector2(var2.getX() - var0.getX(), var0.getY() - var2.getY());
             var3.rotate(-0.7853982F);
             var3.normalize();
             var1.moveX = var3.x;
@@ -60,16 +60,16 @@ public class MPDebugAI {
                var0.setX(var2.realx);
                var0.setY(var2.realy);
                var0.setZ((float)var2.realz);
-               var0.setLx(var2.realx);
-               var0.setLy(var2.realy);
-               var0.setLz((float)var2.realz);
+               var0.setLastX(var2.realx);
+               var0.setLastY(var2.realy);
+               var0.setLastZ((float)var2.realz);
                var0.ensureOnTile();
             }
          }
 
          PathFindBehavior2 var10 = var0.getPathFindBehavior2();
          if (var1.moveX == 0.0F && var1.moveY == 0.0F && var0.getPath2() != null && var10.isStrafing() && !var10.bStopping) {
-            Vector2 var4 = tempo.set(var10.getTargetX() - var0.x, var10.getTargetY() - var0.y);
+            Vector2 var4 = tempo.set(var10.getTargetX() - var0.getX(), var10.getTargetY() - var0.getY());
             Vector2 var5 = tempo2.set(-1.0F, 0.0F);
             float var6 = 1.0F;
             float var7 = var4.dot(var5);
@@ -123,7 +123,7 @@ public class MPDebugAI {
 
    public static boolean updateInputState(IsoPlayer var0, IsoPlayer.InputState var1) {
       IsoPlayer var2;
-      if (GameClient.bClient && var0.isLocalPlayer() && DebugOptions.instance.MultiplayerAttackPlayer.getValue()) {
+      if (GameClient.bClient && var0.isLocalPlayer() && DebugOptions.instance.Multiplayer.Debug.AttackPlayer.getValue()) {
          var2 = getNearestPlayer(var0);
          var1.bMelee = false;
          var1.isAttacking = false;
@@ -141,7 +141,7 @@ public class MPDebugAI {
          }
 
          return true;
-      } else if (GameClient.bClient && var0.isLocalPlayer() && DebugOptions.instance.MultiplayerFollowPlayer.getValue()) {
+      } else if (GameClient.bClient && var0.isLocalPlayer() && DebugOptions.instance.Multiplayer.Debug.FollowPlayer.getValue()) {
          var2 = getNearestPlayer(var0);
          var1.bMelee = false;
          var1.isAttacking = false;

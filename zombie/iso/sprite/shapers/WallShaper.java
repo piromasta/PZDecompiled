@@ -24,6 +24,14 @@ public class WallShaper implements Consumer<TextureDraw> {
          var1.col3 = Color.blendBGR(var1.col3, this.col[3]);
       }
 
+      if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+         float var2 = Color.getAlphaChannelFromABGR(var1.col0);
+         var1.col0 = Color.colorToABGR(1.0F, 1.0F, 1.0F, var2);
+         var1.col1 = var1.col0;
+         var1.col2 = var1.col0;
+         var1.col3 = var1.col0;
+      }
+
       if (this.colTint != 0) {
          var1.col0 = Color.tintABGR(var1.col0, this.colTint);
          var1.col1 = Color.tintABGR(var1.col1, this.colTint);

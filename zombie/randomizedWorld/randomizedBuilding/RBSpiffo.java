@@ -1,7 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
-import java.io.PrintStream;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -20,9 +19,6 @@ public final class RBSpiffo extends RandomizedBuildingBase {
                   for(int var7 = 0; var7 < var6.getObjects().size(); ++var7) {
                      IsoObject var8 = (IsoObject)var6.getObjects().get(var7);
                      if (Rand.NextBool(2) && this.isTableFor3DItems(var8, var6)) {
-                        PrintStream var10000 = System.out;
-                        String var10001 = var8.getSprite().getName();
-                        var10000.println("adding item on table " + var10001 + " coords: " + var6.x + "," + var6.y);
                         if (Rand.NextBool(2)) {
                            this.addWorldItem("Burger", var6, var8);
                         }
@@ -36,15 +32,11 @@ public final class RBSpiffo extends RandomizedBuildingBase {
                         }
 
                         if (Rand.NextBool(3)) {
-                           this.addWorldItem("Fork", var6, var8);
+                           this.addWorldItem("PlasticFork", var6, var8);
                         }
 
                         if (Rand.NextBool(3)) {
-                           this.addWorldItem("ButterKnife", var6, var8);
-                        }
-
-                        if (Rand.NextBool(30)) {
-                           this.addWorldItem("MugSpiffo", var6, var8);
+                           this.addWorldItem("PlasticKnife", var6, var8);
                         }
                         break;
                      }

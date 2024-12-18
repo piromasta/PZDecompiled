@@ -14,14 +14,16 @@ import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.erosion.ErosionMain;
 import zombie.erosion.season.ErosionIceQueen;
 import zombie.erosion.season.ErosionSeason;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoPuddles;
@@ -199,9 +201,9 @@ public class ClimateManager {
       this.colDay = new ClimateColorInfo();
       this.colDawn = new ClimateColorInfo();
       this.colDusk = new ClimateColorInfo();
-      this.colNight = new ClimateColorInfo(0.33F, 0.33F, 1.0F, 0.4F, 0.33F, 0.33F, 1.0F, 0.4F);
-      this.colNightNoMoon = new ClimateColorInfo(0.33F, 0.33F, 1.0F, 0.4F, 0.33F, 0.33F, 1.0F, 0.4F);
-      this.colNightMoon = new ClimateColorInfo(0.33F, 0.33F, 1.0F, 0.4F, 0.33F, 0.33F, 1.0F, 0.4F);
+      this.colNight = new ClimateColorInfo(0.33F, 0.33F, 0.33F, 0.4F, 0.33F, 0.33F, 0.33F, 0.4F);
+      this.colNightNoMoon = new ClimateColorInfo(0.33F, 0.33F, 0.33F, 0.4F, 0.33F, 0.33F, 0.33F, 0.4F);
+      this.colNightMoon = new ClimateColorInfo(0.33F, 0.33F, 0.33F, 0.4F, 0.33F, 0.33F, 0.33F, 0.4F);
       this.colFog = new ClimateColorInfo(0.4F, 0.4F, 0.4F, 0.8F, 0.4F, 0.4F, 0.4F, 0.8F);
       this.colFogLegacy = new ClimateColorInfo(0.3F, 0.3F, 0.3F, 0.8F, 0.3F, 0.3F, 0.3F, 0.8F);
       this.colFogNew = new ClimateColorInfo(0.5F, 0.5F, 0.55F, 0.4F, 0.5F, 0.5F, 0.55F, 0.8F);
@@ -702,34 +704,32 @@ public class ClimateManager {
             float var7;
             if (var4 <= 22.0F) {
                var7 = (22.0F - var4) / 8.0F;
-               if (var2 == null) {
-                  if (var5 && var6) {
-                     var4 = 22.0F;
-                  }
+               if (var5 && var6) {
+                  var4 = 22.0F;
+               }
 
-                  var7 = 22.0F - var4;
-                  if (var1.getZ() < 1) {
-                     var4 += var7 * (0.4F + 0.2F * this.dayLightLagged);
-                  } else {
-                     var7 = (float)((double)var7 * 0.85);
-                     var4 += var7 * (0.4F + 0.2F * this.dayLightLagged);
-                  }
+               var7 = 22.0F - var4;
+               if (var1.getZ() < 1) {
+                  var4 += var7 * (0.4F + 0.2F * this.dayLightLagged);
+               } else {
+                  var7 = (float)((double)var7 * 0.85);
+                  var4 += var7 * (0.4F + 0.2F * this.dayLightLagged);
                }
             } else {
                var7 = (var4 - 22.0F) / 3.5F;
-               if (var2 == null) {
-                  if (var5 && var6) {
-                     var4 = 22.0F;
-                  }
+               if (var5 && var6) {
+                  var4 = 22.0F;
+               }
 
-                  var7 = var4 - 22.0F;
-                  if (var1.getZ() < 1) {
-                     var7 = (float)((double)var7 * 0.85);
-                     var4 -= var7 * (0.4F + 0.2F * this.dayLightLagged);
-                  } else {
-                     var4 -= var7 * (0.4F + 0.2F * this.dayLightLagged + 0.2F * this.nightLagged);
-                  }
+               var7 = var4 - 22.0F;
+               if (var1.getZ() < 1) {
+                  var7 = (float)((double)var7 * 0.85);
+                  var4 -= var7 * (0.4F + 0.2F * this.dayLightLagged);
                } else {
+                  var4 -= var7 * (0.4F + 0.2F * this.dayLightLagged + 0.2F * this.nightLagged);
+               }
+
+               if (!var5 && var2 != null) {
                   var4 = var4 + var7 + var7 * this.dayLightLagged;
                }
             }
@@ -741,7 +741,11 @@ public class ClimateManager {
          }
 
          if (var2 != null) {
-            var4 += var2.getInsideTemperature();
+            if (!var5) {
+               var4 += var2.getInsideTemperature();
+            } else {
+               var4 += var2.getInsideTemperature() > 0.0F ? var2.getInsideTemperature() : 0.0F;
+            }
          }
       }
 
@@ -749,7 +753,15 @@ public class ClimateManager {
    }
 
    public String getSeasonName() {
-      return this.season.getSeasonName();
+      return this.season != null && this.season.getSeasonName() != null ? this.season.getSeasonName() : null;
+   }
+
+   public String getSeasonNameTranslated() {
+      return this.season != null && this.season.getSeasonNameTranslated() != null ? this.season.getSeasonNameTranslated() : null;
+   }
+
+   public byte getSeasonId() {
+      return (byte)this.season.getSeason();
    }
 
    public float getSeasonProgression() {
@@ -763,10 +775,10 @@ public class ClimateManager {
    public void init(IsoMetaGrid var1) {
       WorldFlares.Clear();
       this.season = ErosionMain.getInstance().getSeasons();
-      ThunderStorm.MAP_MIN_X = var1.minX * 300 - 4000;
-      ThunderStorm.MAP_MAX_X = var1.maxX * 300 + 4000;
-      ThunderStorm.MAP_MIN_Y = var1.minY * 300 - 4000;
-      ThunderStorm.MAP_MAX_Y = var1.maxY * 300 + 4000;
+      ThunderStorm.MAP_MIN_X = var1.minX * IsoCell.CellSizeInSquares - 4000;
+      ThunderStorm.MAP_MAX_X = var1.maxX * IsoCell.CellSizeInSquares + 4000;
+      ThunderStorm.MAP_MIN_Y = var1.minY * IsoCell.CellSizeInSquares - 4000;
+      ThunderStorm.MAP_MAX_Y = var1.maxY * IsoCell.CellSizeInSquares + 4000;
       windNoiseOffset = 0.0;
       WINTER_IS_COMING = IsoWorld.instance.getGameMode().equals("Winter is Coming");
       THE_DESCENDING_FOG = IsoWorld.instance.getGameMode().equals("The Descending Fog");
@@ -796,9 +808,7 @@ public class ClimateManager {
             this.lastHourStamp = this.gt.getHour();
          }
 
-         if (this.gt.getTimeOfDay() > 12.0F) {
-            ClimateMoon.updatePhase(this.currentDay.getYear(), this.currentDay.getMonth(), this.currentDay.getDay());
-         }
+         ClimateMoon.getInstance().updatePhase(this.currentDay.getYear(), this.currentDay.getMonth(), this.currentDay.getDay());
       }
 
       if (this.DISABLE_SIMULATION) {
@@ -1350,7 +1360,7 @@ public class ClimateManager {
             this.cloudIntensity.internalValue = lerp(var12, this.cloudIntensity.internalValue, 0.0F);
             var13 = this.dayFogStrength;
             this.fogIntensity.internalValue = clerp(var12, 0.0F, var13);
-            if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+            if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
                if (PerformanceSettings.FogQuality == 2) {
                   this.desaturation.internalValue = clerp(var12, this.desaturation.internalValue, 0.8F * var13);
                } else {
@@ -1384,10 +1394,10 @@ public class ClimateManager {
       }
 
       this.humidity.internalValue = clamp01(this.humidity.internalValue + this.fogIntensity.internalValue * 0.6F);
-      var12 = 0.6F * this.climateValues.getDayLightStrengthBase();
+      var12 = this.climateValues.getDayLightStrengthBase();
       var13 = 0.4F;
       float var14 = 0.25F * this.climateValues.getDayLightStrengthBase();
-      if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+      if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
          var14 = 0.8F * this.climateValues.getDayLightStrengthBase();
       }
 
@@ -1416,7 +1426,7 @@ public class ClimateManager {
       }
 
       if (this.fogIntensity.internalValue > 0.0F) {
-         if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+         if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
             if (PerformanceSettings.FogQuality == 2) {
                this.globalLight.internalValue.interp(this.colFog, this.fogIntensity.internalValue, this.globalLight.internalValue);
             } else {
@@ -1429,7 +1439,7 @@ public class ClimateManager {
          this.globalLightIntensity.internalValue = clerp(this.fogLerpValue, this.globalLightIntensity.internalValue, 0.8F);
       }
 
-      this.colNightNoMoon.interp(this.colNightMoon, ClimateMoon.getMoonFloat(), this.colNight);
+      this.colNightNoMoon.interp(this.colNightMoon, ClimateMoon.getInstance().getMoonFloat(), this.colNight);
       this.globalLight.internalValue.interp(this.colNight, this.nightStrength.internalValue, this.globalLight.internalValue);
       IsoPlayer[] var19 = IsoPlayer.players;
 
@@ -1573,7 +1583,7 @@ public class ClimateManager {
 
       this.weatherPeriod.load(var1, var2);
       this.thunderStorm.load(var1);
-      if (var2 >= 140 && GameServer.bServer) {
+      if (GameServer.bServer) {
          this.desaturation.loadAdmin(var1, var2);
          this.globalLightIntensity.loadAdmin(var1, var2);
          this.nightStrength.loadAdmin(var1, var2);
@@ -1590,7 +1600,7 @@ public class ClimateManager {
          this.precipitationIsSnow.loadAdmin(var1, var2);
       }
 
-      if (var2 >= 141 && var1.readByte() == 1) {
+      if (var1.readByte() == 1) {
          if (this.modDataTable == null) {
             this.modDataTable = LuaManager.platform.newTable();
          }
@@ -1598,7 +1608,7 @@ public class ClimateManager {
          this.modDataTable.load(var1, var2);
       }
 
-      if (var2 >= 150 && GameServer.bServer) {
+      if (GameServer.bServer) {
          this.humidity.loadAdmin(var1, var2);
       }
 
@@ -2385,7 +2395,6 @@ public class ClimateManager {
          var5.add(5, 1);
       }
 
-      DebugLog.log("Calculate weather front strength = " + var4.getStrength());
    }
 
    public static String getWindAngleString(float var0) {
@@ -2411,6 +2420,15 @@ public class ClimateManager {
 
    public boolean isUpdated() {
       return this.lastMinuteStamp != -1L;
+   }
+
+   public void Reset() {
+      this.lastHourStamp = -1;
+      this.lastMinuteStamp = -1L;
+      if (this.currentDay != null) {
+         this.currentDay.day = this.currentDay.month = this.currentDay.year = -1;
+      }
+
    }
 
    public static class AirFront {
@@ -2866,19 +2884,7 @@ public class ClimateManager {
 
       private void loadAdmin(DataInputStream var1, int var2) throws IOException {
          this.isAdminOverride = var1.readBoolean();
-         if (var2 < 143) {
-            this.adminValue.getInterior().r = var1.readFloat();
-            this.adminValue.getInterior().g = var1.readFloat();
-            this.adminValue.getInterior().b = var1.readFloat();
-            this.adminValue.getInterior().a = var1.readFloat();
-            this.adminValue.getExterior().r = this.adminValue.getInterior().r;
-            this.adminValue.getExterior().g = this.adminValue.getInterior().g;
-            this.adminValue.getExterior().b = this.adminValue.getInterior().b;
-            this.adminValue.getExterior().a = this.adminValue.getInterior().a;
-         } else {
-            this.adminValue.load(var1, var2);
-         }
-
+         this.adminValue.load(var1, var2);
       }
    }
 

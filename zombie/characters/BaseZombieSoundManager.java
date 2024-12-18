@@ -2,6 +2,7 @@ package zombie.characters;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import zombie.core.math.PZMath;
 import zombie.iso.IsoUtils;
 
 public abstract class BaseZombieSoundManager {
@@ -10,8 +11,8 @@ public abstract class BaseZombieSoundManager {
    private final int staleSlotMS;
    private final Comparator<IsoZombie> comp = new Comparator<IsoZombie>() {
       public int compare(IsoZombie var1, IsoZombie var2) {
-         float var3 = BaseZombieSoundManager.this.getClosestListener(var1.x, var1.y, var1.z);
-         float var4 = BaseZombieSoundManager.this.getClosestListener(var2.x, var2.y, var2.z);
+         float var3 = BaseZombieSoundManager.this.getClosestListener(var1.getX(), var1.getY(), var1.getZ());
+         float var4 = BaseZombieSoundManager.this.getClosestListener(var2.getX(), var2.getY(), var2.getZ());
          if (var3 > var4) {
             return 1;
          } else {
@@ -69,10 +70,7 @@ public abstract class BaseZombieSoundManager {
             float var8 = var6.getY();
             float var9 = var6.getZ();
             float var10 = IsoUtils.DistanceToSquared(var7, var8, var9 * 3.0F, var1, var2, var3 * 3.0F);
-            if (var6.Traits.HardOfHearing.isSet()) {
-               var10 *= 4.5F;
-            }
-
+            var10 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
             if (var10 < var4) {
                var4 = var10;
             }

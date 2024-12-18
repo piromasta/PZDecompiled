@@ -1,5 +1,6 @@
 package zombie.savefile;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -7,21 +8,22 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import zombie.GameWindow;
+import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
-import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.znet.SteamUtils;
 import zombie.debug.DebugLog;
+import zombie.iso.IsoWorld;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
 
 public final class ServerPlayerDB {
    private static ServerPlayerDB instance = null;
    private static boolean allow = false;
-   private Connection conn = null;
+   public Connection conn = null;
    private ConcurrentLinkedQueue<NetworkCharacterData> CharactersToSave;
 
    public static void setAllow(boolean var0) {
@@ -85,8 +87,41 @@ public final class ServerPlayerDB {
 
    }
 
+   /** @deprecated */
+   @Deprecated
    public void serverUpdateNetworkCharacter(ByteBuffer var1, UdpConnection var2) {
       this.CharactersToSave.add(new NetworkCharacterData(var1, var2));
+   }
+
+   public void save() {
+      Iterator var1 = GameServer.udpEngine.connections.iterator();
+
+      while(var1.hasNext()) {
+         UdpConnection var2 = (UdpConnection)var1.next();
+         IsoPlayer[] var3 = var2.players;
+         int var4 = var3.length;
+
+         for(int var5 = 0; var5 < var4; ++var5) {
+            IsoPlayer var6 = var3[var5];
+            if (var6 != null) {
+               this.serverUpdateNetworkCharacter(var6, var6.getIndex(), var2);
+            }
+         }
+      }
+
+      while(!this.CharactersToSave.isEmpty()) {
+         try {
+            Thread.sleep(100L);
+         } catch (InterruptedException var7) {
+            throw new RuntimeException(var7);
+         }
+      }
+
+      DebugLog.log("Saving players");
+   }
+
+   public void serverUpdateNetworkCharacter(IsoPlayer var1, int var2, UdpConnection var3) {
+      this.CharactersToSave.add(new NetworkCharacterData(var1, var2, var3));
    }
 
    private void serverUpdateNetworkCharacterInt(NetworkCharacterData var1) {
@@ -212,7 +247,7 @@ public final class ServerPlayerDB {
       }
    }
 
-   private void serverConvertNetworkCharacter(String var1, String var2) {
+   public void serverConvertNetworkCharacter(String var1, String var2) {
       try {
          String var3 = "UPDATE networkPlayers SET steamid=? WHERE username=? AND world=? AND (steamid is null or steamid = '')";
          PreparedStatement var4 = this.conn.prepareStatement(var3);
@@ -223,7 +258,7 @@ public final class ServerPlayerDB {
             var4.setString(3, Core.GameSaveWorld);
             int var5 = var4.executeUpdate();
             if (var5 > 0) {
-               DebugLog.General.warn("serverConvertNetworkCharacter: The steamid was set for the '" + var1 + "' for " + var5 + " players. ");
+               DebugLog.DetailedInfo.warn("serverConvertNetworkCharacter: The steamid was set for the '" + var1 + "' for " + var5 + " players. ");
             }
 
             this.conn.commit();
@@ -248,87 +283,100 @@ public final class ServerPlayerDB {
 
    }
 
-   public void serverLoadNetworkCharacter(ByteBuffer var1, UdpConnection var2) {
-      byte var3 = var1.get();
-      if (var3 >= 0 && var3 < 4) {
-         if (this.conn != null) {
+   public IsoPlayer serverLoadNetworkCharacter(int var1, String var2) {
+      if (var1 >= 0 && var1 < 4) {
+         if (this.conn == null) {
+            return null;
+         } else {
+            String var3;
             if (GameServer.bCoop && SteamUtils.isSteamModeEnabled()) {
-               this.serverConvertNetworkCharacter(var2.username, var2.idStr);
-            }
-
-            String var18;
-            if (GameServer.bCoop && SteamUtils.isSteamModeEnabled()) {
-               var18 = "SELECT id, x, y, z, data, worldversion, isDead FROM networkPlayers WHERE steamid=? AND world=? AND playerIndex=?";
+               var3 = "SELECT id, x, y, z, data, worldversion, isDead FROM networkPlayers WHERE steamid=? AND world=? AND playerIndex=?";
             } else {
-               var18 = "SELECT id, x, y, z, data, worldversion, isDead FROM networkPlayers WHERE username=? AND world=? AND playerIndex=?";
+               var3 = "SELECT id, x, y, z, data, worldversion, isDead FROM networkPlayers WHERE username=? AND world=? AND playerIndex=?";
             }
 
             try {
-               PreparedStatement var5 = this.conn.prepareStatement(var18);
+               PreparedStatement var4 = this.conn.prepareStatement(var3);
 
-               try {
-                  if (GameServer.bCoop && SteamUtils.isSteamModeEnabled()) {
-                     var5.setString(1, var2.idStr);
-                  } else {
-                     var5.setString(1, var2.username);
-                  }
-
-                  var5.setString(2, Core.GameSaveWorld);
-                  var5.setInt(3, var3);
-                  ResultSet var6 = var5.executeQuery();
-                  if (var6.next()) {
-                     int var7 = var6.getInt(1);
-                     float var8 = var6.getFloat(2);
-                     float var9 = var6.getFloat(3);
-                     float var10 = var6.getFloat(4);
-                     byte[] var11 = var6.getBytes(5);
-                     int var12 = var6.getInt(6);
-                     boolean var13 = var6.getBoolean(7);
-                     ByteBufferWriter var14 = var2.startPacket();
-                     PacketTypes.PacketType.LoadPlayerProfile.doPacket(var14);
-                     var14.putByte((byte)1);
-                     var14.putInt(var3);
-                     var14.putFloat(var8);
-                     var14.putFloat(var9);
-                     var14.putFloat(var10);
-                     var14.putInt(var12);
-                     var14.putByte((byte)(var13 ? 1 : 0));
-                     var14.putInt(var11.length);
-                     var14.bb.put(var11);
-                     PacketTypes.PacketType.LoadPlayerProfile.send(var2);
-                  } else {
-                     ByteBufferWriter var19 = var2.startPacket();
-                     PacketTypes.PacketType.LoadPlayerProfile.doPacket(var19);
-                     var19.putByte((byte)0);
-                     var19.putInt(var3);
-                     PacketTypes.PacketType.LoadPlayerProfile.send(var2);
-                  }
-               } catch (Throwable var16) {
-                  if (var5 != null) {
+               IsoPlayer var15;
+               label86: {
+                  Object var20;
+                  label94: {
                      try {
-                        var5.close();
-                     } catch (Throwable var15) {
-                        var16.addSuppressed(var15);
+                        var4.setString(1, var2);
+                        var4.setString(2, Core.GameSaveWorld);
+                        var4.setInt(3, var1);
+                        ResultSet var5 = var4.executeQuery();
+                        if (!var5.next()) {
+                           var20 = null;
+                           break label94;
+                        }
+
+                        int var6 = var5.getInt(1);
+                        float var7 = var5.getFloat(2);
+                        float var8 = var5.getFloat(3);
+                        float var9 = var5.getFloat(4);
+                        byte[] var10 = var5.getBytes(5);
+                        int var11 = var5.getInt(6);
+                        boolean var12 = var5.getBoolean(7);
+
+                        try {
+                           ByteBuffer var13 = ByteBuffer.allocate(var10.length);
+                           var13.rewind();
+                           var13.put(var10);
+                           var13.rewind();
+                           IsoPlayer var14 = new IsoPlayer(IsoWorld.instance.CurrentCell);
+                           var14.serverPlayerIndex = var1;
+                           var14.load(var13, var11);
+                           if (var12) {
+                              var14.getBodyDamage().setOverallBodyHealth(0.0F);
+                              var14.setHealth(0.0F);
+                           }
+
+                           var14.bRemote = true;
+                           var15 = var14;
+                           break label86;
+                        } catch (Exception var17) {
+                           ExceptionLogger.logException(var17);
+                        }
+                     } catch (Throwable var18) {
+                        if (var4 != null) {
+                           try {
+                              var4.close();
+                           } catch (Throwable var16) {
+                              var18.addSuppressed(var16);
+                           }
+                        }
+
+                        throw var18;
                      }
+
+                     if (var4 != null) {
+                        var4.close();
+                     }
+
+                     return null;
                   }
 
-                  throw var16;
+                  if (var4 != null) {
+                     var4.close();
+                  }
+
+                  return (IsoPlayer)var20;
                }
 
-               if (var5 != null) {
-                  var5.close();
+               if (var4 != null) {
+                  var4.close();
                }
-            } catch (SQLException var17) {
-               ExceptionLogger.logException(var17);
+
+               return var15;
+            } catch (SQLException var19) {
+               ExceptionLogger.logException(var19);
+               return null;
             }
-
          }
       } else {
-         ByteBufferWriter var4 = var2.startPacket();
-         PacketTypes.PacketType.LoadPlayerProfile.doPacket(var4);
-         var4.putByte((byte)0);
-         var4.putInt(var3);
-         PacketTypes.PacketType.LoadPlayerProfile.send(var2);
+         return null;
       }
    }
 
@@ -344,6 +392,38 @@ public final class ServerPlayerDB {
       boolean isDead;
       int worldVersion;
 
+      public NetworkCharacterData(IsoPlayer var1, int var2, UdpConnection var3) {
+         this.playerIndex = var2;
+         String var10001 = var1.getDescriptor().getForename();
+         this.playerName = var10001 + " " + var1.getDescriptor().getSurname();
+         this.x = var1.getX();
+         this.y = var1.getY();
+         this.z = var1.getZ();
+         this.isDead = var1.isDead();
+         this.worldVersion = IsoWorld.getWorldVersion();
+
+         try {
+            ByteBuffer var4 = ByteBuffer.allocate(65536);
+            var4.clear();
+            var1.save(var4);
+            this.buffer = new byte[var4.position()];
+            var4.rewind();
+            var4.get(this.buffer);
+         } catch (IOException var5) {
+            var5.printStackTrace();
+         }
+
+         if (GameServer.bCoop && SteamUtils.isSteamModeEnabled()) {
+            this.steamid = var3.idStr;
+         } else {
+            this.steamid = "";
+         }
+
+         this.username = var3.username;
+      }
+
+      /** @deprecated */
+      @Deprecated
       public NetworkCharacterData(ByteBuffer var1, UdpConnection var2) {
          this.playerIndex = var1.get();
          this.playerName = GameWindow.ReadStringUTF(var1);

@@ -9,6 +9,7 @@ import zombie.erosion.season.ErosionIceQueen;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class NatureGeneric extends ErosionCategory {
    private ArrayList<ErosionObj> objs = new ArrayList();
@@ -21,48 +22,48 @@ public final class NatureGeneric extends ErosionCategory {
    public NatureGeneric() {
    }
 
-   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5) {
-      int var6 = var1.getObjects().size();
+   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6) {
+      int var7 = var1.getObjects().size();
 
-      for(int var7 = var6 - 1; var7 >= 1; --var7) {
-         IsoObject var8 = (IsoObject)var1.getObjects().get(var7);
-         IsoSprite var9 = var8.getSprite();
-         if (var9 != null && var9.getName() != null && var9.getName().startsWith("blends_grassoverlays")) {
-            float var10 = 0.3F;
-            float var11 = 12.0F;
+      for(int var8 = var7 - 1; var8 >= 1; --var8) {
+         IsoObject var9 = (IsoObject)var1.getObjects().get(var8);
+         IsoSprite var10 = var9.getSprite();
+         if (var10 != null && var10.getName() != null && var10.getName().startsWith("blends_grassoverlays")) {
+            float var11 = 0.3F;
+            float var12 = 12.0F;
             if ("Forest".equals(var1.getZoneType())) {
-               var10 = 0.5F;
-               var11 = 6.0F;
+               var11 = 0.5F;
+               var12 = 6.0F;
             } else if ("DeepForest".equals(var1.getZoneType())) {
-               var10 = 0.7F;
-               var11 = 3.0F;
+               var11 = 0.7F;
+               var12 = 3.0F;
             }
 
-            CategoryData var12 = (CategoryData)this.setCatModData(var2);
-            ArrayList var13 = (ArrayList)this.objsRef.get(0);
-            int var14 = var2.noiseMainInt;
-            int var15 = var2.rand(var1.x, var1.y, 101);
-            if ((float)var15 < (float)var14 / var11) {
-               if (var2.magicNum < var10) {
-                  var13 = (ArrayList)this.objsRef.get(1);
+            CategoryData var13 = (CategoryData)this.setCatModData(var2);
+            ArrayList var14 = (ArrayList)this.objsRef.get(0);
+            int var15 = var2.noiseMainInt;
+            int var16 = var2.rand(var1.x, var1.y, 101);
+            if ((float)var16 < (float)var15 / var12) {
+               if (var2.magicNum < var11) {
+                  var14 = (ArrayList)this.objsRef.get(1);
                } else {
-                  var13 = (ArrayList)this.objsRef.get(2);
+                  var14 = (ArrayList)this.objsRef.get(2);
                }
 
-               var12.notGrass = true;
-               var12.maxStage = var14 > 60 ? 1 : 0;
+               var13.notGrass = true;
+               var13.maxStage = var15 > 60 ? 1 : 0;
             } else {
-               var12.maxStage = var14 > 67 ? 2 : (var14 > 50 ? 1 : 0);
+               var13.maxStage = var15 > 67 ? 2 : (var15 > 50 ? 1 : 0);
             }
 
-            var12.gameObj = (Integer)var13.get(var2.rand(var1.x, var1.y, var13.size()));
-            var12.stage = var12.maxStage;
-            var12.spawnTime = 0;
-            var12.dispSeason = -1;
-            ErosionObj var16 = (ErosionObj)this.objs.get(var12.gameObj);
-            var8.setName(var16.name);
-            var8.doNotSync = true;
-            var12.hasSpawned = true;
+            var13.gameObj = (Integer)var14.get(var2.rand(var1.x, var1.y, var14.size()));
+            var13.stage = var13.maxStage;
+            var13.spawnTime = 0;
+            var13.dispSeason = -1;
+            ErosionObj var17 = (ErosionObj)this.objs.get(var13.gameObj);
+            var9.setName(var17.name);
+            var9.doNotSync = true;
+            var13.hasSpawned = true;
             return true;
          }
       }
@@ -70,41 +71,41 @@ public final class NatureGeneric extends ErosionCategory {
       return false;
    }
 
-   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6) {
-      if (var1.getObjects().size() > (var5 ? 2 : 1)) {
+   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7) {
+      if (var1.getObjects().size() > (var6 ? 2 : 1)) {
          return false;
       } else {
-         int var7 = var2.noiseMainInt;
-         if (var2.rand(var1.x, var1.y, 101) < this.spawnChance[var7]) {
-            float var8 = 0.3F;
-            float var9 = 12.0F;
+         int var8 = var2.noiseMainInt;
+         if (var2.rand(var1.x, var1.y, 101) < this.spawnChance[var8]) {
+            float var9 = 0.3F;
+            float var10 = 12.0F;
             if ("Forest".equals(var1.getZoneType())) {
-               var8 = 0.5F;
-               var9 = 6.0F;
+               var9 = 0.5F;
+               var10 = 6.0F;
             } else if ("DeepForest".equals(var1.getZoneType())) {
-               var8 = 0.7F;
-               var9 = 3.0F;
+               var9 = 0.7F;
+               var10 = 3.0F;
             }
 
-            CategoryData var10 = (CategoryData)this.setCatModData(var2);
-            ArrayList var11 = (ArrayList)this.objsRef.get(0);
-            int var12 = var2.rand(var1.x, var1.y, 101);
-            if ((float)var12 < (float)var7 / var9) {
-               if (var2.magicNum < var8) {
-                  var11 = (ArrayList)this.objsRef.get(1);
+            CategoryData var11 = (CategoryData)this.setCatModData(var2);
+            ArrayList var12 = (ArrayList)this.objsRef.get(0);
+            int var13 = var2.rand(var1.x, var1.y, 101);
+            if ((float)var13 < (float)var8 / var10) {
+               if (var2.magicNum < var9) {
+                  var12 = (ArrayList)this.objsRef.get(1);
                } else {
-                  var11 = (ArrayList)this.objsRef.get(2);
+                  var12 = (ArrayList)this.objsRef.get(2);
                }
 
-               var10.notGrass = true;
-               var10.maxStage = var7 > 60 ? 1 : 0;
+               var11.notGrass = true;
+               var11.maxStage = var8 > 60 ? 1 : 0;
             } else {
-               var10.maxStage = var7 > 67 ? 2 : (var7 > 50 ? 1 : 0);
+               var11.maxStage = var8 > 67 ? 2 : (var8 > 50 ? 1 : 0);
             }
 
-            var10.gameObj = (Integer)var11.get(var2.rand(var1.x, var1.y, var11.size()));
-            var10.stage = 0;
-            var10.spawnTime = 100 - var7;
+            var11.gameObj = (Integer)var12.get(var2.rand(var1.x, var1.y, var12.size()));
+            var11.stage = 0;
+            var11.spawnTime = 100 - var8;
             return true;
          } else {
             return false;

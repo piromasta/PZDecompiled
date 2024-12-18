@@ -4,7 +4,7 @@ import fmod.fmod.FMODManager;
 import fmod.fmod.FMOD_STUDIO_PARAMETER_DESCRIPTION;
 import java.util.ArrayList;
 import zombie.SystemDisabler;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 
 public final class GameSound {
    public String name;

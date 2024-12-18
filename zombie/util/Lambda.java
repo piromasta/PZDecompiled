@@ -76,6 +76,10 @@ public final class Lambda {
       return Invokers.Params4.CallbackStackItem.alloc(var0, var1, var2, var3, var4);
    }
 
+   public static <T1, T2, T3, T4, T5> Runnable invoker(T1 var0, T2 var1, T3 var2, T4 var3, T5 var4, Invokers.Params5.ICallback<T1, T2, T3, T4, T5> var5) {
+      return Invokers.Params5.CallbackStackItem.alloc(var0, var1, var2, var3, var4, var5);
+   }
+
    public static <T1> void capture(T1 var0, Stacks.Params1.ICallback<T1> var1) {
       Stacks.Params1.CallbackStackItem var2 = Stacks.Params1.CallbackStackItem.alloc(var0, var1);
       var2.invokeAndRelease();
@@ -104,6 +108,11 @@ public final class Lambda {
    public static <T1, T2, T3, T4, T5, T6> void capture(T1 var0, T2 var1, T3 var2, T4 var3, T5 var4, T6 var5, Stacks.Params6.ICallback<T1, T2, T3, T4, T5, T6> var6) {
       Stacks.Params6.CallbackStackItem var7 = Stacks.Params6.CallbackStackItem.alloc(var0, var1, var2, var3, var4, var5, var6);
       var7.invokeAndRelease();
+   }
+
+   public static <T1, T2, T3, T4, T5, T6, T7> void capture(T1 var0, T2 var1, T3 var2, T4 var3, T5 var4, T6 var5, T7 var6, Stacks.Params7.ICallback<T1, T2, T3, T4, T5, T6, T7> var7) {
+      Stacks.Params7.CallbackStackItem var8 = Stacks.Params7.CallbackStackItem.alloc(var0, var1, var2, var3, var4, var5, var6, var7);
+      var8.invokeAndRelease();
    }
 
    public static <E, T1> void forEach(Consumer<Consumer<E>> var0, T1 var1, Consumers.Params1.ICallback<E, T1> var2) {

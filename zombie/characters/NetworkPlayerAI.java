@@ -1,94 +1,93 @@
 package zombie.characters;
 
-import java.util.ArrayList;
 import java.util.LinkedList;
+import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.SystemDisabler;
+import zombie.Lua.LuaManager;
 import zombie.ai.states.CollideWithWallState;
-import zombie.core.Rand;
+import zombie.ai.states.FishingState;
+import zombie.characters.animals.IsoAnimal;
+import zombie.core.Core;
 import zombie.core.math.PZMath;
-import zombie.core.utils.UpdateTimer;
+import zombie.core.random.Rand;
+import zombie.core.utils.UpdateLimit;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugLogStream;
 import zombie.debug.DebugOptions;
+import zombie.debug.options.Multiplayer;
 import zombie.input.GameKeyboard;
 import zombie.iso.IsoDirections;
+import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.Vector2;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.NetworkVariables;
-import zombie.network.packets.EventPacket;
-import zombie.network.packets.PlayerPacket;
-import zombie.scripting.ScriptManager;
-import zombie.scripting.objects.Recipe;
+import zombie.network.ServerOptions;
+import zombie.network.packets.actions.EventPacket;
+import zombie.network.packets.character.PlayerPacket;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.PolygonalMap2;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.VehicleManager;
 
 public class NetworkPlayerAI extends NetworkCharacterAI {
    public final LinkedList<EventPacket> events = new LinkedList();
+   public final PlayerPacket playerPacket = new PlayerPacket();
+   public final UpdateLimit reliable = new UpdateLimit(2000L);
    IsoPlayer player;
    private PathFindBehavior2 pfb2 = null;
-   private final UpdateTimer timer = new UpdateTimer();
-   private byte lastDirection = 0;
+   private final UpdateLimit timerMax = new UpdateLimit(1000L);
+   private final UpdateLimit timerMin = new UpdateLimit(200L);
    private boolean needUpdate = false;
-   private boolean blockUpdate = false;
-   public boolean usePathFind = false;
+   private final Vector2 tempo = new Vector2();
+   private IsoGridSquare square;
    public float collidePointX;
    public float collidePointY;
-   public float targetX = 0.0F;
-   public float targetY = 0.0F;
-   public int targetZ = 0;
    public boolean needToMovingUsingPathFinder = false;
-   public boolean forcePathFinder = false;
-   public Vector2 direction = new Vector2();
-   public Vector2 distance = new Vector2();
    public boolean moving = false;
    public byte footstepSoundRadius = 0;
    public int lastBooleanVariables = 0;
-   public float lastForwardDirection = 0.0F;
-   public float lastPlayerMoveDirLen = 0.0F;
    private boolean pressedMovement = false;
    private boolean pressedCancelAction = false;
    public boolean climbFenceOutcomeFall = false;
    private long accessLevelTimestamp = 0L;
    boolean wasNonPvpZone = false;
-   private Vector2 tempo = new Vector2();
-   private static final int predictInterval = 1000;
+   boolean lastClimbFenceOutcomeFall = false;
+   public FishingState.FishingStage fishingStage;
+   public boolean disconnected;
 
    public NetworkPlayerAI(IsoGameCharacter var1) {
       super(var1);
+      this.fishingStage = FishingState.FishingStage.None;
       this.player = (IsoPlayer)var1;
       this.pfb2 = this.player.getPathFindBehavior2();
       var1.ulBeatenVehicle.Reset(200L);
       this.collidePointX = -1.0F;
       this.collidePointY = -1.0F;
       this.wasNonPvpZone = false;
+      this.disconnected = false;
+   }
+
+   public IsoPlayer getRelatedPlayer() {
+      if (this.player instanceof IsoAnimal) {
+         return ((IsoAnimal)this.player).atkTarget instanceof IsoPlayer ? (IsoPlayer)((IsoAnimal)this.player).atkTarget : ((IsoAnimal)this.player).getData().getAttachedPlayer();
+      } else {
+         return null;
+      }
+   }
+
+   public Multiplayer.DebugFlagsOG.IsoGameCharacterOG getBooleanDebugOptions() {
+      if (this.player instanceof IsoAnimal) {
+         return DebugOptions.instance.Multiplayer.DebugFlags.Animal;
+      } else {
+         return this.player == IsoPlayer.getInstance() ? DebugOptions.instance.Multiplayer.DebugFlags.Self : DebugOptions.instance.Multiplayer.DebugFlags.Player;
+      }
    }
 
    public void needToUpdate() {
       this.needUpdate = true;
-   }
-
-   public void setBlockUpdate(boolean var1) {
-      this.blockUpdate = var1;
-   }
-
-   public boolean isNeedToUpdate() {
-      int var1 = NetworkPlayerVariables.getBooleanVariables(this.player);
-      byte var2 = (byte)((int)(this.player.playerMoveDir.getDirection() * 10.0F));
-      if ((!this.timer.check() && var1 == this.lastBooleanVariables && this.lastDirection == var2 || this.blockUpdate) && !this.needUpdate) {
-         return false;
-      } else {
-         this.lastDirection = var2;
-         this.needUpdate = false;
-         return true;
-      }
-   }
-
-   public void setUpdateTimer(float var1) {
-      this.timer.reset((long)PZMath.clamp((int)var1, 200, 3800));
    }
 
    private void setUsingCollide(PlayerPacket var1, int var2) {
@@ -110,34 +109,34 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
       }
 
       if (!this.player.isPlayerMoving()) {
-         var1.x = this.player.x;
-         var1.y = this.player.y;
-         var1.z = (byte)((int)this.player.z);
+         var1.x = this.player.getX();
+         var1.y = this.player.getY();
+         var1.z = (byte)((int)this.player.getZ());
          var1.usePathFinder = false;
          var1.moveType = NetworkVariables.PredictionTypes.Static;
       } else {
          Vector2 var5 = this.tempo;
          if (SystemDisabler.useNetworkCharacter) {
-            NetworkCharacter.Transform var6 = this.player.networkCharacter.predict(var3, var2, this.player.x, this.player.y, var4.x, var4.y);
+            NetworkCharacter.Transform var6 = this.player.networkCharacter.predict(var3, var2, this.player.getX(), this.player.getY(), var4.x, var4.y);
             var5.x = var6.position.x;
             var5.y = var6.position.y;
          } else {
             this.player.getDeferredMovement(var5);
-            var5.x = this.player.x + var5.x * 0.03F * (float)var3;
-            var5.y = this.player.y + var5.y * 0.03F * (float)var3;
+            var5.x = this.player.getX() + var5.x * 0.03F * (float)var3;
+            var5.y = this.player.getY() + var5.y * 0.03F * (float)var3;
          }
 
-         if (this.player.z == this.pfb2.getTargetZ() && !PolygonalMap2.instance.lineClearCollide(this.player.x, this.player.y, var5.x, var5.y, (int)this.player.z, (IsoMovingObject)null)) {
+         if (this.player.getZ() == this.pfb2.getTargetZ() && !PolygonalMap2.instance.lineClearCollide(this.player.getX(), this.player.getY(), var5.x, var5.y, PZMath.fastfloor(this.player.getZ()), (IsoMovingObject)null)) {
             var1.x = var5.x;
             var1.y = var5.y;
             var1.z = (byte)((int)this.pfb2.getTargetZ());
          } else {
-            Vector2 var7 = PolygonalMap2.instance.getCollidepoint(this.player.x, this.player.y, var5.x, var5.y, (int)this.player.z, (IsoMovingObject)null, 2);
+            Vector2 var7 = PolygonalMap2.instance.getCollidepoint(this.player.getX(), this.player.getY(), var5.x, var5.y, PZMath.fastfloor(this.player.getZ()), (IsoMovingObject)null, 2);
             var1.collidePointX = var7.x;
             var1.collidePointY = var7.y;
             var1.x = var7.x + (this.player.dir != IsoDirections.N && this.player.dir != IsoDirections.S ? (this.player.dir.index() >= IsoDirections.NW.index() && this.player.dir.index() <= IsoDirections.SW.index() ? -1.0F : 1.0F) : 0.0F);
             var1.y = var7.y + (this.player.dir != IsoDirections.W && this.player.dir != IsoDirections.E ? (this.player.dir.index() >= IsoDirections.SW.index() && this.player.dir.index() <= IsoDirections.SE.index() ? 1.0F : -1.0F) : 0.0F);
-            var1.z = (byte)((int)this.player.z);
+            var1.z = (byte)((int)this.player.getZ());
          }
 
          var1.usePathFinder = false;
@@ -152,51 +151,67 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
 
       var1.x = this.pfb2.pathNextX;
       var1.y = this.pfb2.pathNextY;
-      var1.z = (byte)((int)this.player.z);
+      var1.z = (byte)((int)this.player.getZ());
       var1.usePathFinder = true;
       var1.moveType = NetworkVariables.PredictionTypes.PathFind;
    }
 
-   public boolean set(PlayerPacket var1) {
-      int var2 = (int)(GameTime.getServerTime() / 1000000L);
-      var1.realx = this.player.x;
-      var1.realy = this.player.y;
-      var1.realz = (byte)((int)this.player.z);
-      var1.realdir = (byte)this.player.dir.index();
-      var1.realt = var2;
-      if (this.player.vehicle == null) {
-         var1.VehicleID = -1;
-         var1.VehicleSeat = -1;
-      } else {
-         var1.VehicleID = this.player.vehicle.VehicleID;
-         var1.VehicleSeat = (short)this.player.vehicle.getSeat(this.player);
+   public void set(PlayerPacket var1) {
+      boolean var2 = this.square != this.player.getCurrentSquare();
+      this.square = this.player.getCurrentSquare();
+      var1.type = 0;
+      if (this.timerMin.Check() || this.needUpdate || var2) {
+         int var3 = (int)(GameTime.getServerTime() / 1000000L);
+         var1.realx = this.player.getX();
+         var1.realy = this.player.getY();
+         var1.realz = (byte)PZMath.fastfloor(this.player.getZ());
+         var1.realdir = (byte)this.player.dir.index();
+         var1.realt = var3;
+         var1.collidePointX = -1.0F;
+         var1.collidePointY = -1.0F;
+         var1.footstepSoundRadius = this.footstepSoundRadius;
+         var1.disconnected = this.disconnected;
+         var1.roleId = this.player.getRole().getName().hashCode();
+         var1.direction = this.player.getForwardDirection().getDirection();
+         if (this.player.vehicle == null) {
+            var1.VehicleID = -1;
+            var1.VehicleSeat = -1;
+         } else {
+            var1.VehicleID = this.player.vehicle.VehicleID;
+            var1.VehicleSeat = (short)this.player.vehicle.getSeat(this.player);
+         }
+
+         if (this.player.getCurrentState() == CollideWithWallState.instance()) {
+            this.setUsingCollide(var1, var3);
+         } else if (this.pfb2.isMovingUsingPathFind()) {
+            this.setUsingPathFindState(var1, var3);
+         } else {
+            this.setUsingExtrapolation(var1, var3, 1000);
+         }
+
+         var1.booleanVariables = NetworkPlayerVariables.getBooleanVariables(this.player);
+         boolean var4 = this.lastBooleanVariables != var1.booleanVariables;
+         this.lastBooleanVariables = var1.booleanVariables;
+         var1.actionState = this.player.getActionContext().getCurrentStateName().hashCode();
+         boolean var5 = this.timerMax.Check();
+         if (var5 || var4) {
+            var1.type = 1;
+         }
+
+         if (var2) {
+            var1.type = 2;
+         }
+
+         if (this.needUpdate) {
+            var1.type = 3;
+            this.needUpdate = false;
+         }
+
+         if (var1.type > 0) {
+            this.timerMax.Reset(600L);
+         }
       }
 
-      boolean var3 = this.timer.check();
-      var1.collidePointX = -1.0F;
-      var1.collidePointY = -1.0F;
-      if (var3) {
-         this.setUpdateTimer(600.0F);
-      }
-
-      if (this.player.getCurrentState() == CollideWithWallState.instance()) {
-         this.setUsingCollide(var1, var2);
-      } else if (this.pfb2.isMovingUsingPathFind()) {
-         this.setUsingPathFindState(var1, var2);
-      } else {
-         this.setUsingExtrapolation(var1, var2, 1000);
-      }
-
-      boolean var4 = (double)this.player.playerMoveDir.getLength() < 0.01 && this.lastPlayerMoveDirLen > 0.01F;
-      this.lastPlayerMoveDirLen = this.player.playerMoveDir.getLength();
-      var1.booleanVariables = NetworkPlayerVariables.getBooleanVariables(this.player);
-      boolean var5 = this.lastBooleanVariables != var1.booleanVariables;
-      this.lastBooleanVariables = var1.booleanVariables;
-      var1.direction = this.player.getForwardDirection().getDirection();
-      boolean var6 = Math.abs(this.lastForwardDirection - var1.direction) > 0.2F;
-      this.lastForwardDirection = var1.direction;
-      var1.footstepSoundRadius = this.footstepSoundRadius;
-      return var3 || var5 || var6 || this.player.isJustMoved() || var4;
    }
 
    public void parse(PlayerPacket var1) {
@@ -207,10 +222,10 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
          this.predictionType = var1.moveType;
          this.needToMovingUsingPathFinder = var1.usePathFinder;
          this.direction.set((float)Math.cos((double)var1.direction), (float)Math.sin((double)var1.direction));
-         this.distance.set(var1.x - this.player.x, var1.y - this.player.y);
+         this.distance.set(var1.x - this.player.getX(), var1.y - this.player.getY());
          if (this.usePathFind) {
             this.pfb2.pathToLocationF(var1.x, var1.y, (float)var1.z);
-            this.pfb2.walkingOnTheSpot.reset(this.player.x, this.player.y);
+            this.pfb2.walkingOnTheSpot.reset(this.player.getX(), this.player.getY());
          }
 
          BaseVehicle var2 = VehicleManager.instance.getVehicleByID(var1.VehicleID);
@@ -225,13 +240,19 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
          this.player.realdir = IsoDirections.fromIndex(var1.realdir);
          if (GameServer.bServer) {
             this.player.setForwardDirection(this.direction);
+            if (this.climbFenceOutcomeFall && !this.lastClimbFenceOutcomeFall) {
+               GameServer.helmetFall(this.player, false);
+            }
+
+            this.lastClimbFenceOutcomeFall = this.climbFenceOutcomeFall;
          }
 
          this.collidePointX = var1.collidePointX;
          this.collidePointY = var1.collidePointY;
          var1.variables.apply(this.player);
          this.footstepSoundRadius = var1.footstepSoundRadius;
-         String var10000;
+         DebugLogStream var10000;
+         String var10001;
          IsoGameCharacter var3;
          if (this.player.getVehicle() == null) {
             if (var2 != null) {
@@ -239,17 +260,18 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
                   var3 = var2.getCharacter(var1.VehicleSeat);
                   if (var3 == null) {
                      if (GameServer.bDebug) {
-                        DebugLog.log(this.player.getUsername() + " got in vehicle " + var2.VehicleID + " seat " + var1.VehicleSeat);
+                        DebugLog.DetailedInfo.trace(this.player.getUsername() + " got in vehicle " + var2.VehicleID + " seat " + var1.VehicleSeat);
                      }
 
                      var2.enterRSync(var1.VehicleSeat, this.player, var2);
                   } else if (var3 != this.player) {
-                     var10000 = this.player.getUsername();
-                     DebugLog.log(var10000 + " got in same seat as " + ((IsoPlayer)var3).getUsername());
+                     var10000 = DebugLog.DetailedInfo;
+                     var10001 = this.player.getUsername();
+                     var10000.trace(var10001 + " got in same seat as " + ((IsoPlayer)var3).getUsername());
                      this.player.sendObjectChange("exitVehicle");
                   }
                } else {
-                  DebugLog.log(this.player.getUsername() + " invalid seat vehicle " + var2.VehicleID + " seat " + var1.VehicleSeat);
+                  DebugLog.DetailedInfo.trace(this.player.getUsername() + " invalid seat vehicle " + var2.VehicleID + " seat " + var1.VehicleSeat);
                }
             }
          } else if (var2 != null) {
@@ -260,13 +282,15 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
                      var2.switchSeat(this.player, var1.VehicleSeat);
                   }
                } else if (var3 != this.player) {
-                  var10000 = this.player.getUsername();
-                  DebugLog.log(var10000 + " switched to same seat as " + ((IsoPlayer)var3).getUsername());
+                  var10000 = DebugLog.DetailedInfo;
+                  var10001 = this.player.getUsername();
+                  var10000.trace(var10001 + " switched to same seat as " + ((IsoPlayer)var3).getUsername());
                   this.player.sendObjectChange("exitVehicle");
                }
             } else {
-               var10000 = this.player.getUsername();
-               DebugLog.log(var10000 + " vehicle/seat remote " + var2.VehicleID + "/" + var1.VehicleSeat + " local " + this.player.getVehicle().VehicleID + "/" + this.player.getVehicle().getSeat(this.player));
+               var10000 = DebugLog.DetailedInfo;
+               var10001 = this.player.getUsername();
+               var10000.trace(var10001 + " vehicle/seat remote " + var2.VehicleID + "/" + var1.VehicleSeat + " local " + this.player.getVehicle().VehicleID + "/" + this.player.getVehicle().getSeat(this.player));
                this.player.sendObjectChange("exitVehicle");
             }
          } else {
@@ -320,18 +344,44 @@ public class NetworkPlayerAI extends NetworkCharacterAI {
       }
    }
 
+   /** @deprecated */
+   @Deprecated
    public void update() {
-      if (DebugOptions.instance.MultiplayerHotKey.getValue() && GameKeyboard.isKeyPressed(45) && GameKeyboard.isKeyDown(56)) {
-         DebugLog.Multiplayer.noise("multiplayer hot key pressed");
-         ArrayList var1 = ScriptManager.instance.getAllRecipes();
-         Recipe var2 = (Recipe)var1.get(Rand.Next(var1.size()));
-         var2.TimeToMake = (float)Rand.Next(32767);
-         DebugLog.Multiplayer.debugln("Failed recipe \"%s\"", var2.getOriginalname());
+      if (!GameServer.bServer && GameClient.bClient) {
+         if (!ServerOptions.getInstance().KnockedDownAllowed.getValue() && this.player.isLocalPlayer() && this.player.getVehicle() == null && this.player.isUnderVehicleRadius(0.0F)) {
+            this.player.setJustMoved(true);
+            this.player.setMoveDelta(1.0F);
+            this.player.setForwardDirection(this.player.getForwardDirection().set((float)Rand.Next(-1, 1), (float)Rand.Next(-1, 1)));
+         }
+
+         if (Core.bDebug && this.player == IsoPlayer.getInstance() && GameKeyboard.isKeyDown(56)) {
+            if (GameKeyboard.isKeyPressed(44)) {
+               GameClient.SendCommandToServer(String.format("/createhorde2 -x %d -y %d -z %d -count %d -radius %d -crawler %s -isFallOnFront %s -isFakeDead %s -knockedDown %s -health %s -outfit %s ", PZMath.fastfloor(this.player.getX()), PZMath.fastfloor(this.player.getY()), PZMath.fastfloor(this.player.getZ()), 1, 1, "false", "false", "false", "false", "1", ""));
+            }
+
+            if (GameKeyboard.isKeyPressed(19) && this.player.getVehicle() != null) {
+               KahluaTable var1 = LuaManager.platform.newTable();
+               var1.rawset("vehicle", (double)this.player.getVehicle().getId());
+               GameClient.instance.sendClientCommand(this.player, "vehicle", "repair", var1);
+            }
+         }
       }
 
    }
 
    public boolean isDismantleAllowed() {
       return true;
+   }
+
+   public boolean isDisconnected() {
+      return this.disconnected;
+   }
+
+   public void setDisconnected(boolean var1) {
+      this.disconnected = var1;
+   }
+
+   public boolean isReliable() {
+      return this.reliable.Check();
    }
 }

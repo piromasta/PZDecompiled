@@ -10,17 +10,21 @@ import zombie.core.SpriteRenderer;
 import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugOptions;
 import zombie.input.GameKeyboard;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoChunkMap;
+import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.PlayerCamera;
+import zombie.iso.sprite.IsoSprite;
 import zombie.iso.weather.ClimateManager;
 import zombie.iso.weather.fx.SteppedUpdateFloat;
 
 public class ImprovedFog {
+   public static final int MAX_FOG_Z = 1;
    private static final RectangleIterator rectangleIter = new RectangleIterator();
    private static final Vector2i rectangleMatrixPos = new Vector2i();
    private static IsoChunkMap chunkMap;
@@ -71,6 +75,7 @@ public class ImprovedFog {
    private static int maxYOffset = -5;
    private static boolean renderEndOnly = false;
    private static final SteppedUpdateFloat fogIntensity = new SteppedUpdateFloat(0.0F, 0.005F, 0.0F, 1.0F);
+   private static final ImprovedFogDrawer[][] drawers = new ImprovedFogDrawer[4][3];
    private static int keyPause = 0;
    private static final float[] offsets = new float[]{0.3F, 0.8F, 0.0F, 0.6F, 0.3F, 0.1F, 0.5F, 0.9F, 0.2F, 0.0F, 0.7F, 0.1F, 0.4F, 0.2F, 0.5F, 0.3F, 0.8F, 0.4F, 0.9F, 0.5F, 0.8F, 0.4F, 0.7F, 0.2F, 0.0F, 0.6F, 0.1F, 0.6F, 0.9F, 0.7F};
 
@@ -261,6 +266,10 @@ public class ImprovedFog {
       renderXRowsFromCenter = var0;
    }
 
+   public static Texture getNoiseTexture() {
+      return noiseTexture;
+   }
+
    public static void update() {
       updateKeys();
       if (noiseTexture == null) {
@@ -307,80 +316,89 @@ public class ImprovedFog {
 
    }
 
-   public static void startRender(int var0, int var1) {
-      climateManager = ClimateManager.getInstance();
-      if (var1 < 2 && !(baseAlpha <= 0.0F) && PerformanceSettings.FogQuality != 2) {
-         drawingThisLayer = true;
-         IsoPlayer var2 = IsoPlayer.players[var0];
-         if (renderCurrentLayerOnly && var2.getZ() != (float)var1) {
-            drawingThisLayer = false;
-         } else if (var2.isInARoom() && var1 > 0) {
-            drawingThisLayer = false;
-         } else {
-            playerRow = (int)var2.getX() + (int)var2.getY();
-            ZOOM = Core.getInstance().getZoom(var0);
-            zLayer = var1;
-            PlayerIndex = var0;
-            PlayerCamera var3 = IsoCamera.cameras[var0];
-            screenWidth = (float)IsoCamera.getOffscreenWidth(var0);
-            screenHeight = (float)IsoCamera.getOffscreenHeight(var0);
-            worldOffsetX = var3.getOffX() - (float)IsoCamera.getOffscreenLeft(PlayerIndex) * ZOOM;
-            worldOffsetY = var3.getOffY() + (float)IsoCamera.getOffscreenTop(PlayerIndex) * ZOOM;
-            rightClickOffX = var3.RightClickX;
-            rightClickOffY = var3.RightClickY;
-            cameraOffscreenLeft = (float)IsoCamera.getOffscreenLeft(var0);
-            cameraOffscreenTop = (float)IsoCamera.getOffscreenTop(var0);
-            cameraZoom = ZOOM;
-            if (!enableEditing) {
-               if (var2.getVehicle() != null) {
-                  alphaCircleAlpha = 0.0F;
-                  alphaCircleRad = highQuality ? 2.0F : 2.6F;
-               } else if (var2.isInARoom()) {
-                  alphaCircleAlpha = 0.0F;
-                  alphaCircleRad = highQuality ? 1.25F : 1.5F;
-               } else {
-                  alphaCircleAlpha = highQuality ? 0.1F : 0.16F;
-                  alphaCircleRad = highQuality ? 2.5F : 3.0F;
-                  if (climateManager.getWeatherPeriod().isRunning() && (climateManager.getWeatherPeriod().isTropicalStorm() || climateManager.getWeatherPeriod().isThunderStorm())) {
-                     alphaCircleRad *= 0.6F;
+   public static boolean startRender(int var0, int var1) {
+      if (!DebugOptions.instance.Weather.Fog.getValue()) {
+         drawingThisLayer = false;
+         return false;
+      } else {
+         climateManager = ClimateManager.getInstance();
+         if (var1 <= 1 && !(baseAlpha <= 0.0F) && PerformanceSettings.FogQuality != 2) {
+            drawingThisLayer = true;
+            IsoPlayer var2 = IsoPlayer.players[var0];
+            if (renderCurrentLayerOnly && var2.getZ() != (float)var1) {
+               drawingThisLayer = false;
+               return false;
+            } else if (var2.isInARoom() && var1 > 0) {
+               drawingThisLayer = false;
+               return false;
+            } else {
+               playerRow = PZMath.fastfloor(var2.getX()) + PZMath.fastfloor(var2.getY());
+               ZOOM = Core.getInstance().getZoom(var0);
+               zLayer = var1;
+               PlayerIndex = var0;
+               PlayerCamera var3 = IsoCamera.cameras[var0];
+               screenWidth = (float)IsoCamera.getOffscreenWidth(var0);
+               screenHeight = (float)IsoCamera.getOffscreenHeight(var0);
+               worldOffsetX = var3.getOffX() - (float)IsoCamera.getOffscreenLeft(PlayerIndex) * ZOOM;
+               worldOffsetY = var3.getOffY() + (float)IsoCamera.getOffscreenTop(PlayerIndex) * ZOOM;
+               rightClickOffX = var3.RightClickX + IsoUtils.XToScreen(var3.DeferedX, var3.DeferedY, 0.0F, 0);
+               rightClickOffY = var3.RightClickY + IsoUtils.YToScreen(var3.DeferedX, var3.DeferedY, 0.0F, 0);
+               cameraOffscreenLeft = (float)IsoCamera.getOffscreenLeft(var0);
+               cameraOffscreenTop = (float)IsoCamera.getOffscreenTop(var0);
+               cameraZoom = ZOOM;
+               if (!enableEditing) {
+                  if (var2.getVehicle() != null) {
+                     alphaCircleAlpha = 0.0F;
+                     alphaCircleRad = highQuality ? 2.0F : 2.6F;
+                  } else if (var2.isInARoom()) {
+                     alphaCircleAlpha = 0.0F;
+                     alphaCircleRad = highQuality ? 1.25F : 1.5F;
+                  } else {
+                     alphaCircleAlpha = highQuality ? 0.1F : 0.16F;
+                     alphaCircleRad = highQuality ? 2.5F : 3.0F;
+                     if (climateManager.getWeatherPeriod().isRunning() && (climateManager.getWeatherPeriod().isTropicalStorm() || climateManager.getWeatherPeriod().isThunderStorm())) {
+                        alphaCircleRad *= 0.6F;
+                     }
                   }
                }
-            }
 
-            byte var4 = 0;
-            byte var5 = 0;
-            int var6 = var4 + IsoCamera.getOffscreenWidth(var0);
-            int var7 = var5 + IsoCamera.getOffscreenHeight(var0);
-            float var8 = IsoUtils.XToIso((float)var4, (float)var5, (float)zLayer);
-            float var9 = IsoUtils.YToIso((float)var4, (float)var5, (float)zLayer);
-            float var10 = IsoUtils.XToIso((float)var6, (float)var7, (float)zLayer);
-            float var11 = IsoUtils.YToIso((float)var6, (float)var7, (float)zLayer);
-            float var12 = IsoUtils.YToIso((float)var4, (float)var7, (float)zLayer);
-            minY = (int)var9;
-            maxY = (int)var11;
-            minX = (int)var8;
-            maxX = (int)var10;
-            if (IsoPlayer.numPlayers > 1) {
-               maxX = Math.max(maxX, IsoWorld.instance.CurrentCell.getMaxX());
-               maxY = Math.max(maxY, IsoWorld.instance.CurrentCell.getMaxY());
-            }
+               byte var4 = 0;
+               byte var5 = 0;
+               int var6 = var4 + IsoCamera.getOffscreenWidth(var0);
+               int var7 = var5 + IsoCamera.getOffscreenHeight(var0);
+               float var8 = IsoUtils.XToIso((float)var4, (float)var5, (float)zLayer);
+               float var9 = IsoUtils.YToIso((float)var4, (float)var5, (float)zLayer);
+               float var10 = IsoUtils.XToIso((float)var6, (float)var7, (float)zLayer);
+               float var11 = IsoUtils.YToIso((float)var6, (float)var7, (float)zLayer);
+               float var12 = IsoUtils.YToIso((float)var4, (float)var7, (float)zLayer);
+               minY = PZMath.fastfloor(var9);
+               maxY = PZMath.fastfloor(var11);
+               minX = PZMath.fastfloor(var8);
+               maxX = PZMath.fastfloor(var10);
+               if (IsoPlayer.numPlayers > 1) {
+                  maxX = Math.max(maxX, IsoWorld.instance.CurrentCell.getMaxX()) + 20;
+                  maxY = Math.max(maxY, IsoWorld.instance.CurrentCell.getMaxY()) + 20;
+               }
 
-            minX += minXOffset;
-            maxX += maxXOffset;
-            maxY += maxYOffset;
-            int var13 = maxX - minX;
-            int var14 = var13;
-            if (minY != maxY) {
-               var14 = (int)((float)var13 + PZMath.abs((float)(minY - maxY)));
-            }
+               minX += minXOffset;
+               maxX += maxXOffset;
+               maxY += maxYOffset;
+               int var13 = maxX - minX;
+               int var14 = var13;
+               if (minY != maxY) {
+                  var14 = (int)((float)var13 + PZMath.abs((float)(minY - maxY)));
+               }
 
-            rectangleIter.reset(var13, var14);
-            lastRow = -1;
-            fogRectangle.hasStarted = false;
-            chunkMap = IsoWorld.instance.getCell().getChunkMap(var0);
+               rectangleIter.reset(var13, var14);
+               lastRow = 2147483647;
+               fogRectangle.hasStarted = false;
+               chunkMap = IsoWorld.instance.getCell().getChunkMap(var0);
+               return true;
+            }
+         } else {
+            drawingThisLayer = false;
+            return false;
          }
-      } else {
-         drawingThisLayer = false;
       }
    }
 
@@ -394,7 +412,7 @@ public class ImprovedFog {
             }
          }
 
-         if (lastRow < 0 || lastRow != var1) {
+         if (lastRow == -2147483648 || lastRow != var1) {
             Vector2i var3 = rectangleMatrixPos;
 
             while(rectangleIter.next(var3)) {
@@ -403,7 +421,7 @@ public class ImprovedFog {
                   int var6 = var3.y + minY;
                   int var4 = var5 + var6;
                   if (var4 != lastRow) {
-                     if (lastRow >= 0 && (!renderEndOnly || var0 == null)) {
+                     if (lastRow != -2147483648 && (!renderEndOnly || var0 == null)) {
                         endFogRectangle(lastIterPos.x, lastIterPos.y, zLayer);
                      }
 
@@ -466,7 +484,7 @@ public class ImprovedFog {
 
    }
 
-   private static void renderFogSegment() {
+   private static void renderFogSegmentOld() {
       int var0 = fogRectangle.startX + fogRectangle.startY;
       int var1 = fogRectangle.endX + fogRectangle.endY;
       if (Core.bDebug && var0 != var1) {
@@ -497,6 +515,8 @@ public class ImprovedFog {
          float var11 = var10 / 6.0F;
          float var12 = var9 / 6.0F;
          float var14 = var12 + var11;
+         SpriteRenderer.instance.glEnable(3042);
+         IndieGL.glBlendFunc(770, 771);
          if (FogShader.instance.StartShader()) {
             FogShader.instance.setScreenInfo(screenWidth, screenHeight, ZOOM, zLayer > 0 ? secondLayerAlpha : 1.0F);
             FogShader.instance.setTextureInfo(drawDebugColors ? 1.0F : 0.0F, octaves, var2, (float)Core.TileScale);
@@ -505,11 +525,92 @@ public class ImprovedFog {
             FogShader.instance.setScalingInfo(scalingX, scalingY, (float)zLayer, highQuality ? 0.0F : 1.0F);
             FogShader.instance.setColorInfo(colorR, colorG, colorB, 1.0F);
             FogShader.instance.setParamInfo(topAlphaHeight, bottomAlphaHeight, alphaCircleAlpha, alphaCircleRad);
-            FogShader.instance.setCameraInfo(cameraOffscreenLeft, cameraOffscreenTop, cameraZoom, offsets[var0 % offsets.length]);
+            FogShader.instance.setCameraInfo(cameraOffscreenLeft, cameraOffscreenTop, cameraZoom, offsets[Math.abs(var0) % offsets.length]);
+            if (PerformanceSettings.FBORenderChunk) {
+               IndieGL.glDepthMask(false);
+               IndieGL.enableDepthTest();
+               IndieGL.glDepthFunc(513);
+               float var15 = (float)fogRectangle.startX + (float)(fogRectangle.endX - fogRectangle.startX) / 2.0F;
+               float var16 = (float)fogRectangle.startY + (float)(fogRectangle.endY - fogRectangle.startY) / 2.0F;
+               int var17 = fogRectangle.Z;
+               float var18 = PZMath.coordmodulof(var15, 8) + 0.5F;
+               float var19 = PZMath.coordmodulof(var16, 8) + 0.5F;
+               float var20 = IsoSprite.calculateDepth(var18 - 1.0F, var19 - 1.0F, (float)var17);
+               float var21 = IsoSprite.calculateDepth(var18, var19, (float)var17);
+               float var22 = IsoSprite.calculateDepth(var18 - 1.0F, var19 - 1.0F, (float)(var17 + 1));
+               float var23 = IsoSprite.calculateDepth(var18, var19, (float)(var17 + 1));
+               float var24 = var20 - var21 + var21;
+               float var25 = var22 - var23 + var23;
+               float var26 = var25 - var24 + var24;
+               var26 += IsoDepthHelper.getChunkDepthData(PZMath.fastfloor(IsoPlayer.getInstance().getX() / 8.0F), PZMath.fastfloor(IsoPlayer.getInstance().getY() / 8.0F), PZMath.fastfloor(var15 / 8.0F), PZMath.fastfloor(var16 / 8.0F), PZMath.fastfloor((float)var17)).depthStart;
+               FogShader.instance.setTargetDepth(var26);
+            }
+
             SpriteRenderer.instance.render(noiseTexture, (float)((int)var4), (float)((int)var5), (float)((int)(var6 - var4)), (float)((int)var8), 1.0F, 1.0F, 1.0F, var2, var11, 0.0F, var14, 0.0F, var14, 1.0F, var11, 1.0F);
             IndieGL.EndShader();
          }
 
+      }
+   }
+
+   private static void renderFogSegment() {
+      if (!PerformanceSettings.FBORenderChunk) {
+         renderFogSegmentOld();
+      } else {
+         int var0 = fogRectangle.startX + fogRectangle.startY;
+         int var1 = fogRectangle.endX + fogRectangle.endY;
+         if (Core.bDebug && var0 != var1) {
+            DebugLog.log("ROWS NOT EQUAL");
+         }
+
+         if (renderOnlyOneRow) {
+            if (var0 != playerRow) {
+               return;
+            }
+         } else if (var0 % renderEveryXRow != 0) {
+            return;
+         }
+
+         if (!Core.bDebug || renderXRowsFromCenter < 1 || var0 >= playerRow - renderXRowsFromCenter && var0 <= playerRow + renderXRowsFromCenter) {
+            float var2 = baseAlpha;
+            FogRectangle var3 = fogRectangle;
+            float var4 = IsoUtils.XToScreenExact((float)var3.startX, (float)var3.startY, (float)var3.Z, 0);
+            float var5 = IsoUtils.YToScreenExact((float)var3.startX, (float)var3.startY, (float)var3.Z, 0);
+            float var6 = IsoUtils.XToScreenExact((float)var3.endX, (float)var3.endY, (float)var3.Z, 0);
+            float var7 = IsoUtils.YToScreenExact((float)var3.endX, (float)var3.endY, (float)var3.Z, 0);
+            var4 -= 32.0F * (float)Core.TileScale;
+            var5 -= 80.0F * (float)Core.TileScale;
+            var6 += 32.0F * (float)Core.TileScale;
+            float var8 = 96.0F * (float)Core.TileScale;
+            float var9 = (var6 - var4) / (64.0F * (float)Core.TileScale);
+            float var10 = (float)var3.startX % 6.0F;
+            float var11 = var10 / 6.0F;
+            float var12 = var9 / 6.0F;
+            float var14 = var12 + var11;
+            float var15 = 0.0F;
+            float var16 = 0.0F;
+            if (PerformanceSettings.FBORenderChunk) {
+               float var17 = (float)fogRectangle.startX + (float)(fogRectangle.endX - fogRectangle.startX) / 2.0F;
+               float var18 = (float)fogRectangle.startY + (float)(fogRectangle.endY - fogRectangle.startY) / 2.0F;
+               int var19 = fogRectangle.Z;
+               var17 = IsoUtils.XToIso(var4 + (var6 - var4) / 2.0F, var5 + (var7 - var5) / 2.0F, (float)var19);
+               var18 = IsoUtils.YToIso(var4 + (var6 - var4) / 2.0F, var5 + (var7 - var5) / 2.0F, (float)var19);
+               float var20 = var17 + 1.5F;
+               float var21 = var18 + 1.5F;
+               float var22 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var20 - 1.0F, var21 - 1.0F, (float)var19).depthStart;
+               float var23 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var20, var21, (float)var19).depthStart;
+               float var24 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var20 - 1.0F, var21 - 1.0F, (float)(var19 + 1)).depthStart;
+               float var25 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var20, var21, (float)(var19 + 1)).depthStart;
+               float var26 = var22 - var23 + var23;
+               float var27 = var24 - var25 + var25;
+               float var28 = var27 - var26 + var26;
+               var15 = var28;
+               var16 = var28 - (var7 - var5) / 96.0F * IsoDepthHelper.LevelDepth * 0.6F;
+            }
+
+            ImprovedFogDrawer var29 = getDrawer();
+            var29.addRectangle(var4, var5, var6, var5 + var8, var11, 0.0F, var14, 1.0F, offsets[Math.abs(var0) % offsets.length], var15, var16, zLayer > 0 ? secondLayerAlpha : 1.0F, zLayer);
+         }
       }
    }
 
@@ -550,6 +651,48 @@ public class ImprovedFog {
          }
 
       }
+   }
+
+   public static ImprovedFogDrawer getDrawer() {
+      int var0 = IsoCamera.frameState.playerIndex;
+      int var1 = SpriteRenderer.instance.getMainStateIndex();
+      if (drawers[var0][var1] == null) {
+         drawers[var0][var1] = new ImprovedFogDrawer();
+      }
+
+      return drawers[var0][var1];
+   }
+
+   public static void startFrame(ImprovedFogDrawer var0) {
+      var0.screenInfo1 = screenWidth;
+      var0.screenInfo2 = screenHeight;
+      var0.screenInfo3 = ZOOM;
+      var0.screenInfo4 = 0.0F / 0.0F;
+      var0.textureInfo1 = drawDebugColors ? 1.0F : 0.0F;
+      var0.textureInfo2 = octaves;
+      var0.textureInfo3 = baseAlpha;
+      var0.textureInfo4 = (float)Core.TileScale;
+      var0.worldOffset1 = worldOffsetX;
+      var0.worldOffset2 = worldOffsetY;
+      var0.worldOffset3 = rightClickOffX;
+      var0.worldOffset4 = rightClickOffY;
+      var0.scalingInfo1 = scalingX;
+      var0.scalingInfo2 = scalingY;
+      var0.scalingInfo3 = 0.0F / 0.0F;
+      var0.scalingInfo4 = highQuality ? 1.0F : 0.0F;
+      var0.colorInfo1 = colorR;
+      var0.colorInfo2 = colorG;
+      var0.colorInfo3 = colorB;
+      var0.colorInfo4 = 1.0F;
+      var0.paramInfo1 = topAlphaHeight;
+      var0.paramInfo2 = bottomAlphaHeight;
+      var0.paramInfo3 = alphaCircleAlpha;
+      var0.paramInfo4 = alphaCircleRad;
+      var0.cameraInfo1 = cameraOffscreenLeft;
+      var0.cameraInfo2 = cameraOffscreenTop;
+      var0.cameraInfo3 = cameraZoom;
+      var0.cameraInfo4 = 0.0F / 0.0F;
+      var0.alpha = baseAlpha;
    }
 
    public static void init() {

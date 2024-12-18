@@ -1,19 +1,19 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Role;
 import zombie.commands.AltCommandArgs;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
 import zombie.commands.CommandNames;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
-import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
 
 @CommandNames({@CommandName(
    name = "teleportto"
@@ -30,8 +30,8 @@ import zombie.network.PacketTypes;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_TeleportTo"
 )
-@RequiredRight(
-   requiredRights = 62
+@RequiredCapability(
+   requiredCapability = Capability.TeleportToCoordinates
 )
 public class TeleportToCommand extends CommandBase {
    public static final String teleportMe = "teleport me";
@@ -39,7 +39,7 @@ public class TeleportToCommand extends CommandBase {
    private String username;
    private Float[] coords;
 
-   public TeleportToCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public TeleportToCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -72,24 +72,18 @@ public class TeleportToCommand extends CommandBase {
       float var1 = this.coords[0];
       float var2 = this.coords[1];
       float var3 = this.coords[2];
-      if (this.connection == null) {
-         return "Error";
-      } else {
-         ByteBufferWriter var4 = this.connection.startPacket();
-         PacketTypes.PacketType.Teleport.doPacket(var4);
-         var4.putByte((byte)0);
-         var4.putFloat(var1);
-         var4.putFloat(var2);
-         var4.putFloat(var3);
-         PacketTypes.PacketType.Teleport.send(this.connection);
-         if (this.connection.players[0] != null && this.connection.players[0].getNetworkCharacterAI() != null) {
-            this.connection.players[0].getNetworkCharacterAI().resetSpeedLimiter();
+      if (this.connection != null) {
+         if (!this.connection.role.haveCapability(Capability.TeleportToCoordinates)) {
+            return "An Observer can only teleport himself";
+         } else {
+            GameServer.sendTeleport(this.connection.players[0], var1, var2, var3);
+            ZLogger var10000 = LoggerManager.getLogger("admin");
+            String var10001 = this.getExecutorUsername();
+            var10000.write(var10001 + " teleported to " + (int)var1 + "," + (int)var2 + "," + (int)var3);
+            return "teleported to " + (int)var1 + "," + (int)var2 + "," + (int)var3 + " please wait two seconds to show the map around you.";
          }
-
-         ZLogger var10000 = LoggerManager.getLogger("admin");
-         String var10001 = this.getExecutorUsername();
-         var10000.write(var10001 + " teleported to " + (int)var1 + "," + (int)var2 + "," + (int)var3);
-         return "teleported to " + (int)var1 + "," + (int)var2 + "," + (int)var3 + " please wait two seconds to show the map around you.";
+      } else {
+         return "Error";
       }
    }
 
@@ -97,25 +91,14 @@ public class TeleportToCommand extends CommandBase {
       float var1 = this.coords[0];
       float var2 = this.coords[1];
       float var3 = this.coords[2];
-      if (this.connection != null && this.connection.accessLevel == 2 && !this.username.equals(this.getExecutorUsername())) {
+      if (this.connection != null && !this.connection.role.haveCapability(Capability.TeleportPlayerToAnotherPlayer) && !this.username.equals(this.getExecutorUsername())) {
          return "An Observer can only teleport himself";
       } else {
          IsoPlayer var4 = GameServer.getPlayerByUserNameForCommand(this.username);
          if (var4 == null) {
             return "Can't find player " + this.username;
          } else {
-            UdpConnection var5 = GameServer.getConnectionFromPlayer(var4);
-            ByteBufferWriter var6 = var5.startPacket();
-            PacketTypes.PacketType.Teleport.doPacket(var6);
-            var6.putByte((byte)0);
-            var6.putFloat(var1);
-            var6.putFloat(var2);
-            var6.putFloat(var3);
-            PacketTypes.PacketType.Teleport.send(var5);
-            if (var4.getNetworkCharacterAI() != null) {
-               var4.getNetworkCharacterAI().resetSpeedLimiter();
-            }
-
+            GameServer.sendTeleport(var4, var1, var2, var3);
             ZLogger var10000 = LoggerManager.getLogger("admin");
             String var10001 = this.getExecutorUsername();
             var10000.write(var10001 + " teleported to " + (int)var1 + "," + (int)var2 + "," + (int)var3);

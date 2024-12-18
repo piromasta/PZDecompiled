@@ -4,6 +4,7 @@ import gnu.trove.map.hash.TIntObjectHashMap;
 import gnu.trove.map.hash.TShortObjectHashMap;
 import java.util.LinkedList;
 import java.util.List;
+import zombie.core.math.PZMath;
 
 public final class VehicleCache {
    public short id;
@@ -21,10 +22,10 @@ public final class VehicleCache {
       int var6;
       int var7;
       if (var4 != null) {
-         int var5 = (int)(var4.x / 10.0F);
-         var6 = (int)(var4.y / 10.0F);
-         var7 = (int)(var1 / 10.0F);
-         int var8 = (int)(var2 / 10.0F);
+         int var5 = PZMath.fastfloor(var4.x / 8.0F);
+         var6 = PZMath.fastfloor(var4.y / 8.0F);
+         var7 = PZMath.fastfloor(var1 / 8.0F);
+         int var8 = PZMath.fastfloor(var2 / 8.0F);
          if (var5 != var7 || var6 != var8) {
             ((List)mapXY.get(var5 * 65536 + var6)).remove(var4);
             if (mapXY.get(var7 * 65536 + var8) == null) {
@@ -44,8 +45,8 @@ public final class VehicleCache {
          var9.y = var2;
          var9.z = var3;
          mapId.put(var0, var9);
-         var6 = (int)(var1 / 10.0F);
-         var7 = (int)(var2 / 10.0F);
+         var6 = PZMath.fastfloor(var1 / 8.0F);
+         var7 = PZMath.fastfloor(var2 / 8.0F);
          if (mapXY.get(var6 * 65536 + var7) == null) {
             mapXY.put(var6 * 65536 + var7, new LinkedList());
          }
@@ -56,8 +57,8 @@ public final class VehicleCache {
    }
 
    public static List<VehicleCache> vehicleGet(float var0, float var1) {
-      int var2 = (int)(var0 / 10.0F);
-      int var3 = (int)(var1 / 10.0F);
+      int var2 = PZMath.fastfloor(var0 / 8.0F);
+      int var3 = PZMath.fastfloor(var1 / 8.0F);
       return (List)mapXY.get(var2 * 65536 + var3);
    }
 
@@ -69,8 +70,8 @@ public final class VehicleCache {
       VehicleCache var1 = (VehicleCache)mapId.get(var0);
       if (var1 != null) {
          mapId.remove(var0);
-         int var2 = (int)(var1.x / 10.0F);
-         int var3 = (int)(var1.y / 10.0F);
+         int var2 = PZMath.fastfloor(var1.x / 8.0F);
+         int var3 = PZMath.fastfloor(var1.y / 8.0F);
          int var4 = var2 * 65536 + var3;
 
          assert mapXY.containsKey(var4);

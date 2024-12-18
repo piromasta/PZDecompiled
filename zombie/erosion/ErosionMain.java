@@ -9,8 +9,10 @@ import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
+import zombie.core.random.RandLocation;
 import zombie.core.utils.Bits;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugLogStream;
 import zombie.erosion.season.ErosionIceQueen;
 import zombie.erosion.season.ErosionSeason;
 import zombie.erosion.utils.Noise2D;
@@ -120,14 +122,14 @@ public final class ErosionMain {
             for(int var3 = 0; var3 < ServerMap.instance.LoadedCells.size(); ++var3) {
                ServerMap.ServerCell var4 = (ServerMap.ServerCell)ServerMap.instance.LoadedCells.get(var3);
                if (var4.bLoaded) {
-                  for(int var5 = 0; var5 < 5; ++var5) {
-                     for(int var6 = 0; var6 < 5; ++var6) {
+                  for(int var5 = 0; var5 < 8; ++var5) {
+                     for(int var6 = 0; var6 < 8; ++var6) {
                         IsoChunk var7 = var4.chunks[var6][var5];
                         if (var7 != null) {
                            ErosionData.Chunk var8 = var7.getErosionData();
                            if (var8.eTickStamp != this.eTicks || var8.epoch != this.epoch) {
-                              for(int var9 = 0; var9 < 10; ++var9) {
-                                 for(int var10 = 0; var10 < 10; ++var10) {
+                              for(int var9 = 0; var9 < 8; ++var9) {
+                                 for(int var10 = 0; var10 < 8; ++var10) {
                                     IsoGridSquare var11 = var7.getGridSquare(var10, var9, 0);
                                     if (var11 != null) {
                                        this.loadGridsquare(var11);
@@ -237,6 +239,7 @@ public final class ErosionMain {
       var2.noiseMainInt = (int)Math.floor((double)(var2.noiseMain * 100.0F));
       var2.noiseKudzu = this.noiseKudzu.layeredNoise((float)var3 / 10.0F, (float)var4 / 10.0F);
       var2.soil = this.chunkModData.soil;
+      var2.rand = new RandLocation(var3, var4);
       float var6 = (float)var2.rand(var3, var4, 100) / 100.0F;
       var2.magicNumByte = Bits.packFloatUnitToByte(var6);
       var2.magicNum = var6;
@@ -283,7 +286,7 @@ public final class ErosionMain {
          this.cfgPath = ZomboidFileSystem.instance.getFileNameInCurrentSave(var1);
          File var2 = new File(this.cfgPath);
          if (var2.exists()) {
-            DebugLog.log("erosion: reading " + var2.getAbsolutePath());
+            DebugLog.DetailedInfo.trace("erosion: reading " + var2.getAbsolutePath());
             if (this.cfg.readFile(var2.getAbsolutePath())) {
                return true;
             }
@@ -297,8 +300,9 @@ public final class ErosionMain {
             File var3 = ZomboidFileSystem.instance.getMediaFile("data" + File.separator + var1);
             if (var3.exists()) {
                try {
-                  String var10000 = var3.getAbsolutePath();
-                  DebugLog.log("erosion: copying " + var10000 + " to " + var2.getAbsolutePath());
+                  DebugLogStream var10000 = DebugLog.DetailedInfo;
+                  String var10001 = var3.getAbsolutePath();
+                  var10000.trace("erosion: copying " + var10001 + " to " + var2.getAbsolutePath());
                   Files.copy(var3.toPath(), var2.toPath());
                } catch (Exception var7) {
                   var7.printStackTrace();
@@ -307,7 +311,7 @@ public final class ErosionMain {
          }
 
          if (var2.exists()) {
-            DebugLog.log("erosion: reading " + var2.getAbsolutePath());
+            DebugLog.DetailedInfo.trace("erosion: reading " + var2.getAbsolutePath());
             if (!this.cfg.readFile(var2.getAbsolutePath())) {
                this.cfg = new ErosionConfig();
             }
@@ -438,8 +442,8 @@ public final class ErosionMain {
                      if (var5 != null) {
                         ErosionData.Chunk var6 = var5.getErosionData();
                         if (var6.eTickStamp != this.eTicks || var6.epoch != this.epoch) {
-                           for(int var7 = 0; var7 < 10; ++var7) {
-                              for(int var8 = 0; var8 < 10; ++var8) {
+                           for(int var7 = 0; var7 < 8; ++var7) {
+                              for(int var8 = 0; var8 < 8; ++var8) {
                                  IsoGridSquare var9 = var5.getGridSquare(var8, var7, 0);
                                  if (var9 != null) {
                                     this.loadGridsquare(var9);

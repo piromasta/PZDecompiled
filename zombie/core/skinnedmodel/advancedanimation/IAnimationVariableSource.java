@@ -18,4 +18,8 @@ public interface IAnimationVariableSource {
    boolean isVariable(String var1, String var2);
 
    boolean containsVariable(String var1);
+
+   default IAnimationVariableSource getSubVariableSource(String var1) {
+      return null;
+   }
 }

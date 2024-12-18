@@ -3,12 +3,12 @@ package zombie.randomizedWorld.randomizedVehicleStory;
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
 import zombie.characters.BodyDamage.BodyPartType;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.Vector2;
+import zombie.iso.zones.Zone;
 import zombie.vehicles.BaseVehicle;
 
 public final class RVSAmbulanceCrash extends RandomizedVehicleStoryBase {
@@ -16,14 +16,14 @@ public final class RVSAmbulanceCrash extends RandomizedVehicleStoryBase {
       this.name = "Ambulance Crash";
       this.minZoneWidth = 5;
       this.minZoneHeight = 7;
-      this.setChance(5);
+      this.setChance(50);
    }
 
-   public void randomizeVehicleStory(IsoMetaGrid.Zone var1, IsoChunk var2) {
+   public void randomizeVehicleStory(Zone var1, IsoChunk var2) {
       this.callVehicleStorySpawner(var1, var2, 0.0F);
    }
 
-   public boolean initVehicleStorySpawner(IsoMetaGrid.Zone var1, IsoChunk var2, boolean var3) {
+   public boolean initVehicleStorySpawner(Zone var1, IsoChunk var2, boolean var3) {
       VehicleStorySpawner var4 = VehicleStorySpawner.getInstance();
       var4.clear();
       float var5 = 0.5235988F;
@@ -46,12 +46,13 @@ public final class RVSAmbulanceCrash extends RandomizedVehicleStoryBase {
       IsoGridSquare var3 = var2.square;
       if (var3 != null) {
          float var4 = var2.z;
-         IsoMetaGrid.Zone var5 = (IsoMetaGrid.Zone)var1.getParameter("zone", IsoMetaGrid.Zone.class);
+         Zone var5 = (Zone)var1.getParameter("zone", Zone.class);
          BaseVehicle var8;
          switch (var2.id) {
             case "vehicle1":
                var8 = this.addVehicle(var5, var2.position.x, var2.position.y, var4, var2.direction, (String)null, "Base.VanAmbulance", (Integer)null, (String)null);
                if (var8 != null) {
+                  var8.setAlarmed(false);
                   this.addZombiesOnVehicle(Rand.Next(1, 3), "AmbulanceDriver", (Integer)null, var8);
                   ArrayList var9 = this.addZombiesOnVehicle(Rand.Next(1, 3), "HospitalPatient", (Integer)null, var8);
 
@@ -66,7 +67,8 @@ public final class RVSAmbulanceCrash extends RandomizedVehicleStoryBase {
                break;
             case "vehicle2":
                var8 = this.addVehicle(var5, var2.position.x, var2.position.y, var4, var2.direction, "bad", (String)null, (Integer)null, (String)null);
-               if (var8 == null) {
+               if (var8 != null) {
+                  var8.setAlarmed(false);
                }
          }
 

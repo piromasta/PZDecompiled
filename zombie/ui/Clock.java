@@ -311,7 +311,7 @@ public final class Clock extends UIElement {
       float var1 = ClimateManager.getInstance().getAirTemperatureForCharacter(this.clockPlayer, false);
       byte var2 = 0;
       byte var3 = 0;
-      if (!Core.OptionTemperatureDisplayCelsius) {
+      if (!Core.getInstance().getOptionTemperatureDisplayCelsius()) {
          var1 = var1 * 1.8F + 32.0F;
          var3 = 1;
       }
@@ -373,7 +373,7 @@ public final class Clock extends UIElement {
 
                for(int var7 = 0; var7 < var6.size(); ++var7) {
                   InventoryItem var5 = (InventoryItem)var6.get(var7);
-                  if (var5 instanceof AlarmClock || var5 instanceof AlarmClockClothing) {
+                  if ((var5 instanceof AlarmClock || var5 instanceof AlarmClockClothing) && (var5.isWorn() || var5.isEquipped())) {
                      this.visible = UIManager.VisibleAllUI;
                      this.digital |= var5.hasTag("Digital");
                      if (var5 instanceof AlarmClock) {
@@ -401,7 +401,7 @@ public final class Clock extends UIElement {
          }
       }
 
-      if (DebugOptions.instance.CheatClockVisible.getValue()) {
+      if (DebugOptions.instance.Cheat.Clock.Visible.getValue()) {
          this.digital = true;
          this.visible = UIManager.VisibleAllUI;
       }

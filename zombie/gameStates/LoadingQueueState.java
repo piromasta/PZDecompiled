@@ -1,5 +1,6 @@
 package zombie.gameStates;
 
+import java.util.HashMap;
 import java.util.function.Consumer;
 import org.lwjglx.input.Keyboard;
 import zombie.GameWindow;
@@ -8,6 +9,7 @@ import zombie.core.Core;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.modding.ActiveMods;
+import zombie.network.ConnectionManager;
 import zombie.network.GameClient;
 import zombie.ui.LoadingQueueUI;
 import zombie.ui.UIManager;
@@ -29,7 +31,7 @@ public class LoadingQueueState extends GameState {
       this.bAButtonDown = GameWindow.ActivatedJoyPad != null && GameWindow.ActivatedJoyPad.isAPressed();
       SoundManager.instance.setMusicState("Loading");
       if (GameClient.bClient) {
-         GameClient.instance.sendLoginQueueRequest2();
+         GameClient.instance.sendLoginQueueRequest();
       }
 
    }
@@ -79,6 +81,7 @@ public class LoadingQueueState extends GameState {
                GameClient.bClient = false;
                GameClient.connection.forceDisconnect("loading-queue-canceled");
                GameClient.connection = null;
+               ConnectionManager.getInstance().process();
             }
 
             return GameStateMachine.StateAction.Continue;
@@ -90,8 +93,9 @@ public class LoadingQueueState extends GameState {
       bDone = true;
    }
 
-   public static void onPlaceInQueue(int var0) {
+   public static void onPlaceInQueue(int var0, HashMap<String, Object> var1) {
       placeInQueue = var0;
       ui.setPlaceInQueue(var0);
+      ui.setServerInformation(var1);
    }
 }

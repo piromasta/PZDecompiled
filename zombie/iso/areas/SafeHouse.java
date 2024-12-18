@@ -3,14 +3,17 @@ package zombie.iso.areas;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.HashSet;
 import java.util.Iterator;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.GameWindow;
 import zombie.Lua.LuaEventManager;
+import zombie.characters.Capability;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Translator;
 import zombie.core.raknet.UdpConnection;
 import zombie.debug.DebugLog;
@@ -22,9 +25,13 @@ import zombie.iso.IsoWorld;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.PacketTypes;
 import zombie.network.ServerOptions;
+import zombie.network.WarManager;
 import zombie.network.chat.ChatServer;
-import zombie.network.packets.SyncSafehousePacket;
+import zombie.network.packets.INetworkPacket;
+import zombie.util.StringUtils;
+import zombie.vehicles.BaseVehicle;
 
 public class SafeHouse {
    private int x = 0;
@@ -33,56 +40,76 @@ public class SafeHouse {
    private int h = 0;
    private static int diffError = 2;
    private String owner = null;
-   private ArrayList<String> players = new ArrayList();
    private long lastVisited = 0L;
    private String title = "Safehouse";
    private int playerConnected = 0;
    private int openTimer = 0;
+   private int hitPoints = 0;
    private final String id;
-   public ArrayList<String> playersRespawn = new ArrayList();
+   private ArrayList<String> players = new ArrayList();
+   private final ArrayList<String> playersRespawn = new ArrayList();
    private static final ArrayList<SafeHouse> safehouseList = new ArrayList();
+   private int onlineID = -1;
    private static final ArrayList<IsoPlayer> tempPlayers = new ArrayList();
+   private static final HashSet<String> invites = new HashSet();
 
    public static void init() {
       safehouseList.clear();
    }
 
-   public static SafeHouse addSafeHouse(int var0, int var1, int var2, int var3, String var4, boolean var5) {
-      SafeHouse var6 = new SafeHouse(var0, var1, var2, var3, var4);
-      var6.setOwner(var4);
-      var6.setLastVisited(Calendar.getInstance().getTimeInMillis());
-      var6.addPlayer(var4);
-      safehouseList.add(var6);
-      if (GameServer.bServer) {
-         DebugLog.log("safehouse: added " + var0 + "," + var1 + "," + var2 + "," + var3 + " owner=" + var4);
-      }
-
-      if (GameClient.bClient && !var5) {
-         GameClient.sendSafehouse(var6, false);
-      }
-
+   public static SafeHouse addSafeHouse(int var0, int var1, int var2, int var3, String var4) {
+      SafeHouse var5 = new SafeHouse(var0, var1, var2, var3, var4);
+      var5.setOwner(var4);
+      var5.setLastVisited(Calendar.getInstance().getTimeInMillis());
+      var5.setHitPoints(0);
+      WarManager.removeWar(var5.getOnlineID(), (String)null);
+      safehouseList.add(var5);
+      DebugLog.Multiplayer.debugln("[%03d] Safehouse=%d added (%d;%d) owner=%s", safehouseList.size(), var5.getOnlineID(), var5.getX(), var5.getY(), var5.getOwner());
       updateSafehousePlayersConnected();
       if (GameClient.bClient) {
          LuaEventManager.triggerEvent("OnSafehousesChanged");
       }
 
-      return var6;
+      return var5;
    }
 
    public static SafeHouse addSafeHouse(IsoGridSquare var0, IsoPlayer var1) {
       String var2 = canBeSafehouse(var0, var1);
-      return var2 != null && !"".equals(var2) ? null : addSafeHouse(var0.getBuilding().def.getX() - diffError, var0.getBuilding().def.getY() - diffError, var0.getBuilding().def.getW() + diffError * 2, var0.getBuilding().def.getH() + diffError * 2, var1.getUsername(), false);
+      if (!StringUtils.isNullOrEmpty(var2)) {
+         return null;
+      } else {
+         return var0.getBuilding() == null ? null : addSafeHouse(var0.getBuilding().def.getX() - diffError, var0.getBuilding().def.getY() - diffError, var0.getBuilding().def.getW() + diffError * 2, var0.getBuilding().def.getH() + diffError * 2, var1.getUsername());
+      }
    }
 
    public static SafeHouse hasSafehouse(String var0) {
-      for(int var1 = 0; var1 < safehouseList.size(); ++var1) {
-         SafeHouse var2 = (SafeHouse)safehouseList.get(var1);
-         if (var2.getPlayers().contains(var0) || var2.getOwner().equals(var0)) {
-            return var2;
-         }
-      }
+      Iterator var1 = safehouseList.iterator();
 
-      return null;
+      SafeHouse var2;
+      do {
+         if (!var1.hasNext()) {
+            return null;
+         }
+
+         var2 = (SafeHouse)var1.next();
+      } while(!var2.getPlayers().contains(var0) && !var2.getOwner().equals(var0));
+
+      return var2;
+   }
+
+   public static SafeHouse getSafehouseByOwner(String var0) {
+      Iterator var1 = safehouseList.iterator();
+
+      SafeHouse var2;
+      do {
+         if (!var1.hasNext()) {
+            return null;
+         }
+
+         var2 = (SafeHouse)var1.next();
+      } while(!var2.getOwner().equals(var0));
+
+      return var2;
    }
 
    public static SafeHouse hasSafehouse(IsoPlayer var0) {
@@ -90,43 +117,11 @@ public class SafeHouse {
    }
 
    public static void updateSafehousePlayersConnected() {
-      SafeHouse var0 = null;
+      Iterator var0 = safehouseList.iterator();
 
-      label51:
-      for(int var1 = 0; var1 < safehouseList.size(); ++var1) {
-         var0 = (SafeHouse)safehouseList.get(var1);
-         var0.setPlayerConnected(0);
-         Iterator var2;
-         IsoPlayer var3;
-         if (GameClient.bClient) {
-            var2 = GameClient.IDToPlayerMap.values().iterator();
-
-            while(true) {
-               do {
-                  if (!var2.hasNext()) {
-                     continue label51;
-                  }
-
-                  var3 = (IsoPlayer)var2.next();
-               } while(!var0.getPlayers().contains(var3.getUsername()) && !var0.getOwner().equals(var3.getUsername()));
-
-               var0.setPlayerConnected(var0.getPlayerConnected() + 1);
-            }
-         } else if (GameServer.bServer) {
-            var2 = GameServer.IDToPlayerMap.values().iterator();
-
-            while(true) {
-               do {
-                  if (!var2.hasNext()) {
-                     continue label51;
-                  }
-
-                  var3 = (IsoPlayer)var2.next();
-               } while(!var0.getPlayers().contains(var3.getUsername()) && !var0.getOwner().equals(var3.getUsername()));
-
-               var0.setPlayerConnected(var0.getPlayerConnected() + 1);
-            }
-         }
+      while(var0.hasNext()) {
+         SafeHouse var1 = (SafeHouse)var0.next();
+         var1.updatePlayersConnected();
       }
 
    }
@@ -166,50 +161,156 @@ public class SafeHouse {
       }
    }
 
+   private static SafeHouse findSafeHouse(IsoGridSquare var0) {
+      SafeHouse var1 = null;
+      Iterator var2 = safehouseList.iterator();
+
+      while(var2.hasNext()) {
+         SafeHouse var3 = (SafeHouse)var2.next();
+         if (var0.getX() >= var3.getX() && var0.getX() < var3.getX2() && var0.getY() >= var3.getY() && var0.getY() < var3.getY2()) {
+            var1 = var3;
+            break;
+         }
+      }
+
+      return var1;
+   }
+
    public static SafeHouse getSafeHouse(IsoGridSquare var0) {
       return isSafeHouse(var0, (String)null, false);
    }
 
-   public static SafeHouse getSafeHouse(int var0, int var1, int var2, int var3) {
-      SafeHouse var4 = null;
+   public static SafeHouse getSafeHouse(String var0) {
+      Iterator var1 = safehouseList.iterator();
 
-      for(int var5 = 0; var5 < safehouseList.size(); ++var5) {
-         var4 = (SafeHouse)safehouseList.get(var5);
-         if (var0 == var4.getX() && var2 == var4.getW() && var1 == var4.getY() && var3 == var4.getH()) {
-            return var4;
+      SafeHouse var2;
+      do {
+         if (!var1.hasNext()) {
+            return null;
          }
-      }
 
-      return null;
+         var2 = (SafeHouse)var1.next();
+      } while(!var2.getTitle().equals(var0));
+
+      return var2;
+   }
+
+   public static SafeHouse getSafeHouse(int var0, int var1, int var2, int var3) {
+      Iterator var4 = safehouseList.iterator();
+
+      SafeHouse var5;
+      do {
+         if (!var4.hasNext()) {
+            return null;
+         }
+
+         var5 = (SafeHouse)var4.next();
+      } while(var0 != var5.getX() || var2 != var5.getW() || var1 != var5.getY() || var3 != var5.getH());
+
+      return var5;
+   }
+
+   public static SafeHouse getSafehouseOverlapping(int var0, int var1, int var2, int var3) {
+      Iterator var4 = safehouseList.iterator();
+
+      SafeHouse var5;
+      do {
+         if (!var4.hasNext()) {
+            return null;
+         }
+
+         var5 = (SafeHouse)var4.next();
+      } while(var0 >= var5.getX2() || var2 <= var5.getX() || var1 >= var5.getY2() || var3 <= var5.getY());
+
+      return var5;
+   }
+
+   public static SafeHouse getSafehouseOverlapping(int var0, int var1, int var2, int var3, SafeHouse var4) {
+      Iterator var5 = safehouseList.iterator();
+
+      SafeHouse var6;
+      do {
+         if (!var5.hasNext()) {
+            return null;
+         }
+
+         var6 = (SafeHouse)var5.next();
+      } while(var6 == var4 || var0 >= var6.getX2() || var2 <= var6.getX() || var1 >= var6.getY2() || var3 <= var6.getY());
+
+      return var6;
    }
 
    public static SafeHouse isSafeHouse(IsoGridSquare var0, String var1, boolean var2) {
       if (var0 == null) {
          return null;
       } else {
-         if (GameClient.bClient) {
+         if (GameClient.bClient && var1 != null) {
             IsoPlayer var3 = GameClient.instance.getPlayerFromUsername(var1);
-            if (var3 != null && !var3.accessLevel.equals("")) {
+            if (var3 != null && var3.role.haveCapability(Capability.CanGoInsideSafehouses)) {
                return null;
             }
          }
 
-         SafeHouse var6 = null;
-         boolean var4 = false;
-
-         for(int var5 = 0; var5 < safehouseList.size(); ++var5) {
-            var6 = (SafeHouse)safehouseList.get(var5);
-            if (var0.getX() >= var6.getX() && var0.getX() < var6.getX2() && var0.getY() >= var6.getY() && var0.getY() < var6.getY2()) {
-               var4 = true;
-               break;
-            }
-         }
-
-         if (var4 && var2 && ServerOptions.instance.DisableSafehouseWhenPlayerConnected.getValue() && (var6.getPlayerConnected() > 0 || var6.getOpenTimer() > 0)) {
+         SafeHouse var4 = findSafeHouse(var0);
+         if (var4 != null && var2 && ServerOptions.instance.DisableSafehouseWhenPlayerConnected.getValue() && (var4.getPlayerConnected() > 0 || var4.getOpenTimer() > 0)) {
             return null;
          } else {
-            return !var4 || (var1 == null || var6 == null || var6.getPlayers().contains(var1) || var6.getOwner().equals(var1)) && var1 != null ? null : var6;
+            return var4 == null || var1 != null && (var4.getPlayers().contains(var1) || var4.getOwner().equals(var1)) ? null : var4;
          }
+      }
+   }
+
+   public static boolean isSafehouseAllowTrepass(IsoGridSquare var0, IsoPlayer var1) {
+      if (var0 == null) {
+         return true;
+      } else if (var1 == null) {
+         return true;
+      } else {
+         SafeHouse var2 = findSafeHouse(var0);
+         if (var2 == null) {
+            return true;
+         } else if (var1.role.haveCapability(Capability.CanGoInsideSafehouses)) {
+            return true;
+         } else if (ServerOptions.getInstance().SafehouseAllowTrepass.getValue()) {
+            return true;
+         } else if (ServerOptions.getInstance().DisableSafehouseWhenPlayerConnected.getValue() && (var2.getPlayerConnected() > 0 || var2.getOpenTimer() > 0)) {
+            return true;
+         } else {
+            return WarManager.isWarStarted(var2.getOnlineID(), var1.getUsername()) ? true : var2.playerAllowed(var1.getUsername());
+         }
+      }
+   }
+
+   public static boolean isSafehouseAllowInteract(IsoGridSquare var0, IsoPlayer var1) {
+      if (var0 == null) {
+         return true;
+      } else if (var1 == null) {
+         return true;
+      } else {
+         SafeHouse var2 = findSafeHouse(var0);
+         if (var2 == null) {
+            return true;
+         } else if (var1.role != null && var1.role.haveCapability(Capability.CanGoInsideSafehouses)) {
+            return true;
+         } else {
+            return WarManager.isWarStarted(var2.getOnlineID(), var1.getUsername()) ? true : var2.playerAllowed(var1.getUsername());
+         }
+      }
+   }
+
+   public static boolean isSafehouseAllowLoot(IsoGridSquare var0, IsoPlayer var1) {
+      return ServerOptions.getInstance().SafehouseAllowLoot.getValue() ? true : isSafehouseAllowInteract(var0, var1);
+   }
+
+   public static boolean isSafehouseAllowClaim(SafeHouse var0, IsoPlayer var1) {
+      if (var0 == null) {
+         return false;
+      } else if (var1 == null) {
+         return false;
+      } else if (WarManager.isWarClaimed(var1.getUsername())) {
+         return false;
+      } else {
+         return !var0.playerAllowed(var1.getUsername());
       }
    }
 
@@ -218,7 +319,7 @@ public class SafeHouse {
    }
 
    public boolean playerAllowed(IsoPlayer var1) {
-      return this.players.contains(var1.getUsername()) || this.owner.equals(var1.getUsername()) || !var1.accessLevel.equals("");
+      return this.players.contains(var1.getUsername()) || this.owner.equals(var1.getUsername()) || var1.role.haveCapability(Capability.CanGoInsideSafehouses);
    }
 
    public boolean playerAllowed(String var1) {
@@ -237,44 +338,17 @@ public class SafeHouse {
       if (this.players.contains(var1)) {
          this.players.remove(var1);
          this.playersRespawn.remove(var1);
-         if (GameClient.bClient) {
-            GameClient.sendSafehouse(this, false);
-         }
       }
 
    }
 
-   public void syncSafehouse() {
+   public static void removeSafeHouse(SafeHouse var0) {
+      safehouseList.remove(var0);
+      DebugLog.Multiplayer.debugln("[%03d] Safehouse=%d removed (%d;%d) owner=%s", safehouseList.size(), var0.getOnlineID(), var0.getX(), var0.getY(), var0.getOwner());
       if (GameClient.bClient) {
-         GameClient.sendSafehouse(this, false);
+         LuaEventManager.triggerEvent("OnSafehousesChanged");
       }
 
-   }
-
-   public void removeSafeHouse(IsoPlayer var1) {
-      this.removeSafeHouse(var1, false);
-   }
-
-   public void removeSafeHouse(IsoPlayer var1, boolean var2) {
-      if (var1 == null || var1.getUsername().equals(this.getOwner()) || !var1.accessLevel.equals("admin") && !var1.accessLevel.equals("moderator") || var2) {
-         if (GameClient.bClient) {
-            GameClient.sendSafehouse(this, true);
-         }
-
-         if (GameServer.bServer) {
-            SyncSafehousePacket var3 = new SyncSafehousePacket();
-            var3.set(this, true);
-            GameServer.sendSafehouse(var3, (UdpConnection)null);
-         }
-
-         getSafehouseList().remove(this);
-         int var10000 = this.x;
-         DebugLog.log("safehouse: removed " + var10000 + "," + this.y + "," + this.w + "," + this.h + " owner=" + this.getOwner());
-         if (GameClient.bClient) {
-            LuaEventManager.triggerEvent("OnSafehousesChanged");
-         }
-
-      }
    }
 
    public void save(ByteBuffer var1) {
@@ -283,6 +357,7 @@ public class SafeHouse {
       var1.putInt(this.getW());
       var1.putInt(this.getH());
       GameWindow.WriteString(var1, this.getOwner());
+      var1.putInt(this.getHitPoints());
       var1.putInt(this.getPlayers().size());
       Iterator var2 = this.getPlayers().iterator();
 
@@ -303,6 +378,10 @@ public class SafeHouse {
 
    public static SafeHouse load(ByteBuffer var0, int var1) {
       SafeHouse var2 = new SafeHouse(var0.getInt(), var0.getInt(), var0.getInt(), var0.getInt(), GameWindow.ReadString(var0));
+      if (var1 >= 216) {
+         var2.setHitPoints(var0.getInt());
+      }
+
       int var3 = var0.getInt();
 
       int var4;
@@ -311,21 +390,16 @@ public class SafeHouse {
       }
 
       var2.setLastVisited(var0.getLong());
-      if (var1 >= 101) {
-         var2.setTitle(GameWindow.ReadString(var0));
-      }
-
+      var2.setTitle(GameWindow.ReadString(var0));
       if (ChatServer.isInited()) {
          ChatServer.getInstance().createSafehouseChat(var2.getId());
       }
 
       safehouseList.add(var2);
-      if (var1 >= 177) {
-         var4 = var0.getInt();
+      var4 = var0.getInt();
 
-         for(int var5 = 0; var5 < var4; ++var5) {
-            var2.playersRespawn.add(GameWindow.ReadString(var0));
-         }
+      for(int var5 = 0; var5 < var4; ++var5) {
+         var2.playersRespawn.add(GameWindow.ReadString(var0));
       }
 
       return var2;
@@ -344,7 +418,7 @@ public class SafeHouse {
 
          int var3 = ServerOptions.instance.SafehouseDaySurvivedToClaim.getValue();
          if (!ServerOptions.instance.PlayerSafehouse.getValue() && ServerOptions.instance.AdminSafehouse.getValue() && GameClient.bClient) {
-            if (!var1.accessLevel.equals("admin") && !var1.accessLevel.equals("moderator")) {
+            if (!var1.role.haveCapability(Capability.CanSetupSafehouses)) {
                return null;
             }
 
@@ -369,14 +443,27 @@ public class SafeHouse {
 
                   while(var9.advance()) {
                      KahluaTable var10 = (KahluaTable)var9.getValue();
-                     Double var11 = (Double)var10.rawget("worldX");
-                     Double var12 = (Double)var10.rawget("worldY");
-                     Double var13 = (Double)var10.rawget("posX");
-                     Double var14 = (Double)var10.rawget("posY");
-                     var5 = IsoWorld.instance.getCell().getGridSquare(var13 + var11 * 300.0, var14 + var12 * 300.0, 0.0);
+                     Double var11;
+                     Double var12;
+                     if (var10.rawget("worldX") != null) {
+                        var11 = (Double)var10.rawget("worldX");
+                        var12 = (Double)var10.rawget("worldY");
+                        Double var13 = (Double)var10.rawget("posX");
+                        Double var14 = (Double)var10.rawget("posY");
+                        var5 = IsoWorld.instance.getCell().getGridSquare(var13 + var11 * 300.0, var14 + var12 * 300.0, 0.0);
+                     } else {
+                        var11 = (Double)var10.rawget("posX");
+                        var12 = (Double)var10.rawget("posY");
+                        if (var11 != null && var12 != null) {
+                           var5 = IsoWorld.instance.getCell().getGridSquare(var11, var12, 0.0);
+                        } else {
+                           var5 = null;
+                        }
+                     }
+
                      if (var5 != null && var5.getBuilding() != null && var5.getBuilding().getDef() != null) {
-                        BuildingDef var15 = var5.getBuilding().getDef();
-                        if (var0.getX() >= var15.getX() && var0.getX() < var15.getX2() && var0.getY() >= var15.getY() && var0.getY() < var15.getY2()) {
+                        BuildingDef var23 = var5.getBuilding().getDef();
+                        if (var0.getX() >= var23.getX() && var0.getX() < var23.getX2() && var0.getY() >= var23.getY() && var0.getY() < var23.getY2()) {
                            return Translator.getText("IGUI_Safehouse_IsSpawnPoint");
                         }
                      }
@@ -385,74 +472,91 @@ public class SafeHouse {
             }
          }
 
-         boolean var16 = true;
+         boolean var15 = true;
          boolean var17 = false;
+         boolean var16 = false;
          boolean var18 = false;
-         boolean var19 = false;
-         boolean var20 = false;
-         BuildingDef var21 = var0.getBuilding().getDef();
+         ArrayList var19 = new ArrayList();
+         var19.add("bathroom");
+         var19.add("bedroom");
+         var19.add("closet");
+         var19.add("fishingstorage");
+         var19.add("garage");
+         var19.add("hall");
+         var19.add("kidsbedroom");
+         var19.add("kitchen");
+         var19.add("laundry");
+         var19.add("livingroom");
+         BuildingDef var20 = var0.getBuilding().getDef();
          if (var0.getBuilding().Rooms != null) {
-            Iterator var22 = var0.getBuilding().Rooms.iterator();
+            Iterator var21 = var0.getBuilding().Rooms.iterator();
 
-            while(var22.hasNext()) {
-               IsoRoom var24 = (IsoRoom)var22.next();
-               if (var24.getName().equals("kitchen")) {
-                  var18 = true;
-               }
+            label155:
+            while(true) {
+               IsoRoom var24;
+               String var26;
+               do {
+                  if (!var21.hasNext()) {
+                     break label155;
+                  }
 
-               if (var24.getName().equals("bedroom") || var24.getName().equals("livingroom")) {
-                  var19 = true;
-               }
+                  var24 = (IsoRoom)var21.next();
+                  var26 = var24.getName();
+                  if (!var19.contains(var26)) {
+                     var18 = true;
+                     break label155;
+                  }
+               } while(!var26.equals("bedroom") && !var24.getName().equals("livingroom"));
 
-               if (var24.getName().equals("bathroom")) {
-                  var20 = true;
-               }
+               var16 = true;
             }
          }
 
-         IsoCell var23 = IsoWorld.instance.getCell();
+         if (!var16) {
+            var18 = true;
+         }
 
-         for(int var25 = 0; var25 < var23.getObjectList().size(); ++var25) {
-            IsoMovingObject var26 = (IsoMovingObject)var23.getObjectList().get(var25);
-            if (var26 != var1 && var26 instanceof IsoGameCharacter && var26.getX() >= (float)(var21.getX() - diffError) && var26.getX() < (float)(var21.getX2() + diffError) && var26.getY() >= (float)(var21.getY() - diffError) && var26.getY() < (float)(var21.getY2() + diffError)) {
-               var16 = false;
+         IsoCell var22 = IsoWorld.instance.getCell();
+
+         for(int var25 = 0; var25 < var22.getObjectList().size(); ++var25) {
+            IsoMovingObject var27 = (IsoMovingObject)var22.getObjectList().get(var25);
+            if (var27 != var1 && var27 instanceof IsoGameCharacter && !(var27 instanceof IsoAnimal) && var27.getX() >= (float)(var20.getX() - diffError) && var27.getX() < (float)(var20.getX2() + diffError) && var27.getY() >= (float)(var20.getY() - diffError) && var27.getY() < (float)(var20.getY2() + diffError) && !(var27 instanceof BaseVehicle)) {
+               var15 = false;
                break;
             }
          }
 
-         if (var1.getX() >= (float)(var21.getX() - diffError) && var1.getX() < (float)(var21.getX2() + diffError) && var1.getY() >= (float)(var21.getY() - diffError) && var1.getY() < (float)(var21.getY2() + diffError) && var1.getCurrentSquare() != null && !var1.getCurrentSquare().Is(IsoFlagType.exterior)) {
+         if (var1.getX() >= (float)(var20.getX() - diffError) && var1.getX() < (float)(var20.getX2() + diffError) && var1.getY() >= (float)(var20.getY() - diffError) && var1.getY() < (float)(var20.getY2() + diffError) && var1.getCurrentSquare() != null && !var1.getCurrentSquare().Is(IsoFlagType.exterior)) {
             var17 = true;
          }
 
-         if (!var16 || !var17) {
+         if (!var15 || !var17) {
             var2 = var2 + Translator.getText("IGUI_Safehouse_SomeoneInside") + System.lineSeparator();
          }
 
-         if (!var19 && !ServerOptions.instance.SafehouseAllowNonResidential.getValue()) {
+         if (var18 && !ServerOptions.instance.SafehouseAllowNonResidential.getValue()) {
             var2 = var2 + Translator.getText("IGUI_Safehouse_NotHouse") + System.lineSeparator();
+         }
+
+         boolean var28 = intersects(var20.getX() - diffError, var20.getY() - diffError, var20.getX() - diffError + var20.getW() + diffError * 2, var20.getY() - diffError + var20.getH() + diffError * 2);
+         if (var28) {
+            var2 = var2 + Translator.getText("IGUI_Safehouse_Intersects") + System.lineSeparator();
+         }
+
+         if (!WarManager.isWarClaimed(getOnlineID(var20.getX() - diffError, var20.getY() - diffError))) {
+            var2 = var2 + Translator.getText("IGUI_Safehouse_War") + System.lineSeparator();
          }
 
          return var2;
       }
    }
 
-   public void kickOutOfSafehouse(IsoPlayer var1) {
-      if (var1.isAccessLevel("None")) {
-         GameClient.sendKickOutOfSafehouse(var1);
-      }
-
-   }
-
    public void checkTrespass(IsoPlayer var1) {
-      if (GameServer.bServer && !ServerOptions.instance.SafehouseAllowTrepass.getValue() && var1.getVehicle() == null && !var1.isAccessLevel("admin")) {
-         SafeHouse var2 = isSafeHouse(var1.getCurrentSquare(), var1.getUsername(), true);
-         if (var2 != null) {
-            GameServer.sendTeleport(var1, (float)(this.x - 1), (float)(this.y - 1), 0.0F);
-            if (var1.isAsleep()) {
-               var1.setAsleep(false);
-               var1.setAsleepTime(0.0F);
-               GameServer.sendWakeUpPlayer(var1, (UdpConnection)null);
-            }
+      if (GameServer.bServer && var1.getVehicle() == null && !isSafehouseAllowTrepass(var1.getCurrentSquare(), var1)) {
+         GameServer.sendTeleport(var1, (float)(this.x - 1), (float)(this.y - 1), 0.0F);
+         var1.updateDisguisedState();
+         if (var1.isAsleep()) {
+            INetworkPacket.processPacketOnServer(PacketTypes.PacketType.WakeUpPlayer, (UdpConnection)null, var1);
          }
       }
 
@@ -468,18 +572,17 @@ public class SafeHouse {
 
    public static boolean allowSafeHouse(IsoPlayer var0) {
       boolean var1 = false;
-      boolean var2 = (GameClient.bClient || GameServer.bServer) && (ServerOptions.instance.PlayerSafehouse.getValue() || ServerOptions.instance.AdminSafehouse.getValue());
-      if (var2) {
+      if ((GameClient.bClient || GameServer.bServer) && (ServerOptions.instance.PlayerSafehouse.getValue() || ServerOptions.instance.AdminSafehouse.getValue())) {
          if (ServerOptions.instance.PlayerSafehouse.getValue()) {
             var1 = hasSafehouse(var0) == null;
          }
 
-         if (var1 && ServerOptions.instance.SafehouseDaySurvivedToClaim.getValue() > 0 && var0.getHoursSurvived() / 24.0 < (double)ServerOptions.instance.SafehouseDaySurvivedToClaim.getValue()) {
+         if (var1 && ServerOptions.instance.SafehouseDaySurvivedToClaim.getValue() > 0 && var0.getHoursSurvived() < (double)(ServerOptions.instance.SafehouseDaySurvivedToClaim.getValue() * 24)) {
             var1 = false;
          }
 
-         if (ServerOptions.instance.AdminSafehouse.getValue() && GameClient.bClient) {
-            var1 = var0.accessLevel.equals("admin") || var0.accessLevel.equals("moderator");
+         if (ServerOptions.instance.AdminSafehouse.getValue()) {
+            var1 = var0.role.haveCapability(Capability.CanSetupSafehouses);
          }
       }
 
@@ -495,7 +598,7 @@ public class SafeHouse {
 
             for(int var4 = 0; var4 < var3.size(); ++var4) {
                IsoPlayer var5 = (IsoPlayer)var3.get(var4);
-               if (this.containsLocation(var5.x, var5.y) && (this.getPlayers().contains(var5.getUsername()) || this.getOwner().equals(var5.getUsername()))) {
+               if (this.containsLocation(var5.getX(), var5.getY()) && (this.getPlayers().contains(var5.getUsername()) || this.getOwner().equals(var5.getUsername()))) {
                   var2 = true;
                   break;
                }
@@ -506,12 +609,16 @@ public class SafeHouse {
                return;
             }
 
-            this.removeSafeHouse(var1, true);
+            removeSafeHouse(this);
          }
       } else {
          this.setLastVisited(System.currentTimeMillis());
       }
 
+   }
+
+   public static int getOnlineID(int var0, int var1) {
+      return (var0 + var1) * (var0 + var1 + 1) / 2 + var0;
    }
 
    public SafeHouse(int var1, int var2, int var3, int var4, String var5) {
@@ -522,6 +629,7 @@ public class SafeHouse {
       this.players.add(var5);
       this.owner = var5;
       this.id = "" + var1 + "," + var2 + " at " + Calendar.getInstance().getTimeInMillis();
+      this.onlineID = getOnlineID(var1, var2);
    }
 
    public String getId() {
@@ -580,6 +688,10 @@ public class SafeHouse {
       this.players = var1;
    }
 
+   public ArrayList<String> getPlayersRespawn() {
+      return this.playersRespawn;
+   }
+
    public static ArrayList<SafeHouse> getSafehouseList() {
       return safehouseList;
    }
@@ -590,14 +702,15 @@ public class SafeHouse {
 
    public void setOwner(String var1) {
       this.owner = var1;
-      if (this.players.contains(var1)) {
-         this.players.remove(var1);
-      }
-
+      this.players.remove(var1);
    }
 
    public boolean isOwner(IsoPlayer var1) {
-      return this.getOwner().equals(var1.getUsername());
+      return this.isOwner(var1.getUsername());
+   }
+
+   public boolean isOwner(String var1) {
+      return this.getOwner().equals(var1);
    }
 
    public long getLastVisited() {
@@ -632,15 +745,21 @@ public class SafeHouse {
       this.openTimer = var1;
    }
 
+   public int getHitPoints() {
+      return this.hitPoints;
+   }
+
+   public void setHitPoints(int var1) {
+      this.hitPoints = var1;
+   }
+
    public void setRespawnInSafehouse(boolean var1, String var2) {
       if (var1) {
-         this.playersRespawn.add(var2);
-      } else {
+         if (!this.playersRespawn.contains(var2)) {
+            this.playersRespawn.add(var2);
+         }
+      } else if (this.playersRespawn.contains(var2)) {
          this.playersRespawn.remove(var2);
-      }
-
-      if (GameClient.bClient) {
-         GameClient.sendSafehouse(this, false);
       }
 
    }
@@ -655,5 +774,83 @@ public class SafeHouse {
       } else {
          return true;
       }
+   }
+
+   public int getOnlineID() {
+      return this.onlineID;
+   }
+
+   public void setOnlineID(int var1) {
+      this.onlineID = var1;
+   }
+
+   public static SafeHouse getSafeHouse(int var0) {
+      Iterator var1 = safehouseList.iterator();
+
+      SafeHouse var2;
+      do {
+         if (!var1.hasNext()) {
+            return null;
+         }
+
+         var2 = (SafeHouse)var1.next();
+      } while(var2.getOnlineID() != var0);
+
+      return var2;
+   }
+
+   public static boolean isInSameSafehouse(String var0, String var1) {
+      Iterator var2 = safehouseList.iterator();
+
+      SafeHouse var3;
+      do {
+         if (!var2.hasNext()) {
+            return false;
+         }
+
+         var3 = (SafeHouse)var2.next();
+      } while(!var3.playerAllowed(var0) || !var3.playerAllowed(var1));
+
+      return true;
+   }
+
+   public static boolean intersects(int var0, int var1, int var2, int var3) {
+      for(int var5 = var0; var5 < var2; ++var5) {
+         for(int var6 = var1; var6 < var3; ++var6) {
+            IsoGridSquare var4 = IsoWorld.instance.CurrentCell.getOrCreateGridSquare((double)var5, (double)var6, 0.0);
+            if (getSafeHouse(var4) != null) {
+               return true;
+            }
+         }
+      }
+
+      return false;
+   }
+
+   public boolean haveInvite(String var1) {
+      return invites.contains(var1);
+   }
+
+   public void removeInvite(String var1) {
+      invites.remove(var1);
+   }
+
+   public void addInvite(String var1) {
+      invites.add(var1);
+   }
+
+   public static void hitPoint(int var0) {
+      SafeHouse var1 = getSafeHouse(var0);
+      if (var1 != null) {
+         int var2 = var1.getHitPoints() + 1;
+         if (var2 == ServerOptions.instance.WarSafehouseHitPoints.getValue()) {
+            removeSafeHouse(var1);
+            INetworkPacket.sendToAll(PacketTypes.PacketType.SafehouseSync, (UdpConnection)null, var1, true);
+         } else {
+            var1.setHitPoints(var2);
+            INetworkPacket.sendToAll(PacketTypes.PacketType.SafehouseSync, (UdpConnection)null, var1, false);
+         }
+      }
+
    }
 }

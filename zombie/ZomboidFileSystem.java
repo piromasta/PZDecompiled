@@ -17,8 +17,11 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.AccessControlException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -26,6 +29,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
@@ -33,12 +38,14 @@ import javax.xml.bind.Unmarshaller;
 import zombie.Lua.LuaEventManager;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.core.znet.SteamUtils;
 import zombie.core.znet.SteamWorkshop;
 import zombie.debug.DebugLog;
 import zombie.debug.LogSeverity;
 import zombie.gameStates.ChooseGameInfo;
 import zombie.iso.IsoWorld;
+import zombie.iso.enums.ChunkGenerationStatus;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.modding.ActiveMods;
 import zombie.modding.ActiveModsFile;
@@ -56,19 +63,13 @@ public final class ZomboidFileSystem {
    private ArrayList<String> modFoldersOrder;
    public final HashMap<String, String> ActiveFileMap = new HashMap();
    private final HashSet<String> AllAbsolutePaths = new HashSet();
-   public File base;
-   public URI baseURI;
-   private File workdir;
-   private URI workdirURI;
+   public final PZFolder base = new PZFolder();
+   private final PZFolder workdir = new PZFolder();
    private File localWorkdir;
-   private File anims;
-   private URI animsURI;
-   private File animsX;
-   private URI animsXURI;
-   private File animSets;
-   private URI animSetsURI;
-   private File actiongroups;
-   private URI actiongroupsURI;
+   private final PZFolder anims = new PZFolder();
+   private final PZFolder animsX = new PZFolder();
+   private final PZFolder animSets = new PZFolder();
+   private final PZFolder actiongroups = new PZFolder();
    private File cacheDir;
    private final ConcurrentHashMap<String, String> RelativeMap = new ConcurrentHashMap();
    public final ThreadLocal<Boolean> IgnoreActiveFileMap = ThreadLocal.withInitial(() -> {
@@ -82,25 +83,22 @@ public final class ZomboidFileSystem {
    private final PredicatedFileWatcher m_modFileWatcher = new PredicatedFileWatcher(this::isModFile, this::onModFileChanged);
    private final HashSet<String> m_watchedModFolders = new HashSet();
    private long m_modsChangedTime = 0L;
+   private static String s_startupTimeStamp = null;
+   private static final SimpleDateFormat s_dateTimeSdf = new SimpleDateFormat("yyyy-MM-dd_HH-mm");
+   private static final SimpleDateFormat s_dateOnlySdf = new SimpleDateFormat("yyyy-MM-dd");
 
    private ZomboidFileSystem() {
    }
 
    public void init() throws IOException {
-      this.base = (new File("./")).getAbsoluteFile().getCanonicalFile();
-      this.baseURI = this.base.toURI();
-      this.workdir = (new File(this.base, "media")).getAbsoluteFile().getCanonicalFile();
-      this.workdirURI = this.workdir.toURI();
-      this.localWorkdir = this.base.toPath().relativize(this.workdir.toPath()).toFile();
-      this.anims = new File(this.workdir, "anims");
-      this.animsURI = this.anims.toURI();
-      this.animsX = new File(this.workdir, "anims_X");
-      this.animsXURI = this.animsX.toURI();
-      this.animSets = new File(this.workdir, "AnimSets");
-      this.animSetsURI = this.animSets.toURI();
-      this.actiongroups = new File(this.workdir, "actiongroups");
-      this.actiongroupsURI = this.actiongroups.toURI();
-      this.searchFolders(this.workdir);
+      this.base.set(new File("./"));
+      this.workdir.set(new File(this.base.canonicalFile, "media"));
+      this.localWorkdir = this.base.canonicalFile.toPath().relativize(this.workdir.canonicalFile.toPath()).toFile();
+      this.anims.set(new File(this.workdir.canonicalFile, "anims"));
+      this.animsX.set(new File(this.workdir.canonicalFile, "anims_X"));
+      this.animSets.set(new File(this.workdir.canonicalFile, "AnimSets"));
+      this.actiongroups.set(new File(this.workdir.canonicalFile, "actiongroups"));
+      this.searchFolders(this.workdir.canonicalFile);
 
       for(int var1 = 0; var1 < this.loadList.size(); ++var1) {
          String var2 = this.getRelativeFile((String)this.loadList.get(var1));
@@ -225,20 +223,24 @@ public final class ZomboidFileSystem {
       return var10000 + File.separator + var1;
    }
 
-   public File getMediaRootFile() {
-      assert this.workdir != null;
+   public URI getMediaLowercaseURI() {
+      return this.workdir.lowercaseURI;
+   }
 
-      return this.workdir;
+   public File getMediaRootFile() {
+      assert this.workdir.canonicalFile != null;
+
+      return this.workdir.canonicalFile;
    }
 
    public String getMediaRootPath() {
-      return this.workdir.getPath();
+      return this.workdir.canonicalFile.getPath();
    }
 
    public File getMediaFile(String var1) {
-      assert this.workdir != null;
+      assert this.workdir.canonicalFile != null;
 
-      return new File(this.workdir, var1);
+      return new File(this.workdir.canonicalFile, var1);
    }
 
    public String getMediaPath(String var1) {
@@ -246,7 +248,7 @@ public final class ZomboidFileSystem {
    }
 
    public String getAbsoluteWorkDir() {
-      return this.workdir.getPath();
+      return this.workdir.canonicalFile.getPath();
    }
 
    public String getLocalWorkDir() {
@@ -258,12 +260,16 @@ public final class ZomboidFileSystem {
       return var10000 + File.separator + var1;
    }
 
+   public File getAnimsXFile() {
+      return this.animsX.canonicalFile;
+   }
+
    public String getAnimSetsPath() {
-      return this.animSets.getPath();
+      return this.animSets.canonicalFile.getPath();
    }
 
    public String getActionGroupsPath() {
-      return this.actiongroups.getPath();
+      return this.actiongroups.canonicalFile.getPath();
    }
 
    public static boolean ensureFolderExists(String var0) {
@@ -344,6 +350,15 @@ public final class ZomboidFileSystem {
 
          var4 = (String)this.ActiveFileMap.get(var2);
          return var4 != null ? var4 : var1;
+      }
+   }
+
+   public synchronized String getDirectoryString(String var1) {
+      String var2 = this.getString(var1);
+      if (var2 != var1) {
+         return var2;
+      } else {
+         return var1.endsWith("/") ? this.getString(var1.substring(0, var1.length() - 1)) : this.getString(var1 + "/");
       }
    }
 
@@ -465,7 +480,7 @@ public final class ZomboidFileSystem {
    private void getAllModFoldersAux(String var1, List<String> var2) {
       DirectoryStream.Filter var3 = new DirectoryStream.Filter<Path>() {
          public boolean accept(Path var1) throws IOException {
-            return Files.isDirectory(var1, new LinkOption[0]) && Files.exists(var1.resolve("mod.info"), new LinkOption[0]);
+            return Files.isDirectory(var1, new LinkOption[0]) && Files.exists(var1.resolve("common"), new LinkOption[0]) && ZomboidFileSystem.instance.getModVersionFile(var1.toString()) != null;
          }
       };
       Path var4 = FileSystems.getDefault().getPath(var1);
@@ -482,35 +497,44 @@ public final class ZomboidFileSystem {
                      DebugLog.Mod.println("refusing to list " + var7.getFileName());
                   } else {
                      String var8 = var7.toAbsolutePath().toString();
-                     if (!this.m_watchedModFolders.contains(var8)) {
-                        this.m_watchedModFolders.add(var8);
-                        DebugFileWatcher.instance.addDirectory(var8);
-                        Path var9 = var7.resolve("media");
-                        if (Files.exists(var9, new LinkOption[0])) {
-                           DebugFileWatcher.instance.addDirectoryRecurse(var9.toAbsolutePath().toString());
-                        }
-                     }
+                     Path var9 = var7.resolve("common");
+                     File var10 = this.getModVersionFile(var8);
+                     if (Files.exists(var9, new LinkOption[0]) && var10 != null) {
+                        if (!this.m_watchedModFolders.contains(var8)) {
+                           this.m_watchedModFolders.add(var8);
+                           DebugFileWatcher.instance.addDirectory(var8);
+                           Path var11 = var9.resolve("media");
+                           if (Files.exists(var11, new LinkOption[0])) {
+                              DebugFileWatcher.instance.addDirectoryRecurse(var11.toAbsolutePath().toString());
+                           }
 
-                     var2.add(var8);
+                           Path var12 = var10.toPath().resolve("media");
+                           if (Files.exists(var12, new LinkOption[0])) {
+                              DebugFileWatcher.instance.addDirectoryRecurse(var12.toAbsolutePath().toString());
+                           }
+                        }
+
+                        var2.add(var8);
+                     }
                   }
                }
-            } catch (Throwable var11) {
+            } catch (Throwable var14) {
                if (var5 != null) {
                   try {
                      var5.close();
-                  } catch (Throwable var10) {
-                     var11.addSuppressed(var10);
+                  } catch (Throwable var13) {
+                     var14.addSuppressed(var13);
                   }
                }
 
-               throw var11;
+               throw var14;
             }
 
             if (var5 != null) {
                var5.close();
             }
-         } catch (Exception var12) {
-            var12.printStackTrace();
+         } catch (Exception var15) {
+            var15.printStackTrace();
          }
 
       }
@@ -564,6 +588,73 @@ public final class ZomboidFileSystem {
       var1.addAll(this.modFolders);
    }
 
+   public File getModVersionFile(String var1) {
+      int var2 = 42000;
+      Path var3 = null;
+      int var4 = Core.getInstance().getGameVersion().getInt();
+      Path var5 = FileSystems.getDefault().getPath(var1);
+      if (!Files.exists(var5, new LinkOption[0])) {
+         return null;
+      } else {
+         try {
+            DirectoryStream var6 = Files.newDirectoryStream(var5, (var0) -> {
+               return Files.isDirectory(var0, new LinkOption[0]);
+            });
+
+            try {
+               Iterator var7 = var6.iterator();
+
+               while(var7.hasNext()) {
+                  Path var8 = (Path)var7.next();
+                  Integer var9 = this.getGameVersionIntFromName(var8.getFileName().toString());
+                  if (var9 != null && var9 >= var2 && var9 <= var4) {
+                     var2 = var9;
+                     var3 = var8;
+                  }
+               }
+            } catch (Throwable var11) {
+               if (var6 != null) {
+                  try {
+                     var6.close();
+                  } catch (Throwable var10) {
+                     var11.addSuppressed(var10);
+                  }
+               }
+
+               throw var11;
+            }
+
+            if (var6 != null) {
+               var6.close();
+            }
+         } catch (Exception var12) {
+            var12.printStackTrace();
+         }
+
+         return var3 != null ? var3.toFile() : null;
+      }
+   }
+
+   public Integer getGameVersionIntFromName(String var1) {
+      if (!var1.contains(".")) {
+         int var2 = PZMath.tryParseInt(var1, 0);
+         if (var2 >= 42) {
+            return var2 * 1000;
+         }
+      } else {
+         Matcher var5 = Pattern.compile("([0-9]+)\\.([0-9]+)(.*)").matcher(var1);
+         if (var5.matches()) {
+            int var3 = PZMath.tryParseInt(var5.group(1), 0);
+            int var4 = PZMath.tryParseInt(var5.group(2), 0);
+            if (var3 >= 42 && var4 >= 0 && var4 <= 999) {
+               return var3 * 1000 + var4;
+            }
+         }
+      }
+
+      return null;
+   }
+
    public ArrayList<ChooseGameInfo.Mod> getWorkshopItemMods(long var1) {
       ArrayList var3 = new ArrayList();
       if (!SteamUtils.isSteamModeEnabled()) {
@@ -597,6 +688,10 @@ public final class ZomboidFileSystem {
       }
    }
 
+   public void setModIdToDir(String var1, String var2) {
+      this.modIdToDir.putIfAbsent(var1, var2);
+   }
+
    public ChooseGameInfo.Mod searchForModInfo(File var1, String var2, ArrayList<ChooseGameInfo.Mod> var3) {
       if (var1.isDirectory()) {
          String[] var4 = var1.list();
@@ -618,7 +713,7 @@ public final class ZomboidFileSystem {
             return null;
          }
 
-         if (!StringUtils.isNullOrWhitespace(var8.getId())) {
+         if (!var8.getId().equals("\\")) {
             this.modIdToDir.put(var8.getId(), var8.getDir());
             var3.add(var8);
          }
@@ -638,21 +733,42 @@ public final class ZomboidFileSystem {
          }
 
          DebugLog.Mod.println("loading " + var1);
-         File var2 = new File(this.getModDir(var1));
-         URI var3 = var2.toURI();
+         ChooseGameInfo.Mod var2 = this.getModInfoForDir(this.getModDir(var1));
          this.loadList.clear();
-         this.searchFolders(var2);
+         File var3 = new File(var2.getCommonDir().toLowerCase(Locale.ENGLISH));
+         URI var4 = var3.toURI();
+         this.searchFolders(new File(var2.getCommonDir()));
 
-         for(int var4 = 0; var4 < this.loadList.size(); ++var4) {
-            String var5 = this.getRelativeFile(var3, (String)this.loadList.get(var4));
-            var5 = var5.toLowerCase(Locale.ENGLISH);
-            if (this.ActiveFileMap.containsKey(var5) && !var5.endsWith("mod.info") && !var5.endsWith("poster.png")) {
-               DebugLog.Mod.println("mod \"" + var1 + "\" overrides " + var5);
+         int var5;
+         String var6;
+         String var7;
+         for(var5 = 0; var5 < this.loadList.size(); ++var5) {
+            var6 = this.getRelativeFile(var4, (String)this.loadList.get(var5));
+            var6 = var6.toLowerCase(Locale.ENGLISH);
+            if (this.ActiveFileMap.containsKey(var6) && !var6.endsWith("mod.info") && !var6.endsWith("poster.png")) {
+               DebugLog.Mod.println("mod \"" + var1 + "\" overrides " + var6);
             }
 
-            String var6 = (new File((String)this.loadList.get(var4))).getAbsolutePath();
-            this.ActiveFileMap.put(var5, var6);
-            this.AllAbsolutePaths.add(var6);
+            var7 = (new File((String)this.loadList.get(var5))).getAbsolutePath();
+            this.ActiveFileMap.put(var6, var7);
+            this.AllAbsolutePaths.add(var7);
+         }
+
+         this.loadList.clear();
+         var3 = new File(var2.getVersionDir().toLowerCase(Locale.ENGLISH));
+         var4 = var3.toURI();
+         this.searchFolders(new File(var2.getVersionDir()));
+
+         for(var5 = 0; var5 < this.loadList.size(); ++var5) {
+            var6 = this.getRelativeFile(var4, (String)this.loadList.get(var5));
+            var6 = var6.toLowerCase(Locale.ENGLISH);
+            if (this.ActiveFileMap.containsKey(var6) && !var6.endsWith("mod.info") && !var6.endsWith("poster.png")) {
+               DebugLog.Mod.println("mod \"" + var1 + "\" overrides " + var6);
+            }
+
+            var7 = (new File((String)this.loadList.get(var5))).getAbsolutePath();
+            this.ActiveFileMap.put(var6, var7);
+            this.AllAbsolutePaths.add(var7);
          }
 
          this.loadList.clear();
@@ -776,13 +892,43 @@ public final class ZomboidFileSystem {
          return false;
       } else {
          boolean var3 = false;
-         File var4 = new File(var2.getDir());
+         File var4 = new File(var2.getCommonDir());
          URI var5 = var4.toURI();
          this.loadList.clear();
          this.searchFolders(var4);
 
-         for(int var6 = 0; var6 < this.loadList.size(); ++var6) {
-            String var7 = this.getRelativeFile(var5, (String)this.loadList.get(var6));
+         int var6;
+         String var7;
+         for(var6 = 0; var6 < this.loadList.size(); ++var6) {
+            var7 = this.getRelativeFile(var5, (String)this.loadList.get(var6));
+            if (var7.endsWith(".lua")) {
+               return false;
+            }
+
+            if (var7.startsWith("media/maps/")) {
+               return false;
+            }
+
+            if (var7.startsWith("media/scripts/")) {
+               return false;
+            }
+
+            if (var7.startsWith("media/lua/")) {
+               if (!var7.startsWith("media/lua/shared/Translate/")) {
+                  return false;
+               }
+
+               var3 = true;
+            }
+         }
+
+         var4 = new File(var2.getVersionDir());
+         var5 = var4.toURI();
+         this.loadList.clear();
+         this.searchFolders(var4);
+
+         for(var6 = 0; var6 < this.loadList.size(); ++var6) {
+            var7 = this.getRelativeFile(var5, (String)this.loadList.get(var6));
             if (var7.endsWith(".lua")) {
                return false;
             }
@@ -914,12 +1060,27 @@ public final class ZomboidFileSystem {
       return var2;
    }
 
+   public ChunkGenerationStatus isModded(String var1) {
+      Iterator var2 = this.modDirToMod.keySet().iterator();
+
+      String var3;
+      do {
+         if (!var2.hasNext()) {
+            return ChunkGenerationStatus.CORE;
+         }
+
+         var3 = (String)var2.next();
+      } while(!var1.startsWith(var3));
+
+      return ChunkGenerationStatus.MODDED;
+   }
+
    public String getRelativeFile(File var1) {
-      return this.getRelativeFile(this.baseURI, var1.getAbsolutePath());
+      return this.getRelativeFile(this.base.lowercaseURI, var1.getAbsolutePath());
    }
 
    public String getRelativeFile(String var1) {
-      return this.getRelativeFile(this.baseURI, var1);
+      return this.getRelativeFile(this.base.lowercaseURI, var1);
    }
 
    public String getRelativeFile(URI var1, File var2) {
@@ -927,17 +1088,18 @@ public final class ZomboidFileSystem {
    }
 
    public String getRelativeFile(URI var1, String var2) {
-      URI var3 = this.getCanonicalURI(var2);
-      URI var4 = this.getCanonicalURI(var1.getPath()).relativize(var3);
-      if (var4.equals(var3)) {
+      String var3 = (new File(var2)).getAbsolutePath();
+      URI var4 = (new File(var3.toLowerCase(Locale.ENGLISH))).toURI();
+      URI var5 = var1.relativize(var4);
+      if (var5.equals(var4)) {
          return var2;
       } else {
-         String var5 = var4.getPath();
-         if (var2.endsWith("/") && !var5.endsWith("/")) {
-            var5 = var5 + "/";
+         String var6 = var5.getPath();
+         if (var2.endsWith("/") && !var6.endsWith("/")) {
+            var6 = var6 + "/";
          }
 
-         return var5;
+         return var6;
       }
    }
 
@@ -1100,38 +1262,62 @@ public final class ZomboidFileSystem {
             Unmarshaller var4 = var3.createUnmarshaller();
             this.m_fileGuidTable = (FileGuidTable)var4.unmarshal(var2);
             this.m_fileGuidTable.setModID("game");
-         } catch (Throwable var15) {
+         } catch (Throwable var19) {
             try {
                var2.close();
             } catch (Throwable var10) {
-               var15.addSuppressed(var10);
+               var19.addSuppressed(var10);
             }
 
-            throw var15;
+            throw var19;
          }
 
          var2.close();
-      } catch (IOException | JAXBException var16) {
+      } catch (IOException | JAXBException var20) {
          System.err.println("Failed to load file Guid table.");
-         ExceptionLogger.logException(var16);
+         ExceptionLogger.logException(var20);
          return;
       }
 
       try {
-         JAXBContext var18 = JAXBContext.newInstance(new Class[]{FileGuidTable.class});
-         Unmarshaller var19 = var18.createUnmarshaller();
-         Iterator var20 = this.getModIDs().iterator();
+         JAXBContext var22 = JAXBContext.newInstance(new Class[]{FileGuidTable.class});
+         Unmarshaller var23 = var22.createUnmarshaller();
+         Iterator var24 = this.getModIDs().iterator();
 
-         while(var20.hasNext()) {
-            String var5 = (String)var20.next();
+         while(var24.hasNext()) {
+            String var5 = (String)var24.next();
             ChooseGameInfo.Mod var6 = ChooseGameInfo.getAvailableModDetails(var5);
             if (var6 != null) {
+               FileInputStream var7;
+               FileGuidTable var8;
                try {
-                  String var10002 = this.getModDir(var5);
-                  FileInputStream var7 = new FileInputStream(var10002 + "/media/fileGuidTable.xml");
+                  var7 = new FileInputStream(var6.getCommonDir() + "/media/fileGuidTable.xml");
 
                   try {
-                     FileGuidTable var8 = (FileGuidTable)var19.unmarshal(var7);
+                     var8 = (FileGuidTable)var23.unmarshal(var7);
+                     var8.setModID(var5);
+                     this.m_fileGuidTable.mergeFrom(var8);
+                  } catch (Throwable var16) {
+                     try {
+                        var7.close();
+                     } catch (Throwable var15) {
+                        var16.addSuppressed(var15);
+                     }
+
+                     throw var16;
+                  }
+
+                  var7.close();
+               } catch (FileNotFoundException var17) {
+               } catch (Exception var18) {
+                  ExceptionLogger.logException(var18);
+               }
+
+               try {
+                  var7 = new FileInputStream(var6.getVersionDir() + "/media/fileGuidTable.xml");
+
+                  try {
+                     var8 = (FileGuidTable)var23.unmarshal(var7);
                      var8.setModID(var5);
                      this.m_fileGuidTable.mergeFrom(var8);
                   } catch (Throwable var12) {
@@ -1151,8 +1337,8 @@ public final class ZomboidFileSystem {
                }
             }
          }
-      } catch (Exception var17) {
-         ExceptionLogger.logException(var17);
+      } catch (Exception var21) {
+         ExceptionLogger.logException(var21);
       }
 
       this.m_fileGuidTable.loaded();
@@ -1241,13 +1427,19 @@ public final class ZomboidFileSystem {
    }
 
    public static File[] listAllFiles(File var0, FileFilter var1, boolean var2) {
-      if (!var0.isDirectory()) {
-         return new File[0];
-      } else {
+      if (var0 != null && var0.isDirectory()) {
          ArrayList var3 = new ArrayList();
          listAllFilesInternal(var0, var1, var2, var3);
          return (File[])var3.toArray(new File[0]);
+      } else {
+         return new File[0];
       }
+   }
+
+   public static File[] listAllFiles(File var0) {
+      return listAllFiles(var0, (var0x) -> {
+         return true;
+      }, false);
    }
 
    private static void listAllFilesInternal(File var0, FileFilter var1, boolean var2, ArrayList<File> var3) {
@@ -1271,7 +1463,7 @@ public final class ZomboidFileSystem {
    }
 
    public void walkGameAndModFiles(String var1, boolean var2, IWalkFilesVisitor var3) {
-      this.walkGameAndModFilesInternal(this.base, var1, var2, var3);
+      this.walkGameAndModFilesInternal(this.base.canonicalFile, var1, var2, var3);
       ArrayList var4 = this.getModIDs();
 
       for(int var5 = 0; var5 < var4.size(); ++var5) {
@@ -1361,6 +1553,22 @@ public final class ZomboidFileSystem {
             return false;
          }
       }
+   }
+
+   public static boolean deleteDirectory(String var0) {
+      File var1 = new File(var0);
+      File[] var2 = var1.listFiles();
+      if (var2 != null) {
+         File[] var3 = var2;
+         int var4 = var2.length;
+
+         for(int var5 = 0; var5 < var4; ++var5) {
+            File var6 = var3[var5];
+            deleteDirectory(var6.getAbsolutePath());
+         }
+      }
+
+      return var1.delete();
    }
 
    public boolean deleteFile(String var1) throws IOException {
@@ -1515,7 +1723,78 @@ public final class ZomboidFileSystem {
       }
    }
 
+   public static synchronized String getStartupTimeStamp() {
+      if (s_startupTimeStamp == null) {
+         s_startupTimeStamp = getDateTimeStampStringNow();
+      }
+
+      return s_startupTimeStamp;
+   }
+
+   public static String getDateTimeStampStringNow() {
+      return getTimeStampStringNow(s_dateTimeSdf);
+   }
+
+   public static String getDateTimeStampString(Date var0) {
+      return getTimeStampString(var0, s_dateTimeSdf);
+   }
+
+   public static String getDateStampString(Date var0) {
+      return getTimeStampString(var0, s_dateOnlySdf);
+   }
+
+   public static String getTimeStampString(Date var0, SimpleDateFormat var1) {
+      return var1.format(var0);
+   }
+
+   public static String getTimeStampStringNow(SimpleDateFormat var0) {
+      Date var1 = Calendar.getInstance().getTime();
+      return getTimeStampString(var1, var0);
+   }
+
+   public static final class PZFolder {
+      public File absoluteFile;
+      public File canonicalFile;
+      public URI canonicalURI;
+      public URI lowercaseURI;
+
+      public PZFolder() {
+      }
+
+      public void set(File var1) throws IOException {
+         this.absoluteFile = var1.getAbsoluteFile();
+         this.canonicalFile = this.absoluteFile.getCanonicalFile();
+         this.canonicalURI = this.canonicalFile.toURI();
+         this.lowercaseURI = (new File(this.canonicalFile.getPath().toLowerCase(Locale.ENGLISH))).toURI();
+      }
+
+      public void setWithCatch(File var1) {
+         try {
+            this.set(var1);
+         } catch (IOException var3) {
+            this.canonicalFile = null;
+            this.canonicalURI = null;
+            this.lowercaseURI = null;
+            ExceptionLogger.logException(var3);
+         }
+
+      }
+   }
+
    public interface IWalkFilesVisitor {
       void visit(File var1, String var2);
+   }
+
+   public static final class PZModFolder {
+      public PZFolder common = new PZFolder();
+      public PZFolder version = new PZFolder();
+
+      public PZModFolder() {
+      }
+
+      public void setWithCatch(File var1, File var2) {
+         this.common.setWithCatch(var1);
+         this.version.setWithCatch(var2);
+      }
    }
 }

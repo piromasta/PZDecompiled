@@ -12,17 +12,22 @@ import java.util.Map;
 import zombie.GameWindow;
 import zombie.core.Core;
 import zombie.debug.DebugLog;
+import zombie.entity.GameEntity;
 import zombie.erosion.ErosionRegions;
 import zombie.erosion.categories.ErosionCategory;
 import zombie.gameStates.ChooseGameInfo;
 import zombie.inventory.InventoryItem;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.scripting.entity.GameEntityScript;
 import zombie.scripting.objects.Item;
+import zombie.scripting.ui.XuiManager;
+import zombie.scripting.ui.XuiScript;
 import zombie.world.logger.Log;
 import zombie.world.logger.WorldDictionaryLogger;
 
 public class WorldDictionary {
+   public static final int VERSION = 1;
    public static final String SAVE_FILE_READABLE = "WorldDictionaryReadable.lua";
    public static final String SAVE_FILE_LOG = "WorldDictionaryLog.lua";
    public static final String SAVE_FILE = "WorldDictionary";
@@ -30,6 +35,7 @@ public class WorldDictionary {
    public static final boolean logUnset = false;
    public static final boolean logMissingObjectID = false;
    private static final Map<String, ItemInfo> itemLoadList = new HashMap();
+   private static final Map<String, EntityInfo> entityLoadList = new HashMap();
    private static final List<String> objNameLoadList = new ArrayList();
    private static DictionaryData data;
    private static boolean isNewGame = true;
@@ -62,50 +68,101 @@ public class WorldDictionary {
    public static void StartScriptLoading() {
       allowScriptItemLoading = true;
       itemLoadList.clear();
+      entityLoadList.clear();
+      ScriptsDictionary.StartScriptLoading();
+      StringDictionary.StartScriptLoading();
    }
 
    public static void ScriptsLoaded() {
       allowScriptItemLoading = false;
    }
 
-   public static void onLoadItem(Item var0) {
+   public static boolean isAllowScriptItemLoading() {
+      return allowScriptItemLoading;
+   }
+
+   private static void onLoadItem(Item var0) {
       if (!GameClient.bClient) {
          if (!allowScriptItemLoading) {
             log("Warning script item loaded after WorldDictionary is initialised");
             if (Core.bDebug) {
                throw new RuntimeException("This shouldn't be happening.");
             }
-         }
-
-         ItemInfo var1 = (ItemInfo)itemLoadList.get(var0.getFullName());
-         if (var1 == null) {
-            var1 = new ItemInfo();
-            var1.itemName = var0.getName();
-            var1.moduleName = var0.getModuleName();
-            var1.fullType = var0.getFullName();
-            itemLoadList.put(var0.getFullName(), var1);
-         }
-
-         if (var1.modID != null && !var0.getModID().equals(var1.modID)) {
-            if (var1.modOverrides == null) {
-               var1.modOverrides = new ArrayList();
+         } else {
+            ItemInfo var1 = (ItemInfo)itemLoadList.get(var0.getFullName());
+            if (var1 == null) {
+               var1 = new ItemInfo();
+               var1.name = var0.getName();
+               var1.moduleName = var0.getModuleName();
+               var1.fullType = var0.getFullName();
+               itemLoadList.put(var0.getFullName(), var1);
             }
 
-            if (!var1.modOverrides.contains(var1.modID)) {
-               var1.modOverrides.add(var1.modID);
-            } else {
-               log("modOverrides for item '" + var1.fullType + "' already contains mod id: " + var1.modID);
+            if (var1.modID != null && !var0.getModID().equals(var1.modID)) {
+               if (var1.modOverrides == null) {
+                  var1.modOverrides = new ArrayList();
+               }
+
+               if (!var1.modOverrides.contains(var1.modID)) {
+                  var1.modOverrides.add(var1.modID);
+               } else {
+                  log("modOverrides for item '" + var1.fullType + "' already contains mod id: " + var1.modID);
+               }
             }
-         }
 
-         var1.modID = var0.getModID();
-         if (var1.modID.equals("pz-vanilla")) {
-            var1.existsAsVanilla = true;
-         }
+            var1.modID = var0.getModID();
+            if (var1.modID.equals("pz-vanilla")) {
+               var1.existsAsVanilla = true;
+            }
 
-         var1.isModded = !var1.modID.equals("pz-vanilla");
-         var1.obsolete = var0.getObsolete();
-         var1.scriptItem = var0;
+            var1.isModded = !var1.modID.equals("pz-vanilla");
+            var1.obsolete = var0.getObsolete();
+            var1.scriptItem = var0;
+            var1.entityScript = var0;
+         }
+      }
+   }
+
+   public static void onLoadEntity(GameEntityScript var0) {
+      if (!GameClient.bClient) {
+         if (!allowScriptItemLoading) {
+            log("Warning script entityScript loaded after WorldDictionary is initialised");
+            if (Core.bDebug) {
+               throw new RuntimeException("This shouldn't be happening.");
+            }
+         } else if (var0 instanceof Item) {
+            onLoadItem((Item)var0);
+         } else {
+            EntityInfo var1 = (EntityInfo)entityLoadList.get(var0.getFullName());
+            if (var1 == null) {
+               var1 = new EntityInfo();
+               var1.name = var0.getName();
+               var1.moduleName = var0.getModuleName();
+               var1.fullType = var0.getFullName();
+               entityLoadList.put(var0.getFullName(), var1);
+            }
+
+            if (var1.modID != null && !var0.getModID().equals(var1.modID)) {
+               if (var1.modOverrides == null) {
+                  var1.modOverrides = new ArrayList();
+               }
+
+               if (!var1.modOverrides.contains(var1.modID)) {
+                  var1.modOverrides.add(var1.modID);
+               } else {
+                  log("modOverrides for entityScript '" + var1.fullType + "' already contains mod id: " + var1.modID);
+               }
+            }
+
+            var1.modID = var0.getModID();
+            if (var1.modID.equals("pz-vanilla")) {
+               var1.existsAsVanilla = true;
+            }
+
+            var1.isModded = !var1.modID.equals("pz-vanilla");
+            var1.obsolete = var0.getObsolete();
+            var1.entityScript = var0;
+         }
       }
    }
 
@@ -131,6 +188,22 @@ public class WorldDictionary {
          }
 
       }
+   }
+
+   private static void collectStrings() throws WorldDictionaryException {
+      boolean var0 = allowScriptItemLoading;
+      allowScriptItemLoading = true;
+      ArrayList var1 = XuiManager.GetAllLayouts();
+      Iterator var2 = var1.iterator();
+
+      while(var2.hasNext()) {
+         XuiScript var3 = (XuiScript)var2.next();
+         if (var3.getXuiLayoutName() != null) {
+            StringDictionary.Generic.register(var3.getXuiLayoutName());
+         }
+      }
+
+      allowScriptItemLoading = var0;
    }
 
    public static void loadDataFromServer(ByteBuffer var0) throws IOException {
@@ -186,6 +259,9 @@ public class WorldDictionary {
          }
 
          data.reset();
+         ScriptsDictionary.reset();
+         StringDictionary.reset();
+         collectStrings();
          if (GameClient.bClient) {
             if (clientRemoteData == null) {
                throw new WorldDictionaryException("WorldDictionary data not received from server.");
@@ -204,14 +280,18 @@ public class WorldDictionary {
          data.backupCurrentDataSet();
          data.load();
          ArrayList var7 = new ArrayList();
-         var2 = new Log.Info(var1.format(new Date()), Core.GameSaveWorld, 195, var7);
+         var2 = new Log.Info(var1.format(new Date()), Core.GameSaveWorld, 219, var7);
          WorldDictionaryLogger.log((Log.BaseLog)var2);
-         data.parseItemLoadList(itemLoadList);
-         data.parseCurrentItemSet();
+         data.parseInfoLoadList(itemLoadList);
+         data.parseInfoLoadList(entityLoadList);
+         data.parseCurrentInfoSet();
          itemLoadList.clear();
+         entityLoadList.clear();
          data.parseObjectNameLoadList(objNameLoadList);
          objNameLoadList.clear();
-         data.getItemMods(var7);
+         StringDictionary.parseRegisters();
+         ScriptsDictionary.parseRegisters();
+         data.getDictionaryMods(var7);
          data.saveAsText("WorldDictionaryReadable.lua");
          data.save();
          data.deleteBackupCurrentDataSet();
@@ -261,6 +341,26 @@ public class WorldDictionary {
 
    public static String getItemTypeDebugString(short var0) {
       return data.getItemTypeDebugString(var0);
+   }
+
+   public static EntityInfo getEntityInfoFromType(String var0) {
+      return data.getEntityInfoFromType(var0);
+   }
+
+   public static EntityInfo getEntityInfoFromID(short var0) {
+      return data.getEntityInfoFromID(var0);
+   }
+
+   public static short getEntityRegistryID(String var0) {
+      return data.getEntityRegistryID(var0);
+   }
+
+   public static String getEntityTypeFromID(short var0) {
+      return data.getEntityTypeFromID(var0);
+   }
+
+   public static String getEntityTypeDebugString(short var0) {
+      return data.getEntityTypeDebugString(var0);
    }
 
    public static String getSpriteNameFromID(int var0) {
@@ -363,6 +463,63 @@ public class WorldDictionary {
          var1.DebugPrint();
       } else {
          DebugLog.log("WorldDictionary: Cannot debug print item id: " + var0);
+      }
+
+   }
+
+   public static String getEntityModID(short var0) {
+      EntityInfo var1 = getEntityInfoFromID(var0);
+      return var1 != null ? var1.modID : null;
+   }
+
+   public static String getEntityModID(String var0) {
+      EntityInfo var1 = getEntityInfoFromType(var0);
+      return var1 != null ? var1.modID : null;
+   }
+
+   public static void DebugPrintEntity(GameEntity var0) {
+      if (var0 instanceof InventoryItem) {
+         DebugPrintItem((InventoryItem)var0);
+      } else if (Core.bDebug) {
+         throw new RuntimeException("Not implemented yet.");
+      }
+   }
+
+   public static void DebugPrintEntity(GameEntityScript var0) {
+      String var1 = var0.getFullName();
+      EntityInfo var2 = null;
+      if (var1 != null) {
+         var2 = getEntityInfoFromType(var1);
+      }
+
+      if (var2 == null && var0.getRegistry_id() >= 0) {
+         var2 = getEntityInfoFromID(var0.getRegistry_id());
+      }
+
+      if (var2 != null) {
+         var2.DebugPrint();
+      } else {
+         DebugLog.log("WorldDictionary: Cannot debug print entity: " + (var1 != null ? var1 : "unknown"));
+      }
+
+   }
+
+   public static void DebugPrintEntity(String var0) {
+      EntityInfo var1 = getEntityInfoFromType(var0);
+      if (var1 != null) {
+         var1.DebugPrint();
+      } else {
+         DebugLog.log("WorldDictionary: Cannot debug print entity: " + var0);
+      }
+
+   }
+
+   public static void DebugPrintEntity(short var0) {
+      EntityInfo var1 = getEntityInfoFromID(var0);
+      if (var1 != null) {
+         var1.DebugPrint();
+      } else {
+         DebugLog.log("WorldDictionary: Cannot debug print entity id: " + var0);
       }
 
    }

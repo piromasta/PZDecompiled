@@ -12,6 +12,16 @@ public class TemplateText {
    public TemplateText() {
    }
 
+   public static ITemplateBuilder CreateBlanc() {
+      return new TemplateTextBuilder();
+   }
+
+   public static ITemplateBuilder CreateCopy() {
+      TemplateTextBuilder var0 = new TemplateTextBuilder();
+      var0.CopyFrom(builder);
+      return var0;
+   }
+
    public static String Build(String var0) {
       return builder.Build(var0);
    }

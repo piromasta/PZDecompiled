@@ -9,13 +9,13 @@ import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
 import zombie.util.StringUtils;
+import zombie.util.list.PZArrayUtil;
 
 public final class AnimState {
    public String m_Name = "";
    public final List<AnimNode> m_Nodes = new ArrayList();
    public int m_DefaultIndex = 0;
    public AnimationSet m_Set = null;
-   private static final boolean s_bDebugLog_NodeConditions = false;
 
    public AnimState() {
    }
@@ -42,22 +42,25 @@ public final class AnimState {
 
             return var2;
          } else {
-            int var3 = -1;
+            AnimNode var3 = null;
             var4 = 0;
 
             for(var5 = this.m_Nodes.size(); var4 < var5; ++var4) {
                var6 = (AnimNode)this.m_Nodes.get(var4);
-               if (!var6.isAbstract() && var6.m_Conditions.size() >= var3 && var6.checkConditions(var1)) {
-                  if (var3 < var6.m_Conditions.size()) {
-                     var2.clear();
-                     var3 = var6.m_Conditions.size();
-                  }
+               if (var3 != null && var3.compareSelectionConditions(var6) > 0 || var6.isAbstract()) {
+                  break;
+               }
 
+               if (var6.checkConditions(var1)) {
+                  var3 = var6;
                   var2.add(var6);
                }
             }
 
-            if (!var2.isEmpty()) {
+            if (!var2.isEmpty() && DebugOptions.instance.Animation.AnimLayer.LogNodeConditions.getValue()) {
+               DebugLog.Animation.debugln("%s Nodes passed: %s", this.m_Set.m_Name, PZArrayUtil.arrayToString((Iterable)var2, (var0) -> {
+                  return String.format("%s: %s", var0.m_Name, var0.getConditionsString());
+               }, "{ ", " }", "; "));
             }
 
             return var2;
@@ -92,11 +95,25 @@ public final class AnimState {
          if (var12.isReady()) {
             AnimNode var13 = var12.m_animNode;
             var13.m_State = var3;
-            var3.m_Nodes.add(var13);
+            var3.addNode(var13);
          }
       }
 
       return var3;
+   }
+
+   public void addNode(AnimNode var1) {
+      int var2 = this.m_Nodes.size();
+
+      for(int var3 = 0; var3 < this.m_Nodes.size(); ++var3) {
+         AnimNode var4 = (AnimNode)this.m_Nodes.get(var3);
+         if (var1.compareSelectionConditions(var4) > 0) {
+            var2 = var3;
+            break;
+         }
+      }
+
+      this.m_Nodes.add(var2, var1);
    }
 
    public String toString() {

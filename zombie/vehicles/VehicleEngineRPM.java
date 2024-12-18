@@ -3,6 +3,7 @@ package zombie.vehicles;
 import java.util.Iterator;
 import zombie.core.math.PZMath;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 import zombie.scripting.objects.BaseScriptObject;
 
 public class VehicleEngineRPM extends BaseScriptObject {
@@ -13,17 +14,19 @@ public class VehicleEngineRPM extends BaseScriptObject {
    public final EngineRPMData[] m_rpmData = new EngineRPMData[8];
 
    public VehicleEngineRPM() {
+      super(ScriptType.VehicleEngineRPM);
    }
 
    public String getName() {
       return this.m_name;
    }
 
-   public void Load(String var1, String var2) throws RuntimeException {
+   public void Load(String var1, String var2) throws RuntimeException, Exception {
       this.m_name = var1;
       int var3 = -1;
       ScriptParser.Block var4 = ScriptParser.parse(var2);
       var4 = (ScriptParser.Block)var4.children.get(0);
+      super.LoadCommonBlock(var4);
       Iterator var5 = var4.values.iterator();
 
       String var8;

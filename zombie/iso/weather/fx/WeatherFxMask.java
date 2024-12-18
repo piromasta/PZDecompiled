@@ -1,10 +1,13 @@
 package zombie.iso.weather.fx;
 
+import gnu.trove.map.hash.TLongObjectHashMap;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.function.Consumer;
 import org.joml.Vector2i;
 import org.joml.Vector3f;
+import zombie.GameProfiler;
 import zombie.IndieGL;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoGameCharacter;
@@ -13,12 +16,15 @@ import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderSettings;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureFBO;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
+import zombie.debug.LineDrawer;
+import zombie.debug.LogSeverity;
 import zombie.input.GameKeyboard;
 import zombie.iso.DiamondMatrixIterator;
 import zombie.iso.IsoCamera;
@@ -37,6 +43,8 @@ import zombie.iso.areas.isoregion.regions.IsoWorldRegion;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.network.GameServer;
+import zombie.util.Type;
+import zombie.worldMap.Rasterize;
 
 public class WeatherFxMask {
    private static boolean DEBUG_KEYS = false;
@@ -48,6 +56,7 @@ public class WeatherFxMask {
    public static IsoSprite wallNWSprite;
    public static IsoSprite wallSESprite;
    private static Texture texWhite;
+   private static boolean bRenderingMask = false;
    private static int curPlayerIndex;
    public static final int BIT_FLOOR = 0;
    public static final int BIT_WALLN = 1;
@@ -70,6 +79,11 @@ public class WeatherFxMask {
    private static PlayerFxMask[] playerMasks;
    private static DiamondMatrixIterator dmiter;
    private static final Vector2i diamondMatrixPos;
+   private static final RasterizeBounds tempRasterizeBounds;
+   private static final RasterizeBounds[] rasterizeBounds;
+   private static final Rasterize rasterize;
+   private static IsoChunkMap rasterizeChunkMap;
+   private static int rasterizeZ;
    private static Vector3f tmpVec;
    private static IsoGameCharacter.TorchInfo tmpTorch;
    private static ColorInfo tmpColInfo;
@@ -114,6 +128,10 @@ public class WeatherFxMask {
 
    public static TextureFBO getFboParticles() {
       return fboParticles;
+   }
+
+   public static boolean isRenderingMask() {
+      return bRenderingMask;
    }
 
    public static void init() throws Exception {
@@ -163,16 +181,14 @@ public class WeatherFxMask {
                   var3x = new Texture(var1x, var2x, 16);
                   fboMask = new TextureFBO(var3x);
                } catch (Exception var5) {
-                  DebugLog.log((Object)var5.getStackTrace());
-                  var5.printStackTrace();
+                  DebugLog.General.printException(var5, "", LogSeverity.Error);
                }
 
                try {
                   var3x = new Texture(var1x, var2x, 16);
                   fboParticles = new TextureFBO(var3x);
                } catch (Exception var4) {
-                  DebugLog.log((Object)var4.getStackTrace());
-                  var4.printStackTrace();
+                  DebugLog.General.printException(var4, "", LogSeverity.Error);
                }
 
                return fboMask != null && fboParticles != null;
@@ -261,96 +277,97 @@ public class WeatherFxMask {
          PlayerFxMask var4 = playerMasks[curPlayerIndex];
          if (var4.requiresUpdate) {
             if (var4.hasMaskToDraw && var4.playerZ == var3x) {
-               IsoGridSquare var5;
-               boolean var6;
+               IsoChunkMap var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex);
+               IsoGridSquare var6;
                boolean var7;
+               boolean var8;
                if (isInPlayerBuilding(var0, var1x, var2x, var3x)) {
-                  var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex).getGridSquare(var1x, var2x - 1, var3x);
-                  var6 = !isInPlayerBuilding(var5, var1x, var2x - 1, var3x);
-                  var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex).getGridSquare(var1x - 1, var2x, var3x);
-                  var7 = !isInPlayerBuilding(var5, var1x - 1, var2x, var3x);
-                  var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex).getGridSquare(var1x - 1, var2x - 1, var3x);
-                  boolean var8 = !isInPlayerBuilding(var5, var1x - 1, var2x - 1, var3x);
-                  int var9 = 0;
-                  if (var6) {
-                     var9 |= 1;
-                  }
-
+                  var6 = var5.getGridSquare(var1x, var2x - 1, var3x);
+                  var7 = !isInPlayerBuilding(var6, var1x, var2x - 1, var3x);
+                  var6 = var5.getGridSquare(var1x - 1, var2x, var3x);
+                  var8 = !isInPlayerBuilding(var6, var1x - 1, var2x, var3x);
+                  var6 = var5.getGridSquare(var1x - 1, var2x - 1, var3x);
+                  boolean var9 = !isInPlayerBuilding(var6, var1x - 1, var2x - 1, var3x);
+                  int var10 = 0;
                   if (var7) {
-                     var9 |= 2;
+                     var10 |= 1;
                   }
 
                   if (var8) {
-                     var9 |= 32;
+                     var10 |= 2;
                   }
 
-                  boolean var10 = false;
-                  boolean var11 = getIsStairs(var0);
-                  int var12;
-                  if (var0 != null && (var6 || var7 || var8)) {
-                     var12 = 24;
-                     if (var6 && !var0.getProperties().Is(IsoFlagType.WallN) && !var0.Is(IsoFlagType.WallNW)) {
+                  if (var9) {
+                     var10 |= 32;
+                  }
+
+                  boolean var11 = false;
+                  boolean var12 = getIsStairs(var0);
+                  int var13;
+                  if (var0 != null && (var7 || var8 || var9)) {
+                     var13 = 24;
+                     if (var7 && !var0.getProperties().Is(IsoFlagType.WallN) && !var0.Is(IsoFlagType.WallNW)) {
                         var4.addMask(var1x - 1, var2x, var3x, (IsoGridSquare)null, 8, false);
-                        var4.addMask(var1x, var2x, var3x, var0, var12);
-                        var4.addMask(var1x + 1, var2x, var3x, (IsoGridSquare)null, var12, false);
+                        var4.addMask(var1x, var2x, var3x, var0, var13);
+                        var4.addMask(var1x + 1, var2x, var3x, (IsoGridSquare)null, var13, false);
                         var4.addMask(var1x + 2, var2x, var3x, (IsoGridSquare)null, 8, false);
                         var4.addMask(var1x, var2x + 1, var3x, (IsoGridSquare)null, 8, false);
-                        var4.addMask(var1x + 1, var2x + 1, var3x, (IsoGridSquare)null, var12, false);
-                        var4.addMask(var1x + 2, var2x + 1, var3x, (IsoGridSquare)null, var12, false);
+                        var4.addMask(var1x + 1, var2x + 1, var3x, (IsoGridSquare)null, var13, false);
+                        var4.addMask(var1x + 2, var2x + 1, var3x, (IsoGridSquare)null, var13, false);
                         var4.addMask(var1x + 2, var2x + 2, var3x, (IsoGridSquare)null, 16, false);
                         var4.addMask(var1x + 3, var2x + 2, var3x, (IsoGridSquare)null, 16, false);
-                        var10 = true;
+                        var11 = true;
                      }
 
-                     if (var7 && !var0.getProperties().Is(IsoFlagType.WallW) && !var0.getProperties().Is(IsoFlagType.WallNW)) {
+                     if (var8 && !var0.getProperties().Is(IsoFlagType.WallW) && !var0.getProperties().Is(IsoFlagType.WallNW)) {
                         var4.addMask(var1x, var2x - 1, var3x, (IsoGridSquare)null, 8, false);
-                        var4.addMask(var1x, var2x, var3x, var0, var12);
-                        var4.addMask(var1x, var2x + 1, var3x, (IsoGridSquare)null, var12, false);
+                        var4.addMask(var1x, var2x, var3x, var0, var13);
+                        var4.addMask(var1x, var2x + 1, var3x, (IsoGridSquare)null, var13, false);
                         var4.addMask(var1x, var2x + 2, var3x, (IsoGridSquare)null, 8, false);
                         var4.addMask(var1x + 1, var2x, var3x, (IsoGridSquare)null, 8, false);
-                        var4.addMask(var1x + 1, var2x + 1, var3x, (IsoGridSquare)null, var12, false);
-                        var4.addMask(var1x + 1, var2x + 2, var3x, (IsoGridSquare)null, var12, false);
+                        var4.addMask(var1x + 1, var2x + 1, var3x, (IsoGridSquare)null, var13, false);
+                        var4.addMask(var1x + 1, var2x + 2, var3x, (IsoGridSquare)null, var13, false);
                         var4.addMask(var1x + 2, var2x + 2, var3x, (IsoGridSquare)null, 16, false);
                         var4.addMask(var1x + 2, var2x + 3, var3x, (IsoGridSquare)null, 16, false);
-                        var10 = true;
+                        var11 = true;
                      }
 
-                     if (var8) {
-                        int var13 = var11 ? var12 : var9;
-                        var4.addMask(var1x, var2x, var3x, var0, var13);
-                        var10 = true;
+                     if (var9) {
+                        int var14 = var12 ? var13 : var10;
+                        var4.addMask(var1x, var2x, var3x, var0, var14);
+                        var11 = true;
                      }
                   }
 
-                  if (!var10) {
-                     var12 = var11 ? 24 : var9;
-                     var4.addMask(var1x, var2x, var3x, var0, var12);
+                  if (!var11) {
+                     var13 = var12 ? 24 : var10;
+                     var4.addMask(var1x, var2x, var3x, var0, var13);
                   }
                } else {
-                  var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex).getGridSquare(var1x, var2x - 1, var3x);
-                  var6 = isInPlayerBuilding(var5, var1x, var2x - 1, var3x);
-                  var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex).getGridSquare(var1x - 1, var2x, var3x);
-                  var7 = isInPlayerBuilding(var5, var1x - 1, var2x, var3x);
-                  if (!var6 && !var7) {
-                     var5 = IsoWorld.instance.getCell().getChunkMap(curPlayerIndex).getGridSquare(var1x - 1, var2x - 1, var3x);
-                     if (isInPlayerBuilding(var5, var1x - 1, var2x - 1, var3x)) {
+                  var6 = var5.getGridSquare(var1x, var2x - 1, var3x);
+                  var7 = isInPlayerBuilding(var6, var1x, var2x - 1, var3x);
+                  var6 = var5.getGridSquare(var1x - 1, var2x, var3x);
+                  var8 = isInPlayerBuilding(var6, var1x - 1, var2x, var3x);
+                  if (!var7 && !var8) {
+                     var6 = var5.getGridSquare(var1x - 1, var2x - 1, var3x);
+                     if (isInPlayerBuilding(var6, var1x - 1, var2x - 1, var3x)) {
                         var4.addMask(var1x, var2x, var3x, var0, 4);
                      }
                   } else {
-                     int var14 = 4;
-                     if (var6) {
-                        var14 |= 1;
+                     int var15 = 4;
+                     if (var7) {
+                        var15 |= 1;
                      }
 
-                     if (var7) {
-                        var14 |= 2;
+                     if (var8) {
+                        var15 |= 2;
                      }
 
                      if (getHasDoor(var0)) {
-                        var14 |= 64;
+                        var15 |= 64;
                      }
 
-                     var4.addMask(var1x, var2x, var3x, var0, var14);
+                     var4.addMask(var1x, var2x, var3x, var0, var15);
                   }
                }
 
@@ -406,11 +423,11 @@ public class WeatherFxMask {
       return false;
    }
 
-   private static void scanForTiles(int var0) {
+   private static void scanForTilesOld(int var0) {
       PlayerFxMask var1x = playerMasks[curPlayerIndex];
       if (!var1x.DIAMOND_ITER_DONE) {
          IsoPlayer var2x = IsoPlayer.players[var0];
-         int var3x = (int)var2x.getZ();
+         int var3x = PZMath.fastfloor(var2x.getZ());
          byte var4 = 0;
          byte var5 = 0;
          int var6 = var4 + IsoCamera.getOffscreenWidth(var0);
@@ -448,35 +465,105 @@ public class WeatherFxMask {
       }
    }
 
+   public static boolean checkVisibleSquares(int var0, int var1x) {
+      if (!playerMasks[var0].hasMaskToDraw) {
+         return false;
+      } else if (rasterizeBounds[var0] == null) {
+         return true;
+      } else {
+         tempRasterizeBounds.calculate(var0, var1x);
+         return !tempRasterizeBounds.equals(rasterizeBounds[var0]);
+      }
+   }
+
+   private static void scanForTiles(int var0) {
+      PlayerFxMask var1x = playerMasks[var0];
+      if (!var1x.DIAMOND_ITER_DONE) {
+         IsoPlayer var2x = IsoPlayer.players[var0];
+         int var3x = PZMath.fastfloor(var2x.getZ());
+         if (rasterizeBounds[var0] == null) {
+            rasterizeBounds[var0] = new RasterizeBounds();
+         }
+
+         RasterizeBounds var4 = rasterizeBounds[var0];
+         GameProfiler var10000 = GameProfiler.getInstance();
+         Integer var10002 = var0;
+         Integer var10003 = var3x;
+         Objects.requireNonNull(var4);
+         var10000.invokeAndMeasure("Calc Bounds", var10002, var10003, var4::calculate);
+         if (Core.bDebug) {
+         }
+
+         boolean var5 = false;
+         GameProfiler.ProfileArea var6 = GameProfiler.getInstance().startIfEnabled("scanTriangle");
+         rasterizeChunkMap = IsoWorld.instance.getCell().getChunkMap(var0);
+         rasterizeZ = var3x;
+         rasterize.scanTriangle(var4.x1, var4.y1, var4.x2, var4.y2, var4.x4, var4.y4, 0, 100000, (var1xx, var2xx) -> {
+            IsoGridSquare var3x = rasterizeChunkMap.getGridSquare(var1xx, var2xx, rasterizeZ);
+            addMaskLocation(var3x, var1xx, var2xx, rasterizeZ);
+            if (var5) {
+               LineDrawer.addRect((float)var1xx + 0.05F, (float)var2xx + 0.05F, (float)rasterizeZ, 0.9F, 0.9F, 1.0F, 0.0F, 0.0F);
+            }
+
+         });
+         rasterize.scanTriangle(var4.x2, var4.y2, var4.x3, var4.y3, var4.x4, var4.y4, 0, 100000, (var1xx, var2xx) -> {
+            IsoGridSquare var3x = rasterizeChunkMap.getGridSquare(var1xx, var2xx, rasterizeZ);
+            addMaskLocation(var3x, var1xx, var2xx, rasterizeZ);
+            if (var5) {
+               LineDrawer.addRect((float)var1xx, (float)var2xx, (float)rasterizeZ, 1.0F, 1.0F, 0.0F, 1.0F, 0.0F);
+            }
+
+         });
+         GameProfiler.getInstance().end(var6);
+         if (var5) {
+            LineDrawer.addLine(var4.x1, var4.y1, (float)rasterizeZ, var4.x2, var4.y2, (float)rasterizeZ, 1.0F, 1.0F, 1.0F, 0.5F);
+            LineDrawer.addLine(var4.x2, var4.y2, (float)rasterizeZ, var4.x3, var4.y3, (float)rasterizeZ, 1.0F, 1.0F, 1.0F, 0.5F);
+            LineDrawer.addLine(var4.x3, var4.y3, (float)rasterizeZ, var4.x4, var4.y4, (float)rasterizeZ, 1.0F, 1.0F, 1.0F, 0.5F);
+            LineDrawer.addLine(var4.x1, var4.y1, (float)rasterizeZ, var4.x4, var4.y4, (float)rasterizeZ, 1.0F, 1.0F, 1.0F, 0.5F);
+            float var7 = IsoCamera.getOffX();
+            float var8 = IsoCamera.getOffY();
+            LineDrawer.drawLine((float)var4.cx1 - var7, (float)var4.cy1 - var8, (float)var4.cx2 - var7, (float)var4.cy2 - var8, 1.0F, 1.0F, 1.0F, 0.5F, 2);
+            LineDrawer.drawLine((float)var4.cx2 - var7, (float)var4.cy2 - var8, (float)var4.cx3 - var7, (float)var4.cy3 - var8, 1.0F, 1.0F, 1.0F, 0.5F, 2);
+            LineDrawer.drawLine((float)var4.cx3 - var7, (float)var4.cy3 - var8, (float)var4.cx4 - var7, (float)var4.cy4 - var8, 1.0F, 1.0F, 1.0F, 0.5F, 2);
+            LineDrawer.drawLine((float)var4.cx4 - var7, (float)var4.cy4 - var8, (float)var4.cx1 - var7, (float)var4.cy1 - var8, 1.0F, 1.0F, 1.0F, 0.5F, 2);
+         }
+
+      }
+   }
+
    private static void renderMaskFloor(int var0, int var1x, int var2x) {
       floorSprite.render((IsoObject)null, (float)var0, (float)var1x, (float)var2x, IsoDirections.N, offsetX, offsetY, defColorInfo, false);
    }
 
    private static void renderMaskWall(IsoGridSquare var0, int var1x, int var2x, int var3x, boolean var4, boolean var5, int var6) {
       if (var0 != null) {
-         IsoGridSquare var7 = var0.nav[IsoDirections.S.index()];
-         IsoGridSquare var8 = var0.nav[IsoDirections.E.index()];
-         long var9 = System.currentTimeMillis();
-         boolean var11 = var7 != null && var7.getPlayerCutawayFlag(var6, var9);
-         boolean var12 = var0.getPlayerCutawayFlag(var6, var9);
-         boolean var13 = var8 != null && var8.getPlayerCutawayFlag(var6, var9);
-         IsoSprite var14;
-         IsoDirections var15;
+         IsoGridSquare var7 = var0.nav[IsoDirections.N.index()];
+         IsoGridSquare var8 = var0.nav[IsoDirections.S.index()];
+         IsoGridSquare var9 = var0.nav[IsoDirections.W.index()];
+         IsoGridSquare var10 = var0.nav[IsoDirections.E.index()];
+         long var11 = System.currentTimeMillis();
+         int var13 = var0.getPlayerCutawayFlag(var6, var11);
+         int var14 = var7 == null ? 0 : var7.getPlayerCutawayFlag(var6, var11);
+         int var15 = var8 == null ? 0 : var8.getPlayerCutawayFlag(var6, var11);
+         int var16 = var9 == null ? 0 : var9.getPlayerCutawayFlag(var6, var11);
+         int var17 = var10 == null ? 0 : var10.getPlayerCutawayFlag(var6, var11);
+         IsoSprite var18;
+         IsoDirections var19;
          if (var4 && var5) {
-            var14 = wallNWSprite;
-            var15 = IsoDirections.NW;
+            var18 = wallNWSprite;
+            var19 = IsoDirections.NW;
          } else if (var4) {
-            var14 = wallNSprite;
-            var15 = IsoDirections.N;
+            var18 = wallNSprite;
+            var19 = IsoDirections.N;
          } else if (var5) {
-            var14 = wallWSprite;
-            var15 = IsoDirections.W;
+            var18 = wallWSprite;
+            var19 = IsoDirections.W;
          } else {
-            var14 = wallSESprite;
-            var15 = IsoDirections.W;
+            var18 = wallSESprite;
+            var19 = IsoDirections.SE;
          }
 
-         var0.DoCutawayShaderSprite(var14, var15, var11, var12, var13);
+         var0.DoCutawayShaderSprite(var18, var19, var13, var14, var15, var16, var17);
       }
    }
 
@@ -494,144 +581,68 @@ public class WeatherFxMask {
    }
 
    public static void renderFxMask(int var0) {
-      if (DebugOptions.instance.Weather.Fx.getValue()) {
-         if (!GameServer.bServer) {
-            if (IsoWeatherFX.instance != null) {
-               if (LuaManager.thread == null || !LuaManager.thread.bStep) {
-                  if (DEBUG_KEYS && Core.bDebug) {
-                     updateDebugKeys();
-                  }
+      if (!(IsoCamera.frameState.CamCharacterZ < 0.0F)) {
+         if (DebugOptions.instance.Weather.Fx.getValue()) {
+            if (!GameServer.bServer) {
+               if (IsoWeatherFX.instance != null) {
+                  if (LuaManager.thread == null || !LuaManager.thread.bStep) {
+                     if (DEBUG_KEYS && Core.bDebug) {
+                        updateDebugKeys();
+                     }
 
-                  if (playerMasks[var0].maskEnabled) {
-                     PlayerFxMask var1x = playerMasks[curPlayerIndex];
-                     if (var1x.maskEnabled) {
-                        if (MASKING_ENABLED && !checkFbos()) {
-                           MASKING_ENABLED = false;
-                        }
+                     if (playerMasks[var0].maskEnabled) {
+                        PlayerFxMask var1x = playerMasks[curPlayerIndex];
+                        if (var1x.maskEnabled) {
+                           if (MASKING_ENABLED && !checkFbos()) {
+                              MASKING_ENABLED = false;
+                           }
 
-                        if (MASKING_ENABLED && var1x.hasMaskToDraw) {
-                           scanForTiles(var0);
-                           int var2x = IsoCamera.getOffscreenLeft(var0);
-                           int var3x = IsoCamera.getOffscreenTop(var0);
-                           int var4 = IsoCamera.getOffscreenWidth(var0);
-                           int var5 = IsoCamera.getOffscreenHeight(var0);
-                           int var6 = IsoCamera.getScreenWidth(var0);
-                           int var7 = IsoCamera.getScreenHeight(var0);
-                           SpriteRenderer.instance.glIgnoreStyles(true);
-                           if (MASKING_ENABLED) {
-                              SpriteRenderer.instance.glBuffer(4, var0);
-                              SpriteRenderer.instance.glDoStartFrameFx(var4, var5, var0);
-                              if (PerformanceSettings.LightingFrameSkip < 3) {
-                                 IsoWorld.instance.getCell().DrawStencilMask();
-                                 SpriteRenderer.instance.glClearColor(0, 0, 0, 0);
+                           if (MASKING_ENABLED && var1x.hasMaskToDraw) {
+                              GameProfiler.getInstance().invokeAndMeasure("scanForTiles", var0, WeatherFxMask::scanForTiles);
+                              SpriteRenderer.instance.glIgnoreStyles(true);
+                              if (MASKING_ENABLED) {
+                                 GameProfiler.getInstance().invokeAndMeasure("drawFxMask", var0, WeatherFxMask::drawFxMask);
+                              }
+
+                              if (DEBUG_MASK_AND_PARTICLES) {
+                                 SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
+                                 SpriteRenderer.instance.glClear(16640);
+                                 SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
+                              } else if (DEBUG_MASK) {
+                                 SpriteRenderer.instance.glClearColor(0, 255, 0, 255);
                                  SpriteRenderer.instance.glClear(16640);
                                  SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
                               }
 
-                              boolean var8 = true;
-                              boolean var9 = false;
-                              WeatherFxMask[] var14 = playerMasks[var0].masks;
-                              int var15 = playerMasks[var0].maskPointer;
-
-                              for(int var16 = 0; var16 < var15; ++var16) {
-                                 WeatherFxMask var17 = var14[var16];
-                                 if (var17.enabled) {
-                                    boolean var11;
-                                    boolean var12;
-                                    if ((var17.flags & 4) == 4) {
-                                       SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-                                       SpriteRenderer.instance.glBlendFunc(SCR_MASK_SUB, DST_MASK_SUB);
-                                       SpriteRenderer.instance.glBlendEquation(32779);
-                                       IndieGL.enableAlphaTest();
-                                       IndieGL.glAlphaFunc(516, 0.02F);
-                                       SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
-                                       var11 = (var17.flags & 1) == 1;
-                                       var12 = (var17.flags & 2) == 2;
-                                       renderMaskWall(var17.gs, var17.x, var17.y, var17.z, var11, var12, var0);
-                                       SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-                                       SpriteRenderer.instance.glBlendEquation(32774);
-                                       SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
-                                       boolean var13 = (var17.flags & 64) == 64;
-                                       if (var13 && var17.gs != null) {
-                                          SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-                                          SpriteRenderer.instance.glBlendFunc(SCR_MASK_ADD, DST_MASK_ADD);
-                                          SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
-                                          var17.gs.RenderOpenDoorOnly();
-                                       }
-                                    } else {
-                                       SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-                                       SpriteRenderer.instance.glBlendFunc(SCR_MASK_ADD, DST_MASK_ADD);
-                                       SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
-                                       renderMaskFloor(var17.x, var17.y, var17.z);
-                                       var9 = (var17.flags & 16) == 16;
-                                       boolean var10 = (var17.flags & 8) == 8;
-                                       if (!var9) {
-                                          var11 = (var17.flags & 1) == 1;
-                                          var12 = (var17.flags & 2) == 2;
-                                          if (!var11 && !var12) {
-                                             if ((var17.flags & 32) == 32) {
-                                                renderMaskWall(var17.gs, var17.x, var17.y, var17.z, false, false, var0);
-                                             }
-                                          } else {
-                                             renderMaskWall(var17.gs, var17.x, var17.y, var17.z, var11, var12, var0);
-                                          }
-                                       }
-
-                                       if (var9 && var17.gs != null) {
-                                          var17.gs.RenderMinusFloorFxMask(var17.z + 1, false, false);
-                                       }
-
-                                       if (var10 && var17.gs != null) {
-                                          var17.gs.renderCharacters(var17.z + 1, false, false);
-                                          SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-                                          SpriteRenderer.instance.glBlendFunc(SCR_MASK_ADD, DST_MASK_ADD);
-                                          SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
-                                       }
-                                    }
-                                 }
+                              GameProfiler.ProfileArea var2x = GameProfiler.getInstance().startIfEnabled("drawFxLayered");
+                              if (!RenderSettings.getInstance().getPlayerSettings(var0).isExterior()) {
+                                 drawFxLayered(var0, false, false, false);
                               }
 
-                              SpriteRenderer.instance.glBlendFunc(770, 771);
-                              SpriteRenderer.instance.glBuffer(5, var0);
-                              SpriteRenderer.instance.glDoEndFrameFx(var0);
-                           }
+                              if (IsoWeatherFX.instance.hasCloudsToRender()) {
+                                 drawFxLayered(var0, true, false, false);
+                              }
 
-                           if (DEBUG_MASK_AND_PARTICLES) {
-                              SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
-                              SpriteRenderer.instance.glClear(16640);
-                              SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
-                           } else if (DEBUG_MASK) {
-                              SpriteRenderer.instance.glClearColor(0, 255, 0, 255);
-                              SpriteRenderer.instance.glClear(16640);
-                              SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
-                           }
+                              if (IsoWeatherFX.instance.hasFogToRender() && PerformanceSettings.FogQuality == 2) {
+                                 drawFxLayered(var0, false, true, false);
+                              }
 
-                           if (!RenderSettings.getInstance().getPlayerSettings(var0).isExterior()) {
-                              drawFxLayered(var0, false, false, false);
-                           }
+                              if (Core.getInstance().getOptionRenderPrecipitation() == 1 && IsoWeatherFX.instance.hasPrecipitationToRender()) {
+                                 drawFxLayered(var0, false, false, true);
+                              }
 
-                           if (IsoWeatherFX.instance.hasCloudsToRender()) {
-                              drawFxLayered(var0, true, false, false);
-                           }
-
-                           if (IsoWeatherFX.instance.hasFogToRender() && PerformanceSettings.FogQuality == 2) {
-                              drawFxLayered(var0, false, true, false);
-                           }
-
-                           if (Core.OptionRenderPrecipitation == 1 && IsoWeatherFX.instance.hasPrecipitationToRender()) {
-                              drawFxLayered(var0, false, false, true);
-                           }
-
-                           SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-                           SpriteRenderer.instance.glIgnoreStyles(false);
-                        } else {
-                           if (IsoWorld.instance.getCell() != null && IsoWorld.instance.getCell().getWeatherFX() != null) {
-                              SpriteRenderer.instance.glIgnoreStyles(true);
-                              SpriteRenderer.instance.glBlendFunc(770, 771);
-                              IsoWorld.instance.getCell().getWeatherFX().render();
+                              GameProfiler.getInstance().end(var2x);
+                              SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
                               SpriteRenderer.instance.glIgnoreStyles(false);
-                           }
+                           } else {
+                              if (IsoWorld.instance.getCell() != null && IsoWorld.instance.getCell().getWeatherFX() != null) {
+                                 SpriteRenderer.instance.glIgnoreStyles(true);
+                                 IndieGL.glBlendFunc(770, 771);
+                                 IsoWorld.instance.getCell().getWeatherFX().render();
+                                 SpriteRenderer.instance.glIgnoreStyles(false);
+                              }
 
+                           }
                         }
                      }
                   }
@@ -639,6 +650,93 @@ public class WeatherFxMask {
             }
          }
       }
+   }
+
+   private static void drawFxMask(int var0) {
+      int var1x = IsoCamera.getOffscreenWidth(var0);
+      int var2x = IsoCamera.getOffscreenHeight(var0);
+      bRenderingMask = true;
+      SpriteRenderer.instance.glBuffer(4, var0);
+      SpriteRenderer.instance.glDoStartFrameFx(var1x, var2x, var0);
+      if (PerformanceSettings.LightingFrameSkip < 3) {
+         IsoWorld.instance.getCell().DrawStencilMask();
+         IndieGL.glDepthMask(true);
+         IndieGL.enableDepthTest();
+         SpriteRenderer.instance.glClearColor(0, 0, 0, 0);
+         SpriteRenderer.instance.glClear(16640);
+         SpriteRenderer.instance.glClearColor(0, 0, 0, 255);
+      }
+
+      IndieGL.glDepthMask(false);
+      IndieGL.disableDepthTest();
+      SpriteRenderer.instance.StartShader(0, var0);
+      boolean var3x = true;
+      boolean var4 = false;
+      WeatherFxMask[] var9 = playerMasks[var0].masks;
+      int var10 = playerMasks[var0].maskPointer;
+
+      for(int var11 = 0; var11 < var10; ++var11) {
+         WeatherFxMask var12 = var9[var11];
+         if (var12.enabled) {
+            boolean var6;
+            boolean var7;
+            if ((var12.flags & 4) == 4) {
+               SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
+               IndieGL.glBlendFunc(SCR_MASK_SUB, DST_MASK_SUB);
+               SpriteRenderer.instance.glBlendEquation(32779);
+               IndieGL.enableAlphaTest();
+               IndieGL.glAlphaFunc(516, 0.02F);
+               SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
+               var6 = (var12.flags & 1) == 1;
+               var7 = (var12.flags & 2) == 2;
+               renderMaskWall(var12.gs, var12.x, var12.y, var12.z, var6, var7, var0);
+               SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
+               SpriteRenderer.instance.glBlendEquation(32774);
+               SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
+               boolean var8 = (var12.flags & 64) == 64;
+               if (var8 && var12.gs != null) {
+                  SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
+                  IndieGL.glBlendFunc(SCR_MASK_ADD, DST_MASK_ADD);
+                  SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
+                  var12.gs.RenderOpenDoorOnly();
+               }
+            } else {
+               SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
+               IndieGL.glBlendFunc(SCR_MASK_ADD, DST_MASK_ADD);
+               SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
+               renderMaskFloor(var12.x, var12.y, var12.z);
+               var4 = (var12.flags & 16) == 16;
+               boolean var5 = (var12.flags & 8) == 8;
+               if (!var4) {
+                  var6 = (var12.flags & 1) == 1;
+                  var7 = (var12.flags & 2) == 2;
+                  if (!var6 && !var7) {
+                     if ((var12.flags & 32) == 32) {
+                        renderMaskWall(var12.gs, var12.x, var12.y, var12.z, false, false, var0);
+                     }
+                  } else {
+                     renderMaskWall(var12.gs, var12.x, var12.y, var12.z, var6, var7, var0);
+                  }
+               }
+
+               if (var4 && var12.gs != null) {
+                  var12.gs.RenderMinusFloorFxMask(var12.z + 1, false, false);
+               }
+
+               if (var5 && var12.gs != null) {
+                  var12.gs.renderCharacters(var12.z + 1, false, false);
+                  SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
+                  IndieGL.glBlendFunc(SCR_MASK_ADD, DST_MASK_ADD);
+                  SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
+               }
+            }
+         }
+      }
+
+      IndieGL.glBlendFunc(770, 771);
+      SpriteRenderer.instance.glBuffer(5, var0);
+      SpriteRenderer.instance.glDoEndFrameFx(var0);
+      bRenderingMask = false;
    }
 
    private static void drawFxLayered(int var0, boolean var1x, boolean var2x, boolean var3x) {
@@ -650,40 +748,42 @@ public class WeatherFxMask {
       int var9 = IsoCamera.getScreenTop(var0);
       int var10 = IsoCamera.getScreenWidth(var0);
       int var11 = IsoCamera.getScreenHeight(var0);
+      IndieGL.glDepthMask(false);
+      IndieGL.disableDepthTest();
       SpriteRenderer.instance.glBuffer(6, var0);
       SpriteRenderer.instance.glDoStartFrameFx(var6, var7, var0);
       if (!var1x && !var2x && !var3x) {
          Color var12 = RenderSettings.getInstance().getMaskClearColorForPlayer(var0);
          SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-         SpriteRenderer.instance.glBlendFuncSeparate(SCR_PARTICLES, DST_PARTICLES, 1, 771);
+         IndieGL.glBlendFuncSeparate(SCR_PARTICLES, DST_PARTICLES, 1, 771);
          SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
          SpriteRenderer.instance.renderi(texWhite, 0, 0, var6, var7, var12.r, var12.g, var12.b, var12.a, (Consumer)null);
          SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
       } else if (IsoWorld.instance.getCell() != null && IsoWorld.instance.getCell().getWeatherFX() != null) {
          SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
-         SpriteRenderer.instance.glBlendFuncSeparate(SCR_PARTICLES, DST_PARTICLES, 1, 771);
+         IndieGL.glBlendFuncSeparate(SCR_PARTICLES, DST_PARTICLES, 1, 771);
          SpriteRenderer.GL_BLENDFUNC_ENABLED = false;
          IsoWorld.instance.getCell().getWeatherFX().renderLayered(var1x, var2x, var3x);
          SpriteRenderer.GL_BLENDFUNC_ENABLED = true;
       }
 
       if (MASKING_ENABLED) {
-         SpriteRenderer.instance.glBlendFunc(SCR_MERGE, DST_MERGE);
+         IndieGL.glBlendFunc(SCR_MERGE, DST_MERGE);
          SpriteRenderer.instance.glBlendEquation(32779);
          ((Texture)fboMask.getTexture()).rendershader2(0.0F, 0.0F, (float)var6, (float)var7, var8, var9, var10, var11, 1.0F, 1.0F, 1.0F, 1.0F);
          SpriteRenderer.instance.glBlendEquation(32774);
       }
 
-      SpriteRenderer.instance.glBlendFunc(770, 771);
+      IndieGL.glBlendFunc(770, 771);
       SpriteRenderer.instance.glBuffer(7, var0);
       SpriteRenderer.instance.glDoEndFrameFx(var0);
       Texture var25;
       if ((DEBUG_MASK || DEBUG_MASK_AND_PARTICLES) && !DEBUG_MASK_AND_PARTICLES) {
          var25 = (Texture)fboMask.getTexture();
-         SpriteRenderer.instance.glBlendFunc(770, 771);
+         IndieGL.glBlendFunc(770, 771);
       } else {
          var25 = (Texture)fboParticles.getTexture();
-         SpriteRenderer.instance.glBlendFunc(SCR_FINAL, DST_FINAL);
+         IndieGL.glBlendFunc(SCR_FINAL, DST_FINAL);
       }
 
       float var13 = 1.0F;
@@ -695,6 +795,7 @@ public class WeatherFxMask {
       float var23 = (float)(var8 + var10) / (float)var25.getWidthHW();
       float var24 = (float)(var9 + var11) / (float)var25.getHeightHW();
       SpriteRenderer.instance.render(var25, 0.0F, 0.0F, (float)var6, (float)var7, var13, var14, var15, var16, var21, var24, var23, var24, var23, var22, var21, var22);
+      IndieGL.glDefaultBlendFunc();
    }
 
    private static void initGlIds() {
@@ -875,6 +976,9 @@ public class WeatherFxMask {
       playerMasks = new PlayerFxMask[4];
       dmiter = new DiamondMatrixIterator(0);
       diamondMatrixPos = new Vector2i();
+      tempRasterizeBounds = new RasterizeBounds();
+      rasterizeBounds = new RasterizeBounds[4];
+      rasterize = new Rasterize();
       tmpVec = new Vector3f();
       tmpTorch = new IsoGameCharacter.TorchInfo();
       tmpColInfo = new ColorInfo();
@@ -912,8 +1016,9 @@ public class WeatherFxMask {
       private IsoPlayer player;
       private int playerZ;
       private IWorldRegion curIsoWorldRegion;
-      private ArrayList<IWorldRegion> curConnectedRegions = new ArrayList();
+      private final ArrayList<IWorldRegion> curConnectedRegions = new ArrayList();
       private final ArrayList<IWorldRegion> isoWorldRegionTemp = new ArrayList();
+      private final TLongObjectHashMap<WeatherFxMask> maskHashMap = new TLongObjectHashMap();
       private boolean DIAMOND_ITER_DONE = false;
       private boolean isFirstSquare = true;
       private IsoGridSquare firstSquare;
@@ -941,13 +1046,14 @@ public class WeatherFxMask {
 
             this.playerIndex = IsoCamera.frameState.playerIndex;
             this.player = IsoPlayer.players[this.playerIndex];
-            this.playerZ = (int)this.player.getZ();
+            this.playerZ = PZMath.fastfloor(this.player.getZ());
             this.DIAMOND_ITER_DONE = false;
             this.requiresUpdate = false;
             if (this.player != null) {
                if (this.isFirstSquare || this.plrSquare == null || this.plrSquare != this.player.getSquare()) {
                   this.plrSquare = this.player.getSquare();
                   this.maskPointer = 0;
+                  this.maskHashMap.clear();
                   this.DISABLED_MASKS = 0;
                   this.requiresUpdate = true;
                   if (this.firstSquare == null) {
@@ -1030,6 +1136,8 @@ public class WeatherFxMask {
                if (!var6 && this.DISABLED_MASKS < WeatherFxMask.DIAMOND_ROWS) {
                   ++this.DISABLED_MASKS;
                }
+
+               this.maskHashMap.put((long)var2 << 32 | (long)var1, var8);
             } else {
                if (var7.flags != var5) {
                   var7.flags |= var5;
@@ -1043,6 +1151,7 @@ public class WeatherFxMask {
                   var8.flags = var7.flags;
                   var8.gs = var4;
                   var8.enabled = var6;
+                  this.maskHashMap.put((long)var2 << 32 | (long)var1, var8);
                } else {
                   var7.enabled = var7.enabled ? var7.enabled : var6;
                   if (var6 && var4 != null && var7.gs == null) {
@@ -1061,7 +1170,7 @@ public class WeatherFxMask {
             this.masks = new WeatherFxMask[this.masks.length + 10000];
 
             for(int var2 = 0; var2 < this.masks.length; ++var2) {
-               if (var1[var2] != null) {
+               if (var2 < var1.length && var1[var2] != null) {
                   this.masks[var2] = var1[var2];
                } else {
                   this.masks[var2] = new WeatherFxMask();
@@ -1077,21 +1186,64 @@ public class WeatherFxMask {
       }
 
       private WeatherFxMask getMask(int var1, int var2, int var3) {
-         if (this.maskPointer <= 0) {
-            return null;
+         return (WeatherFxMask)this.maskHashMap.get((long)var2 << 32 | (long)var1);
+      }
+   }
+
+   public static final class RasterizeBounds {
+      float x1;
+      float y1;
+      float x2;
+      float y2;
+      float x3;
+      float y3;
+      float x4;
+      float y4;
+      int cx1;
+      int cy1;
+      int cx2;
+      int cy2;
+      int cx3;
+      int cy3;
+      int cx4;
+      int cy4;
+
+      public RasterizeBounds() {
+      }
+
+      public void calculate(int var1, int var2) {
+         byte var3 = 0;
+         byte var4 = 0;
+         int var5 = var3 + IsoCamera.getOffscreenWidth(var1);
+         int var6 = var4 + IsoCamera.getOffscreenHeight(var1);
+         this.x1 = IsoUtils.XToIso((float)var3, (float)var4, (float)var2);
+         this.y1 = IsoUtils.YToIso((float)var3, (float)var4, (float)var2);
+         this.x2 = IsoUtils.XToIso((float)var5, (float)var4, (float)var2);
+         this.y2 = IsoUtils.YToIso((float)var5, (float)var4, (float)var2);
+         this.x3 = IsoUtils.XToIso((float)var5, (float)var6, (float)var2);
+         this.y3 = IsoUtils.YToIso((float)var5, (float)var6, (float)var2);
+         this.x4 = IsoUtils.XToIso((float)var3, (float)var6, (float)var2);
+         this.y4 = IsoUtils.YToIso((float)var3, (float)var6, (float)var2);
+         this.cx1 = (int)IsoUtils.XToScreen((float)PZMath.fastfloor(this.x1) - 0.5F, (float)PZMath.fastfloor(this.y1) + 0.5F, -666.0F, -666);
+         this.cy1 = (int)IsoUtils.YToScreen((float)PZMath.fastfloor(this.x1) - 0.5F, (float)PZMath.fastfloor(this.y1) + 0.5F, -666.0F, -666);
+         this.cx2 = (int)IsoUtils.XToScreen((float)PZMath.fastfloor(this.x2) + 0.5F, (float)PZMath.fastfloor(this.y2) - 0.5F, -666.0F, -666);
+         this.cy2 = (int)IsoUtils.YToScreen((float)PZMath.fastfloor(this.x2) + 0.5F, (float)PZMath.fastfloor(this.y2) - 0.5F, -666.0F, -666);
+         this.cx3 = (int)IsoUtils.XToScreen((float)PZMath.fastfloor(this.x3) + 1.5F, (float)PZMath.fastfloor(this.y3) + 0.5F, -666.0F, -666);
+         this.cy3 = (int)IsoUtils.YToScreen((float)PZMath.fastfloor(this.x3) + 1.5F, (float)PZMath.fastfloor(this.y3) + 0.5F, -666.0F, -666);
+         this.cx4 = (int)IsoUtils.XToScreen((float)PZMath.fastfloor(this.x4) + 0.5F, (float)PZMath.fastfloor(this.y4) + 1.5F, -666.0F, -666);
+         this.cy4 = (int)IsoUtils.YToScreen((float)PZMath.fastfloor(this.x4) + 0.5F, (float)PZMath.fastfloor(this.y4) + 1.5F, -666.0F, -666);
+         this.x3 += 3.0F;
+         this.y3 += 3.0F;
+         this.x4 += 3.0F;
+         this.y4 += 3.0F;
+      }
+
+      public boolean equals(Object var1) {
+         RasterizeBounds var2 = (RasterizeBounds)Type.tryCastTo(var1, RasterizeBounds.class);
+         if (var2 == null) {
+            return false;
          } else {
-            int var4 = this.maskPointer - 1 - (WeatherFxMask.DIAMOND_ROWS + this.DISABLED_MASKS);
-            if (var4 < 0) {
-               var4 = 0;
-            }
-
-            for(int var5 = this.maskPointer - 1; var5 >= var4; --var5) {
-               if (this.masks[var5].isLoc(var1, var2, var3)) {
-                  return this.masks[var5];
-               }
-            }
-
-            return null;
+            return this.cx1 == var2.cx1 && this.cy1 == var2.cy1 && this.cx2 == var2.cx2 && this.cy2 == var2.cy2 && this.cx3 == var2.cx3 && this.cy3 == var2.cy3 && this.cx4 == var2.cx4 && this.cy4 == var2.cy4;
          }
       }
    }

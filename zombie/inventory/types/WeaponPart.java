@@ -1,12 +1,16 @@
 package zombie.inventory.types;
 
 import java.util.ArrayList;
+import zombie.Lua.LuaManager;
+import zombie.characters.IsoGameCharacter;
 import zombie.core.Translator;
+import zombie.debug.DebugLogStream;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemType;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
 import zombie.ui.ObjectTooltip;
+import zombie.util.StringUtils;
 
 public final class WeaponPart extends InventoryItem {
    public static final String TYPE_CANON = "Canon";
@@ -16,6 +20,9 @@ public final class WeaponPart extends InventoryItem {
    public static final String TYPE_SLING = "Sling";
    public static final String TYPE_STOCK = "Stock";
    private float maxRange = 0.0F;
+   private float minSightRange = 0.0F;
+   private float maxSightRange = 0.0F;
+   private float lowLightBonus = 0.0F;
    private float minRangeRanged = 0.0F;
    private float damage = 0.0F;
    private float recoilDelay = 0.0F;
@@ -24,10 +31,14 @@ public final class WeaponPart extends InventoryItem {
    private int aimingTime = 0;
    private int hitChance = 0;
    private float angle = 0.0F;
+   private float spreadModifier = 0.0F;
    private float weightModifier = 0.0F;
    private final ArrayList<String> mountOn = new ArrayList();
    private final ArrayList<String> mountOnDisplayName = new ArrayList();
    private String partType = null;
+   String canAttachCallback = null;
+   String onAttachCallback = null;
+   String onDetachCallback = null;
 
    public WeaponPart(String var1, String var2, String var3, String var4) {
       super(var1, var2, var3, var4);
@@ -50,6 +61,30 @@ public final class WeaponPart extends InventoryItem {
       String var10000 = Translator.getText("Tooltip_weapon_CanBeMountOn");
       String var4 = var10000 + this.mountOnDisplayName.toString().replaceAll("\\[", "").replaceAll("\\]", "");
       var3.setLabel(var4, 1.0F, 1.0F, 0.8F, 1.0F);
+   }
+
+   public float getMinSightRange() {
+      return this.minSightRange;
+   }
+
+   public void setMinSightRange(float var1) {
+      this.minSightRange = var1;
+   }
+
+   public float getMaxSightRange() {
+      return this.maxSightRange;
+   }
+
+   public void setLowLightBonus(float var1) {
+      this.lowLightBonus = var1;
+   }
+
+   public float getLowLightBonus() {
+      return this.lowLightBonus;
+   }
+
+   public void setMaxSightRange(float var1) {
+      this.maxSightRange = var1;
    }
 
    public float getMinRangeRanged() {
@@ -156,11 +191,67 @@ public final class WeaponPart extends InventoryItem {
       this.angle = var1;
    }
 
+   public float getSpreadModifier() {
+      return this.spreadModifier;
+   }
+
+   public void setSpreadModifier(float var1) {
+      this.spreadModifier = var1;
+   }
+
    public float getWeightModifier() {
       return this.weightModifier;
    }
 
    public void setWeightModifier(float var1) {
       this.weightModifier = var1;
+   }
+
+   public void setCanAttachCallback(String var1) {
+      this.canAttachCallback = var1;
+   }
+
+   public boolean canAttach(IsoGameCharacter var1, HandWeapon var2) {
+      if (!this.mountOn.isEmpty() && !this.mountOn.contains(var2.getFullType())) {
+         return false;
+      } else if (StringUtils.isNullOrEmpty(this.canAttachCallback)) {
+         return true;
+      } else {
+         Object var3 = LuaManager.getFunctionObject(this.canAttachCallback, (DebugLogStream)null);
+         if (var3 == null) {
+            return var2.getWeaponPart(this) == null;
+         } else {
+            Boolean var4 = LuaManager.caller.protectedCallBoolean(LuaManager.thread, var3, var1, var2, this);
+            return var4 != null && var4;
+         }
+      }
+   }
+
+   public void setOnAttachCallback(String var1) {
+      this.onAttachCallback = var1;
+   }
+
+   public void onAttach(IsoGameCharacter var1, HandWeapon var2) {
+      if (!StringUtils.isNullOrEmpty(this.onAttachCallback)) {
+         Object var3 = LuaManager.getFunctionObject(this.onAttachCallback, (DebugLogStream)null);
+         if (var3 != null) {
+            LuaManager.caller.protectedCallVoid(LuaManager.thread, var3, var1, var2, this);
+         }
+
+      }
+   }
+
+   public void setOnDetachCallback(String var1) {
+      this.onDetachCallback = var1;
+   }
+
+   public void onDetach(IsoGameCharacter var1, HandWeapon var2) {
+      if (!StringUtils.isNullOrEmpty(this.onDetachCallback)) {
+         Object var3 = LuaManager.getFunctionObject(this.onDetachCallback, (DebugLogStream)null);
+         if (var3 != null) {
+            LuaManager.caller.protectedCallVoid(LuaManager.thread, var3, var1, var2, this);
+         }
+
+      }
    }
 }

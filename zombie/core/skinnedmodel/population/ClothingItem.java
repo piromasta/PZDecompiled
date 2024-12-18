@@ -12,6 +12,8 @@ public final class ClothingItem extends Asset {
    public String m_GUID;
    public String m_MaleModel;
    public String m_FemaleModel;
+   public String m_AltMaleModel;
+   public String m_AltFemaleModel;
    public boolean m_Static = false;
    public ArrayList<String> m_BaseTextures = new ArrayList();
    public String m_AttachBone;
@@ -24,6 +26,7 @@ public final class ClothingItem extends Asset {
    public String m_DecalGroup = null;
    public String m_Shader = null;
    public String m_HatCategory = null;
+   public ArrayList<String> m_SpawnWith = new ArrayList();
    public static final String s_masksFolderDefault = "media/textures/Body/Masks";
    public String m_Name;
    public static final AssetType ASSET_TYPE = new AssetType("ClothingItem");
@@ -44,6 +47,10 @@ public final class ClothingItem extends Asset {
       return this.textureChoices.size() == 0 ? null : (String)OutfitRNG.pickRandom(this.textureChoices);
    }
 
+   public ArrayList<String> getSpawnWith() {
+      return this.m_SpawnWith;
+   }
+
    public boolean getAllowRandomHue() {
       return this.m_AllowRandomHue;
    }
@@ -61,7 +68,7 @@ public final class ClothingItem extends Asset {
    }
 
    public boolean isMask() {
-      return !StringUtils.isNullOrWhitespace(this.m_HatCategory) && !this.m_HatCategory.contains("hair");
+      return !StringUtils.isNullOrWhitespace(this.m_HatCategory) && ("nohairnobeard".equals(this.m_HatCategory) || !this.m_HatCategory.contains("hair"));
    }
 
    public void getCombinedMask(CharacterMask var1) {
@@ -76,12 +83,24 @@ public final class ClothingItem extends Asset {
       return var1 ? this.m_FemaleModel : this.m_MaleModel;
    }
 
+   public String getAltModel(boolean var1) {
+      return var1 ? this.m_AltFemaleModel : this.m_AltMaleModel;
+   }
+
    public String getFemaleModel() {
       return this.m_FemaleModel;
    }
 
    public String getMaleModel() {
       return this.m_MaleModel;
+   }
+
+   public String getAltFemaleModel() {
+      return this.m_AltFemaleModel;
+   }
+
+   public String getAltMaleModel() {
+      return this.m_AltMaleModel;
    }
 
    public String toString() {

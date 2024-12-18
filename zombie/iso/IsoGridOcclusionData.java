@@ -125,6 +125,10 @@ public class IsoGridOcclusionData {
             IsoBuilding var10 = var9.getBuilding();
             if (var10 == null) {
                var10 = var9.roofHideBuilding;
+               if (var9.getZ() > 0 && var10 != null && var10.isEntirelyEmptyOutside()) {
+                  var10 = null;
+                  var5 = true;
+               }
             }
 
             if (var10 != null) {

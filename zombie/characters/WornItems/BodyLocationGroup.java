@@ -79,6 +79,18 @@ public final class BodyLocationGroup {
       return var3.isHideModel(var2);
    }
 
+   public void setAltModel(String var1, String var2) {
+      BodyLocation var3 = this.getLocationNotNull(var1);
+      this.checkValid(var2);
+      var3.setAltModel(var2);
+   }
+
+   public boolean isAltModel(String var1, String var2) {
+      BodyLocation var3 = this.getLocationNotNull(var1);
+      this.checkValid(var2);
+      return var3.isAltModel(var2);
+   }
+
    public int indexOf(String var1) {
       for(int var2 = 0; var2 < this.locations.size(); ++var2) {
          BodyLocation var3 = (BodyLocation)this.locations.get(var2);

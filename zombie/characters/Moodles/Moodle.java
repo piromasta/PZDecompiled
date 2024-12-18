@@ -1,5 +1,6 @@
 package zombie.characters.Moodles;
 
+import zombie.SandboxOptions;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.BodyDamage.Thermoregulator;
@@ -85,13 +86,13 @@ public final class Moodle {
 
    public boolean Update() {
       boolean var1 = false;
-      byte var12;
+      byte var14;
       if (this.Parent.isDead()) {
          boolean var2 = false;
          if (this.Type != MoodleType.Dead && this.Type != MoodleType.Zombie) {
-            var12 = 0;
-            if (var12 != this.getLevel()) {
-               this.SetLevel(var12);
+            var14 = 0;
+            if (var14 != this.getLevel()) {
+               this.SetLevel(var14);
                var1 = true;
             }
 
@@ -375,79 +376,79 @@ public final class Moodle {
       }
 
       if (this.Type == MoodleType.Wet) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if (this.Parent.getBodyDamage().getWetness() > 15.0F) {
-               var12 = 1;
+               var14 = 1;
             }
 
             if (this.Parent.getBodyDamage().getWetness() > 40.0F) {
-               var12 = 2;
+               var14 = 2;
             }
 
             if (this.Parent.getBodyDamage().getWetness() > 70.0F) {
-               var12 = 3;
+               var14 = 3;
             }
 
             if (this.Parent.getBodyDamage().getWetness() > 90.0F) {
-               var12 = 4;
+               var14 = 4;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.HasACold) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if (this.Parent.getBodyDamage().getColdStrength() > 20.0F) {
-               var12 = 1;
+               var14 = 1;
             }
 
             if (this.Parent.getBodyDamage().getColdStrength() > 40.0F) {
-               var12 = 2;
+               var14 = 2;
             }
 
             if (this.Parent.getBodyDamage().getColdStrength() > 60.0F) {
-               var12 = 3;
+               var14 = 3;
             }
 
             if (this.Parent.getBodyDamage().getColdStrength() > 75.0F) {
-               var12 = 4;
+               var14 = 4;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.Injured) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if (100.0F - this.Parent.getBodyDamage().getHealth() > 20.0F) {
-               var12 = 1;
+               var14 = 1;
             }
 
             if (100.0F - this.Parent.getBodyDamage().getHealth() > 40.0F) {
-               var12 = 2;
+               var14 = 2;
             }
 
             if (100.0F - this.Parent.getBodyDamage().getHealth() > 60.0F) {
-               var12 = 3;
+               var14 = 3;
             }
 
             if (100.0F - this.Parent.getBodyDamage().getHealth() > 75.0F) {
-               var12 = 4;
+               var14 = 4;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
@@ -459,236 +460,292 @@ public final class Moodle {
          }
 
          this.painTimer = 0;
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if (this.Parent.getStats().Pain > 10.0F) {
-               var12 = 1;
+               var14 = 1;
             }
 
             if (this.Parent.getStats().Pain > 20.0F) {
-               var12 = 2;
+               var14 = 2;
             }
 
             if (this.Parent.getStats().Pain > 50.0F) {
-               var12 = 3;
+               var14 = 3;
             }
 
             if (this.Parent.getStats().Pain > 75.0F) {
-               var12 = 4;
+               var14 = 4;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            if (var14 >= 3 && this.getLevel() < 3) {
+               IsoGameCharacter var4 = this.Parent;
+               if (var4 instanceof IsoPlayer) {
+                  IsoPlayer var3 = (IsoPlayer)var4;
+                  if (var3.isLocalPlayer()) {
+                     var3.playerVoiceSound("PainMoodle");
+                  }
+               }
+            }
+
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.HeavyLoad) {
-         var12 = 0;
-         float var3 = this.Parent.getInventory().getCapacityWeight();
-         float var4 = (float)this.Parent.getMaxWeight();
-         float var5 = var3 / var4;
+         var14 = 0;
+         float var8 = this.Parent.getInventory().getCapacityWeight();
+         float var10 = (float)this.Parent.getMaxWeight();
+         float var5 = var8 / var10;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if ((double)var5 >= 1.75) {
-               var12 = 4;
+               var14 = 4;
             } else if ((double)var5 >= 1.5) {
-               var12 = 3;
+               var14 = 3;
             } else if ((double)var5 >= 1.25) {
-               var12 = 2;
+               var14 = 2;
             } else if (var5 > 1.0F) {
-               var12 = 1;
+               var14 = 1;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.Drunk) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if (this.Parent.getStats().Drunkenness > 10.0F) {
-               var12 = 1;
+               var14 = 1;
             }
 
             if (this.Parent.getStats().Drunkenness > 30.0F) {
-               var12 = 2;
+               var14 = 2;
             }
 
             if (this.Parent.getStats().Drunkenness > 50.0F) {
-               var12 = 3;
+               var14 = 3;
             }
 
             if (this.Parent.getStats().Drunkenness > 70.0F) {
-               var12 = 4;
+               var14 = 4;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.Dead) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.isDead()) {
-            var12 = 4;
+            var14 = 4;
             if (!this.Parent.getBodyDamage().IsFakeInfected() && this.Parent.getBodyDamage().getInfectionLevel() >= 0.001F) {
-               var12 = 0;
+               var14 = 0;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.Zombie) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.isDead() && !this.Parent.getBodyDamage().IsFakeInfected() && this.Parent.getBodyDamage().getInfectionLevel() >= 0.001F) {
-            var12 = 4;
+            var14 = 4;
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.FoodEaten) {
-         var12 = 0;
+         var14 = 0;
          if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
             if (this.Parent.getBodyDamage().getHealthFromFoodTimer() > 0.0F) {
-               var12 = 1;
+               var14 = 1;
             }
 
             if (this.Parent.getBodyDamage().getHealthFromFoodTimer() > (float)this.Parent.getBodyDamage().getStandardHealthFromFoodTime()) {
-               var12 = 2;
+               var14 = 2;
             }
 
             if (this.Parent.getBodyDamage().getHealthFromFoodTimer() > (float)this.Parent.getBodyDamage().getStandardHealthFromFoodTime() * 2.0F) {
-               var12 = 3;
+               var14 = 3;
             }
 
             if (this.Parent.getBodyDamage().getHealthFromFoodTimer() > (float)this.Parent.getBodyDamage().getStandardHealthFromFoodTime() * 3.0F) {
-               var12 = 4;
+               var14 = 4;
             }
          }
 
-         if (var12 != this.getLevel()) {
-            this.SetLevel(var12);
+         if (var14 != this.getLevel()) {
+            this.SetLevel(var14);
             var1 = true;
          }
       }
 
       var7 = this.chevronCount;
-      boolean var8 = this.chevronIsUp;
-      Color var9 = this.chevronColor;
+      boolean var9 = this.chevronIsUp;
+      Color var11 = this.chevronColor;
       if ((this.Type == MoodleType.Hyperthermia || this.Type == MoodleType.Hypothermia) && this.Parent instanceof IsoPlayer) {
          if (!(this.Parent.getBodyDamage().getTemperature() < 36.5F) && !(this.Parent.getBodyDamage().getTemperature() > 37.5F)) {
             var7 = 0;
          } else {
-            Thermoregulator var10 = this.Parent.getBodyDamage().getThermoregulator();
-            if (var10 == null) {
+            Thermoregulator var12 = this.Parent.getBodyDamage().getThermoregulator();
+            if (var12 == null) {
                var7 = 0;
             } else {
-               var8 = var10.thermalChevronUp();
-               var7 = var10.thermalChevronCount();
+               var9 = var12.thermalChevronUp();
+               var7 = var12.thermalChevronCount();
             }
          }
       }
 
-      byte var11;
+      byte var13;
       if (this.Type == MoodleType.Hyperthermia) {
-         var11 = 0;
+         var13 = 0;
          if (var7 > 0) {
-            var9 = var8 ? colorNeg : colorPos;
+            var11 = var9 ? colorNeg : colorPos;
          }
 
          if (this.Parent.getBodyDamage().getTemperature() != 0.0F) {
             if (this.Parent.getBodyDamage().getTemperature() > 37.5F) {
-               var11 = 1;
+               var13 = 1;
             }
 
             if (this.Parent.getBodyDamage().getTemperature() > 39.0F) {
-               var11 = 2;
+               var13 = 2;
             }
 
             if (this.Parent.getBodyDamage().getTemperature() > 40.0F) {
-               var11 = 3;
+               var13 = 3;
             }
 
             if (this.Parent.getBodyDamage().getTemperature() > 41.0F) {
-               var11 = 4;
+               var13 = 4;
             }
          }
 
-         if (var11 != this.getLevel() || var11 > 0 && this.chevronDifference(var7, var8, var9)) {
-            this.SetLevel(var11);
-            this.setChevron(var7, var8, var9);
+         if (var13 != this.getLevel() || var13 > 0 && this.chevronDifference(var7, var9, var11)) {
+            this.SetLevel(var13);
+            this.setChevron(var7, var9, var11);
             var1 = true;
          }
       }
 
       if (this.Type == MoodleType.Hypothermia) {
-         var11 = 0;
+         var13 = 0;
          if (var7 > 0) {
-            var9 = var8 ? colorPos : colorNeg;
+            var11 = var9 ? colorPos : colorNeg;
          }
 
          if (this.Parent.getBodyDamage().getTemperature() != 0.0F) {
             if (this.Parent.getBodyDamage().getTemperature() < 36.5F && this.Parent.getStats().Drunkenness <= 30.0F) {
-               var11 = 1;
+               var13 = 1;
             }
 
             if (this.Parent.getBodyDamage().getTemperature() < 35.0F && this.Parent.getStats().Drunkenness <= 70.0F) {
-               var11 = 2;
+               var13 = 2;
             }
 
             if (this.Parent.getBodyDamage().getTemperature() < 30.0F) {
-               var11 = 3;
+               var13 = 3;
             }
 
             if (this.Parent.getBodyDamage().getTemperature() < 25.0F) {
-               var11 = 4;
+               var13 = 4;
             }
          }
 
-         if (var11 != this.getLevel() || var11 > 0 && this.chevronDifference(var7, var8, var9)) {
-            this.SetLevel(var11);
-            this.setChevron(var7, var8, var9);
+         if (var13 != this.getLevel() || var13 > 0 && this.chevronDifference(var7, var9, var11)) {
+            this.SetLevel(var13);
+            this.setChevron(var7, var9, var11);
             var1 = true;
          }
       }
 
+      float var6;
       if (this.Type == MoodleType.Windchill) {
-         var11 = 0;
+         var13 = 0;
          if (this.Parent instanceof IsoPlayer) {
-            float var6 = Temperature.getWindChillAmountForPlayer((IsoPlayer)this.Parent);
+            var6 = Temperature.getWindChillAmountForPlayer((IsoPlayer)this.Parent);
             if (var6 > 5.0F) {
-               var11 = 1;
+               var13 = 1;
             }
 
             if (var6 > 10.0F) {
-               var11 = 2;
+               var13 = 2;
             }
 
             if (var6 > 15.0F) {
-               var11 = 3;
+               var13 = 3;
             }
 
             if (var6 > 20.0F) {
-               var11 = 4;
+               var13 = 4;
             }
          }
 
-         if (var11 != this.getLevel()) {
-            this.SetLevel(var11);
+         if (var13 != this.getLevel()) {
+            this.SetLevel(var13);
+            var1 = true;
+         }
+      }
+
+      if (this.Type == MoodleType.Uncomfortable) {
+         var13 = 0;
+         if (this.Parent.getBodyDamage().getHealth() != 0.0F) {
+            if (this.Parent.getBodyDamage().getDiscomfortLevel() >= 80.0F) {
+               var13 = 4;
+            } else if (this.Parent.getBodyDamage().getDiscomfortLevel() >= 60.0F) {
+               var13 = 3;
+            } else if (this.Parent.getBodyDamage().getDiscomfortLevel() >= 40.0F) {
+               var13 = 2;
+            } else if (this.Parent.getBodyDamage().getDiscomfortLevel() >= 20.0F) {
+               var13 = 1;
+            }
+         }
+
+         if (var13 != this.getLevel()) {
+            this.SetLevel(var13);
+            var1 = true;
+         }
+      }
+
+      if (this.Type == MoodleType.NoxiousSmell) {
+         var13 = 0;
+         if (this.Parent.getBodyDamage() != null && this.Parent.getBodyDamage().getHealth() != 0.0F) {
+            if (this.Parent.getCurrentBuilding() != null && this.Parent.getCurrentBuilding().isToxic() && !this.Parent.isProtectedFromToxic(false)) {
+               var13 = 4;
+            } else if (SandboxOptions.instance.DecayingCorpseHealthImpact.getValue() != 1) {
+               var6 = this.Parent.getCorpseSicknessRate();
+               if (var6 > 0.0F) {
+                  if ((double)var6 > 0.002) {
+                     var13 = 3;
+                  } else if ((double)var6 > 0.001) {
+                     var13 = 2;
+                  } else {
+                     var13 = 1;
+                  }
+               }
+            }
+         }
+
+         if (var13 != this.getLevel()) {
+            this.SetLevel(var13);
             var1 = true;
          }
       }

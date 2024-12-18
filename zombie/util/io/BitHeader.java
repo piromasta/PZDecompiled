@@ -105,7 +105,6 @@ public final class BitHeader {
    }
 
    public static class BitHeaderByte extends BitHeaderBase {
-      private ConcurrentLinkedDeque<BitHeaderByte> pool;
       private byte header;
 
       private BitHeaderByte() {
@@ -158,7 +157,6 @@ public final class BitHeader {
    }
 
    public static class BitHeaderShort extends BitHeaderBase {
-      private ConcurrentLinkedDeque<BitHeaderShort> pool;
       private short header;
 
       private BitHeaderShort() {
@@ -211,7 +209,6 @@ public final class BitHeader {
    }
 
    public static class BitHeaderInt extends BitHeaderBase {
-      private ConcurrentLinkedDeque<BitHeaderInt> pool;
       private int header;
 
       private BitHeaderInt() {
@@ -264,7 +261,6 @@ public final class BitHeader {
    }
 
    public static class BitHeaderLong extends BitHeaderBase {
-      private ConcurrentLinkedDeque<BitHeaderLong> pool;
       private long header;
 
       private BitHeaderLong() {

@@ -3,6 +3,7 @@ package zombie.chat;
 import java.util.ArrayList;
 import java.util.HashSet;
 import zombie.GameTime;
+import zombie.IndieGL;
 import zombie.characters.IsoPlayer;
 import zombie.characters.Talker;
 import zombie.iso.objects.IsoRadio;
@@ -27,6 +28,7 @@ public class ChatElement implements Talker {
    protected String sayLineTag = null;
    protected TextDrawObject sayLineObject = null;
    protected boolean Speaking = false;
+   protected boolean SpeakingNPC = false;
    protected String talkerType = "unknown";
    public static boolean doBackDrop = true;
    public static NineGridTexture backdropTexture;
@@ -74,6 +76,10 @@ public class ChatElement implements Talker {
       return this.Speaking;
    }
 
+   public boolean IsSpeakingNPC() {
+      return this.SpeakingNPC;
+   }
+
    public String getTalkerType() {
       return this.talkerType;
    }
@@ -106,7 +112,7 @@ public class ChatElement implements Talker {
       if (var1 == null) {
          return -1.0F;
       } else {
-         return this.useEuclidean ? (float)Math.sqrt(Math.pow((double)(this.owner.getX() - var1.x), 2.0) + Math.pow((double)(this.owner.getY() - var1.y), 2.0)) : Math.abs(this.owner.getX() - var1.x) + Math.abs(this.owner.getY() - var1.y);
+         return this.useEuclidean ? (float)Math.sqrt(Math.pow((double)(this.owner.getX() - var1.getX()), 2.0) + Math.pow((double)(this.owner.getY() - var1.getY()), 2.0)) : Math.abs(this.owner.getX() - var1.getX()) + Math.abs(this.owner.getY() - var1.getY());
       }
    }
 
@@ -250,6 +256,7 @@ public class ChatElement implements Talker {
 
    protected void updateChatLines() {
       this.Speaking = false;
+      this.SpeakingNPC = false;
       boolean var1 = false;
       if (this.hasChatToDisplay) {
          this.hasChatToDisplay = false;
@@ -269,6 +276,10 @@ public class ChatElement implements Talker {
                      float var5 = var4 / ((float)var6 / 2.0F);
                      if (var5 >= 1.0F) {
                         this.Speaking = true;
+                     }
+
+                     if (var5 >= 0.0F) {
+                        this.SpeakingNPC = true;
                      }
 
                      var1 = true;
@@ -437,6 +448,7 @@ public class ChatElement implements Talker {
                            this.renderY -= var7.getHeight() + 1;
                            boolean var8 = var7.getDefaultFontEnum() != UIFont.Dialogue;
                            if (ChatElement.doBackDrop && ChatElement.backdropTexture != null) {
+                              IndieGL.glBlendFunc(770, 771);
                               ChatElement.backdropTexture.renderInnerBased(this.renderX - var7.getWidth() / 2, this.renderY, var7.getWidth(), var7.getHeight(), 0.0F, 0.0F, 0.0F, 0.4F);
                            }
 

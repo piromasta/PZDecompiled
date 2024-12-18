@@ -34,6 +34,10 @@ public final class BufferedRandomAccessFile extends RandomAccessFile {
       }
    }
 
+   public int read(byte[] var1) throws IOException {
+      return this.read(var1, 0, var1.length);
+   }
+
    private int fillBuffer() throws IOException {
       int var1 = super.read(this.buffer, 0, this.BUF_SIZE);
       if (var1 >= 0) {

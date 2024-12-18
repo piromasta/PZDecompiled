@@ -39,6 +39,14 @@ public final class ColorInfo {
       return this;
    }
 
+   public ColorInfo setABGR(int var1) {
+      this.r = Color.getRedChannelFromABGR(var1);
+      this.g = Color.getGreenChannelFromABGR(var1);
+      this.b = Color.getBlueChannelFromABGR(var1);
+      this.a = Color.getAlphaChannelFromABGR(var1);
+      return this;
+   }
+
    public float getR() {
       return this.r;
    }

@@ -10,7 +10,6 @@ import zombie.debug.DebugOptions;
 import zombie.iso.IsoCamera;
 import zombie.ui.TextManager;
 import zombie.util.IPooledObject;
-import zombie.util.Lambda;
 import zombie.util.Pool;
 import zombie.util.PooledObject;
 import zombie.util.lambda.Invokers;
@@ -21,16 +20,23 @@ public final class GameProfiler {
    private final Stack<ProfileArea> m_stack = new Stack();
    private final RecordingFrame m_currentFrame = new RecordingFrame();
    private final RecordingFrame m_previousFrame = new RecordingFrame();
-   private boolean m_isInFrame;
+   private boolean m_isInFrame = false;
+   private boolean m_isRunning = false;
    private final GameProfileRecording m_recorder;
    private static final Object m_gameProfilerRecordingTriggerLock = "Game Profiler Recording Watcher, synchronization lock";
    private static PredicatedFileWatcher m_gameProfilerRecordingTriggerWatcher;
+   private static final ArrayList<String> m_validThreadNames = new ArrayList();
+   private static final int MAX_DEPTH = 20;
 
    private GameProfiler() {
       String var1 = Thread.currentThread().getName();
       String var2 = var1.replace("-", "").replace(" ", "");
       String var3 = String.format("%s_GameProfiler_%s", this.getCurrentSessionUUID(), var2);
       this.m_recorder = new GameProfileRecording(var3);
+   }
+
+   public static boolean isValidThread() {
+      return m_validThreadNames.contains(Thread.currentThread().getName());
    }
 
    private static void onTrigger_setAnimationRecorderTriggerFile(TriggerGameProfilerFile var0) {
@@ -50,9 +56,10 @@ public final class GameProfiler {
          throw new RuntimeException("Already inside a frame.");
       } else {
          this.m_isInFrame = true;
+         this.m_isRunning = DebugOptions.instance.GameProfilerEnabled.getValue();
          if (!this.m_stack.empty()) {
-            throw new RuntimeException("Recording stack should be empty.");
-         } else {
+            throw new RuntimeException("Recording stack should be empty at the start of a frame.");
+         } else if (this.m_isRunning) {
             int var2 = IsoCamera.frameState.frameCount;
             if (this.m_currentFrame.FrameNo != var2) {
                this.m_previousFrame.transferFrom(this.m_currentFrame);
@@ -74,31 +81,45 @@ public final class GameProfiler {
    }
 
    public void endFrame() {
-      this.m_currentFrame.m_endTime = getTimeNs();
-      this.m_currentFrame.m_totalTime = this.m_currentFrame.m_endTime - this.m_currentFrame.m_startTime;
-      this.m_isInFrame = false;
-   }
-
-   public void invokeAndMeasureFrame(String var1, Runnable var2) {
-      if (!isRunning()) {
-         var2.run();
-      } else {
-         this.startFrame(var1);
-
-         try {
-            this.invokeAndMeasure(var1, var2);
-         } finally {
-            this.endFrame();
+      try {
+         if (!this.m_isInFrame) {
+            throw new RuntimeException("Not inside a frame.");
          }
 
+         if (this.m_isRunning) {
+            this.m_currentFrame.m_endTime = getTimeNs();
+            this.m_currentFrame.m_totalTime = this.m_currentFrame.m_endTime - this.m_currentFrame.m_startTime;
+            if (this.m_stack.empty()) {
+               return;
+            }
+
+            throw new RuntimeException("Recording stack should be empty at the end of a frame.");
+         }
+      } finally {
+         this.m_isInFrame = false;
+         this.m_isRunning = DebugOptions.instance.GameProfilerEnabled.getValue();
+      }
+
+   }
+
+   private boolean checkShouldMeasure() {
+      if (!isRunning()) {
+         return false;
+      } else if (!this.m_isInFrame) {
+         DebugLog.General.warn("Not inside in a frame. Find the root caller function for this thread, and add call to invokeAndMeasureFrame.");
+         return false;
+      } else {
+         return true;
       }
    }
 
+   public static boolean isRunning() {
+      return getInstance().m_isRunning;
+   }
+
    public void invokeAndMeasure(String var1, Runnable var2) {
-      if (!isRunning()) {
+      if (!this.checkShouldMeasure()) {
          var2.run();
-      } else if (!this.m_isInFrame) {
-         DebugLog.General.warn("Not inside in a frame. Find the root caller function for this thread, and add call to invokeAndMeasureFrame.");
       } else {
          ProfileArea var3 = this.start(var1);
 
@@ -111,45 +132,60 @@ public final class GameProfiler {
       }
    }
 
-   public static boolean isRunning() {
-      return DebugOptions.instance.GameProfilerEnabled.getValue();
-   }
-
    public <T1> void invokeAndMeasure(String var1, T1 var2, Invokers.Params1.ICallback<T1> var3) {
-      if (!isRunning()) {
+      if (!this.checkShouldMeasure()) {
          var3.accept(var2);
       } else {
-         Lambda.capture(this, var1, var2, var3, (var0, var1x, var2x, var3x, var4) -> {
-            var1x.invokeAndMeasure(var2x, var0.invoker(var3x, var4));
-         });
+         ProfileArea var4 = this.start(var1);
+
+         try {
+            var3.accept(var2);
+         } finally {
+            this.end(var4);
+         }
+
       }
    }
 
    public <T1, T2> void invokeAndMeasure(String var1, T1 var2, T2 var3, Invokers.Params2.ICallback<T1, T2> var4) {
-      if (!isRunning()) {
+      if (!this.checkShouldMeasure()) {
          var4.accept(var2, var3);
       } else {
-         Lambda.capture(this, var1, var2, var3, var4, (var0, var1x, var2x, var3x, var4x, var5) -> {
-            var1x.invokeAndMeasure(var2x, var0.invoker(var3x, var4x, var5));
-         });
+         ProfileArea var5 = this.start(var1);
+
+         try {
+            var4.accept(var2, var3);
+         } finally {
+            this.end(var5);
+         }
+
       }
    }
 
    public <T1, T2, T3> void invokeAndMeasure(String var1, T1 var2, T2 var3, T3 var4, Invokers.Params3.ICallback<T1, T2, T3> var5) {
-      if (!isRunning()) {
+      if (!this.checkShouldMeasure()) {
          var5.accept(var2, var3, var4);
       } else {
-         Lambda.capture(this, var1, var2, var3, var4, var5, (var0, var1x, var2x, var3x, var4x, var5x, var6) -> {
-            var1x.invokeAndMeasure(var2x, var0.invoker(var3x, var4x, var5x, var6));
-         });
+         ProfileArea var6 = this.start(var1);
+
+         try {
+            var5.accept(var2, var3, var4);
+         } finally {
+            this.end(var6);
+         }
+
       }
    }
 
    public ProfileArea start(String var1) {
-      long var2 = getTimeNs();
-      ProfileArea var4 = GameProfiler.ProfileArea.alloc();
-      var4.Key = var1;
-      return this.start(var4, var2);
+      if (this.m_stack.size() >= 20) {
+         return null;
+      } else {
+         long var2 = getTimeNs();
+         ProfileArea var4 = GameProfiler.ProfileArea.alloc();
+         var4.Key = var1;
+         return this.start(var4, var2);
+      }
    }
 
    public ProfileArea start(ProfileArea var1) {
@@ -157,7 +193,7 @@ public final class GameProfiler {
       return this.start(var1, var2);
    }
 
-   public ProfileArea start(ProfileArea var1, long var2) {
+   public synchronized ProfileArea start(ProfileArea var1, long var2) {
       var1.StartTime = var2;
       var1.Depth = this.m_stack.size();
       if (!this.m_stack.isEmpty()) {
@@ -169,19 +205,25 @@ public final class GameProfiler {
       return var1;
    }
 
-   public void end(ProfileArea var1) {
-      var1.EndTime = getTimeNs();
-      var1.Total = var1.EndTime - var1.StartTime;
-      if (this.m_stack.peek() != var1) {
-         throw new RuntimeException("Incorrect exit. ProfileArea " + var1 + " is not at the top of the stack: " + this.m_stack.peek());
-      } else {
-         this.m_stack.pop();
-         if (this.m_stack.isEmpty()) {
-            this.m_recorder.logTimeSpan(var1);
-            var1.release();
-         }
+   public synchronized void end(ProfileArea var1) {
+      if (var1 != null) {
+         var1.EndTime = getTimeNs();
+         var1.Total = var1.EndTime - var1.StartTime;
+         if (this.m_stack.peek() != var1) {
+            throw new RuntimeException("Incorrect exit. ProfileArea " + var1 + " is not at the top of the stack: " + this.m_stack.peek());
+         } else {
+            this.m_stack.pop();
+            if (this.m_stack.isEmpty()) {
+               this.m_recorder.logTimeSpan(var1);
+               var1.release();
+            }
 
+         }
       }
+   }
+
+   public ProfileArea startIfEnabled(String var1) {
+      return !this.checkShouldMeasure() ? null : this.start(var1);
    }
 
    private void renderPercent(String var1, long var2, int var4, int var5, float var6, float var7, float var8) {
@@ -214,6 +256,11 @@ public final class GameProfiler {
          }
       }
 
+   }
+
+   static {
+      m_validThreadNames.add("main");
+      m_validThreadNames.add("MainThread");
    }
 
    public static class RecordingFrame {

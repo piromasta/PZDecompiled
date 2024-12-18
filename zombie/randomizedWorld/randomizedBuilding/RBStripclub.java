@@ -1,7 +1,8 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -31,7 +32,11 @@ public final class RBStripclub extends RandomizedBuildingBase {
                         var11 = Rand.Next(1, 4);
 
                         for(var12 = 0; var12 < var11; ++var12) {
-                           var8.AddWorldInventoryItem("Money", Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                           if (Rand.NextBool(8)) {
+                              ItemSpawner.spawnItem("MoneyBundle", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                           } else {
+                              ItemSpawner.spawnItem("Money", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                           }
                         }
 
                         var12 = Rand.Next(1, 4);
@@ -43,24 +48,24 @@ public final class RBStripclub extends RandomizedBuildingBase {
 
                            switch (var14) {
                               case 1:
-                                 var8.AddWorldInventoryItem(var3 ? "Trousers" : "TightsFishnet_Ground", Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                                 ItemSpawner.spawnItem(var3 ? "Trousers" : "TightsFishnet_Ground", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
                                  var4.add(1);
                                  break;
                               case 2:
-                                 var8.AddWorldInventoryItem("Vest_DefaultTEXTURE_TINT", Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                                 ItemSpawner.spawnItem("Vest_DefaultTEXTURE_TINT", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
                                  var4.add(2);
                                  break;
                               case 3:
-                                 var8.AddWorldInventoryItem(var3 ? "Jacket_Fireman" : "BunnySuitBlack", Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                                 ItemSpawner.spawnItem(var3 ? "Jacket_Fireman" : "BunnySuitBlack", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
                                  var4.add(3);
                                  break;
                               case 4:
-                                 var8.AddWorldInventoryItem(var3 ? "Hat_Cowboy" : "Garter", Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                                 ItemSpawner.spawnItem(var3 ? "Hat_Cowboy" : "Garter", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
                                  var4.add(4);
                                  break;
                               case 5:
                                  if (!var3) {
-                                    var8.AddWorldInventoryItem("StockingsBlack", Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                                    ItemSpawner.spawnItem("StockingsBlack", var8, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
                                  }
 
                                  var4.add(5);
@@ -72,11 +77,11 @@ public final class RBStripclub extends RandomizedBuildingBase {
                         var11 = Rand.Next(1, 4);
 
                         for(var12 = 0; var12 < var11; ++var12) {
-                           var8.AddWorldInventoryItem("Money", Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
+                           ItemSpawner.spawnItem("Money", var8, Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
                         }
 
                         if (Rand.NextBool(3)) {
-                           this.addWorldItem("Cigarettes", var8, var10);
+                           this.addWorldItem("CigaretteSingle", var8, var10);
                            if (Rand.NextBool(2)) {
                               this.addWorldItem("Lighter", var8, var10);
                            }
@@ -85,19 +90,19 @@ public final class RBStripclub extends RandomizedBuildingBase {
                         var12 = Rand.Next(7);
                         switch (var12) {
                            case 0:
-                              var8.AddWorldInventoryItem("WhiskeyFull", Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Whiskey", var8, Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 1:
-                              var8.AddWorldInventoryItem("Wine", Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Champagne", var8, Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 2:
-                              var8.AddWorldInventoryItem("Wine2", Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Champagne", var8, Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 3:
-                              var8.AddWorldInventoryItem("BeerCan", Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("BeerImported", var8, Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 4:
-                              var8.AddWorldInventoryItem("BeerBottle", Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("BeerBottle", var8, Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), var10.getSurfaceOffsetNoTable() / 96.0F);
                         }
                      }
                   }
@@ -124,7 +129,7 @@ public final class RBStripclub extends RandomizedBuildingBase {
    }
 
    public boolean isValid(BuildingDef var1, boolean var2) {
-      return var1.getRoom("stripclub") != null || var2;
+      return var1.getRoom("stripclub") != null;
    }
 
    public RBStripclub() {

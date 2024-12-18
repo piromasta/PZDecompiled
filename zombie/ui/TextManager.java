@@ -1,6 +1,5 @@
 package zombie.ui;
 
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -9,6 +8,8 @@ import zombie.ZomboidFileSystem;
 import zombie.core.Core;
 import zombie.core.Translator;
 import zombie.core.fonts.AngelCodeFont;
+import zombie.core.opengl.RenderThread;
+import zombie.core.opengl.SDFShader;
 import zombie.debug.DebugLog;
 import zombie.network.GameServer;
 import zombie.network.ServerGUI;
@@ -32,6 +33,7 @@ public final class TextManager {
    public final AngelCodeFont[] normal = new AngelCodeFont[14];
    public AngelCodeFont zombienew3;
    public final AngelCodeFont[] enumToFont = new AngelCodeFont[UIFont.values().length];
+   public static SDFShader sdfShader;
    public static final TextManager instance = new TextManager();
    public ArrayList<DeferedTextDraw> todoTextList = new ArrayList();
 
@@ -158,94 +160,93 @@ public final class TextManager {
    }
 
    public void Init() throws FileNotFoundException {
-      String var1 = ZomboidFileSystem.instance.getString("media/fonts/EN/fonts.txt");
       FontsFile var2 = new FontsFile();
       HashMap var3 = new HashMap();
-      var2.read(var1, var3);
       String var4 = Translator.getLanguage().name();
-      if (!"EN".equals(var4)) {
-         var1 = ZomboidFileSystem.instance.getString("media/fonts/" + var4 + "/fonts.txt");
+      String var1;
+      if (Core.getInstance().getOptionEnableDyslexicFont()) {
+         var1 = ZomboidFileSystem.instance.getString("media/fonts/" + var4 + "/fontsDyslexic.txt");
          var2.read(var1, var3);
       }
 
-      HashMap var5 = new HashMap();
-      String var6 = null;
-      if (Core.OptionFontSize == 2) {
-         var6 = "1x";
-      } else if (Core.OptionFontSize == 3) {
-         var6 = "2x";
-      } else if (Core.OptionFontSize == 4) {
-         var6 = "3x";
-      } else if (Core.OptionFontSize == 5) {
-         var6 = "4x";
+      if (var3.isEmpty()) {
+         var1 = ZomboidFileSystem.instance.getString("media/fonts/EN/fonts.txt");
+         var2.read(var1, var3);
+         if (!"EN".equals(var4)) {
+            var1 = ZomboidFileSystem.instance.getString("media/fonts/" + var4 + "/fonts.txt");
+            var2.read(var1, var3);
+         }
       }
 
-      AngelCodeFont[] var7 = this.enumToFont;
-      int var8 = var7.length;
+      HashMap var5 = new HashMap();
+      int var6 = Core.getInstance().getOptionFontSizeReal();
+      String var7 = null;
+      if (var6 == 2) {
+         var7 = "1x";
+      } else if (var6 == 3) {
+         var7 = "2x";
+      } else if (var6 == 4) {
+         var7 = "3x";
+      } else if (var6 == 5) {
+         var7 = "4x";
+      }
 
-      int var9;
-      AngelCodeFont var10;
-      for(var9 = 0; var9 < var8; ++var9) {
-         var10 = var7[var9];
-         if (var10 != null) {
-            var10.destroy();
+      AngelCodeFont[] var8 = this.enumToFont;
+      int var9 = var8.length;
+
+      int var10;
+      AngelCodeFont var11;
+      for(var10 = 0; var10 < var9; ++var10) {
+         var11 = var8[var10];
+         if (var11 != null) {
+            var11.destroy();
          }
       }
 
       Arrays.fill(this.enumToFont, (Object)null);
-      var7 = this.normal;
-      var8 = var7.length;
+      var8 = this.normal;
+      var9 = var8.length;
 
-      for(var9 = 0; var9 < var8; ++var9) {
-         var10 = var7[var9];
-         if (var10 != null) {
-            var10.destroy();
+      for(var10 = 0; var10 < var9; ++var10) {
+         var11 = var8[var10];
+         if (var11 != null) {
+            var11.destroy();
          }
       }
 
       Arrays.fill(this.normal, (Object)null);
-      UIFont[] var19 = UIFont.values();
-      var8 = var19.length;
+      UIFont[] var17 = UIFont.values();
+      var9 = var17.length;
 
-      for(var9 = 0; var9 < var8; ++var9) {
-         UIFont var23 = var19[var9];
-         FontsFileFont var11 = (FontsFileFont)var3.get(var23.name());
-         if (var11 == null) {
-            DebugLog.General.warn("font \"%s\" not found in fonts.txt", var23.name());
+      for(var10 = 0; var10 < var9; ++var10) {
+         UIFont var19 = var17[var10];
+         FontsFileFont var12 = (FontsFileFont)var3.get(var19.name());
+         if (var12 == null) {
+            DebugLog.General.warn("font \"%s\" not found in fonts.txt", var19.name());
          } else {
-            String var12 = this.getFontFilePath(var4, var6, var11.fnt);
-            String var13 = null;
-            if (var11.img != null) {
-               var13 = this.getFontFilePath(var4, var6, var11.img);
+            String var13 = this.getFontFilePath(var4, var7, var12.fnt);
+            String var14 = null;
+            if (var12.img != null) {
+               var14 = this.getFontFilePath(var4, var7, var12.img);
             }
 
-            String var14 = var12 + "|" + var13;
-            if (var5.get(var14) != null) {
-               this.enumToFont[var23.ordinal()] = (AngelCodeFont)var5.get(var14);
+            String var15 = var13 + "|" + var14;
+            if (var5.get(var15) != null) {
+               this.enumToFont[var19.ordinal()] = (AngelCodeFont)var5.get(var15);
             } else {
-               AngelCodeFont var15 = new AngelCodeFont(var12, var13);
-               this.enumToFont[var23.ordinal()] = var15;
-               var5.put(var14, var15);
+               AngelCodeFont var16 = new AngelCodeFont(var13, var14);
+               this.enumToFont[var19.ordinal()] = var16;
+               var5.put(var15, var16);
             }
          }
       }
 
-      try {
-         ZomboidFileSystem.instance.IgnoreActiveFileMap.set(true);
-         String var20 = (new File("")).getAbsolutePath().replaceAll("\\\\", "/");
-         String var22 = var20 + "/media/fonts/zomboidSmall.fnt";
-         String var24 = var20 + "/media/fonts/zomboidSmall_0.png";
-         if (var22.startsWith("/")) {
-            var22 = "/" + var22;
-         }
-
-         this.enumToFont[UIFont.DebugConsole.ordinal()] = new AngelCodeFont(var22, var24);
-      } finally {
-         ZomboidFileSystem.instance.IgnoreActiveFileMap.set(false);
+      if (this.enumToFont[UIFont.DebugConsole.ordinal()] == null) {
+         this.enumToFont[UIFont.DebugConsole.ordinal()] = this.enumToFont[UIFont.Small.ordinal()];
       }
 
-      for(int var21 = 0; var21 < this.normal.length; ++var21) {
-         this.normal[var21] = new AngelCodeFont("media/fonts/zomboidNormal" + (var21 + 11) + ".fnt", "media/fonts/zomboidNormal" + (var21 + 11) + "_0");
+      for(int var18 = 0; var18 < this.normal.length; ++var18) {
+         this.normal[var18] = new AngelCodeFont("media/fonts/zomboidNormal" + (var18 + 11) + ".fnt", "media/fonts/zomboidNormal" + (var18 + 11) + "_0");
       }
 
       this.font = this.enumToFont[UIFont.Small.ordinal()];
@@ -268,6 +269,9 @@ public final class TextManager {
       this.intro = this.enumToFont[UIFont.Intro.ordinal()];
       this.handwritten = this.enumToFont[UIFont.Handwritten.ordinal()];
       this.debugConsole = this.enumToFont[UIFont.DebugConsole.ordinal()];
+      RenderThread.invokeOnRenderContext(() -> {
+         sdfShader = new SDFShader("sdf");
+      });
    }
 
    public int MeasureStringX(UIFont var1, String var2) {
@@ -281,13 +285,29 @@ public final class TextManager {
       }
    }
 
+   public int CentreStringYOffset(UIFont var1, String var2) {
+      return this.MeasureStringYOffset(var1, var2) - (this.MeasureStringY(var1, var2) - this.MeasureStringYReal(var1, var2)) / 2;
+   }
+
    public int MeasureStringY(UIFont var1, String var2) {
+      return this.MeasureStringY(var1, var2, false, false);
+   }
+
+   public int MeasureStringYReal(UIFont var1, String var2) {
+      return this.MeasureStringY(var1, var2, true, false);
+   }
+
+   public int MeasureStringYOffset(UIFont var1, String var2) {
+      return this.MeasureStringY(var1, var2, false, true);
+   }
+
+   public int MeasureStringY(UIFont var1, String var2, boolean var3, boolean var4) {
       if (var1 != null && var2 != null) {
          if (GameServer.bServer && !ServerGUI.isCreated()) {
             return 0;
          } else {
-            AngelCodeFont var3 = this.getFontFromEnum(var1);
-            return var3.getHeight(var2);
+            AngelCodeFont var5 = this.getFontFromEnum(var1);
+            return var5.getHeight(var2, var3, var4);
          }
       } else {
          return 0;
@@ -309,6 +329,83 @@ public final class TextManager {
          return 30;
       } else {
          return var1 == UIFont.MainMenu2 ? 30 : this.getFontFromEnum(var1).getLineHeight();
+      }
+   }
+
+   public String WrapText(UIFont var1, String var2, int var3) {
+      return this.WrapText(var1, var2, var3, -1, "");
+   }
+
+   public String WrapText(UIFont var1, String var2, int var3, int var4, String var5) {
+      ArrayList var6 = new ArrayList();
+      String[] var7 = var2.split("\\r?\\n");
+      int var8 = this.MeasureStringX(var1, " ");
+
+      int var9;
+      for(var9 = 0; var9 < var7.length; ++var9) {
+         int var10 = this.MeasureStringX(var1, var7[var9]);
+         if (var10 <= var3) {
+            var6.add(var7[var9]);
+         } else {
+            String[] var11 = var7[var9].split(" ");
+            ArrayList var12 = new ArrayList();
+            int var13 = 0;
+
+            for(int var14 = 0; var14 < var11.length; ++var14) {
+               int var15 = var13 + this.MeasureStringX(var1, var11[var14]);
+               String var22;
+               if (var15 <= var3) {
+                  var12.add(var11[var14]);
+                  var13 += this.MeasureStringX(var1, var11[var14]) + var8;
+               } else if (var12.size() != 0) {
+                  var22 = String.join(" ", var12);
+                  var6.add(var22);
+                  var12.clear();
+                  var12.add(var11[var14]);
+                  var13 = this.MeasureStringX(var1, var11[var14]) + var8;
+               } else {
+                  int var16 = (int)Math.floor((double)var3 / (double)var15 * (double)var11[var14].length()) - 1;
+                  int var17 = (int)Math.ceil((double)var11[var14].length() / (double)var16);
+
+                  for(int var18 = 0; var18 < var17 - 1; ++var18) {
+                     String var10001 = var11[var14].substring(var18 * var16, (var18 + 1) * var16);
+                     var6.add(var10001 + "-");
+                  }
+
+                  String var23 = var11[var14].substring((var17 - 1) * var16);
+                  var12.add(var23);
+                  var13 = this.MeasureStringX(var1, var23) + var8;
+               }
+
+               if (var14 == var11.length - 1) {
+                  var22 = String.join(" ", var12);
+                  var6.add(var22);
+                  var13 = 0;
+                  var12.clear();
+               }
+            }
+         }
+      }
+
+      if (var4 > 0 && var6.size() > var4) {
+         var9 = this.MeasureStringX(var1, var5);
+         String var10000;
+         String var19;
+         if (var3 - this.MeasureStringX(var1, (String)var6.get(var4 - 1)) < var9) {
+            var19 = (String)var6.get(var4 - 1);
+            int var20 = Math.max(var19.length() - var5.length(), 0);
+            var10000 = var19.substring(0, var20);
+            String var21 = var10000 + var5;
+            var6.set(var4 - 1, var21);
+         } else {
+            var10000 = (String)var6.get(var4 - 1);
+            var19 = var10000 + var5;
+            var6.set(var4 - 1, var19);
+         }
+
+         return String.join("\n", var6.subList(0, var4));
+      } else {
+         return String.join("\n", var6);
       }
    }
 

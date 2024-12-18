@@ -4,8 +4,9 @@ import zombie.WorldSoundManager;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
@@ -40,11 +41,11 @@ public class IsoBall extends IsoPhysicsObject {
       var10 -= 0.2F;
       this.velX += var9;
       this.velY += var10;
-      this.x = var2;
-      this.y = var3;
-      this.z = var4;
-      this.nx = var2;
-      this.ny = var3;
+      this.setX(var2);
+      this.setY(var3);
+      this.setZ(var4);
+      this.setNextX(var2);
+      this.setNextY(var3);
       this.offsetX = 0.0F;
       this.offsetY = 0.0F;
       this.terminalVelocity = -0.02F;
@@ -81,7 +82,7 @@ public class IsoBall extends IsoPhysicsObject {
       this.getCurrentSquare().getMovingObjects().remove(this);
       this.getCell().Remove(this);
       if (!GameClient.bClient) {
-         WorldSoundManager.instance.addSound(this, (int)this.x, (int)this.y, 0, 600, 600);
+         WorldSoundManager.instance.addSound(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), 0, 600, 600);
       }
 
       if (this.character instanceof IsoPlayer) {

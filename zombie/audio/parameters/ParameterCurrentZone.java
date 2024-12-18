@@ -2,12 +2,11 @@ package zombie.audio.parameters;
 
 import zombie.audio.FMODLocalParameter;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoObject;
 
 public final class ParameterCurrentZone extends FMODLocalParameter {
    private final IsoObject object;
-   private IsoMetaGrid.Zone metaZone;
+   private zombie.iso.zones.Zone metaZone;
    private Zone zone;
 
    public ParameterCurrentZone(IsoObject var1) {
@@ -25,10 +24,7 @@ public final class ParameterCurrentZone extends FMODLocalParameter {
          return (float)this.zone.label;
       } else {
          this.metaZone = var1.zone;
-         if (this.metaZone == null) {
-            this.zone = ParameterCurrentZone.Zone.None;
-            return (float)this.zone.label;
-         } else {
+         if (this.metaZone != null && this.metaZone.type != null) {
             Zone var10001;
             switch (this.metaZone.type) {
                case "DeepForest":
@@ -57,6 +53,9 @@ public final class ParameterCurrentZone extends FMODLocalParameter {
             }
 
             this.zone = var10001;
+            return (float)this.zone.label;
+         } else {
+            this.zone = ParameterCurrentZone.Zone.None;
             return (float)this.zone.label;
          }
       }

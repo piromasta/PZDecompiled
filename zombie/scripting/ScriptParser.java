@@ -2,6 +2,7 @@ package zombie.scripting;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import zombie.util.StringUtils;
 
 public final class ScriptParser {
    private static StringBuilder stringBuilder = new StringBuilder();
@@ -20,6 +21,11 @@ public final class ScriptParser {
             String[] var6 = var5.split("\\s+");
             var4.type = var6[0];
             var4.id = var6.length > 1 ? var6[1] : null;
+            if (ScriptBucket.getCurrentScriptObject() != null) {
+               String var10001 = ScriptBucket.getCurrentScriptObject();
+               var4.uid = "UID:" + var10001 + "@" + var4.type + "@" + Integer.toString(var3);
+            }
+
             var3 = readBlock(var0, var3 + 1, var4);
             var1 = var3;
          } else {
@@ -116,8 +122,14 @@ public final class ScriptParser {
       public final ArrayList<BlockElement> elements = new ArrayList();
       public final ArrayList<Value> values = new ArrayList();
       public final ArrayList<Block> children = new ArrayList();
+      private String uid;
+      public String comment;
 
       public Block() {
+      }
+
+      public String getUid() {
+         return this.uid;
       }
 
       public Block asBlock() {
@@ -136,6 +148,15 @@ public final class ScriptParser {
          int var4;
          for(var4 = 0; var4 < var1; ++var4) {
             var2.append('\t');
+         }
+
+         if (!StringUtils.isNullOrWhitespace(this.comment)) {
+            var2.append(this.comment);
+            var2.append(var3);
+
+            for(var4 = 0; var4 < var1; ++var4) {
+               var2.append('\t');
+            }
          }
 
          var2.append(this.type);

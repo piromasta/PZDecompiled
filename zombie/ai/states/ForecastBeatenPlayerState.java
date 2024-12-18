@@ -21,7 +21,7 @@ public final class ForecastBeatenPlayerState extends State {
 
    public void execute(IsoGameCharacter var1) {
       if (var1.getCurrentSquare() != null) {
-         var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getMultiplier() / 1.6F);
+         var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getThirtyFPSMultiplier());
          if (var1.getReanimateTimer() <= 0.0F) {
             var1.setReanimateTimer(0.0F);
             var1.setVariable("bKnockedDown", true);

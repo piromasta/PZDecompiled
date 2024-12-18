@@ -11,6 +11,7 @@ import zombie.core.skinnedmodel.model.jassimp.JAssImpImporter;
 import zombie.core.skinnedmodel.model.jassimp.ProcessedAiScene;
 import zombie.core.skinnedmodel.model.jassimp.ProcessedAiSceneParams;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugType;
 import zombie.fileSystem.FileSystem;
 import zombie.fileSystem.IFileTaskCallback;
 
@@ -64,6 +65,7 @@ public class FileTask_LoadMesh extends FileTask_AbstractLoadModel {
    public ProcessedAiScene loadFBX() throws IOException {
       DebugLog.Animation.debugln("Loading: %s", this.m_fileName);
       EnumSet var1 = EnumSet.of(AiPostProcessSteps.FIND_INSTANCES, AiPostProcessSteps.MAKE_LEFT_HANDED, AiPostProcessSteps.LIMIT_BONE_WEIGHTS, AiPostProcessSteps.TRIANGULATE, AiPostProcessSteps.OPTIMIZE_MESHES, AiPostProcessSteps.REMOVE_REDUNDANT_MATERIALS, AiPostProcessSteps.JOIN_IDENTICAL_VERTICES);
+      this.handlePostProcessFlags(var1, this.mesh.assetParams.postProcess);
       AiScene var2 = Jassimp.importFile(this.m_fileName, var1);
       JAssImpImporter.LoadMode var3 = this.mesh.assetParams.bStatic ? JAssImpImporter.LoadMode.StaticMesh : JAssImpImporter.LoadMode.Normal;
       ModelMesh var4 = this.mesh.assetParams.animationsMesh;
@@ -83,6 +85,26 @@ public class FileTask_LoadMesh extends FileTask_AbstractLoadModel {
       return var9;
    }
 
+   public ProcessedAiScene loadGLTF() throws IOException {
+      DebugType.LoadAnimation.debugln("Loading: %s", this.m_fileName);
+      EnumSet var1 = EnumSet.of(AiPostProcessSteps.FIND_INSTANCES, AiPostProcessSteps.MAKE_LEFT_HANDED, AiPostProcessSteps.LIMIT_BONE_WEIGHTS, AiPostProcessSteps.TRIANGULATE, AiPostProcessSteps.OPTIMIZE_MESHES, AiPostProcessSteps.REMOVE_REDUNDANT_MATERIALS, AiPostProcessSteps.JOIN_IDENTICAL_VERTICES);
+      this.handlePostProcessFlags(var1, this.mesh.assetParams.postProcess);
+      AiScene var2 = Jassimp.importFile(this.m_fileName, var1);
+      JAssImpImporter.LoadMode var3 = this.mesh.assetParams.bStatic ? JAssImpImporter.LoadMode.StaticMesh : JAssImpImporter.LoadMode.Normal;
+      ModelMesh var4 = this.mesh.assetParams.animationsMesh;
+      SkinningData var5 = var4 == null ? null : var4.skinningData;
+      ProcessedAiSceneParams var6 = ProcessedAiSceneParams.create();
+      var6.scene = var2;
+      var6.mode = var3;
+      var6.skinnedTo = var5;
+      var6.meshName = this.getMeshName();
+      var6.animBonesScaleModifier = 1.0F;
+      var6.animBonesRotateModifier = null;
+      ProcessedAiScene var7 = ProcessedAiScene.process(var6);
+      JAssImpImporter.takeOutTheTrash(var2);
+      return var7;
+   }
+
    public ModelTxt loadTxt() throws IOException {
       boolean var1 = this.mesh.assetParams.bStatic;
       boolean var2 = false;
@@ -91,12 +113,21 @@ public class FileTask_LoadMesh extends FileTask_AbstractLoadModel {
       return ModelLoader.instance.loadTxt(this.m_fileName, var1, var2, var4);
    }
 
-   static enum LoadMode {
-      Assimp,
-      Txt,
-      Missing;
+   private void handlePostProcessFlags(EnumSet<AiPostProcessSteps> var1, String var2) {
+      if (var2 != null) {
+         String[] var3 = this.mesh.assetParams.postProcess.split(";");
+         String[] var4 = var3;
+         int var5 = var3.length;
 
-      private LoadMode() {
+         for(int var6 = 0; var6 < var5; ++var6) {
+            String var7 = var4[var6];
+            if (var7.startsWith("+")) {
+               var1.add(AiPostProcessSteps.valueOf(var7.substring(1)));
+            } else if (var7.startsWith("-")) {
+               var1.remove(AiPostProcessSteps.valueOf(var7.substring(1)));
+            }
+         }
+
       }
    }
 }

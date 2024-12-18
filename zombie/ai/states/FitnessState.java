@@ -5,6 +5,7 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.network.GameClient;
+import zombie.util.Type;
 
 public final class FitnessState extends State {
    private static final FitnessState _instance = new FitnessState();
@@ -37,8 +38,19 @@ public final class FitnessState extends State {
       var1.clearVariable("ExerciseHand");
       var1.clearVariable("FitnessStruggle");
       var1.setVariable("ExerciseEnded", true);
+      var1.clearVariable("PlayerVoiceSound");
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      if (var2.m_EventName.equalsIgnoreCase("PlayerVoiceSound") && var3 != null) {
+         if (var3.getVariableBoolean("PlayerVoiceSound")) {
+         }
+
+         var3.setVariable("PlayerVoiceSound", true);
+         var3.stopPlayerVoiceSound(var2.m_ParameterValue);
+         var3.playerVoiceSound(var2.m_ParameterValue);
+      }
+
    }
 }

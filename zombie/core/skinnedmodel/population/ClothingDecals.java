@@ -36,15 +36,14 @@ public class ClothingDecals {
       if (instance != null) {
          throw new IllegalStateException("ClothingDecals Already Initialized.");
       } else {
-         String var10000 = ZomboidFileSystem.instance.base.getAbsolutePath();
+         String var10000 = ZomboidFileSystem.instance.base.canonicalFile.getAbsolutePath();
          instance = Parse(var10000 + File.separator + ZomboidFileSystem.processFilePath("media/clothing/clothingDecals.xml", File.separatorChar));
          if (instance != null) {
             Iterator var0 = ZomboidFileSystem.instance.getModIDs().iterator();
 
             while(true) {
-               String var1;
-               ClothingDecals var4;
-               do {
+               while(true) {
+                  String var1;
                   ChooseGameInfo.Mod var2;
                   do {
                      if (!var0.hasNext()) {
@@ -55,24 +54,50 @@ public class ClothingDecals {
                      var2 = ChooseGameInfo.getAvailableModDetails(var1);
                   } while(var2 == null);
 
-                  String var3 = ZomboidFileSystem.instance.getModDir(var1);
-                  var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/clothing/clothingDecals.xml", File.separatorChar));
-               } while(var4 == null);
+                  String var3 = var2.getVersionDir();
+                  ClothingDecals var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/clothing/clothingDecals.xml", File.separatorChar));
+                  Iterator var5;
+                  ClothingDecalGroup var6;
+                  ClothingDecalGroup var7;
+                  int var8;
+                  if (var4 != null) {
+                     var5 = var4.m_Groups.iterator();
 
-               Iterator var5 = var4.m_Groups.iterator();
+                     while(var5.hasNext()) {
+                        var6 = (ClothingDecalGroup)var5.next();
+                        var7 = instance.FindGroup(var6.m_Name);
+                        if (var7 == null) {
+                           instance.m_Groups.add(var6);
+                        } else {
+                           if (DebugLog.isEnabled(DebugType.Clothing)) {
+                              DebugLog.Clothing.println("mod \"%s\" overrides decal group \"%s\"", var1, var6.m_Name);
+                           }
 
-               while(var5.hasNext()) {
-                  ClothingDecalGroup var6 = (ClothingDecalGroup)var5.next();
-                  ClothingDecalGroup var7 = instance.FindGroup(var6.m_Name);
-                  if (var7 == null) {
-                     instance.m_Groups.add(var6);
-                  } else {
-                     if (DebugLog.isEnabled(DebugType.Clothing)) {
-                        DebugLog.Clothing.println("mod \"%s\" overrides decal group \"%s\"", var1, var6.m_Name);
+                           var8 = instance.m_Groups.indexOf(var7);
+                           instance.m_Groups.set(var8, var6);
+                        }
                      }
+                  } else {
+                     var3 = var2.getCommonDir();
+                     var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/clothing/clothingDecals.xml", File.separatorChar));
+                     if (var4 != null) {
+                        var5 = var4.m_Groups.iterator();
 
-                     int var8 = instance.m_Groups.indexOf(var7);
-                     instance.m_Groups.set(var8, var6);
+                        while(var5.hasNext()) {
+                           var6 = (ClothingDecalGroup)var5.next();
+                           var7 = instance.FindGroup(var6.m_Name);
+                           if (var7 == null) {
+                              instance.m_Groups.add(var6);
+                           } else {
+                              if (DebugLog.isEnabled(DebugType.Clothing)) {
+                                 DebugLog.Clothing.println("mod \"%s\" overrides decal group \"%s\"", var1, var6.m_Name);
+                              }
+
+                              var8 = instance.m_Groups.indexOf(var7);
+                              instance.m_Groups.set(var8, var6);
+                           }
+                        }
+                     }
                   }
                }
             }

@@ -49,6 +49,14 @@ public class SearchMode {
       this.plrModes[var1].override = var2;
    }
 
+   public boolean isOverrideSearchManager(int var1) {
+      return this.plrModes[var1].overrideSearchManager;
+   }
+
+   public void setOverrideSearchManager(int var1, boolean var2) {
+      this.plrModes[var1].overrideSearchManager = var2;
+   }
+
    public SearchModeFloat getRadius(int var1) {
       return this.plrModes[var1].radius;
    }
@@ -115,6 +123,7 @@ public class SearchMode {
       private final int plrIndex;
       private final SearchMode parent;
       private boolean override = false;
+      private boolean overrideSearchManager = false;
       private boolean enabled = false;
       private final SearchModeFloat radius = new SearchModeFloat(0.0F, 50.0F, 1.0F);
       private final SearchModeFloat gradientWidth = new SearchModeFloat(0.0F, 20.0F, 1.0F);
@@ -250,6 +259,13 @@ public class SearchMode {
          this.setTargetInterior(var4);
       }
 
+      public void setAll(float var1) {
+         this.setExterior(var1);
+         this.setTargetExterior(var1);
+         this.setInterior(var1);
+         this.setTargetInterior(var1);
+      }
+
       public void setTargets(float var1, float var2) {
          this.setTargetExterior(var1);
          this.setTargetInterior(var2);
@@ -310,6 +326,13 @@ public class SearchMode {
       public void reset() {
          this.exterior = 0.0F;
          this.interior = 0.0F;
+      }
+
+      public void resetAll() {
+         this.exterior = 0.0F;
+         this.interior = 0.0F;
+         this.targetInterior = 0.0F;
+         this.targetExterior = 0.0F;
       }
 
       public float getMin() {

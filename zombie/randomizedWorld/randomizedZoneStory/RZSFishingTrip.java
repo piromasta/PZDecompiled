@@ -1,12 +1,12 @@
 package zombie.randomizedWorld.randomizedZoneStory;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.types.InventoryContainer;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
-import zombie.iso.IsoMetaGrid;
+import zombie.iso.zones.Zone;
 
 public class RZSFishingTrip extends RandomizedZoneStoryBase {
    public RZSFishingTrip() {
@@ -47,15 +47,15 @@ public class RZSFishingTrip extends RandomizedZoneStoryBase {
       return var0;
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
       ArrayList var2 = getFishes();
       ArrayList var3 = getFishingTools();
       this.cleanAreaForStory(this, var1);
-      this.addVehicle(var1, this.getSq(var1.x, var1.y, var1.z), (IsoChunk)null, (String)null, "Base.PickUpTruck", (Integer)null, (IsoDirections)null, "Fisherman");
+      this.addVehicle(var1, getSq(var1.x, var1.y, var1.z), (IsoChunk)null, (String)null, "Base.PickUpTruck", (Integer)null, (IsoDirections)null, "Fisherman");
       int var4 = Rand.Next(1, 3);
 
       for(int var5 = 0; var5 < var4; ++var5) {
-         this.addTileObject(this.getRandomFreeSquare(this, var1), "furniture_seating_outdoor_01_" + Rand.Next(16, 20));
+         this.addTileObject(this.getRandomExtraFreeSquare(this, var1), "furniture_seating_outdoor_01_" + Rand.Next(16, 20));
       }
 
       InventoryContainer var9 = (InventoryContainer)InventoryItemFactory.CreateItem("Base.Cooler");
@@ -65,8 +65,8 @@ public class RZSFishingTrip extends RandomizedZoneStoryBase {
          var9.getItemContainer().AddItem((String)var2.get(Rand.Next(var2.size())));
       }
 
-      this.addItemOnGround(this.getRandomFreeSquare(this, var1), var9);
-      InventoryContainer var10 = (InventoryContainer)InventoryItemFactory.CreateItem("Base.Toolbox");
+      this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), var9);
+      InventoryContainer var10 = (InventoryContainer)InventoryItemFactory.CreateItem("Base.Tacklebox");
       var6 = Rand.Next(3, 8);
 
       int var8;
@@ -74,13 +74,13 @@ public class RZSFishingTrip extends RandomizedZoneStoryBase {
          var10.getItemContainer().AddItem((String)var3.get(Rand.Next(var3.size())));
       }
 
-      this.addItemOnGround(this.getRandomFreeSquare(this, var1), var10);
+      this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), var10);
       var6 = Rand.Next(2, 5);
 
       for(var8 = 0; var8 < var6; ++var8) {
-         this.addItemOnGround(this.getRandomFreeSquare(this, var1), "FishingRod");
+         this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), "FishingRod");
       }
 
-      this.addZombiesOnSquare(Rand.Next(2, 5), "Fisherman", 0, this.getRandomFreeSquare(this, var1));
+      this.addZombiesOnSquare(Rand.Next(2, 5), "Fisherman", 0, this.getRandomExtraFreeSquare(this, var1));
    }
 }

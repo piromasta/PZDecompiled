@@ -4,6 +4,7 @@ import gnu.trove.stack.array.TIntArrayStack;
 import java.nio.IntBuffer;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL30C;
 import zombie.core.opengl.PZGLUtil;
 import zombie.core.opengl.RenderThread;
 import zombie.debug.DebugLog;
@@ -11,10 +12,11 @@ import zombie.interfaces.ITexture;
 
 public final class TextureFBO {
    private static IGLFramebufferObject funcs;
-   private static int lastID = 0;
+   public static int lastID = 0;
    private static final TIntArrayStack stack = new TIntArrayStack();
    private int id;
    ITexture texture;
+   ITexture depthTexture;
    private int depth;
    private int width;
    private int height;
@@ -36,6 +38,30 @@ public final class TextureFBO {
       }
    }
 
+   public void swapTextureAndDepth(ITexture var1, ITexture var2) {
+      assert lastID == this.id;
+
+      IGLFramebufferObject var3 = getFuncs();
+      if (var1 != null && var1 != this.texture && var1.getWidth() == this.width && var1.getHeight() == this.height) {
+         if (var1.getID() == -1) {
+            var1.bind();
+         }
+
+         var3.glFramebufferTexture2D(var3.GL_FRAMEBUFFER(), var3.GL_COLOR_ATTACHMENT0(), 3553, var1.getID(), 0);
+         this.texture = var1;
+      }
+
+      if (this.depthTexture != null && var2 != null && var2 != this.depthTexture && var2.getWidth() == this.width && var2.getHeight() == this.height) {
+         if (var2.getID() == -1) {
+            var2.bind();
+         }
+
+         var3.glFramebufferTexture2D(var3.GL_FRAMEBUFFER(), var3.GL_DEPTH_ATTACHMENT(), 3553, var2.getID(), 0);
+         this.depthTexture = var2;
+      }
+
+   }
+
    public TextureFBO(ITexture var1) {
       this(var1, true);
    }
@@ -46,6 +72,12 @@ public final class TextureFBO {
       RenderThread.invokeOnRenderContext(var1, var2, this::init);
    }
 
+   public TextureFBO(ITexture var1, ITexture var2, boolean var3) {
+      this.id = 0;
+      this.depth = 0;
+      RenderThread.invokeOnRenderContext(var1, var2, var3, this::init);
+   }
+
    private void init(ITexture var1, boolean var2) {
       int var3 = lastID;
       boolean var8 = false;
@@ -53,7 +85,7 @@ public final class TextureFBO {
       int var10001;
       try {
          var8 = true;
-         this.initInternal(var1, var2);
+         this.initInternal(var1, (ITexture)null, var2);
          var8 = false;
       } finally {
          if (var8) {
@@ -70,6 +102,47 @@ public final class TextureFBO {
       var4.glBindFramebuffer(var10001, var3);
    }
 
+   private void init(ITexture var1, ITexture var2, boolean var3) {
+      int var4 = lastID;
+      boolean var9 = false;
+
+      int var10001;
+      try {
+         var9 = true;
+         this.initInternal(var1, var2, var3);
+         var9 = false;
+      } finally {
+         if (var9) {
+            IGLFramebufferObject var7 = getFuncs();
+            var10001 = var7.GL_FRAMEBUFFER();
+            lastID = var4;
+            var7.glBindFramebuffer(var10001, var4);
+         }
+      }
+
+      IGLFramebufferObject var5 = getFuncs();
+      var10001 = var5.GL_FRAMEBUFFER();
+      lastID = var4;
+      var5.glBindFramebuffer(var10001, var4);
+   }
+
+   public void attach(ITexture var1, int var2) {
+      assert lastID == this.id;
+
+      IGLFramebufferObject var3 = getFuncs();
+      var3.glFramebufferTexture2D(var3.GL_FRAMEBUFFER(), var2, 3553, var1.getID(), 0);
+      if (var2 == 36064) {
+         this.texture = var1;
+         this.width = this.texture.getWidth();
+         this.height = this.texture.getHeight();
+      }
+
+      if (var2 == 36096) {
+         this.depthTexture = var1;
+      }
+
+   }
+
    public static IGLFramebufferObject getFuncs() {
       if (funcs == null) {
          checkFBOSupport();
@@ -78,103 +151,128 @@ public final class TextureFBO {
       return funcs;
    }
 
-   private void initInternal(ITexture var1, boolean var2) {
-      IGLFramebufferObject var3 = getFuncs();
+   public void blitDepth(float var1, float var2, float var3, float var4) {
+      GL30C.glBindFramebuffer(36008, this.id);
+      GL30C.glBindFramebuffer(36009, lastID);
+      GL30C.glBlitFramebuffer(0, 0, this.width, this.height, (int)var1, (int)var2, (int)var3, (int)var4, 256, 9729);
+      GL30C.glBindFramebuffer(36160, lastID);
+   }
+
+   private void initInternal(ITexture var1, ITexture var2, boolean var3) {
+      IGLFramebufferObject var4 = getFuncs();
 
       try {
          PZGLUtil.checkGLErrorThrow("Enter.");
-         this.texture = var1;
-         this.width = this.texture.getWidth();
-         this.height = this.texture.getHeight();
-         if (!checkFBOSupport()) {
-            throw new RuntimeException("Could not create FBO. FBO's not supported.");
-         } else if (this.texture == null) {
+         ITexture var5 = var1 != null ? var1 : var2;
+         if (var5 == null) {
             throw new NullPointerException("Could not create FBO. Texture is null.");
          } else {
-            this.texture.bind();
-            PZGLUtil.checkGLErrorThrow("Binding texture. %s", this.texture);
-            GL11.glTexImage2D(3553, 0, 6408, this.texture.getWidthHW(), this.texture.getHeightHW(), 0, 6408, 5121, (IntBuffer)null);
-            PZGLUtil.checkGLErrorThrow("glTexImage2D(width: %d, height: %d)", this.texture.getWidthHW(), this.texture.getHeightHW());
-            GL11.glTexParameteri(3553, 10242, 33071);
-            GL11.glTexParameteri(3553, 10243, 33071);
-            GL11.glTexParameteri(3553, 10240, 9729);
-            GL11.glTexParameteri(3553, 10241, 9729);
-            Texture.lastTextureID = 0;
-            GL11.glBindTexture(3553, 0);
-            this.id = var3.glGenFramebuffers();
-            PZGLUtil.checkGLErrorThrow("glGenFrameBuffers");
-            var3.glBindFramebuffer(var3.GL_FRAMEBUFFER(), this.id);
-            PZGLUtil.checkGLErrorThrow("glBindFramebuffer(%d)", this.id);
-            var3.glFramebufferTexture2D(var3.GL_FRAMEBUFFER(), var3.GL_COLOR_ATTACHMENT0(), 3553, this.texture.getID(), 0);
-            PZGLUtil.checkGLErrorThrow("glFramebufferTexture2D texture: %s", this.texture);
-            this.depth = var3.glGenRenderbuffers();
-            PZGLUtil.checkGLErrorThrow("glGenRenderbuffers");
-            var3.glBindRenderbuffer(var3.GL_RENDERBUFFER(), this.depth);
-            PZGLUtil.checkGLErrorThrow("glBindRenderbuffer depth: %d", this.depth);
-            if (var2) {
-               var3.glRenderbufferStorage(var3.GL_RENDERBUFFER(), var3.GL_DEPTH24_STENCIL8(), this.texture.getWidthHW(), this.texture.getHeightHW());
-               PZGLUtil.checkGLErrorThrow("glRenderbufferStorage(width: %d, height: %d)", this.texture.getWidthHW(), this.texture.getHeightHW());
-               var3.glBindRenderbuffer(var3.GL_RENDERBUFFER(), 0);
-               var3.glFramebufferRenderbuffer(var3.GL_FRAMEBUFFER(), var3.GL_DEPTH_ATTACHMENT(), var3.GL_RENDERBUFFER(), this.depth);
-               PZGLUtil.checkGLErrorThrow("glFramebufferRenderbuffer(depth: %d)", this.depth);
-               var3.glFramebufferRenderbuffer(var3.GL_FRAMEBUFFER(), var3.GL_STENCIL_ATTACHMENT(), var3.GL_RENDERBUFFER(), this.depth);
-               PZGLUtil.checkGLErrorThrow("glFramebufferRenderbuffer(stencil: %d)", this.depth);
+            this.texture = var1;
+            this.depthTexture = var2;
+            this.width = var5.getWidth();
+            this.height = var5.getHeight();
+            if (!checkFBOSupport()) {
+               throw new RuntimeException("Could not create FBO. FBO's not supported.");
             } else {
-               var3.glRenderbufferStorage(var3.GL_RENDERBUFFER(), 6402, this.texture.getWidthHW(), this.texture.getHeightHW());
-               PZGLUtil.checkGLErrorThrow("glRenderbufferStorage(width: %d, height: %d)", this.texture.getWidthHW(), this.texture.getHeightHW());
-               var3.glBindRenderbuffer(var3.GL_RENDERBUFFER(), 0);
-               var3.glFramebufferRenderbuffer(var3.GL_FRAMEBUFFER(), var3.GL_DEPTH_ATTACHMENT(), var3.GL_RENDERBUFFER(), this.depth);
-               PZGLUtil.checkGLErrorThrow("glFramebufferRenderbuffer(depth: %d)", this.depth);
-            }
-
-            int var4 = var3.glCheckFramebufferStatus(var3.GL_FRAMEBUFFER());
-            if (var4 != var3.GL_FRAMEBUFFER_COMPLETE()) {
-               if (var4 == var3.GL_FRAMEBUFFER_UNDEFINED()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_UNDEFINED");
+               this.id = var4.glGenFramebuffers();
+               PZGLUtil.checkGLErrorThrow("glGenFrameBuffers");
+               var4.glBindFramebuffer(var4.GL_FRAMEBUFFER(), this.id);
+               PZGLUtil.checkGLErrorThrow("glBindFramebuffer(%d)", this.id);
+               if (this.texture != null) {
+                  this.texture.bind();
+                  PZGLUtil.checkGLErrorThrow("Binding texture. %s", this.texture);
+                  GL11.glTexImage2D(3553, 0, 6408, this.texture.getWidthHW(), this.texture.getHeightHW(), 0, 6408, 5121, (IntBuffer)null);
+                  PZGLUtil.checkGLErrorThrow("glTexImage2D(width: %d, height: %d)", this.texture.getWidthHW(), this.texture.getHeightHW());
+                  GL11.glTexParameteri(3553, 10242, 33071);
+                  GL11.glTexParameteri(3553, 10243, 33071);
+                  GL11.glTexParameteri(3553, 10240, 9729);
+                  GL11.glTexParameteri(3553, 10241, 9729);
+                  Texture.lastTextureID = 0;
+                  GL11.glBindTexture(3553, 0);
+                  var4.glFramebufferTexture2D(var4.GL_FRAMEBUFFER(), var4.GL_COLOR_ATTACHMENT0(), 3553, this.texture.getID(), 0);
+                  PZGLUtil.checkGLErrorThrow("glFramebufferTexture2D texture: %s", this.texture);
                }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
+               if (var2 == null) {
+                  this.depth = var4.glGenRenderbuffers();
+                  PZGLUtil.checkGLErrorThrow("glGenRenderbuffers");
+                  var4.glBindRenderbuffer(var4.GL_RENDERBUFFER(), this.depth);
+                  PZGLUtil.checkGLErrorThrow("glBindRenderbuffer depth: %d", this.depth);
                }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT");
+               if (var3) {
+                  var4.glRenderbufferStorage(var4.GL_RENDERBUFFER(), var4.GL_DEPTH24_STENCIL8(), this.texture.getWidthHW(), this.texture.getHeightHW());
+                  PZGLUtil.checkGLErrorThrow("glRenderbufferStorage(width: %d, height: %d)", this.texture.getWidthHW(), this.texture.getHeightHW());
+                  var4.glBindRenderbuffer(var4.GL_RENDERBUFFER(), 0);
+                  var4.glFramebufferRenderbuffer(var4.GL_FRAMEBUFFER(), var4.GL_DEPTH_ATTACHMENT(), var4.GL_RENDERBUFFER(), this.depth);
+                  PZGLUtil.checkGLErrorThrow("glFramebufferRenderbuffer(depth: %d)", this.depth);
+                  var4.glFramebufferRenderbuffer(var4.GL_FRAMEBUFFER(), var4.GL_STENCIL_ATTACHMENT(), var4.GL_RENDERBUFFER(), this.depth);
+                  PZGLUtil.checkGLErrorThrow("glFramebufferRenderbuffer(stencil: %d)", this.depth);
+               } else {
+                  if (var2 == null) {
+                     var4.glRenderbufferStorage(var4.GL_RENDERBUFFER(), 6402, this.texture.getWidthHW(), this.texture.getHeightHW());
+                     PZGLUtil.checkGLErrorThrow("glRenderbufferStorage(width: %d, height: %d)", this.texture.getWidthHW(), this.texture.getHeightHW());
+                     var4.glBindRenderbuffer(var4.GL_RENDERBUFFER(), 0);
+                     var4.glFramebufferRenderbuffer(var4.GL_FRAMEBUFFER(), var4.GL_DEPTH_ATTACHMENT(), var4.GL_RENDERBUFFER(), this.depth);
+                  } else {
+                     var2.bind();
+                     Texture.lastTextureID = 0;
+                     GL11.glBindTexture(3553, 0);
+                     var4.glFramebufferTexture2D(var4.GL_FRAMEBUFFER(), var4.GL_DEPTH_ATTACHMENT(), 3553, var2.getID(), 0);
+                  }
+
+                  PZGLUtil.checkGLErrorThrow("glFramebufferRenderbuffer(depth: %d)", this.depth);
                }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS");
-               }
+               int var6 = var4.glCheckFramebufferStatus(var4.GL_FRAMEBUFFER());
+               if (var6 != var4.GL_FRAMEBUFFER_COMPLETE()) {
+                  if (var6 == var4.GL_FRAMEBUFFER_UNDEFINED()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_UNDEFINED");
+                  }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_FORMATS()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_FORMATS");
-               }
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT");
+                  }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER");
-               }
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT");
+                  }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER");
-               }
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS");
+                  }
 
-               if (var4 == var3.GL_FRAMEBUFFER_UNSUPPORTED()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_UNSUPPORTED");
-               }
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_FORMATS()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_FORMATS");
+                  }
 
-               if (var4 == var3.GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE()) {
-                  DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
-               }
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER");
+                  }
 
-               throw new RuntimeException("Could not create FBO!");
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER");
+                  }
+
+                  if (var6 == var4.GL_FRAMEBUFFER_UNSUPPORTED()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_UNSUPPORTED");
+                  }
+
+                  if (var6 == var4.GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE()) {
+                     DebugLog.General.error("glCheckFramebufferStatus = GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE");
+                  }
+
+                  throw new RuntimeException("Could not create FBO!");
+               }
             }
          }
-      } catch (Exception var5) {
-         var3.glDeleteFramebuffers(this.id);
-         var3.glDeleteRenderbuffers(this.depth);
+      } catch (Exception var7) {
+         var4.glDeleteFramebuffers(this.id);
+         var4.glDeleteRenderbuffers(this.depth);
          this.id = 0;
          this.depth = 0;
          this.texture = null;
-         throw var5;
+         throw var7;
       }
    }
 
@@ -204,37 +302,51 @@ public final class TextureFBO {
    }
 
    public void destroy() {
-      if (this.id != 0 && this.depth != 0) {
-         if (lastID == this.id) {
-            lastID = 0;
+      if (lastID == this.id) {
+         lastID = 0;
+      }
+
+      RenderThread.invokeOnRenderContext(() -> {
+         if (this.texture != null) {
+            this.texture.destroy();
+            this.texture = null;
          }
 
-         RenderThread.invokeOnRenderContext(() -> {
-            if (this.texture != null) {
-               this.texture.destroy();
-               this.texture = null;
-            }
+         if (this.depthTexture != null) {
+            this.depthTexture.destroy();
+            this.depthTexture = null;
+         }
 
-            IGLFramebufferObject var1 = getFuncs();
+         IGLFramebufferObject var1 = getFuncs();
+         if (this.id != 0) {
             var1.glDeleteFramebuffers(this.id);
-            var1.glDeleteRenderbuffers(this.depth);
             this.id = 0;
+         }
+
+         if (this.depth != 0) {
+            var1.glDeleteRenderbuffers(this.depth);
             this.depth = 0;
-         });
-      }
+         }
+
+      });
    }
 
    public void destroyLeaveTexture() {
-      if (this.id != 0 && this.depth != 0) {
-         RenderThread.invokeOnRenderContext(() -> {
-            this.texture = null;
-            IGLFramebufferObject var1 = getFuncs();
+      RenderThread.invokeOnRenderContext(() -> {
+         this.texture = null;
+         this.depthTexture = null;
+         IGLFramebufferObject var1 = getFuncs();
+         if (this.id != 0) {
             var1.glDeleteFramebuffers(this.id);
-            var1.glDeleteRenderbuffers(this.depth);
             this.id = 0;
+         }
+
+         if (this.depth != 0) {
+            var1.glDeleteRenderbuffers(this.depth);
             this.depth = 0;
-         });
-      }
+         }
+
+      });
    }
 
    public void releaseTexture() {
@@ -258,6 +370,10 @@ public final class TextureFBO {
       return this.texture;
    }
 
+   public ITexture getDepthTexture() {
+      return this.depthTexture;
+   }
+
    public int getBufferId() {
       return this.id;
    }
@@ -275,7 +391,8 @@ public final class TextureFBO {
       lastID = this.id;
       IGLFramebufferObject var3 = getFuncs();
       var3.glBindFramebuffer(var3.GL_FRAMEBUFFER(), this.id);
-      if (this.texture != null) {
+      ITexture var4 = this.texture != null ? this.texture : this.depthTexture;
+      if (var4 != null) {
          if (var1) {
             GL11.glClearColor(0.0F, 0.0F, 0.0F, var2 ? 0.0F : 1.0F);
             GL11.glClear(16640);
@@ -295,6 +412,16 @@ public final class TextureFBO {
       int var10001 = var3.GL_FRAMEBUFFER();
       lastID = var2;
       var3.glBindFramebuffer(var10001, var2);
+   }
+
+   public void setTextureAndDepth(Texture var1, Texture var2) {
+      int var3 = lastID;
+      IGLFramebufferObject var4 = getFuncs();
+      var4.glBindFramebuffer(var4.GL_FRAMEBUFFER(), lastID = this.id);
+      this.swapTextureAndDepth(var1, var2);
+      int var10001 = var4.GL_FRAMEBUFFER();
+      lastID = var3;
+      var4.glBindFramebuffer(var10001, var3);
    }
 
    public int getWidth() {

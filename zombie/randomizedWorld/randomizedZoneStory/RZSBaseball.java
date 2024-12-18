@@ -1,7 +1,7 @@
 package zombie.randomizedWorld.randomizedZoneStory;
 
-import zombie.core.Rand;
-import zombie.iso.IsoMetaGrid;
+import zombie.core.random.Rand;
+import zombie.iso.zones.Zone;
 
 public class RZSBaseball extends RandomizedZoneStoryBase {
    public RZSBaseball() {
@@ -13,7 +13,7 @@ public class RZSBaseball extends RandomizedZoneStoryBase {
       this.alwaysDo = true;
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
       int var2 = Rand.Next(0, 3);
 
       int var3;

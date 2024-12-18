@@ -7,7 +7,7 @@ public final class ActionContextEvents {
    public ActionContextEvents() {
    }
 
-   public void add(String var1, int var2) {
+   public synchronized void add(String var1, int var2) {
       if (!this.contains(var1, var2, false)) {
          Event var3 = this.allocEvent();
          var3.name = var1;
@@ -41,7 +41,7 @@ public final class ActionContextEvents {
       return false;
    }
 
-   public void clear() {
+   public synchronized void clear() {
       if (this.m_firstEvent != null) {
          Event var1;
          for(var1 = this.m_firstEvent; var1.next != null; var1 = var1.next) {
@@ -53,7 +53,7 @@ public final class ActionContextEvents {
       }
    }
 
-   public void clearEvent(String var1) {
+   public synchronized void clearEvent(String var1) {
       Event var2 = null;
 
       Event var4;

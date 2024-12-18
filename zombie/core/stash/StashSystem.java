@@ -2,6 +2,7 @@ package zombie.core.stash;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Objects;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
@@ -12,12 +13,13 @@ import zombie.VirtualZombieManager;
 import zombie.ZombieSpawnRecorder;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoGameCharacter;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.ItemPickerJava;
+import zombie.inventory.ItemSpawner;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.InventoryContainer;
 import zombie.inventory.types.MapItem;
@@ -111,9 +113,15 @@ public final class StashSystem {
 
                   for(int var6 = 0; var6 < possibleStashes.size(); ++var6) {
                      StashBuilding var7 = (StashBuilding)possibleStashes.get(var6);
-                     if (var7.stashName.equals(var4.name)) {
-                        var5 = true;
-                        break;
+                     if (var7 != null && IsoWorld.instance.getMetaGrid().getRoomAt(var4.buildingX, var4.buildingY, 0) != null && ((RoomDef)Objects.requireNonNull(IsoWorld.instance.getMetaGrid().getRoomAt(var4.buildingX, var4.buildingY, 0))).getBuilding() != null) {
+                        BuildingDef var8 = ((RoomDef)Objects.requireNonNull(IsoWorld.instance.getMetaGrid().getRoomAt(var4.buildingX, var4.buildingY, 0))).getBuilding();
+                        if (var8 != null) {
+                           boolean var9 = var8.isHasBeenVisited();
+                           if (var7.stashName.equals(var4.name) && !var9) {
+                              var5 = true;
+                              break;
+                           }
+                        }
                      }
                   }
 
@@ -124,8 +132,8 @@ public final class StashSystem {
             }
 
             if (!var2.isEmpty()) {
-               Stash var8 = (Stash)var2.get(Rand.Next(0, var2.size()));
-               doStashItem(var8, var0);
+               Stash var10 = (Stash)var2.get(Rand.Next(0, var2.size()));
+               doStashItem(var10, var0);
             }
          }
       }
@@ -300,7 +308,7 @@ public final class StashSystem {
 
                   ItemPickerJava.ItemPickerContainer var8 = (ItemPickerJava.ItemPickerContainer)var18.Containers.get(var19.getType());
                   ItemPickerJava.rollContainerItem((InventoryContainer)var19, (IsoGameCharacter)null, var8);
-                  var5.AddWorldInventoryItem(var19, 0.0F, 0.0F, 0.0F);
+                  ItemSpawner.spawnItem(var19, var5, 0.0F, 0.0F, 0.0F);
                } else {
                   IsoThumpable var17 = new IsoThumpable(var5.getCell(), var5, var4.containerSprite, false, (KahluaTable)null);
                   var17.setIsThumpable(false);
@@ -320,11 +328,10 @@ public final class StashSystem {
             IsoGridSquare var10 = var1.getFreeSquareInRoom();
             if (var10 != null) {
                HandWeapon var12 = (HandWeapon)InventoryItemFactory.CreateItem((String)possibleTrap.get(Rand.Next(0, possibleTrap.size())));
+               IsoTrap var14 = new IsoTrap(var12, var10.getCell(), var10);
+               var10.AddTileObject(var14);
                if (GameServer.bServer) {
-                  GameServer.AddExplosiveTrap(var12, var10, var12.getSensorRange() > 0);
-               } else {
-                  IsoTrap var14 = new IsoTrap(var12, var10.getCell(), var10);
-                  var10.AddTileObject(var14);
+                  var14.transmitCompleteItemToClients();
                }
             }
          }
@@ -412,12 +419,10 @@ public final class StashSystem {
          buildingsToDo.add(new StashBuilding(GameWindow.ReadString(var0), var0.getInt(), var0.getInt()));
       }
 
-      if (var1 >= 109) {
-         var4 = var0.getInt();
+      var4 = var0.getInt();
 
-         for(int var5 = 0; var5 < var4; ++var5) {
-            alreadyReadMap.add(GameWindow.ReadString(var0));
-         }
+      for(int var5 = 0; var5 < var4; ++var5) {
+         alreadyReadMap.add(GameWindow.ReadString(var0));
       }
 
    }
@@ -469,5 +474,29 @@ public final class StashSystem {
       buildingsToDo = null;
       possibleTrap.clear();
       alreadyReadMap.clear();
+   }
+
+   public static boolean isStashBuilding(BuildingDef var0) {
+      int var1;
+      StashBuilding var2;
+      if (possibleStashes != null) {
+         for(var1 = 0; var1 < possibleStashes.size(); ++var1) {
+            var2 = (StashBuilding)possibleStashes.get(var1);
+            if (var2.buildingX > var0.x && var2.buildingX < var0.x2 && var2.buildingY > var0.y && var2.buildingY < var0.y2) {
+               return true;
+            }
+         }
+      }
+
+      if (buildingsToDo != null) {
+         for(var1 = 0; var1 < buildingsToDo.size(); ++var1) {
+            var2 = (StashBuilding)buildingsToDo.get(var1);
+            if (var2.buildingX > var0.x && var2.buildingX < var0.x2 && var2.buildingY > var0.y && var2.buildingY < var0.y2) {
+               return true;
+            }
+         }
+      }
+
+      return false;
    }
 }

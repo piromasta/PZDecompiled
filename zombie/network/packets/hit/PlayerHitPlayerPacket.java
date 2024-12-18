@@ -1,83 +1,73 @@
 package zombie.network.packets.hit;
 
 import java.nio.ByteBuffer;
+import zombie.characters.Capability;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
-import zombie.inventory.types.HandWeapon;
-import zombie.network.PacketValidator;
-import zombie.network.packets.INetworkPacket;
+import zombie.inventory.InventoryItem;
+import zombie.network.PacketSetting;
+import zombie.network.anticheats.AntiCheat;
+import zombie.network.anticheats.AntiCheatHitDamage;
+import zombie.network.anticheats.AntiCheatHitLongDistance;
+import zombie.network.anticheats.AntiCheatHitWeaponAmmo;
+import zombie.network.anticheats.AntiCheatHitWeaponRange;
+import zombie.network.anticheats.AntiCheatHitWeaponRate;
+import zombie.network.anticheats.AntiCheatSafety;
+import zombie.network.fields.Hit;
 
-public class PlayerHitPlayerPacket extends PlayerHitPacket implements INetworkPacket {
-   protected final Player target = new Player();
-   protected final WeaponHit hit = new WeaponHit();
-   protected final Fall fall = new Fall();
-
+@PacketSetting(
+   ordering = 0,
+   priority = 0,
+   reliability = 3,
+   requiredCapability = Capability.LoginOnServer,
+   handlingType = 3,
+   anticheats = {AntiCheat.HitDamage, AntiCheat.HitLongDistance, AntiCheat.HitWeaponAmmo, AntiCheat.HitWeaponRange, AntiCheat.HitWeaponRate, AntiCheat.Safety}
+)
+public class PlayerHitPlayerPacket extends PlayerHit implements AntiCheatHitDamage.IAntiCheat, AntiCheatHitLongDistance.IAntiCheat, AntiCheatHitWeaponAmmo.IAntiCheat, AntiCheatHitWeaponRange.IAntiCheat, AntiCheatHitWeaponRate.IAntiCheat, AntiCheatSafety.IAntiCheat {
    public PlayerHitPlayerPacket() {
-      super(HitCharacterPacket.HitType.PlayerHitPlayer);
-   }
-
-   public void set(IsoPlayer var1, IsoPlayer var2, HandWeapon var3, float var4, boolean var5, float var6, boolean var7, boolean var8) {
-      super.set(var1, var3, var7);
-      this.target.set(var2, false);
-      this.hit.set(var5, var4, var6, var2.getHitForce(), var2.getHitDir().x, var2.getHitDir().y, var8);
-      this.fall.set(var2.getHitReactionNetworkAI());
    }
 
    public void parse(ByteBuffer var1, UdpConnection var2) {
-      super.parse(var1, var2);
-      this.target.parse(var1, var2);
-      this.target.parsePlayer((UdpConnection)null);
-      this.hit.parse(var1, var2);
-      this.fall.parse(var1, var2);
    }
 
    public void write(ByteBufferWriter var1) {
-      super.write(var1);
-      this.target.write(var1);
-      this.hit.write(var1);
-      this.fall.write(var1);
    }
 
-   public boolean isConsistent() {
-      return super.isConsistent() && this.target.isConsistent() && this.hit.isConsistent();
+   public Hit getHit() {
+      return null;
    }
 
-   public String getDescription() {
-      String var10000 = super.getDescription();
-      return var10000 + "\n\tTarget " + this.target.getDescription() + "\n\tHit " + this.hit.getDescription() + "\n\tFall " + this.fall.getDescription();
+   public void process() {
    }
 
-   protected void preProcess() {
-      super.preProcess();
-      this.target.process();
+   public void postProcess() {
    }
 
-   protected void process() {
-      this.hit.process(this.wielder.getCharacter(), this.target.getCharacter(), this.weapon.getWeapon());
-      this.fall.process(this.target.getCharacter());
+   public void log() {
    }
 
-   protected void postProcess() {
-      super.postProcess();
-      this.target.process();
-   }
-
-   public boolean validate(UdpConnection var1) {
-      if (!PacketValidator.checkPVP(var1, this.wielder, this.target, PlayerHitPlayerPacket.class.getSimpleName())) {
-         return false;
-      } else if (!PacketValidator.checkLongDistance(var1, this.wielder, this.target, PlayerHitPlayerPacket.class.getSimpleName())) {
-         return false;
-      } else {
-         return PacketValidator.checkDamage(var1, this.hit, PlayerHitPlayerPacket.class.getSimpleName());
-      }
-   }
-
-   protected void attack() {
+   public void attack() {
       this.wielder.attack(this.weapon.getWeapon(), true);
    }
 
-   protected void react() {
-      this.target.react();
+   public void react() {
+   }
+
+   public InventoryItem getInventoryItem() {
+      return null;
+   }
+
+   public float getDistance() {
+      return 0.0F;
+   }
+
+   public IsoGameCharacter getTarget() {
+      return null;
+   }
+
+   public IsoPlayer getWielder() {
+      return this.wielder.getPlayer();
    }
 }

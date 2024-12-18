@@ -1,33 +1,33 @@
 package zombie.characters;
 
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 import zombie.GameTime;
 import zombie.characters.CharacterTimedActions.BaseAction;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.utils.UpdateLimit;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
+import zombie.debug.options.Multiplayer;
 import zombie.iso.IsoUtils;
 import zombie.iso.Vector2;
-import zombie.network.GameServer;
+import zombie.iso.objects.IsoHutch;
 import zombie.network.NetworkVariables;
-import zombie.network.PacketValidator;
-import zombie.network.packets.DeadCharacterPacket;
-import zombie.network.packets.hit.IMovable;
-import zombie.network.packets.hit.VehicleHitPacket;
+import zombie.network.characters.AttackRateChecker;
+import zombie.network.fields.IMovable;
+import zombie.network.packets.character.AnimalPacket;
+import zombie.network.packets.character.DeadCharacterPacket;
+import zombie.network.packets.hit.VehicleHit;
+import zombie.popman.Ownership;
+import zombie.vehicles.BaseVehicle;
 
 public abstract class NetworkCharacterAI {
    private static final short VEHICLE_HIT_DELAY_MS = 500;
-   private final SpeedChecker speedChecker = new SpeedChecker();
+   public final SpeedChecker speedChecker = new SpeedChecker();
    public NetworkVariables.PredictionTypes predictionType;
    protected DeadCharacterPacket deadBody;
-   protected VehicleHitPacket vehicleHit;
+   protected VehicleHit vehicleHit;
    protected float timestamp;
    protected BaseAction action;
    protected String performingAction;
@@ -35,12 +35,17 @@ public abstract class NetworkCharacterAI {
    protected boolean wasLocal;
    protected final HitReactionNetworkAI hitReaction;
    private final IsoGameCharacter character;
-   public NetworkTeleport.NetworkTeleportDebug teleportDebug;
-   public final HashMap<Integer, String> debugData = new LinkedHashMap<Integer, String>() {
-      protected boolean removeEldestEntry(Map.Entry<Integer, String> var1) {
-         return this.size() > 10;
-      }
-   };
+   private final Ownership ownership = new Ownership();
+   private final AnimalPacket packet = new AnimalPacket();
+   public boolean usePathFind = false;
+   public boolean forcePathFinder = false;
+   public Vector2 direction = new Vector2();
+   public Vector2 distance = new Vector2();
+   public float targetX = 0.0F;
+   public float targetY = 0.0F;
+   public int targetZ = 0;
+   public boolean moved = false;
+   public final AttackRateChecker attackRateChecker = new AttackRateChecker();
 
    public NetworkCharacterAI(IsoGameCharacter var1) {
       this.character = var1;
@@ -50,8 +55,9 @@ public abstract class NetworkCharacterAI {
       this.noCollisionTime = 0L;
       this.hitReaction = new HitReactionNetworkAI(var1);
       this.predictionType = NetworkVariables.PredictionTypes.None;
-      this.clearTeleportDebug();
       this.speedChecker.reset();
+      this.moved = false;
+      this.attackRateChecker.reset();
    }
 
    public void reset() {
@@ -61,8 +67,9 @@ public abstract class NetworkCharacterAI {
       this.noCollisionTime = 0L;
       this.hitReaction.finish();
       this.predictionType = NetworkVariables.PredictionTypes.None;
-      this.clearTeleportDebug();
       this.speedChecker.reset();
+      this.moved = false;
+      this.attackRateChecker.reset();
    }
 
    public void setLocal(boolean var1) {
@@ -71,33 +78,6 @@ public abstract class NetworkCharacterAI {
 
    public boolean wasLocal() {
       return this.wasLocal;
-   }
-
-   public NetworkTeleport.NetworkTeleportDebug getTeleportDebug() {
-      return this.teleportDebug;
-   }
-
-   public void clearTeleportDebug() {
-      this.teleportDebug = null;
-      this.debugData.clear();
-   }
-
-   public void setTeleportDebug(NetworkTeleport.NetworkTeleportDebug var1) {
-      this.teleportDebug = var1;
-      this.debugData.entrySet().stream().sorted(Entry.comparingByKey(Comparator.naturalOrder())).forEach((var0) -> {
-         if (Core.bDebug) {
-            DebugLog.log(DebugType.Multiplayer, "==> " + (String)var0.getValue());
-         }
-
-      });
-      if (Core.bDebug) {
-         DebugLog.log(DebugType.Multiplayer, String.format("NetworkTeleport %s id=%d distance=%.3f prediction=%s", this.character.getClass().getSimpleName(), this.character.getOnlineID(), var1.getDistance(), this.predictionType));
-      }
-
-   }
-
-   public void addTeleportData(int var1, String var2) {
-      this.debugData.put(var1, var2);
    }
 
    public void processDeadBody() {
@@ -114,7 +94,7 @@ public abstract class NetworkCharacterAI {
    }
 
    public boolean isSetDeadBody() {
-      return this.deadBody != null && this.deadBody.isConsistent();
+      return this.deadBody != null && this.deadBody.isConsistent((UdpConnection)null);
    }
 
    public void setPerformingAction(String var1) {
@@ -160,17 +140,17 @@ public abstract class NetworkCharacterAI {
 
    public void processVehicleHit() {
       this.vehicleHit.tryProcessInternal();
-      this.setVehicleHit((VehicleHitPacket)null);
+      this.setVehicleHit((VehicleHit)null);
    }
 
-   public void setVehicleHit(VehicleHitPacket var1) {
+   public void setVehicleHit(VehicleHit var1) {
       this.vehicleHit = var1;
       this.timestamp = (float)TimeUnit.NANOSECONDS.toMillis(GameTime.getServerTime());
       DebugLog.Damage.noise(var1 == null ? "processed" : "postpone");
    }
 
    public boolean isSetVehicleHit() {
-      return this.vehicleHit != null && this.vehicleHit.isConsistent();
+      return this.vehicleHit != null && this.vehicleHit.isConsistent((UdpConnection)null);
    }
 
    public void resetVehicleHitTimeout() {
@@ -225,27 +205,83 @@ public abstract class NetworkCharacterAI {
 
    }
 
-   public boolean checkPosition(UdpConnection var1, IsoGameCharacter var2, float var3, float var4) {
-      if (GameServer.bServer && var2.isAlive()) {
-         this.speedChecker.set(var3, var4, var2.isSeatedInVehicle());
-         SpeedChecker var10001 = this.speedChecker;
-         String var10002 = var2.getClass().getSimpleName();
-         boolean var5 = PacketValidator.checkSpeed(var1, var10001, var10002 + SpeedChecker.class.getSimpleName());
-         if (32 == var1.accessLevel) {
-            var5 = true;
-         }
-
-         return var5;
-      } else {
-         return true;
-      }
-   }
-
    public void resetSpeedLimiter() {
       this.speedChecker.reset();
    }
 
-   private static class SpeedChecker implements IMovable {
+   public short getOnlineID() {
+      return this.character.getOnlineID();
+   }
+
+   public float getX() {
+      return this.character.getX();
+   }
+
+   public float getY() {
+      return this.character.getY();
+   }
+
+   public float getZ() {
+      return this.character.getZ();
+   }
+
+   public void setX(float var1) {
+      this.character.setX(var1);
+   }
+
+   public void setY(float var1) {
+      this.character.setY(var1);
+   }
+
+   public void setZ(float var1) {
+      this.character.setZ(var1);
+   }
+
+   public void setOwnership(UdpConnection var1) {
+      this.ownership.setOwnership(var1);
+   }
+
+   public Ownership getOwnership() {
+      return this.ownership;
+   }
+
+   public AnimalPacket getAnimalPacket() {
+      return this.packet;
+   }
+
+   public boolean isValid(UdpConnection var1) {
+      return (this.getOwnership().getConnection() != null || this.getOwnership().getConnection() == null && this.isOwnershipOnServer()) && this.getOwnership().getConnection() != var1 && var1.RelevantTo(this.getX(), this.getY(), (float)((var1.ReleventRange - 2) * 10));
+   }
+
+   public abstract IsoPlayer getRelatedPlayer();
+
+   public boolean isRemote() {
+      return this.getOwnership().getConnection() == null;
+   }
+
+   public abstract Multiplayer.DebugFlagsOG.IsoGameCharacterOG getBooleanDebugOptions();
+
+   public IsoHutch getHutch() {
+      return this.character instanceof IsoAnimal ? ((IsoAnimal)this.character).hutch : null;
+   }
+
+   public BaseVehicle getVehile() {
+      return this.character instanceof IsoAnimal ? this.character.getVehicle() : null;
+   }
+
+   public boolean isOwnershipOnServer() {
+      return this.getHutch() != null || this.getVehile() != null;
+   }
+
+   public boolean isDead() {
+      return this.character.isDead();
+   }
+
+   public void becomeCorpse() {
+      this.character.becomeCorpse();
+   }
+
+   public static class SpeedChecker implements IMovable {
       private static final int checkDelay = 5000;
       private static final int checkInterval = 1000;
       private final UpdateLimit updateLimit = new UpdateLimit(5000L);
@@ -253,7 +289,7 @@ public abstract class NetworkCharacterAI {
       private boolean isInVehicle;
       private float speed;
 
-      private SpeedChecker() {
+      public SpeedChecker() {
       }
 
       public float getSpeed() {
@@ -264,7 +300,7 @@ public abstract class NetworkCharacterAI {
          return this.isInVehicle;
       }
 
-      private void set(float var1, float var2, boolean var3) {
+      public void set(float var1, float var2, boolean var3) {
          if (this.updateLimit.Check()) {
             if (5000L == this.updateLimit.getDelay()) {
                this.updateLimit.Reset(1000L);

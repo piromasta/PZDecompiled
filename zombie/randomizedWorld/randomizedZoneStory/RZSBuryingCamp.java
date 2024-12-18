@@ -2,10 +2,10 @@ package zombie.randomizedWorld.randomizedZoneStory;
 
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoDirections;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.zones.Zone;
 
 public class RZSBuryingCamp extends RandomizedZoneStoryBase {
    public RZSBuryingCamp() {
@@ -17,7 +17,7 @@ public class RZSBuryingCamp extends RandomizedZoneStoryBase {
       this.zoneType.add(RandomizedZoneStoryBase.ZoneType.Forest.toString());
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
       this.cleanAreaForStory(this, var1);
       boolean var2 = Rand.NextBool(2);
       int var3 = var1.x + 1;
@@ -58,21 +58,21 @@ public class RZSBuryingCamp extends RandomizedZoneStoryBase {
          }
       }
 
-      this.addItemOnGround(this.getSq(var5 + 1, var6 + 1, var1.z), "Base.Shovel");
-      ArrayList var11 = this.addZombiesOnSquare(1, (String)null, (Integer)null, this.getRandomFreeSquare(this, var1));
+      this.addItemOnGround(getSq(var5 + 1, var6 + 1, var1.z), "Base.Shovel");
+      ArrayList var11 = this.addZombiesOnSquare(1, (String)null, (Integer)null, this.getRandomExtraFreeSquare(this, var1));
       if (var11 != null && !var11.isEmpty()) {
          IsoZombie var9 = (IsoZombie)var11.get(0);
-         IsoDeadBody var10 = createRandomDeadBody(this.getSq(var5, var6, var1.z), (IsoDirections)null, Rand.Next(7, 12), 0, (String)null);
+         IsoDeadBody var10 = createRandomDeadBody(getSq(var5, var6, var1.z), (IsoDirections)null, Rand.Next(7, 12), 0, (String)null);
          if (var10 != null) {
             this.addBloodSplat(var10.getSquare(), 10);
-            var9.faceLocationF(var10.x, var10.y);
-            var9.setX(var10.x + 1.0F);
-            var9.setY(var10.y);
+            var9.faceLocationF(var10.getX(), var10.getY());
+            var9.setX(var10.getX() + 1.0F);
+            var9.setY(var10.getY());
             var9.setEatBodyTarget(var10, true);
          }
       }
 
-      this.addItemOnGround(this.getRandomFreeSquare(this, var1), "Base.WhiskeyEmpty");
-      this.addItemOnGround(this.getRandomFreeSquare(this, var1), "Base.WineEmpty");
+      this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), "Base.WhiskeyEmpty");
+      this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), "Base.WineEmpty");
    }
 }

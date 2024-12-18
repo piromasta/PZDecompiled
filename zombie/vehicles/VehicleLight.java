@@ -100,13 +100,10 @@ public final class VehicleLight {
 
    public void load(ByteBuffer var1, int var2) throws IOException {
       this.active = var1.get() == 1;
-      if (var2 >= 135) {
-         this.offset.x = var1.getFloat();
-         this.offset.y = var1.getFloat();
-         this.intensity = var1.getFloat();
-         this.dist = var1.getFloat();
-         this.focusing = var1.getInt();
-      }
-
+      this.offset.x = var1.getFloat();
+      this.offset.y = var1.getFloat();
+      this.intensity = var1.getFloat();
+      this.dist = var1.getFloat();
+      this.focusing = var1.getInt();
    }
 }

@@ -5,11 +5,14 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.ArrayList;
+import zombie.core.logger.ExceptionLogger;
 import zombie.debug.DebugLog;
 
 public final class ConfigFile {
    protected ArrayList<ConfigOption> options;
    protected int version;
+   protected String versionString = "Version";
+   protected boolean bWriteTooltips = true;
 
    public ConfigFile() {
    }
@@ -25,7 +28,7 @@ public final class ConfigFile {
       if (!var2.exists()) {
          return false;
       } else {
-         DebugLog.log("reading " + var1);
+         DebugLog.DetailedInfo.trace("reading " + var1);
 
          try {
             FileReader var3 = new FileReader(var2);
@@ -49,7 +52,7 @@ public final class ConfigFile {
                            this.fileError(var1, var5, var6);
                         } else {
                            String[] var7 = var6.split("=");
-                           if ("Version".equals(var7[0])) {
+                           if (this.versionString.equals(var7[0])) {
                               try {
                                  this.version = Integer.parseInt(var7[1]);
                               } catch (NumberFormatException var11) {
@@ -86,7 +89,7 @@ public final class ConfigFile {
             var3.close();
             return true;
          } catch (Exception var14) {
-            var14.printStackTrace();
+            ExceptionLogger.logException(var14);
             return false;
          }
       }
@@ -94,41 +97,72 @@ public final class ConfigFile {
 
    public boolean write(String var1, int var2, ArrayList<? extends ConfigOption> var3) {
       File var4 = new File(var1);
-      DebugLog.log("writing " + var1);
+      DebugLog.DetailedInfo.trace("writing " + var1);
 
       try {
          FileWriter var5 = new FileWriter(var4, false);
 
          try {
+            String var10001;
             if (var2 != 0) {
-               var5.write("Version=" + var2 + System.lineSeparator());
+               var10001 = this.versionString;
+               var5.write(var10001 + "=" + var2 + System.lineSeparator());
             }
 
-            for(int var6 = 0; var6 < var3.size(); ++var6) {
-               ConfigOption var7 = (ConfigOption)var3.get(var6);
-               String var8 = var7.getTooltip();
-               if (var8 != null) {
-                  var8 = var8.replaceAll("\n", System.lineSeparator() + "# ");
-                  var5.write("# " + var8 + System.lineSeparator());
+            String var6 = System.lineSeparator();
+            if (this.bWriteTooltips) {
+               var6 = var6 + System.lineSeparator();
+            }
+
+            label72:
+            for(int var7 = 0; var7 < var3.size(); ++var7) {
+               ConfigOption var8 = (ConfigOption)var3.get(var7);
+               if (this.bWriteTooltips) {
+                  String var9 = var8.getTooltip();
+                  if (var9 != null) {
+                     var9 = var9.replaceAll("\n", System.lineSeparator() + "# ");
+                     var5.write("# " + var9 + System.lineSeparator());
+                  }
                }
 
-               String var10001 = var7.getName();
-               var5.write(var10001 + "=" + var7.getValueAsString() + (var6 < var3.size() - 1 ? System.lineSeparator() + System.lineSeparator() : ""));
+               if (var8 instanceof ArrayConfigOption var15) {
+                  if (var15.isMultiLine()) {
+                     int var10 = 0;
+
+                     while(true) {
+                        if (var10 >= var15.size()) {
+                           continue label72;
+                        }
+
+                        ConfigOption var11 = ((ArrayConfigOption)var8).getElement(var10);
+                        var10001 = var8.getName();
+                        var5.write(var10001 + "=" + var11.getValueAsString());
+                        if (var10 < var15.size() - 1 || var7 < var3.size() - 1) {
+                           var5.write(var6);
+                        }
+
+                        ++var10;
+                     }
+                  }
+               }
+
+               var10001 = var8.getName();
+               var5.write(var10001 + "=" + var8.getValueAsString() + (var7 < var3.size() - 1 ? var6 : ""));
             }
-         } catch (Throwable var10) {
+         } catch (Throwable var13) {
             try {
                var5.close();
-            } catch (Throwable var9) {
-               var10.addSuppressed(var9);
+            } catch (Throwable var12) {
+               var13.addSuppressed(var12);
             }
 
-            throw var10;
+            throw var13;
          }
 
          var5.close();
          return true;
-      } catch (Exception var11) {
-         var11.printStackTrace();
+      } catch (Exception var14) {
+         ExceptionLogger.logException(var14);
          return false;
       }
    }
@@ -139,5 +173,13 @@ public final class ConfigFile {
 
    public int getVersion() {
       return this.version;
+   }
+
+   public void setVersionString(String var1) {
+      this.versionString = var1;
+   }
+
+   public void setWriteTooltips(boolean var1) {
+      this.bWriteTooltips = var1;
    }
 }

@@ -2,6 +2,7 @@ package zombie.audio.parameters;
 
 import zombie.audio.FMODGlobalParameter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Stats;
 import zombie.core.math.PZMath;
 
 public final class ParameterMusicZombiesTargeting extends FMODGlobalParameter {
@@ -13,7 +14,12 @@ public final class ParameterMusicZombiesTargeting extends FMODGlobalParameter {
 
    public float calculateCurrentValue() {
       IsoPlayer var1 = this.choosePlayer();
-      return var1 != null ? (float)PZMath.clamp(var1.getStats().MusicZombiesTargeting, 0, 50) : 0.0F;
+      if (var1 != null) {
+         Stats var2 = var1.getStats();
+         return (float)PZMath.clamp(var2.MusicZombiesTargeting_DistantNotMoving + var2.MusicZombiesTargeting_NearbyNotMoving + var2.MusicZombiesTargeting_DistantMoving + var2.MusicZombiesTargeting_NearbyMoving, 0, 50);
+      } else {
+         return 0.0F;
+      }
    }
 
    private IsoPlayer choosePlayer() {

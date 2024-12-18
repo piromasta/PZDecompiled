@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector2f;
@@ -21,8 +22,11 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTable;
+import zombie.AmbientStreamManager;
+import zombie.CombatManager;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.SandboxOptions;
 import zombie.SoundManager;
 import zombie.SystemDisabler;
@@ -31,6 +35,7 @@ import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
 import zombie.ai.states.StaggerBackState;
 import zombie.ai.states.ZombieFallDownState;
+import zombie.ai.states.animals.AnimalFalldownState;
 import zombie.audio.BaseSoundEmitter;
 import zombie.audio.DummySoundEmitter;
 import zombie.audio.FMODParameter;
@@ -39,6 +44,7 @@ import zombie.audio.GameSoundClip;
 import zombie.audio.parameters.ParameterVehicleBrake;
 import zombie.audio.parameters.ParameterVehicleEngineCondition;
 import zombie.audio.parameters.ParameterVehicleGear;
+import zombie.audio.parameters.ParameterVehicleHitLocation;
 import zombie.audio.parameters.ParameterVehicleLoad;
 import zombie.audio.parameters.ParameterVehicleRPM;
 import zombie.audio.parameters.ParameterVehicleRoadMaterial;
@@ -51,24 +57,29 @@ import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.BodyDamage.BodyPart;
 import zombie.characters.BodyDamage.BodyPartType;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Color;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.Translator;
 import zombie.core.math.PZMath;
-import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
+import zombie.core.physics.BallisticsController;
 import zombie.core.physics.Bullet;
 import zombie.core.physics.CarController;
 import zombie.core.physics.Transform;
 import zombie.core.physics.WorldSimulation;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.Vector3;
 import zombie.core.skinnedmodel.animation.AnimationMultiTrack;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
 import zombie.core.skinnedmodel.model.Model;
+import zombie.core.skinnedmodel.model.ModelInstance;
+import zombie.core.skinnedmodel.model.ModelInstanceRenderData;
 import zombie.core.skinnedmodel.model.SkinningData;
 import zombie.core.skinnedmodel.model.VehicleModelInstance;
 import zombie.core.skinnedmodel.model.VehicleSubModelInstance;
@@ -77,18 +88,20 @@ import zombie.core.textures.Texture;
 import zombie.core.textures.TextureID;
 import zombie.core.utils.UpdateLimit;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugLogStream;
 import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
 import zombie.input.GameKeyboard;
-import zombie.inventory.CompressIdenticalItems;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.ItemPickerJava;
+import zombie.inventory.types.AnimalInventoryItem;
 import zombie.inventory.types.DrainableComboItem;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.InventoryContainer;
 import zombie.inventory.types.Key;
+import zombie.iso.BuildingDef;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
@@ -103,6 +116,7 @@ import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.SafeHouse;
+import zombie.iso.fboRenderChunk.FBORenderShadows;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoWindow;
@@ -111,17 +125,25 @@ import zombie.iso.objects.RainManager;
 import zombie.iso.objects.RenderEffectType;
 import zombie.iso.objects.interfaces.Thumpable;
 import zombie.iso.weather.ClimateManager;
+import zombie.iso.zones.VehicleZone;
 import zombie.network.ClientServerMap;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
 import zombie.network.PassengerMap;
 import zombie.network.ServerOptions;
+import zombie.network.packets.INetworkPacket;
+import zombie.pathfind.PolygonalMap2;
+import zombie.pathfind.VehiclePoly;
+import zombie.pathfind.nativeCode.PathfindNative;
 import zombie.popman.ObjectPool;
+import zombie.popman.animal.AnimalInstanceManager;
+import zombie.popman.animal.AnimalSynchronizationManager;
 import zombie.radio.ZomboidRadio;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.ModelAttachment;
 import zombie.scripting.objects.ModelScript;
+import zombie.scripting.objects.VehiclePartModel;
 import zombie.scripting.objects.VehicleScript;
 import zombie.ui.TextManager;
 import zombie.ui.UIManager;
@@ -137,7 +159,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public static final int RANDOMIZE_CONTAINER_CHANCE = 100;
    public static final byte noAuthorization = -1;
    private static final Vector3f _UNIT_Y = new Vector3f(0.0F, 1.0F, 0.0F);
-   private static final PolygonalMap2.VehiclePoly tempPoly = new PolygonalMap2.VehiclePoly();
+   private static final VehiclePoly tempPoly = new VehiclePoly();
    public static final boolean YURI_FORCE_FIELD = false;
    public static boolean RENDER_TO_TEXTURE = false;
    public static float CENTER_OF_MASS_MAGIC = 0.7F;
@@ -153,7 +175,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    private final VehicleImpulse[] impulseFromSquishedZombie = new VehicleImpulse[4];
    private final ArrayList<VehicleImpulse> impulseFromHitZombie = new ArrayList();
    private final int netPlayerTimeoutMax = 30;
-   private final Vector4f tempVector4f = new Vector4f();
    public final ArrayList<ModelInfo> models = new ArrayList();
    public IsoChunk chunk;
    public boolean polyDirty = true;
@@ -192,7 +213,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public int currentRearEndDurability;
    public float collideX;
    public float collideY;
-   public final PolygonalMap2.VehiclePoly shadowCoord;
+   public final VehiclePoly shadowCoord;
    public engineStateTypes engineState;
    public long engineLastUpdateStateTime;
    public static final int MAX_WHEELS = 4;
@@ -214,6 +235,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public boolean soundHornOn;
    public boolean soundBackMoveOn;
    public boolean previouslyEntered;
+   public boolean previouslyMoved;
    public final LightbarLightsMode lightbarLightsMode;
    public final LightbarSirenMode lightbarSirenMode;
    private final IsoLightSource leftLight1;
@@ -237,8 +259,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    protected int skinIndex;
    protected CarController physics;
    protected boolean bCreated;
-   protected final PolygonalMap2.VehiclePoly poly;
-   protected final PolygonalMap2.VehiclePoly polyPlusRadius;
+   protected final VehiclePoly poly;
+   protected final VehiclePoly polyPlusRadius;
    protected boolean bDoDamageOverlay;
    protected boolean loaded;
    protected short updateFlags;
@@ -262,6 +284,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    private long soundScrapePastPlant;
    private long soundBackMoveSignal;
    public long soundSirenSignal;
+   public long doorAlarmSound;
    private final HashMap<String, String> choosenParts;
    private String type;
    private String respawnZone;
@@ -287,11 +310,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public byte keySpawned;
    public final Matrix4f vehicleTransform;
    public final Matrix4f renderTransform;
-   private final Matrix4f tempMatrix4fLWJGL_1;
-   private final Quaternionf tempQuat4f;
-   private final Transform tempTransform;
-   private final Transform tempTransform2;
-   private final Transform tempTransform3;
    private BaseSoundEmitter emitter;
    private float brakeBetweenUpdatesSpeed;
    public long physicActiveCheck;
@@ -330,13 +348,22 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public boolean isStatic;
    private final UpdateLimit physicReliableLimit;
    public boolean isReliable;
+   public ArrayList<IsoAnimal> animals;
+   private float totalAnimalSize;
+   private float keySpawnChancedD100;
+   public float timeSinceLastAuth;
+   public static final ThreadLocal<TransformPool> TL_transform_pool = ThreadLocal.withInitial(TransformPool::new);
    public static final ThreadLocal<Vector2ObjectPool> TL_vector2_pool = ThreadLocal.withInitial(Vector2ObjectPool::new);
    public static final ThreadLocal<Vector2fObjectPool> TL_vector2f_pool = ThreadLocal.withInitial(Vector2fObjectPool::new);
    public static final ThreadLocal<Vector3fObjectPool> TL_vector3f_pool = ThreadLocal.withInitial(Vector3fObjectPool::new);
+   public static final ThreadLocal<Vector4fObjectPool> TL_vector4f_pool = ThreadLocal.withInitial(Vector4fObjectPool::new);
    public static final ThreadLocal<Matrix4fObjectPool> TL_matrix4f_pool = ThreadLocal.withInitial(Matrix4fObjectPool::new);
    public static final ThreadLocal<QuaternionfObjectPool> TL_quaternionf_pool = ThreadLocal.withInitial(QuaternionfObjectPool::new);
-   public static final float PHYSICS_Z_SCALE = 0.82F;
+   private int createPhysicsRecursion;
+   private final UpdateLimit updateAnimal;
+   public static final float PHYSICS_Z_SCALE = 0.8164967F;
    public static float PLUS_RADIUS = 0.15F;
+   long[] lastImpulseMilli;
    private int zombiesHits;
    private long zombieHitTimestamp;
    public static final int MASK1_FRONT = 0;
@@ -373,6 +400,30 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       return this.sqlID;
    }
 
+   public static Matrix4f allocMatrix4f() {
+      return (Matrix4f)((Matrix4fObjectPool)TL_matrix4f_pool.get()).alloc();
+   }
+
+   public static void releaseMatrix4f(Matrix4f var0) {
+      ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var0);
+   }
+
+   public static Quaternionf allocQuaternionf() {
+      return (Quaternionf)((QuaternionfObjectPool)TL_quaternionf_pool.get()).alloc();
+   }
+
+   public static void releaseQuaternionf(Quaternionf var0) {
+      ((QuaternionfObjectPool)TL_quaternionf_pool.get()).release(var0);
+   }
+
+   public static Transform allocTransform() {
+      return (Transform)((TransformPool)TL_transform_pool.get()).alloc();
+   }
+
+   public static void releaseTransform(Transform var0) {
+      ((TransformPool)TL_transform_pool.get()).release(var0);
+   }
+
    public static Vector2 allocVector2() {
       return (Vector2)((Vector2ObjectPool)TL_vector2_pool.get()).alloc();
    }
@@ -381,8 +432,24 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       ((Vector2ObjectPool)TL_vector2_pool.get()).release(var0);
    }
 
+   public static Vector2f allocVector2f() {
+      return (Vector2f)((Vector2fObjectPool)TL_vector2f_pool.get()).alloc();
+   }
+
+   public static void releaseVector2f(Vector2f var0) {
+      ((Vector2fObjectPool)TL_vector2f_pool.get()).release(var0);
+   }
+
    public static Vector3f allocVector3f() {
       return (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+   }
+
+   public static void releaseVector4f(Vector4f var0) {
+      ((Vector4fObjectPool)TL_vector4f_pool.get()).release(var0);
+   }
+
+   public static Vector4f allocVector4f() {
+      return (Vector4f)((Vector4fObjectPool)TL_vector4f_pool.get()).alloc();
    }
 
    public static void releaseVector3f(Vector3f var0) {
@@ -406,7 +473,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.currentRearEndDurability = 100;
       this.collideX = -1.0F;
       this.collideY = -1.0F;
-      this.shadowCoord = new PolygonalMap2.VehiclePoly();
+      this.shadowCoord = new VehiclePoly();
       this.engineState = BaseVehicle.engineStateTypes.Idle;
       this.wheelInfo = new WheelInfo[4];
       this.skidding = false;
@@ -422,12 +489,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.soundHornOn = false;
       this.soundBackMoveOn = false;
       this.previouslyEntered = false;
+      this.previouslyMoved = false;
       this.lightbarLightsMode = new LightbarLightsMode();
       this.lightbarSirenMode = new LightbarSirenMode();
-      this.leftLight1 = new IsoLightSource(0, 0, 0, 1.0F, 0.0F, 0.0F, 8);
-      this.leftLight2 = new IsoLightSource(0, 0, 0, 1.0F, 0.0F, 0.0F, 8);
-      this.rightLight1 = new IsoLightSource(0, 0, 0, 0.0F, 0.0F, 1.0F, 8);
-      this.rightLight2 = new IsoLightSource(0, 0, 0, 0.0F, 0.0F, 1.0F, 8);
+      this.leftLight1 = new IsoLightSource(0, 0, 0, 0.0F, 0.0F, 1.0F, 8);
+      this.leftLight2 = new IsoLightSource(0, 0, 0, 0.0F, 0.0F, 1.0F, 8);
+      this.rightLight1 = new IsoLightSource(0, 0, 0, 1.0F, 0.0F, 0.0F, 8);
+      this.rightLight2 = new IsoLightSource(0, 0, 0, 1.0F, 0.0F, 0.0F, 8);
       this.leftLightIndex = -1;
       this.rightLightIndex = -1;
       this.connectionState = new ServerVehicleState[512];
@@ -436,8 +504,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.lights = new ArrayList();
       this.createdModel = false;
       this.skinIndex = -1;
-      this.poly = new PolygonalMap2.VehiclePoly();
-      this.polyPlusRadius = new PolygonalMap2.VehiclePoly();
+      this.poly = new VehiclePoly();
+      this.polyPlusRadius = new VehiclePoly();
       this.bDoDamageOverlay = false;
       this.loaded = false;
       this.updateLockTimeout = 0L;
@@ -456,6 +524,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.soundScrapePastPlant = -1L;
       this.soundBackMoveSignal = -1L;
       this.soundSirenSignal = -1L;
+      this.doorAlarmSound = 0L;
       this.choosenParts = new HashMap();
       this.type = "";
       this.mass = 0.0F;
@@ -479,11 +548,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.keySpawned = 0;
       this.vehicleTransform = new Matrix4f();
       this.renderTransform = new Matrix4f();
-      this.tempMatrix4fLWJGL_1 = new Matrix4f();
-      this.tempQuat4f = new Quaternionf();
-      this.tempTransform = new Transform();
-      this.tempTransform2 = new Transform();
-      this.tempTransform3 = new Transform();
       this.brakeBetweenUpdatesSpeed = 0.0F;
       this.physicActiveCheck = -1L;
       this.constraintChangedTime = -1L;
@@ -519,6 +583,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.isStatic = false;
       this.physicReliableLimit = new UpdateLimit(500L);
       this.isReliable = false;
+      this.animals = new ArrayList();
+      this.totalAnimalSize = 0.0F;
+      this.keySpawnChancedD100 = (float)SandboxOptions.getInstance().KeyLootNew.getValue() * 25.0F;
+      this.timeSinceLastAuth = 10.0F;
+      this.createPhysicsRecursion = 0;
+      this.updateAnimal = new UpdateLimit(2100L);
+      this.lastImpulseMilli = new long[4];
       this.zombiesHits = 0;
       this.zombieHitTimestamp = 0L;
       this.forcedFriction = -1.0F;
@@ -562,7 +633,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public static void LoadAllVehicleTextures() {
-      DebugLog.General.println("BaseVehicle.LoadAllVehicleTextures...");
+      DebugLog.Vehicle.println("BaseVehicle.LoadAllVehicleTextures...");
       ArrayList var0 = ScriptManager.instance.getAllVehicleScripts();
       Iterator var1 = var0.iterator();
 
@@ -624,6 +695,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public void setNetPlayerAuthorization(Authorization var1, int var2) {
       this.netPlayerAuthorization = var1;
+      this.timeSinceLastAuth = 10.0F;
       this.netPlayerId = (short)var2;
       this.netPlayerTimeout = var2 == -1 ? 0 : 30;
       if (GameClient.bClient) {
@@ -773,6 +845,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void createPhysics() {
+      this.createPhysics(false);
+   }
+
+   public void createPhysics(boolean var1) {
       if (!GameClient.bClient && this.VehicleID == -1) {
          this.VehicleID = VehicleIDMap.instance.allocateID();
          if (GameServer.bServer) {
@@ -784,6 +860,27 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
       if (this.script == null) {
          this.setScript(this.scriptName);
+      }
+
+      label206: {
+         try {
+            ++this.createPhysicsRecursion;
+            if (this.createPhysicsRecursion != 1) {
+               break label206;
+            }
+
+            if (!var1) {
+               LuaEventManager.triggerEvent("OnSpawnVehicleStart", this);
+            }
+
+            if (this.physics == null) {
+               break label206;
+            }
+         } finally {
+            --this.createPhysicsRecursion;
+         }
+
+         return;
       }
 
       if (this.script != null) {
@@ -799,27 +896,27 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          this.physics = new CarController(this);
          this.savedPhysicsZ = 0.0F / 0.0F;
          this.createPhysicsTime = System.currentTimeMillis();
-         int var1;
+         int var2;
          if (!this.bCreated) {
             this.bCreated = true;
-            var1 = 30;
+            var2 = 30;
             if (SandboxOptions.getInstance().RecentlySurvivorVehicles.getValue() == 1) {
-               var1 = 0;
+               var2 = 0;
             }
 
             if (SandboxOptions.getInstance().RecentlySurvivorVehicles.getValue() == 2) {
-               var1 = 10;
+               var2 = 10;
             }
 
             if (SandboxOptions.getInstance().RecentlySurvivorVehicles.getValue() == 3) {
-               var1 = 30;
+               var2 = 30;
             }
 
             if (SandboxOptions.getInstance().RecentlySurvivorVehicles.getValue() == 4) {
-               var1 = 50;
+               var2 = 50;
             }
 
-            if (Rand.Next(100) < var1) {
+            if (Rand.Next(100) < var2) {
                this.setGoodCar(true);
             }
          }
@@ -834,10 +931,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          this.updateTransform();
          this.lights.clear();
 
-         for(var1 = 0; var1 < this.parts.size(); ++var1) {
-            VehiclePart var2 = (VehiclePart)this.parts.get(var1);
-            if (var2.getLight() != null) {
-               this.lights.add(var2);
+         for(var2 = 0; var2 < this.parts.size(); ++var2) {
+            VehiclePart var3 = (VehiclePart)this.parts.get(var2);
+            if (var3.getLight() != null) {
+               this.lights.add(var3);
             }
          }
 
@@ -847,8 +944,11 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             this.getCell().addVehicles.add(this);
          }
 
-         this.square = this.getCell().getGridSquare((double)this.x, (double)this.y, (double)this.z);
-         this.randomizeContainers();
+         this.square = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)this.getZ());
+         if (!this.shouldNotHaveLoot()) {
+            this.randomizeContainers();
+         }
+
          if (this.engineState == BaseVehicle.engineStateTypes.Running) {
             this.engineDoRunning();
          }
@@ -857,6 +957,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          this.bDoDamageOverlay = true;
          this.updatePartStats();
          this.mechanicalID = Rand.Next(100000);
+         LuaEventManager.triggerEvent("OnSpawnVehicleEnd", this);
       }
    }
 
@@ -868,6 +969,14 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.previouslyEntered = var1;
    }
 
+   public boolean isPreviouslyMoved() {
+      return this.previouslyMoved;
+   }
+
+   public void setPreviouslyMoved(boolean var1) {
+      this.previouslyMoved = var1;
+   }
+
    public int getKeyId() {
       return this.keyId;
    }
@@ -877,77 +986,158 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void putKeyToZombie(IsoZombie var1) {
-      InventoryItem var2;
-      if (Rand.Next(10) != 1) {
-         var2 = this.createVehicleKey();
-         var1.getInventory().AddItem(var2);
-      } else {
-         var2 = var1.getInventory().AddItem("Base.KeyRing");
-         if (var2 instanceof InventoryContainer) {
-            InventoryContainer var3 = (InventoryContainer)var2;
-            InventoryItem var4 = this.createVehicleKey();
-            var3.getInventory().AddItem(var4);
+      if (var1.shouldZombieHaveKey(true)) {
+         if (this.checkZombieKeyForVehicle(var1)) {
+            if ((float)Rand.Next(100) >= 1.0F * this.keySpawnChancedD100) {
+               InventoryItem var2 = this.createVehicleKey();
+               this.keySpawned = 1;
+               this.keyNamerVehicle(var2);
+               var1.getInventory().AddItem(var2);
+            } else {
+               String var13 = "Base.KeyRing";
+               if (this.getScript().hasSpecialKeyRing() && (float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                  var13 = this.getScript().getRandomSpecialKeyRing();
+               }
+
+               InventoryItem var3 = var1.getInventory().AddItem(var13);
+               InventoryContainer var4 = (InventoryContainer)var3;
+               if (var4 != null && var4.getInventory() != null) {
+                  InventoryItem var5 = this.createVehicleKey();
+                  this.keySpawned = 1;
+                  var4.getInventory().AddItem(var5);
+                  this.keyNamerVehicle(var5);
+                  this.keyNamerVehicle(var4);
+                  if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                     float var6 = this.getX();
+                     float var7 = this.getY();
+                     Vector2f var8 = new Vector2f();
+                     BuildingDef var9 = AmbientStreamManager.getNearestBuilding(var6, var7, var8);
+                     if (var9 != null && var9.getKeyId() != -1) {
+                        String var10 = "Base.Key1";
+                        InventoryItem var11 = InventoryItemFactory.CreateItem(var10);
+                        var11.setKeyId(var9.getKeyId());
+                        IsoGridSquare var12 = var9.getFreeSquareInRoom();
+                        if (var12 != null) {
+                           ItemPickerJava.KeyNamer.nameKey(var11, (IsoGridSquare)Objects.requireNonNull(var9.getFreeSquareInRoom()));
+                        }
+
+                        var4.getInventory().AddItem(var11);
+                     }
+                  }
+               }
+            }
+
          }
+      }
+   }
+
+   public void putKeyToContainer(ItemContainer var1, IsoGridSquare var2, IsoObject var3) {
+      if ((float)Rand.Next(100) >= 1.0F * this.keySpawnChancedD100) {
+         InventoryItem var4 = this.createVehicleKey();
+         this.keySpawned = 1;
+         var1.AddItem(var4);
+         this.keyNamerVehicle(var4);
+         this.putKeyToContainerServer(var4, var2, var3);
+      } else {
+         String var10 = "Base.KeyRing";
+         if (this.getScript().hasSpecialKeyRing() && (float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+            var10 = this.getScript().getRandomSpecialKeyRing();
+         }
+
+         InventoryItem var5 = InventoryItemFactory.CreateItem(var10);
+         InventoryContainer var6 = (InventoryContainer)var5;
+         InventoryItem var7 = this.createVehicleKey();
+         this.keySpawned = 1;
+         this.keyNamerVehicle(var6);
+         this.keyNamerVehicle(var7);
+         if (var6.getInventory() != null) {
+            var6.getInventory().AddItem(var7);
+            if (var2.getBuilding() != null && var2.getBuilding().getDef() != null && var2.getBuilding().getDef().getKeyId() != -1 && Rand.Next(10) != 0) {
+               String var8 = "Base.Key1";
+               InventoryItem var9 = InventoryItemFactory.CreateItem(var8);
+               var9.setKeyId(var2.getBuilding().getDef().getKeyId());
+               var6.getInventory().AddItem(var9);
+               ItemPickerJava.KeyNamer.nameKey(var9, var2);
+            }
+         }
+
+         var1.AddItem(var5);
+         this.putKeyToContainerServer(var5, var2, var3);
       }
 
    }
 
-   public void putKeyToContainer(ItemContainer var1, IsoGridSquare var2, IsoObject var3) {
-      InventoryItem var4 = this.createVehicleKey();
-      var1.AddItem(var4);
+   public void putKeyToContainerServer(InventoryItem var1, IsoGridSquare var2, IsoObject var3) {
       if (GameServer.bServer) {
-         for(int var5 = 0; var5 < GameServer.udpEngine.connections.size(); ++var5) {
-            UdpConnection var6 = (UdpConnection)GameServer.udpEngine.connections.get(var5);
-            if (var6.RelevantTo((float)var3.square.x, (float)var3.square.y)) {
-               ByteBufferWriter var7 = var6.startPacket();
-               PacketTypes.PacketType.AddInventoryItemToContainer.doPacket(var7);
-               var7.putShort((short)2);
-               var7.putInt((int)var3.getX());
-               var7.putInt((int)var3.getY());
-               var7.putInt((int)var3.getZ());
-               int var8 = var2.getObjects().indexOf(var3);
-               var7.putByte((byte)var8);
-               var7.putByte((byte)var3.getContainerIndex(var1));
-
-               try {
-                  CompressIdenticalItems.save(var7.bb, var4);
-               } catch (Exception var10) {
-                  var10.printStackTrace();
-               }
-
-               PacketTypes.PacketType.AddInventoryItemToContainer.send(var6);
-            }
-         }
+         INetworkPacket.sendToRelative(PacketTypes.PacketType.AddInventoryItemToContainer, (float)var3.square.x, (float)var3.square.y, this.container, var1);
       }
 
    }
 
    public void putKeyToWorld(IsoGridSquare var1) {
-      InventoryItem var2 = this.createVehicleKey();
-      var1.AddWorldInventoryItem(var2, 0.0F, 0.0F, 0.0F);
+      if ((float)Rand.Next(100) >= 1.0F * this.keySpawnChancedD100) {
+         InventoryItem var2 = this.createVehicleKey();
+         this.keySpawned = 1;
+         this.keyNamerVehicle(var2);
+         var1.AddWorldInventoryItem(var2, 0.0F, 0.0F, 0.0F);
+      } else {
+         String var13 = "Base.KeyRing";
+         if (this.getScript().hasSpecialKeyRing() && (float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+            var13 = this.getScript().getRandomSpecialKeyRing();
+         }
+
+         InventoryItem var3 = InventoryItemFactory.CreateItem(var13);
+         InventoryContainer var4 = (InventoryContainer)var3;
+         this.keyNamerVehicle(var4);
+         InventoryItem var5 = this.createVehicleKey();
+         this.keySpawned = 1;
+         this.keyNamerVehicle(var5);
+         var4.getInventory().AddItem(var5);
+         var1.AddWorldInventoryItem(var3, 0.0F, 0.0F, 0.0F);
+         if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+            float var6 = this.getX();
+            float var7 = this.getY();
+            Vector2f var8 = new Vector2f();
+            BuildingDef var9 = AmbientStreamManager.getNearestBuilding(var6, var7, var8);
+            if (var9 != null && var9.getKeyId() != -1) {
+               String var10 = "Base.Key1";
+               InventoryItem var11 = InventoryItemFactory.CreateItem(var10);
+               var11.setKeyId(var9.getKeyId());
+               IsoGridSquare var12 = var9.getFreeSquareInRoom();
+               if (var12 != null) {
+                  ItemPickerJava.KeyNamer.nameKey(var11, (IsoGridSquare)Objects.requireNonNull(var9.getFreeSquareInRoom()));
+               }
+
+               var4.getInventory().AddItem(var11);
+            }
+         }
+      }
+
    }
 
    public void addKeyToWorld() {
-      if (this.haveOneDoorUnlocked() && Rand.Next(100) < 30) {
-         if (Rand.Next(5) == 0) {
-            this.keyIsOnDoor = true;
-            this.currentKey = this.createVehicleKey();
-         } else {
-            this.addKeyToGloveBox();
-         }
+      if (this.checkIfGoodVehicleForKey()) {
+         if (!this.getScriptName().contains("Burnt") && !this.getScriptName().equals("Trailer") && !this.getScriptName().equals("TrailerAdvert")) {
+            if (!this.getScriptName().contains("Smashed") && this.haveOneDoorUnlocked()) {
+               if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                  this.keysInIgnition = true;
+                  this.currentKey = this.createVehicleKey();
+                  this.keySpawned = 1;
+                  return;
+               }
 
-      } else if (this.haveOneDoorUnlocked() && Rand.Next(100) < 30) {
-         this.keysInIgnition = true;
-         this.currentKey = this.createVehicleKey();
-      } else {
-         if (Rand.Next(100) < 50) {
-            IsoGridSquare var1 = this.getCell().getGridSquare((double)this.x, (double)this.y, (double)this.z);
+               if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                  this.addKeyToGloveBox();
+                  return;
+               }
+            }
+
+            IsoGridSquare var1 = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)this.getZ());
             if (var1 != null) {
                this.addKeyToSquare(var1);
-               return;
             }
-         }
 
+         }
       }
    }
 
@@ -955,18 +1145,102 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (this.keySpawned == 0) {
          if (this.getPartById("GloveBox") != null) {
             VehiclePart var1 = this.getPartById("GloveBox");
-            InventoryItem var2 = this.createVehicleKey();
-            var1.container.addItem(var2);
+            if ((float)Rand.Next(100) >= 1.0F * this.keySpawnChancedD100) {
+               InventoryItem var2 = this.createVehicleKey();
+               this.keyNamerVehicle(var2);
+               var1.container.addItem(var2);
+               if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                  float var3 = this.getX();
+                  float var4 = this.getY();
+                  Vector2f var5 = new Vector2f();
+                  BuildingDef var6 = AmbientStreamManager.getNearestBuilding(var3, var4, var5);
+                  if (var6 != null && var6.getKeyId() != -1) {
+                     String var7 = "Base.Key1";
+                     InventoryItem var8 = InventoryItemFactory.CreateItem(var7);
+                     var8.setKeyId(var6.getKeyId());
+                     IsoGridSquare var9 = var6.getFreeSquareInRoom();
+                     if (var9 != null) {
+                        ItemPickerJava.KeyNamer.nameKey(var8, (IsoGridSquare)Objects.requireNonNull(var6.getFreeSquareInRoom()));
+                     }
+
+                     var1.container.AddItem(var8);
+                  }
+               }
+            } else {
+               String var13 = "Base.KeyRing";
+               if (this.getScript().hasSpecialKeyRing() && (float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                  var13 = this.getScript().getRandomSpecialKeyRing();
+               }
+
+               InventoryItem var14 = InventoryItemFactory.CreateItem(var13);
+               InventoryContainer var15 = (InventoryContainer)var14;
+               this.keyNamerVehicle(var15);
+               InventoryItem var16 = this.createVehicleKey();
+               this.keyNamerVehicle(var16);
+               var15.getInventory().AddItem(var16);
+               if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+                  float var17 = this.getX();
+                  float var18 = this.getY();
+                  Vector2f var19 = new Vector2f();
+                  BuildingDef var20 = AmbientStreamManager.getNearestBuilding(var17, var18, var19);
+                  if (var20 != null && var20.getKeyId() != -1) {
+                     String var10 = "Base.Key1";
+                     InventoryItem var11 = InventoryItemFactory.CreateItem(var10);
+                     var11.setKeyId(var20.getKeyId());
+                     IsoGridSquare var12 = var20.getFreeSquareInRoom();
+                     if (var12 != null) {
+                        ItemPickerJava.KeyNamer.nameKey(var11, var12);
+                     }
+
+                     var15.getInventory().AddItem(var11);
+                  }
+               }
+
+               var1.container.addItem(var14);
+            }
+
             this.keySpawned = 1;
          }
 
       }
    }
 
+   public void addBuildingKeyToGloveBox(IsoGridSquare var1) {
+      if (this.getPartById("GloveBox") != null && var1.getBuilding() != null && var1.getBuilding().getDef() != null) {
+         VehiclePart var2 = this.getPartById("GloveBox");
+         String var3;
+         InventoryItem var4;
+         if ((float)Rand.Next(100) >= 1.0F * this.keySpawnChancedD100) {
+            var3 = "Base.Key1";
+            var4 = InventoryItemFactory.CreateItem(var3);
+            BuildingDef var5 = var1.getBuilding().getDef();
+            var4.setKeyId(var5.getKeyId());
+            ItemPickerJava.KeyNamer.nameKey(var4, var1);
+            var2.container.AddItem(var4);
+         } else {
+            var3 = "Base.KeyRing";
+            if (this.getScript().hasSpecialKeyRing() && (float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+               var3 = this.getScript().getRandomSpecialKeyRing();
+            }
+
+            var4 = InventoryItemFactory.CreateItem(var3);
+            InventoryContainer var9 = (InventoryContainer)var4;
+            String var6 = "Base.Key1";
+            InventoryItem var7 = InventoryItemFactory.CreateItem(var6);
+            BuildingDef var8 = var1.getBuilding().getDef();
+            var7.setKeyId(var8.getKeyId());
+            ItemPickerJava.KeyNamer.nameKey(var7, var1);
+            var9.getInventory().AddItem(var7);
+            var2.container.addItem(var4);
+         }
+      }
+
+   }
+
    public InventoryItem createVehicleKey() {
       InventoryItem var1 = InventoryItemFactory.CreateItem("CarKey");
       var1.setKeyId(this.getKeyId());
-      var1.setName(Translator.getText("IGUI_CarKey", Translator.getText("IGUI_VehicleName" + this.getScript().getName())));
+      keyNamerVehicle(var1, this);
       Color var2 = Color.HSBtoRGB(this.colorHue, this.colorSaturation * 0.5F, this.colorValue);
       var1.setColor(var2);
       var1.setCustomColor(true);
@@ -980,58 +1254,66 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       int var4;
       int var5;
       for(var4 = 0; var4 < 3; ++var4) {
-         for(var5 = var1.getX() - 10; var5 < var1.getX() + 10; ++var5) {
-            for(int var6 = var1.getY() - 10; var6 < var1.getY() + 10; ++var6) {
-               var3 = IsoWorld.instance.getCell().getGridSquare(var5, var6, var4);
-               if (var3 != null) {
-                  int var7;
-                  for(var7 = 0; var7 < var3.getObjects().size(); ++var7) {
-                     IsoObject var8 = (IsoObject)var3.getObjects().get(var7);
-                     if (var8.container != null && (var8.container.type.equals("counter") || var8.container.type.equals("officedrawers") || var8.container.type.equals("shelves") || var8.container.type.equals("desk"))) {
-                        this.putKeyToContainer(var8.container, var3, var8);
-                        var2 = true;
-                        break;
-                     }
-                  }
-
-                  for(var7 = 0; var7 < var3.getMovingObjects().size(); ++var7) {
-                     if (var3.getMovingObjects().get(var7) instanceof IsoZombie) {
-                        ((IsoZombie)var3.getMovingObjects().get(var7)).addItemToSpawnAtDeath(this.createVehicleKey());
-                        var2 = true;
-                        break;
-                     }
-                  }
-               }
-
+         if (Rand.Next(2) == 0) {
+            for(var5 = var1.getX() - 10; var5 < var1.getX() + 10; ++var5) {
+               var2 = this.addKeyToSquare2(var1, var5);
                if (var2) {
-                  break;
+                  return true;
                }
             }
-
-            if (var2) {
-               break;
+         } else {
+            for(var5 = var1.getX() + 10; var5 > var1.getX() - 10; --var5) {
+               var2 = this.addKeyToSquare2(var1, var5);
+               if (var2) {
+                  return true;
+               }
             }
-         }
-
-         if (var2) {
-            break;
          }
       }
 
-      if (Rand.Next(10) < 6) {
-         while(!var2) {
-            var4 = var1.getX() - 10 + Rand.Next(20);
-            var5 = var1.getY() - 10 + Rand.Next(20);
-            var3 = IsoWorld.instance.getCell().getGridSquare((double)var4, (double)var5, (double)this.z);
+      if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+         for(var4 = 0; var4 < 100; ++var4) {
+            var5 = var1.getX() - 10 + Rand.Next(20);
+            int var6 = var1.getY() - 10 + Rand.Next(20);
+            var3 = IsoWorld.instance.getCell().getGridSquare((double)var5, (double)var6, (double)this.getZ());
             if (var3 != null && !var3.isSolid() && !var3.isSolidTrans() && !var3.HasTree()) {
                this.putKeyToWorld(var3);
                var2 = true;
-               break;
+               return var2;
             }
          }
       }
 
       return var2;
+   }
+
+   public boolean addKeyToSquare2(IsoGridSquare var1, int var2) {
+      boolean var3 = false;
+      IsoGridSquare var4 = null;
+      int var5;
+      if (Rand.Next(100) < 50) {
+         for(var5 = var1.getY() - 10; var5 < var1.getY() + 10; ++var5) {
+            var4 = IsoWorld.instance.getCell().getGridSquare((double)var2, (double)var5, (double)this.getZ());
+            if (var4 != null) {
+               var3 = this.checkSquareForVehicleKeySpot(var4);
+               if (var3) {
+                  return true;
+               }
+            }
+         }
+      } else {
+         for(var5 = var1.getY() + 10; var5 > var1.getY() - 10; --var5) {
+            var4 = IsoWorld.instance.getCell().getGridSquare((double)var2, (double)var5, (double)this.getZ());
+            if (var4 != null) {
+               var3 = this.checkSquareForVehicleKeySpot(var4);
+               if (var3) {
+                  return true;
+               }
+            }
+         }
+      }
+
+      return var3;
    }
 
    public void toggleLockedDoor(VehiclePart var1, IsoGameCharacter var2, boolean var3) {
@@ -1313,6 +1595,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                var7.setScriptPart(var13);
                var7.category = var13.category;
                var7.specificItem = var13.specificItem;
+               var7.setDurability(var13.getDurability());
                if (var13.container != null && var13.container.contentType == null) {
                   if (var7.getItemContainer() == null) {
                      ItemContainer var15 = new ItemContainer(var13.id, (IsoGridSquare)null, this);
@@ -1402,10 +1685,16 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void scriptReloaded() {
-      this.tempTransform2.setIdentity();
+      this.scriptReloaded(false);
+   }
+
+   public void scriptReloaded(boolean var1) {
       if (this.physics != null) {
-         this.getWorldTransform(this.tempTransform2);
-         this.tempTransform2.basis.getUnnormalizedRotation(this.savedRot);
+         Transform var2 = allocTransform();
+         var2.setIdentity();
+         this.getWorldTransform(var2);
+         var2.basis.getUnnormalizedRotation(this.savedRot);
+         releaseTransform(var2);
          this.breakConstraint(false, false);
          Bullet.removeVehicle(this.VehicleID);
          this.physics = null;
@@ -1418,22 +1707,22 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
       this.vehicleEngineRPM = null;
 
-      int var1;
-      for(var1 = 0; var1 < this.parts.size(); ++var1) {
-         VehiclePart var2 = (VehiclePart)this.parts.get(var1);
-         var2.setInventoryItem((InventoryItem)null);
-         var2.bCreated = false;
+      int var5;
+      for(var5 = 0; var5 < this.parts.size(); ++var5) {
+         VehiclePart var3 = (VehiclePart)this.parts.get(var5);
+         var3.setInventoryItem((InventoryItem)null);
+         var3.bCreated = false;
       }
 
       this.setScript(this.scriptName);
-      this.createPhysics();
+      this.createPhysics(var1);
       if (this.script != null) {
-         for(var1 = 0; var1 < this.passengers.length; ++var1) {
-            Passenger var4 = this.passengers[var1];
-            if (var4 != null && var4.character != null) {
-               VehicleScript.Position var3 = this.getPassengerPosition(var1, "inside");
-               if (var3 != null) {
-                  var4.offset.set(var3.offset);
+         for(var5 = 0; var5 < this.passengers.length; ++var5) {
+            Passenger var6 = this.passengers[var5];
+            if (var6 != null && var6.character != null) {
+               VehicleScript.Position var4 = this.getPassengerPosition(var5, "inside");
+               if (var4 != null) {
+                  var6.offset.set(var4.offset);
                }
             }
          }
@@ -1446,8 +1735,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
 
       if (this.addedToWorld) {
-         PolygonalMap2.instance.removeVehicleFromWorld(this);
-         PolygonalMap2.instance.addVehicleToWorld(this);
+         if (PathfindNative.USE_NATIVE_CODE) {
+            PathfindNative.instance.removeVehicle(this);
+            PathfindNative.instance.addVehicle(this);
+         } else {
+            PolygonalMap2.instance.removeVehicleFromWorld(this);
+            PolygonalMap2.instance.addVehicleToWorld(this);
+         }
       }
 
    }
@@ -1465,8 +1759,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    protected ModelInfo setModelVisible(VehiclePart var1, VehicleScript.Model var2, boolean var3) {
+      ModelInfo var5;
       for(int var4 = 0; var4 < this.models.size(); ++var4) {
-         ModelInfo var5 = (ModelInfo)this.models.get(var4);
+         var5 = (ModelInfo)this.models.get(var4);
          if (var5.part == var1 && var5.scriptModel == var2) {
             if (var3) {
                return var5;
@@ -1489,23 +1784,53 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
 
       if (var3) {
-         ModelInfo var6 = new ModelInfo();
-         var6.part = var1;
-         var6.scriptModel = var2;
-         var6.modelScript = ScriptManager.instance.getModelScript(var2.file);
-         var6.wheelIndex = var1.getWheelIndex();
-         this.models.add(var6);
-         if (this.createdModel) {
-            ModelManager.instance.Remove(this);
-            ModelManager.instance.addVehicle(this);
-         }
+         String var6 = this.getModelScriptNameForPart(var1, var2);
+         if (var6 == null) {
+            return null;
+         } else {
+            var5 = new ModelInfo();
+            var5.part = var1;
+            var5.scriptModel = var2;
+            var5.modelScript = ScriptManager.instance.getModelScript(var6);
+            var5.wheelIndex = var1.getWheelIndex();
+            this.models.add(var5);
+            if (this.createdModel) {
+               ModelManager.instance.Remove(this);
+               ModelManager.instance.addVehicle(this);
+            }
 
-         var1.updateFlags = (short)(var1.updateFlags | 64);
-         this.updateFlags = (short)(this.updateFlags | 64);
-         return var6;
+            var1.updateFlags = (short)(var1.updateFlags | 64);
+            this.updateFlags = (short)(this.updateFlags | 64);
+            return var5;
+         }
       } else {
          return null;
       }
+   }
+
+   private String getModelScriptNameForPart(VehiclePart var1, VehicleScript.Model var2) {
+      String var3 = var2.file;
+      if (var3 == null) {
+         InventoryItem var4 = var1.getInventoryItem();
+         if (var4 == null) {
+            return null;
+         }
+
+         ArrayList var5 = var4.getScriptItem().getVehiclePartModels();
+         if (var5 == null || var5.isEmpty()) {
+            return null;
+         }
+
+         for(int var6 = 0; var6 < var5.size(); ++var6) {
+            VehiclePartModel var7 = (VehiclePartModel)var5.get(var6);
+            if (var7.partId.equalsIgnoreCase(var1.getId()) && var7.partModelId.equalsIgnoreCase(var2.getId())) {
+               var3 = var7.modelId;
+               break;
+            }
+         }
+      }
+
+      return var3;
    }
 
    protected ModelInfo getModelInfoForPart(VehiclePart var1) {
@@ -1583,13 +1908,14 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public Vector3f getWorldPos(float var1, float var2, float var3, Vector3f var4, VehicleScript var5) {
-      Transform var6 = this.getWorldTransform(this.tempTransform);
+      Transform var6 = this.getWorldTransform(allocTransform());
       var6.origin.set(0.0F, 0.0F, 0.0F);
       var4.set(var1, var2, var3);
       var6.transform(var4);
+      releaseTransform(var6);
       float var7 = this.jniTransform.origin.x + WorldSimulation.instance.offsetX;
       float var8 = this.jniTransform.origin.z + WorldSimulation.instance.offsetY;
-      float var9 = this.jniTransform.origin.y / 2.46F;
+      float var9 = this.jniTransform.origin.y / 2.44949F;
       var4.set(var7 + var4.x, var8 + var4.z, var9 + var4.y);
       return var4;
    }
@@ -1607,10 +1933,11 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public Vector3f getLocalPos(float var1, float var2, float var3, Vector3f var4) {
-      Transform var5 = this.getWorldTransform(this.tempTransform);
+      Transform var5 = this.getWorldTransform(allocTransform());
       var5.inverse();
       var4.set(var1 - WorldSimulation.instance.offsetX, 0.0F, var2 - WorldSimulation.instance.offsetY);
       var5.transform(var4);
+      releaseTransform(var5);
       return var4;
    }
 
@@ -1632,7 +1959,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       var4.set(this.script.getModel().offset);
       var4.add(var1, var2, var3);
       this.getWorldPos(var4.x, var4.y, var4.z, var4);
-      var4.z = (float)((int)this.getZ());
+      var4.z = (float)PZMath.fastfloor(this.getZ());
       return var4;
    }
 
@@ -1775,14 +2102,16 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (var2.angle.lengthSquared() != 0.0F) {
          Matrix4f var5 = (Matrix4f)((Matrix4fObjectPool)TL_matrix4f_pool.get()).alloc();
          var5.rotationXYZ((float)Math.toRadians((double)var2.angle.x), (float)Math.toRadians((double)var2.angle.y), (float)Math.toRadians((double)var2.angle.z));
-         var4.rotate(var5.getNormalizedRotation(this.tempQuat4f));
+         Quaternionf var6 = allocQuaternionf();
+         var4.rotate(var5.getNormalizedRotation(var6));
+         releaseQuaternionf(var6);
          ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var5);
       }
 
-      Vector2 var6 = (Vector2)((Vector2ObjectPool)TL_vector2_pool.get()).alloc();
-      var6.set(var4.x, var4.z);
-      var1.DirectionFromVector(var6);
-      ((Vector2ObjectPool)TL_vector2_pool.get()).release(var6);
+      Vector2 var7 = (Vector2)((Vector2ObjectPool)TL_vector2_pool.get()).alloc();
+      var7.set(var4.x, var4.z);
+      var1.DirectionFromVector(var7);
+      ((Vector2ObjectPool)TL_vector2_pool.get()).release(var7);
       var1.setForwardDirection(var4.x, var4.z);
       if (var1.getAnimationPlayer() != null) {
          var1.getAnimationPlayer().setTargetAngle(var1.getForwardDirection().getDirection());
@@ -1820,13 +2149,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                   Vector2 var9 = this.areaPositionWorld4PlayerInteract(var7, var8);
                   var6.x = var9.x;
                   var6.y = var9.y;
-                  var6.z = 0.0F;
+                  var6.z = (float)PZMath.fastfloor(this.getZ());
                   ((Vector2ObjectPool)TL_vector2_pool.get()).release(var8);
                }
 
                var1.setX(var6.x);
                var1.setY(var6.y);
-               var1.setZ(0.0F);
+               var1.setZ(var6.z);
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var6);
             }
 
@@ -1942,8 +2271,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public boolean isSeatOccupied(int var1) {
       VehiclePart var2 = this.getPartForSeatContainer(var1);
-      if (var2 != null && var2.getItemContainer() != null && !var2.getItemContainer().getItems().isEmpty()) {
-         return true;
+      if (var2 != null && var2.getItemContainer() != null && !var2.getItemContainer().getItems().isEmpty() && this.getCharacter(var1) == null && var2.getItemContainer().getCapacityWeight() > (float)(var2.getItemContainer().getCapacity() / 4)) {
+         return false;
       } else {
          return this.getCharacter(var1) != null;
       }
@@ -1955,7 +2284,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public int getBestSeat(IsoGameCharacter var1) {
-      if ((int)this.getZ() != (int)var1.getZ()) {
+      if (PZMath.fastfloor(this.getZ()) != PZMath.fastfloor(var1.getZ())) {
          return -1;
       } else if (var1.DistTo(this) > 5.0F) {
          return -1;
@@ -2041,7 +2370,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public VehiclePart getUseablePart(IsoGameCharacter var1, boolean var2) {
       if (var1.getVehicle() != null) {
          return null;
-      } else if ((int)this.getZ() != (int)var1.getZ()) {
+      } else if (PZMath.fastfloor(this.getZ()) != PZMath.fastfloor(var1.getZ())) {
          return null;
       } else if (var1.DistTo(this) > 6.0F) {
          return null;
@@ -2083,7 +2412,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                            var8.set(var9.x - var1.getX(), var9.y - var1.getY());
                            var8.normalize();
                            float var19 = var8.dot(var1.getForwardDirection());
-                           if (var19 > 0.5F && !PolygonalMap2.instance.lineClearCollide(var1.x, var1.y, var9.x, var9.y, (int)var1.z, this, false, true)) {
+                           if (var19 > 0.5F && !PolygonalMap2.instance.lineClearCollide(var1.getX(), var1.getY(), var9.x, var9.y, PZMath.fastfloor(var1.getZ()), this, false, true)) {
                               ((Vector2ObjectPool)TL_vector2_pool.get()).release(var8);
                               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var9);
                               return var11;
@@ -2103,7 +2432,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public VehiclePart getClosestWindow(IsoGameCharacter var1) {
-      if ((int)this.getZ() != (int)var1.getZ()) {
+      if (PZMath.fastfloor(this.getZ()) != PZMath.fastfloor(var1.getZ())) {
          return null;
       } else if (var1.DistTo(this) > 5.0F) {
          return null;
@@ -2297,21 +2626,26 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void save(ByteBuffer var1, boolean var2) throws IOException {
+      float var3 = this.getX();
+      float var4 = this.getY();
       if (this.square != null) {
-         float var3 = 5.0E-4F;
-         this.x = PZMath.clamp(this.x, (float)this.square.x + var3, (float)(this.square.x + 1) - var3);
-         this.y = PZMath.clamp(this.y, (float)this.square.y + var3, (float)(this.square.y + 1) - var3);
+         float var5 = 5.0E-4F;
+         this.setX(PZMath.clamp(this.getX(), (float)this.square.x + var5, (float)this.square.x + 1.0F - var5));
+         this.setY(PZMath.clamp(this.getY(), (float)this.square.y + var5, (float)this.square.y + 1.0F - var5));
       }
 
       super.save(var1, var2);
-      Quaternionf var7 = this.savedRot;
-      Transform var4 = this.getWorldTransform(this.tempTransform);
-      var1.putFloat(var4.origin.y);
-      var4.getRotation(var7);
-      var1.putFloat(var7.x);
-      var1.putFloat(var7.y);
-      var1.putFloat(var7.z);
-      var1.putFloat(var7.w);
+      this.setX(var3);
+      this.setY(var4);
+      Quaternionf var10 = this.savedRot;
+      Transform var6 = this.getWorldTransform(allocTransform());
+      var1.putFloat(var6.origin.y);
+      var6.getRotation(var10);
+      releaseTransform(var6);
+      var1.putFloat(var10.x);
+      var1.putFloat(var10.y);
+      var1.putFloat(var10.z);
+      var1.putFloat(var10.w);
       GameWindow.WriteStringUTF(var1, this.scriptName);
       var1.putInt(this.skinIndex);
       var1.put((byte)(this.isEngineRunning() ? 1 : 0));
@@ -2331,9 +2665,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       var1.put((byte)this.lightbarSirenMode.get());
       var1.putShort((short)this.parts.size());
 
-      for(int var5 = 0; var5 < this.parts.size(); ++var5) {
-         VehiclePart var6 = (VehiclePart)this.parts.get(var5);
-         var6.save(var1);
+      int var7;
+      for(var7 = 0; var7 < this.parts.size(); ++var7) {
+         VehiclePart var8 = (VehiclePart)this.parts.get(var7);
+         var8.save(var1);
       }
 
       var1.put((byte)(this.keyIsOnDoor ? 1 : 0));
@@ -2358,12 +2693,12 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
 
       var1.put((byte)this.bloodIntensity.size());
-      Iterator var8 = this.bloodIntensity.entrySet().iterator();
+      Iterator var11 = this.bloodIntensity.entrySet().iterator();
 
-      while(var8.hasNext()) {
-         Map.Entry var9 = (Map.Entry)var8.next();
-         GameWindow.WriteStringUTF(var1, (String)var9.getKey());
-         var1.put((Byte)var9.getValue());
+      while(var11.hasNext()) {
+         Map.Entry var12 = (Map.Entry)var11.next();
+         GameWindow.WriteStringUTF(var1, (String)var12.getKey());
+         var1.put((Byte)var12.getValue());
       }
 
       if (this.vehicleTowingID != -1) {
@@ -2378,29 +2713,45 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
       var1.putFloat(this.getRegulatorSpeed());
       var1.put((byte)(this.previouslyEntered ? 1 : 0));
+      var1.put((byte)(this.previouslyMoved ? 1 : 0));
+      var7 = var1.position();
+      var1.putInt(0);
+      int var13 = var1.position();
+      int var9;
+      if (this.animals.isEmpty()) {
+         var1.put((byte)0);
+      } else {
+         var1.put((byte)1);
+         var1.putInt(this.animals.size());
+
+         for(var9 = 0; var9 < this.animals.size(); ++var9) {
+            ((IsoAnimal)this.animals.get(var9)).save(var1, var2, false);
+         }
+      }
+
+      var9 = var1.position();
+      var1.position(var7);
+      var1.putInt(var9 - var13);
+      var1.position(var9);
    }
 
    public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
       super.load(var1, var2, var3);
-      if (this.z < 0.0F) {
-         this.z = 0.0F;
-      }
-
-      if (var2 >= 173) {
-         this.savedPhysicsZ = PZMath.clamp(var1.getFloat(), 0.0F, (float)((int)this.z) + 2.4477F);
-      }
-
       float var4 = var1.getFloat();
-      float var5 = var1.getFloat();
-      float var6 = var1.getFloat();
+      int var5 = PZMath.fastfloor(this.getZ());
+      float var6 = 2.44949F;
+      this.savedPhysicsZ = PZMath.clamp(var4, (float)var5 * var6, ((float)var5 + 0.995F) * var6);
       float var7 = var1.getFloat();
-      this.savedRot.set(var4, var5, var6, var7);
-      this.jniTransform.origin.set(this.getX() - WorldSimulation.instance.offsetX, Float.isNaN(this.savedPhysicsZ) ? this.z : this.savedPhysicsZ, this.getY() - WorldSimulation.instance.offsetY);
+      float var8 = var1.getFloat();
+      float var9 = var1.getFloat();
+      float var10 = var1.getFloat();
+      this.savedRot.set(var7, var8, var9, var10);
+      this.jniTransform.origin.set(this.getX() - WorldSimulation.instance.offsetX, Float.isNaN(this.savedPhysicsZ) ? this.getZ() : this.savedPhysicsZ, this.getY() - WorldSimulation.instance.offsetY);
       this.jniTransform.setRotation(this.savedRot);
       this.scriptName = GameWindow.ReadStringUTF(var1);
       this.skinIndex = var1.getInt();
-      boolean var8 = var1.get() == 1;
-      if (var8) {
+      boolean var11 = var1.get() == 1;
+      if (var11) {
          this.engineState = BaseVehicle.engineStateTypes.Running;
       }
 
@@ -2419,90 +2770,87 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.soundBackMoveOn = var1.get() == 1;
       this.lightbarLightsMode.set(var1.get());
       this.lightbarSirenMode.set(var1.get());
-      short var9 = var1.getShort();
+      short var12 = var1.getShort();
 
-      for(int var10 = 0; var10 < var9; ++var10) {
-         VehiclePart var11 = new VehiclePart(this);
-         var11.load(var1, var2);
-         this.parts.add(var11);
+      for(int var13 = 0; var13 < var12; ++var13) {
+         VehiclePart var14 = new VehiclePart(this);
+         var14.load(var1, var2);
+         this.parts.add(var14);
       }
 
-      if (var2 >= 112) {
-         this.keyIsOnDoor = var1.get() == 1;
-         this.hotwired = var1.get() == 1;
-         this.hotwiredBroken = var1.get() == 1;
-         this.keysInIgnition = var1.get() == 1;
-      }
-
-      if (var2 >= 116) {
-         this.rust = var1.getFloat();
-         this.colorHue = var1.getFloat();
-         this.colorSaturation = var1.getFloat();
-         this.colorValue = var1.getFloat();
-      }
-
-      if (var2 >= 117) {
-         this.enginePower = var1.getInt();
-      }
-
-      if (var2 >= 120) {
-         var1.getShort();
-      }
-
-      if (var2 >= 122) {
-         String var15 = GameWindow.ReadString(var1);
-         this.mechanicalID = var1.getInt();
-      }
-
-      if (var2 >= 124) {
-         this.alarmed = var1.get() == 1;
-      }
-
-      if (var2 >= 129) {
-         this.sirenStartTime = var1.getDouble();
-      }
-
-      if (var2 >= 133 && var1.get() == 1) {
-         InventoryItem var16 = null;
+      this.keyIsOnDoor = var1.get() == 1;
+      this.hotwired = var1.get() == 1;
+      this.hotwiredBroken = var1.get() == 1;
+      this.keysInIgnition = var1.get() == 1;
+      this.rust = var1.getFloat();
+      this.colorHue = var1.getFloat();
+      this.colorSaturation = var1.getFloat();
+      this.colorValue = var1.getFloat();
+      this.enginePower = var1.getInt();
+      var1.getShort();
+      String var20 = GameWindow.ReadString(var1);
+      this.mechanicalID = var1.getInt();
+      this.alarmed = var1.get() == 1;
+      this.sirenStartTime = var1.getDouble();
+      if (var1.get() == 1) {
+         InventoryItem var21 = null;
 
          try {
-            var16 = InventoryItem.loadItem(var1, var2);
-         } catch (Exception var14) {
-            var14.printStackTrace();
+            var21 = InventoryItem.loadItem(var1, var2);
+         } catch (Exception var19) {
+            var19.printStackTrace();
          }
 
-         if (var16 != null) {
-            this.setCurrentKey(var16);
-         }
-      }
-
-      if (var2 >= 165) {
-         byte var18 = var1.get();
-
-         for(int var17 = 0; var17 < var18; ++var17) {
-            String var12 = GameWindow.ReadStringUTF(var1);
-            byte var13 = var1.get();
-            this.bloodIntensity.put(var12, var13);
+         if (var21 != null) {
+            this.setCurrentKey(var21);
          }
       }
 
-      if (var2 >= 174) {
-         if (var1.get() == 1) {
-            this.vehicleTowingID = var1.getInt();
-            this.towAttachmentSelf = GameWindow.ReadStringUTF(var1);
-            this.towAttachmentOther = GameWindow.ReadStringUTF(var1);
-            this.towConstraintZOffset = var1.getFloat();
-         }
-      } else if (var2 >= 172) {
+      byte var22 = var1.get();
+
+      int var15;
+      int var17;
+      for(var15 = 0; var15 < var22; ++var15) {
+         String var16 = GameWindow.ReadStringUTF(var1);
+         var17 = var1.get();
+         this.bloodIntensity.put(var16, Byte.valueOf((byte)var17));
+      }
+
+      if (var1.get() == 1) {
          this.vehicleTowingID = var1.getInt();
+         this.towAttachmentSelf = GameWindow.ReadStringUTF(var1);
+         this.towAttachmentOther = GameWindow.ReadStringUTF(var1);
+         this.towConstraintZOffset = var1.getFloat();
       }
 
-      if (var2 >= 188) {
-         this.setRegulatorSpeed(var1.getFloat());
+      this.setRegulatorSpeed(var1.getFloat());
+      this.previouslyEntered = var1.get() == 1;
+      if (var2 >= 196) {
+         this.previouslyMoved = var1.get() == 1;
       }
 
-      if (var2 >= 195) {
-         this.previouslyEntered = var1.get() == 1;
+      int var23;
+      if (var2 >= 212) {
+         var15 = var1.getInt();
+         if (GameClient.bClient) {
+            var1.position(var1.position() + var15);
+         } else if (var1.get() == 1) {
+            var23 = var1.getInt();
+
+            for(var17 = 0; var17 < var23; ++var17) {
+               IsoAnimal var18 = new IsoAnimal(IsoWorld.instance.getCell());
+               var18.load(var1, var2, var3);
+               this.addAnimalInTrailer(var18);
+            }
+         }
+      } else if (var1.get() == 1) {
+         var15 = var1.getInt();
+
+         for(var23 = 0; var23 < var15; ++var23) {
+            IsoAnimal var24 = new IsoAnimal(IsoWorld.instance.getCell());
+            var24.load(var1, var2, var3);
+            this.addAnimalInTrailer(var24);
+         }
       }
 
       this.loaded = true;
@@ -2514,6 +2862,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.keysInIgnition = false;
       this.currentKey = null;
       this.previouslyEntered = false;
+      this.previouslyMoved = false;
       this.engineState = BaseVehicle.engineStateTypes.Idle;
       this.randomizeContainers();
    }
@@ -2531,7 +2880,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                      this.addKeyToWorld();
                   }
 
-                  this.keySpawned = 1;
                }
             }
          }
@@ -2563,7 +2911,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          int var8;
          for(int var7 = -var6; var7 < var6; ++var7) {
             for(var8 = -var6; var8 < var6; ++var8) {
-               IsoGridSquare var9 = this.getCell().getGridSquare((double)(this.x + (float)var8), (double)(this.y + (float)var7), (double)this.z);
+               IsoGridSquare var9 = this.getCell().getGridSquare((double)(this.getX() + (float)var8), (double)(this.getY() + (float)var7), (double)this.getZ());
                if (var9 != null) {
                   int var10;
                   if (var2) {
@@ -2597,32 +2945,37 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                      }
                   }
 
-                  IsoMovingObject var16;
+                  IsoMovingObject var17;
                   if (var1) {
                      for(var10 = 0; var10 < var9.getMovingObjects().size(); ++var10) {
-                        var16 = (IsoMovingObject)var9.getMovingObjects().get(var10);
-                        IsoZombie var18 = (IsoZombie)Type.tryCastTo(var16, IsoZombie.class);
-                        if (var18 != null) {
-                           if (var18.isProne()) {
-                              this.testCollisionWithProneCharacter(var18, false);
+                        var17 = (IsoMovingObject)var9.getMovingObjects().get(var10);
+                        IsoZombie var19 = (IsoZombie)Type.tryCastTo(var17, IsoZombie.class);
+                        if (var19 != null) {
+                           if (var19.isProne()) {
+                              this.testCollisionWithProneCharacter(var19, false);
                            }
 
-                           var18.setVehicle4TestCollision(this);
+                           var19.setVehicle4TestCollision(this);
                         }
 
-                        if (var16 instanceof IsoPlayer && var16 != this.getDriver()) {
-                           IsoPlayer var13 = (IsoPlayer)var16;
+                        IsoAnimal var13 = (IsoAnimal)Type.tryCastTo(var17, IsoAnimal.class);
+                        if (var13 != null) {
                            var13.setVehicle4TestCollision(this);
+                        }
+
+                        if (var17 instanceof IsoPlayer && var17 != this.getDriver()) {
+                           IsoPlayer var14 = (IsoPlayer)var17;
+                           var14.setVehicle4TestCollision(this);
                         }
                      }
                   }
 
                   if (var2) {
                      for(var10 = 0; var10 < var9.getStaticMovingObjects().size(); ++var10) {
-                        var16 = (IsoMovingObject)var9.getStaticMovingObjects().get(var10);
-                        IsoDeadBody var19 = (IsoDeadBody)Type.tryCastTo(var16, IsoDeadBody.class);
-                        if (var19 != null) {
-                           this.testCollisionWithCorpse(var19, true);
+                        var17 = (IsoMovingObject)var9.getStaticMovingObjects().get(var10);
+                        IsoDeadBody var20 = (IsoDeadBody)Type.tryCastTo(var17, IsoDeadBody.class);
+                        if (var20 != null) {
+                           this.testCollisionWithCorpse(var20, true);
                         }
                      }
                   }
@@ -2630,23 +2983,23 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             }
          }
 
-         float var14 = -999.0F;
+         float var15 = -999.0F;
 
          for(var8 = 0; var8 < this.brekingObjectsList.size(); ++var8) {
-            IsoObject var15 = (IsoObject)this.brekingObjectsList.get(var8);
-            Vector2 var17 = this.testCollisionWithObject(var15, 1.0F, var4);
-            if (var17 != null && var15.getSquare().getObjects().contains(var15)) {
-               if (var14 < var15.GetVehicleSlowFactor(this)) {
-                  var14 = var15.GetVehicleSlowFactor(this);
+            IsoObject var16 = (IsoObject)this.brekingObjectsList.get(var8);
+            Vector2 var18 = this.testCollisionWithObject(var16, 1.0F, var4);
+            if (var18 != null && var16.getSquare().getObjects().contains(var16)) {
+               if (var15 < var16.GetVehicleSlowFactor(this)) {
+                  var15 = var16.GetVehicleSlowFactor(this);
                }
             } else {
-               this.brekingObjectsList.remove(var15);
-               var15.UnCollision(this);
+               this.brekingObjectsList.remove(var16);
+               var16.UnCollision(this);
             }
          }
 
-         if (var14 != -999.0F) {
-            this.brekingSlowFactor = PZMath.clamp(var14, 0.0F, 34.0F);
+         if (var15 != -999.0F) {
+            this.brekingSlowFactor = PZMath.clamp(var15, 0.0F, 34.0F);
          } else {
             this.brekingSlowFactor = 0.0F;
          }
@@ -2687,7 +3040,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    private void checkCollisionWithPlant(IsoGridSquare var1, IsoObject var2, Vector2 var3) {
       IsoTree var4 = (IsoTree)Type.tryCastTo(var2, IsoTree.class);
-      if (var4 != null || var2.getProperties().Is("Bush")) {
+      if (var4 != null || var2.isBush()) {
          float var5 = Math.abs(this.getCurrentSpeedKmHour());
          if (!(var5 <= 1.0F)) {
             Vector2 var6 = this.testCollisionWithObject(var2, 0.3F, var3);
@@ -2719,7 +3072,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
          for(int var6 = -var5; var6 < var5; ++var6) {
             for(int var7 = -var5; var7 < var5; ++var7) {
-               IsoGridSquare var8 = this.getCell().getGridSquare((double)(this.x + (float)var7), (double)(this.y + (float)var6), (double)this.z);
+               IsoGridSquare var8 = this.getCell().getGridSquare((double)(this.getX() + (float)var7), (double)(this.getY() + (float)var6), (double)this.getZ());
                if (var8 != null) {
                   for(int var9 = 0; var9 < var8.getObjects().size(); ++var9) {
                      IsoObject var10 = (IsoObject)var8.getObjects().get(var9);
@@ -2741,14 +3094,14 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
                      IsoGridSquare var12;
                      if (var11 == null) {
-                        var12 = this.getCell().getGridSquare((double)(this.x + (float)var7), (double)(this.y + (float)var6), 1.0);
+                        var12 = this.getCell().getGridSquare((double)(this.getX() + (float)var7), (double)(this.getY() + (float)var6), 1.0);
                         if (var12 != null && var12.getHasTypes().isSet(IsoObjectType.lightswitch)) {
                            var11 = this.testCollisionWithObject(var10, 1.0F, var3);
                         }
                      }
 
                      if (var11 == null) {
-                        var12 = this.getCell().getGridSquare((double)(this.x + (float)var7), (double)(this.y + (float)var6), 0.0);
+                        var12 = this.getCell().getGridSquare((double)(this.getX() + (float)var7), (double)(this.getY() + (float)var6), 0.0);
                         if (var12 != null && var12.getHasTypes().isSet(IsoObjectType.lightswitch)) {
                            var11 = this.testCollisionWithObject(var10, 1.0F, var3);
                         }
@@ -2767,406 +3120,462 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void update() {
-      if (this.removedFromWorld) {
-         DebugLog.Vehicle.debugln("vehicle update() removedFromWorld=true id=%d", this.VehicleID);
-      } else if (!this.getCell().vehicles.contains(this)) {
-         DebugLog.Vehicle.debugln("vehicle update() not in cell.vehicles list id=%d x=%f y=%f %s", this.VehicleID, this.x, this.y, this);
-         this.getCell().getRemoveList().add(this);
-      } else {
-         if (this.chunk == null) {
-            DebugLog.Vehicle.debugln("vehicle update() chunk=null id=%d x=%f y=%f", this.VehicleID, this.x, this.y);
-         } else if (!this.chunk.vehicles.contains(this)) {
-            DebugLog.Vehicle.debugln("vehicle update() not in chunk.vehicles list id=%d x=%f y=%f", this.VehicleID, this.x, this.y);
-            if (GameClient.bClient) {
-               VehicleManager.instance.sendRequestGetPosition(this.VehicleID, PacketTypes.PacketType.VehiclesUnreliable);
-            }
-         } else if (!GameServer.bServer && this.chunk.refs.isEmpty()) {
-            DebugLog.Vehicle.debugln("vehicle update() chunk was unloaded id=%d", this.VehicleID);
-            this.removeFromWorld();
-            return;
-         }
-
-         super.update();
-         if (GameClient.bClient || GameServer.bServer) {
-            this.isReliable = this.physicReliableLimit.Check();
-         }
-
-         if (GameClient.bClient && this.hasAuthorization(GameClient.connection)) {
-            this.updatePhysicsNetwork();
-         }
-
-         float var1;
-         int var6;
-         VehiclePart var8;
-         float var30;
-         int var31;
-         if (this.getVehicleTowing() != null && this.getDriver() != null) {
-            var1 = 2.5F;
-            if (this.getVehicleTowing().getPartCount() == 0) {
-               var1 = 12.0F;
+      if (!this.removedFromWorld) {
+         if (!this.getCell().vehicles.contains(this)) {
+            this.getCell().getRemoveList().add(this);
+         } else {
+            if (this.chunk != null) {
+               if (!this.chunk.vehicles.contains(this)) {
+                  if (GameClient.bClient) {
+                     VehicleManager.instance.sendRequestGetPosition(this.VehicleID, PacketTypes.PacketType.VehiclesUnreliable);
+                  }
+               } else if (!GameServer.bServer && this.chunk.refs.isEmpty()) {
+                  this.removeFromWorld();
+                  return;
+               }
             }
 
-            if (this.getVehicleTowing().scriptName.equals("Base.Trailer")) {
-               VehiclePart var2 = this.getVehicleTowing().getPartById("TrailerTrunk");
-               if (this.getCurrentSpeedKmHour() > 30.0F && var2.getCondition() < 50 && !var2.container.Items.isEmpty()) {
-                  ArrayList var3 = new ArrayList();
+            super.update();
+            if (this.timeSinceLastAuth > 0.0F) {
+               --this.timeSinceLastAuth;
+            }
 
-                  int var4;
-                  for(var4 = 0; var4 < var2.container.Items.size(); ++var4) {
-                     if ((double)((InventoryItem)var2.container.Items.get(var4)).getWeight() >= 3.5) {
-                        var3.add((InventoryItem)var2.container.Items.get(var4));
+            boolean var1;
+            if (!GameClient.bClient) {
+               var1 = this.updateAnimal.Check();
+
+               for(int var2 = this.getAnimals().size() - 1; var2 >= 0; --var2) {
+                  IsoAnimal var3 = (IsoAnimal)this.getAnimals().get(var2);
+                  var3.setX(this.getX());
+                  var3.setY(this.getY());
+                  var3.setZ((float)PZMath.fastfloor(this.getZ()));
+                  var3.update();
+                  if (this.getAnimals().contains(var3)) {
+                     if (!var3.isDead()) {
+                        var3.updateVocalProperties();
+                     }
+
+                     this.setNeedPartsUpdate(true);
+                     if (var1) {
+                        var3.getNetworkCharacterAI().getAnimalPacket().reset(var3);
+                        AnimalSynchronizationManager.getInstance().setReceived(var3.OnlineID);
                      }
                   }
+               }
+            } else {
+               for(int var18 = 0; var18 < this.getAnimals().size(); ++var18) {
+                  IsoAnimal var20 = (IsoAnimal)this.getAnimals().get(var18);
+                  var20.setX(this.getX());
+                  var20.setY(this.getY());
+                  var20.setZ((float)PZMath.fastfloor(this.getZ()));
+                  AnimalInstanceManager.getInstance().update(var20);
+               }
+            }
 
-                  if (!var3.isEmpty()) {
-                     var4 = var2.getCondition();
-                     int var5 = 0;
-                     var6 = 0;
+            if (GameClient.bClient || GameServer.bServer) {
+               this.isReliable = this.physicReliableLimit.Check();
+            }
 
-                     for(int var7 = 0; var7 < this.getVehicleTowing().parts.size(); ++var7) {
-                        var8 = this.getVehicleTowing().getPartByIndex(var7);
-                        if (var8 != null && var8.item != null) {
-                           if (var8.partId != null && var8.partId.contains("Suspension")) {
-                              var5 += var8.getCondition();
-                           } else if (var8.partId != null && var8.partId.contains("Tire")) {
-                              var6 += var8.getCondition();
-                           }
+            if (GameClient.bClient && this.hasAuthorization(GameClient.connection)) {
+               this.updatePhysicsNetwork();
+            }
+
+            int var6;
+            int var7;
+            VehiclePart var8;
+            float var19;
+            float var34;
+            int var35;
+            if (this.getVehicleTowing() != null && this.getDriver() != null) {
+               var19 = 2.5F;
+               if (this.getVehicleTowing().getPartCount() == 0) {
+                  var19 = 12.0F;
+               }
+
+               if (this.getVehicleTowing().scriptName.equals("Base.Trailer")) {
+                  VehiclePart var21 = this.getVehicleTowing().getPartById("TrailerTrunk");
+                  if (this.getCurrentSpeedKmHour() > 30.0F && (float)var21.getCondition() < 50.0F && !var21.container.Items.isEmpty()) {
+                     ArrayList var23 = new ArrayList();
+
+                     int var4;
+                     for(var4 = 0; var4 < var21.container.Items.size(); ++var4) {
+                        if ((double)((InventoryItem)var21.container.Items.get(var4)).getWeight() >= 3.5) {
+                           var23.add((InventoryItem)var21.container.Items.get(var4));
                         }
                      }
 
-                     var30 = this.parameterVehicleSteer.getCurrentValue();
-                     var31 = (int)(Math.pow((double)(100 - var4 * 2), 2.0) * 0.3 * (1.0 + (double)(100 - var5 / 2) * 0.005) * (1.0 + (double)(100 - var5 / 2) * 0.005) * (double)(1.0F + var30 / 3.0F));
-                     if (Rand.Next(0, Math.max(10000 - var31, 1)) == 0) {
-                        InventoryItem var9 = (InventoryItem)var3.get(Rand.Next(0, var3.size()));
-                        var9.setCondition(var9.getCondition() - var9.getConditionMax() / 10);
-                        var2.getSquare().AddWorldInventoryItem(var9, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
-                        var2.container.Items.remove(var9);
-                        var2.getSquare().playSound("thumpa2");
+                     if (!var23.isEmpty()) {
+                        var4 = var21.getCondition();
+                        int var5 = 0;
+                        var6 = 0;
+
+                        for(var7 = 0; var7 < this.getVehicleTowing().parts.size(); ++var7) {
+                           var8 = this.getVehicleTowing().getPartByIndex(var7);
+                           if (var8 != null && var8.item != null) {
+                              if (var8.partId != null && var8.partId.contains("Suspension")) {
+                                 var5 += var8.getCondition();
+                              } else if (var8.partId != null && var8.partId.contains("Tire")) {
+                                 var6 += var8.getCondition();
+                              }
+                           }
+                        }
+
+                        var34 = this.parameterVehicleSteer.getCurrentValue();
+                        var35 = (int)(Math.pow((double)(100 - var4 * 2), 2.0) * 0.3 * (1.0 + (double)(100 - var5 / 2) * 0.005) * (1.0 + (double)(100 - var5 / 2) * 0.005) * (double)(1.0F + var34 / 3.0F));
+                        if (Rand.Next(0, Math.max(10000 - var35, 1)) == 0) {
+                           InventoryItem var9 = (InventoryItem)var23.get(Rand.Next(0, var23.size()));
+                           var9.setCondition(var9.getCondition() - var9.getConditionMax() / 10, false);
+                           var21.getSquare().AddWorldInventoryItem(var9, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+                           var21.container.Items.remove(var9);
+                           var21.getSquare().playSound("thumpa2");
+                        }
                      }
                   }
                }
             }
-         }
 
-         if (this.getVehicleTowedBy() != null && this.getDriver() != null) {
-            var1 = 2.5F;
-            if (this.getVehicleTowedBy().getPartCount() == 0) {
-               var1 = 12.0F;
+            if (this.getVehicleTowedBy() != null && this.getDriver() != null) {
+               var19 = 2.5F;
+               if (this.getVehicleTowedBy().getPartCount() == 0) {
+                  var19 = 12.0F;
+               }
             }
-         }
 
-         if (this.physics != null && this.vehicleTowingID != -1 && this.vehicleTowing == null) {
-            this.tryReconnectToTowedVehicle();
-         }
+            if (this.physics != null && this.vehicleTowingID != -1 && this.vehicleTowing == null) {
+               this.tryReconnectToTowedVehicle();
+            }
 
-         boolean var18 = false;
-         boolean var19 = false;
-         if (this.getVehicleTowedBy() != null && this.getVehicleTowedBy().getController() != null) {
-            var18 = this.getVehicleTowedBy() != null && this.getVehicleTowedBy().getController().isEnable;
-            var19 = this.getVehicleTowing() != null && this.getVehicleTowing().getDriver() != null;
-         }
+            var1 = false;
+            boolean var22 = false;
+            if (this.getVehicleTowedBy() != null && this.getVehicleTowedBy().getController() != null) {
+               var1 = this.getVehicleTowedBy() != null && this.getVehicleTowedBy().getController().isEnable;
+               var22 = this.getVehicleTowing() != null && this.getVehicleTowing().getDriver() != null;
+            }
 
-         if (this.physics != null) {
-            boolean var20 = this.getDriver() != null || var18 || var19;
-            long var22 = System.currentTimeMillis();
-            if (this.constraintChangedTime != -1L) {
-               if (this.constraintChangedTime + 3500L < var22) {
-                  this.constraintChangedTime = -1L;
-                  if (!var20 && this.physicActiveCheck < var22) {
+            IsoGridSquare var47;
+            if (this.physics != null) {
+               boolean var24 = this.getDriver() != null || var1 || var22;
+               long var26 = System.currentTimeMillis();
+               if (this.constraintChangedTime != -1L) {
+                  if (this.constraintChangedTime + 3500L < var26) {
+                     this.constraintChangedTime = -1L;
+                     if (!var24 && this.physicActiveCheck < var26) {
+                        this.setPhysicsActive(false);
+                     }
+                  }
+               } else {
+                  if (this.physicActiveCheck != -1L && (var24 || !this.physics.isEnable)) {
+                     this.physicActiveCheck = -1L;
+                  }
+
+                  if (!var24 && this.physics.isEnable && this.physicActiveCheck != -1L && this.physicActiveCheck < var26) {
+                     this.physicActiveCheck = -1L;
                      this.setPhysicsActive(false);
                   }
                }
-            } else {
-               if (this.physicActiveCheck != -1L && (var20 || !this.physics.isEnable)) {
-                  this.physicActiveCheck = -1L;
+
+               if (this.getVehicleTowedBy() != null && this.getScript().getWheelCount() > 0) {
+                  this.physics.updateTrailer();
+               } else if (this.getDriver() == null && !GameServer.bServer) {
+                  this.physics.checkShouldBeActive();
                }
 
-               if (!var20 && this.physics.isEnable && this.physicActiveCheck != -1L && this.physicActiveCheck < var22) {
-                  this.physicActiveCheck = -1L;
-                  this.setPhysicsActive(false);
+               this.doAlarm();
+               VehicleImpulse var33 = this.impulseFromServer;
+               if (!GameServer.bServer && var33 != null && var33.enable) {
+                  var33.enable = false;
+                  var34 = 1.0F;
+                  Bullet.applyCentralForceToVehicle(this.VehicleID, var33.impulse.x * var34, var33.impulse.y * var34, var33.impulse.z * var34);
+                  Vector3f var37 = var33.rel_pos.cross(var33.impulse, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
+                  Bullet.applyTorqueToVehicle(this.VehicleID, var37.x * var34, var37.y * var34, var37.z * var34);
+                  ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var37);
                }
-            }
 
-            if (this.getVehicleTowedBy() != null && this.getScript().getWheelCount() > 0) {
-               this.physics.updateTrailer();
-            } else if (this.getDriver() == null && !GameServer.bServer) {
-               this.physics.checkShouldBeActive();
-            }
+               short var36 = 1000;
+               int var11;
+               if (System.currentTimeMillis() - this.engineCheckTime > (long)var36 && !GameClient.bClient) {
+                  this.engineCheckTime = System.currentTimeMillis();
+                  if (!GameClient.bClient) {
+                     if (this.engineState != BaseVehicle.engineStateTypes.Idle) {
+                        var35 = (int)((double)this.engineLoudness * this.engineSpeed / 2500.0);
+                        double var39 = Math.min(this.getEngineSpeed(), 2000.0);
+                        var35 = (int)((double)var35 * (1.0 + var39 / 4000.0));
+                        var11 = 120;
+                        if (GameServer.bServer) {
+                           var11 = (int)((double)var11 * ServerOptions.getInstance().CarEngineAttractionModifier.getValue());
+                           var35 = (int)((double)var35 * ServerOptions.getInstance().CarEngineAttractionModifier.getValue());
+                        }
 
-            this.doAlarm();
-            VehicleImpulse var29 = this.impulseFromServer;
-            if (!GameServer.bServer && var29 != null && var29.enable) {
-               var29.enable = false;
-               var30 = 1.0F;
-               Bullet.applyCentralForceToVehicle(this.VehicleID, var29.impulse.x * var30, var29.impulse.y * var30, var29.impulse.z * var30);
-               Vector3f var33 = var29.rel_pos.cross(var29.impulse, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-               Bullet.applyTorqueToVehicle(this.VehicleID, var33.x * var30, var33.y * var30, var33.z * var30);
-               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var33);
-            }
+                        WorldSoundManager.WorldSound var12;
+                        if (Rand.Next((int)((float)var11 * GameTime.instance.getInvMultiplier())) == 0) {
+                           var12 = WorldSoundManager.instance.addSoundRepeating(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), Math.max(8, var35), Math.max(6, var35 / 3), false);
+                           var12.stressAnimals = true;
+                        }
 
-            this.applyImpulseFromHitZombies();
-            this.applyImpulseFromProneCharacters();
-            short var32 = 1000;
-            int var11;
-            if (System.currentTimeMillis() - this.engineCheckTime > (long)var32 && !GameClient.bClient) {
-               this.engineCheckTime = System.currentTimeMillis();
-               if (!GameClient.bClient) {
-                  if (this.engineState != BaseVehicle.engineStateTypes.Idle) {
-                     var31 = (int)((double)this.engineLoudness * this.engineSpeed / 2500.0);
-                     double var35 = Math.min(this.getEngineSpeed(), 2000.0);
-                     var31 = (int)((double)var31 * (1.0 + var35 / 4000.0));
-                     var11 = 120;
-                     if (GameServer.bServer) {
-                        var11 = (int)((double)var11 * ServerOptions.getInstance().CarEngineAttractionModifier.getValue());
-                        var31 = (int)((double)var31 * ServerOptions.getInstance().CarEngineAttractionModifier.getValue());
+                        if (Rand.Next((int)((float)(var11 - 85) * GameTime.instance.getInvMultiplier())) == 0) {
+                           var12 = WorldSoundManager.instance.addSoundRepeating(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), Math.max(8, var35 / 2), Math.max(6, var35 / 3), false);
+                           var12.stressAnimals = true;
+                        }
+
+                        if (Rand.Next((int)((float)(var11 - 110) * GameTime.instance.getInvMultiplier())) == 0) {
+                           var12 = WorldSoundManager.instance.addSoundRepeating(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), Math.max(8, var35 / 4), Math.max(6, var35 / 3), false);
+                           var12.stressAnimals = true;
+                        }
+
+                        var12 = WorldSoundManager.instance.addSoundRepeating(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), Math.max(8, var35 / 6), Math.max(6, var35 / 3), false);
+                        var12.stressAnimals = true;
                      }
 
-                     if (Rand.Next((int)((float)var11 * GameTime.instance.getInvMultiplier())) == 0) {
-                        WorldSoundManager.instance.addSoundRepeating(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), Math.max(8, var31), var31 / 40, false);
+                     if (this.lightbarSirenMode.isEnable() && this.getBatteryCharge() > 0.0F && SandboxOptions.instance.SirenEffectsZombies.getValue()) {
+                        WorldSoundManager.WorldSound var46 = WorldSoundManager.instance.addSoundRepeating(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), 100, 60, false);
+                        var46.stressAnimals = true;
                      }
-
-                     if (Rand.Next((int)((float)(var11 - 85) * GameTime.instance.getInvMultiplier())) == 0) {
-                        WorldSoundManager.instance.addSoundRepeating(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), Math.max(8, var31 / 2), var31 / 40, false);
-                     }
-
-                     if (Rand.Next((int)((float)(var11 - 110) * GameTime.instance.getInvMultiplier())) == 0) {
-                        WorldSoundManager.instance.addSoundRepeating(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), Math.max(8, var31 / 4), var31 / 40, false);
-                     }
-
-                     WorldSoundManager.instance.addSoundRepeating(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), Math.max(8, var31 / 6), var31 / 40, false);
                   }
 
-                  if (this.lightbarSirenMode.isEnable() && this.getBatteryCharge() > 0.0F) {
-                     WorldSoundManager.instance.addSoundRepeating(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 100, 60, false);
-                  }
-               }
-
-               if (this.engineState == BaseVehicle.engineStateTypes.Running && !this.isEngineWorking()) {
-                  this.shutOff();
-               }
-
-               if (this.engineState == BaseVehicle.engineStateTypes.Running) {
-                  var8 = this.getPartById("Engine");
-                  if (var8 != null && var8.getCondition() < 50 && Rand.Next(Rand.AdjustForFramerate(var8.getCondition() * 12)) == 0) {
+                  if (this.engineState == BaseVehicle.engineStateTypes.Running && !this.isEngineWorking()) {
                      this.shutOff();
+                     this.checkVehicleFailsToStartWithZombiesTargeting();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.Running) {
+                     var8 = this.getPartById("Engine");
+                     if (var8 != null && var8.getCondition() < 50 && Rand.Next(Rand.AdjustForFramerate(var8.getCondition() * 12)) == 0) {
+                        this.shutOff();
+                        this.checkVehicleFailsToStartWithZombiesTargeting();
+                     }
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.Starting) {
+                     this.updateEngineStarting();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.RetryingStarting && System.currentTimeMillis() - this.engineLastUpdateStateTime > 10L) {
+                     this.engineDoStarting();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.StartingSuccess && System.currentTimeMillis() - this.engineLastUpdateStateTime > 500L) {
+                     this.engineDoRunning();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.StartingFailed && System.currentTimeMillis() - this.engineLastUpdateStateTime > 500L) {
+                     this.engineDoIdle();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.StartingFailedNoPower && System.currentTimeMillis() - this.engineLastUpdateStateTime > 500L) {
+                     this.engineDoIdle();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.Stalling && System.currentTimeMillis() - this.engineLastUpdateStateTime > 3000L) {
+                     this.engineDoIdle();
+                  }
+
+                  if (this.engineState == BaseVehicle.engineStateTypes.ShutingDown && System.currentTimeMillis() - this.engineLastUpdateStateTime > 2000L) {
+                     this.engineDoIdle();
                   }
                }
 
-               if (this.engineState == BaseVehicle.engineStateTypes.Starting) {
-                  this.updateEngineStarting();
+               if (this.getDriver() == null && !var1) {
+                  this.getController().park();
                }
 
-               if (this.engineState == BaseVehicle.engineStateTypes.RetryingStarting && System.currentTimeMillis() - this.engineLastUpdateStateTime > 10L) {
-                  this.engineDoStarting();
+               this.setX(this.jniTransform.origin.x + WorldSimulation.instance.offsetX);
+               this.setY(this.jniTransform.origin.z + WorldSimulation.instance.offsetY);
+               this.setZ(0.0F);
+               var35 = PZMath.fastfloor(this.jniTransform.origin.y / 2.44949F + 0.05F);
+               IsoGridSquare var40 = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)var35);
+               IsoGridSquare var10 = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)(var35 - 1));
+               if (var40 != null && (var40.getFloor() != null || var10 != null && var10.getFloor() != null)) {
+                  this.setZ((float)var35);
                }
 
-               if (this.engineState == BaseVehicle.engineStateTypes.StartingSuccess && System.currentTimeMillis() - this.engineLastUpdateStateTime > 500L) {
-                  this.engineDoRunning();
+               var47 = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)this.getZ());
+               if (var47 == null && !this.chunk.refs.isEmpty()) {
+                  float var41 = 5.0E-4F;
+                  int var42 = this.chunk.wx * 8;
+                  var11 = this.chunk.wy * 8;
+                  int var49 = var42 + 8;
+                  int var13 = var11 + 8;
+                  float var14 = this.getX();
+                  float var15 = this.getY();
+                  this.setX(Math.max(this.getX(), (float)var42 + var41));
+                  this.setX(Math.min(this.getX(), (float)var49 - var41));
+                  this.setY(Math.max(this.getY(), (float)var11 + var41));
+                  this.setY(Math.min(this.getY(), (float)var13 - var41));
+                  this.setZ(0.2F);
+                  Transform var16 = allocTransform();
+                  Transform var17 = allocTransform();
+                  this.getWorldTransform(var16);
+                  var17.basis.set(var16.basis);
+                  var17.origin.set(this.getX() - WorldSimulation.instance.offsetX, this.getZ(), this.getY() - WorldSimulation.instance.offsetY);
+                  this.setWorldTransform(var17);
+                  releaseTransform(var16);
+                  releaseTransform(var17);
+                  this.current = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)PZMath.floor(this.getZ()));
                }
 
-               if (this.engineState == BaseVehicle.engineStateTypes.StartingFailed && System.currentTimeMillis() - this.engineLastUpdateStateTime > 500L) {
-                  this.engineDoIdle();
+               if (this.current != null && this.current.chunk != null) {
+                  if (this.current.getChunk() != this.chunk) {
+                     assert this.chunk.vehicles.contains(this);
+
+                     this.chunk.vehicles.remove(this);
+                     this.chunk = this.current.getChunk();
+
+                     assert !this.chunk.vehicles.contains(this);
+
+                     this.chunk.vehicles.add(this);
+                     IsoChunk.addFromCheckedVehicles(this);
+                  }
+               } else {
+                  boolean var43 = false;
                }
 
-               if (this.engineState == BaseVehicle.engineStateTypes.StartingFailedNoPower && System.currentTimeMillis() - this.engineLastUpdateStateTime > 500L) {
-                  this.engineDoIdle();
-               }
-
-               if (this.engineState == BaseVehicle.engineStateTypes.Stalling && System.currentTimeMillis() - this.engineLastUpdateStateTime > 3000L) {
-                  this.engineDoIdle();
-               }
-
-               if (this.engineState == BaseVehicle.engineStateTypes.ShutingDown && System.currentTimeMillis() - this.engineLastUpdateStateTime > 2000L) {
-                  this.engineDoIdle();
-               }
-            }
-
-            if (this.getDriver() == null && !var18) {
-               this.getController().park();
-            }
-
-            this.setX(this.jniTransform.origin.x + WorldSimulation.instance.offsetX);
-            this.setY(this.jniTransform.origin.z + WorldSimulation.instance.offsetY);
-            this.setZ(0.0F);
-            IsoGridSquare var40 = this.getCell().getGridSquare((double)this.x, (double)this.y, (double)this.z);
-            if (var40 == null && !this.chunk.refs.isEmpty()) {
-               float var36 = 5.0E-4F;
-               int var10 = this.chunk.wx * 10;
-               var11 = this.chunk.wy * 10;
-               int var12 = var10 + 10;
-               int var13 = var11 + 10;
-               float var14 = this.x;
-               float var15 = this.y;
-               this.x = Math.max(this.x, (float)var10 + var36);
-               this.x = Math.min(this.x, (float)var12 - var36);
-               this.y = Math.max(this.y, (float)var11 + var36);
-               this.y = Math.min(this.y, (float)var13 - var36);
-               this.z = 0.2F;
-               Transform var16 = this.tempTransform;
-               Transform var17 = this.tempTransform2;
-               this.getWorldTransform(var16);
-               var17.basis.set(var16.basis);
-               var17.origin.set(this.x - WorldSimulation.instance.offsetX, this.z, this.y - WorldSimulation.instance.offsetY);
-               this.setWorldTransform(var17);
-               this.current = this.getCell().getGridSquare((double)this.x, (double)this.y, (double)this.z);
-               DebugLog.Vehicle.debugln("Vehicle vid=%d is moved into an unloaded area (%f;%f)", this.VehicleID, this.x, this.y);
-            }
-
-            if (this.current != null && this.current.chunk != null) {
-               if (this.current.getChunk() != this.chunk) {
-                  assert this.chunk.vehicles.contains(this);
-
-                  this.chunk.vehicles.remove(this);
-                  this.chunk = this.current.getChunk();
-                  if (!GameServer.bServer && this.chunk.refs.isEmpty()) {
-                     DebugLog.Vehicle.debugln("BaseVehicle.update() added to unloaded chunk id=%d", this.VehicleID);
+               this.updateTransform();
+               Vector3f var44 = allocVector3f().set(this.jniLinearVelocity);
+               if (this.jniIsCollide && this.limitCrash.Check()) {
+                  this.jniIsCollide = false;
+                  this.limitCrash.Reset();
+                  Vector3f var45 = allocVector3f();
+                  var45.set(var44).sub(this.lastLinearVelocity);
+                  var45.y = 0.0F;
+                  float var48 = var45.length();
+                  if (var44.lengthSquared() > this.lastLinearVelocity.lengthSquared() && var48 > 6.0F) {
+                     DebugLog.Vehicle.trace("Vehicle vid=%d got sharp speed increase delta=%f", this.VehicleID, var48);
+                     var48 = 6.0F;
                   }
 
-                  assert !this.chunk.vehicles.contains(this);
+                  if (var48 > 1.0F) {
+                     if (this.lastLinearVelocity.length() < 6.0F) {
+                        var48 /= 3.0F;
+                     }
 
-                  this.chunk.vehicles.add(this);
-                  IsoChunk.addFromCheckedVehicles(this);
+                     DebugLog.Vehicle.trace("Vehicle vid=%d crash delta=%f", this.VehicleID, var48);
+                     Vector3f var51 = this.getForwardVector(allocVector3f());
+                     float var50 = var45.dot(var51);
+                     releaseVector3f(var51);
+                     this.crash(var48 * 3.0F, var50 < 0.0F);
+                     this.damageObjects(var48 * 30.0F);
+                  }
+
+                  releaseVector3f(var45);
                }
+
+               this.lastLinearVelocity.set(var44);
+               releaseVector3f(var44);
+            }
+
+            if (this.soundHornOn && this.hornemitter != null) {
+               this.hornemitter.setPos(this.getX(), this.getY(), this.getZ());
+            }
+
+            int var25;
+            for(var25 = 0; var25 < this.impulseFromSquishedZombie.length; ++var25) {
+               VehicleImpulse var27 = this.impulseFromSquishedZombie[var25];
+               if (var27 != null) {
+                  var27.enable = false;
+               }
+            }
+
+            this.updateSounds();
+            this.brekingObjects();
+            if (this.bAddThumpWorldSound) {
+               this.bAddThumpWorldSound = false;
+               WorldSoundManager.instance.addSound(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), 20, 20, true);
+            }
+
+            if (this.script.getLightbar().enable && this.lightbarLightsMode.isEnable() && this.getBatteryCharge() > 0.0F) {
+               this.lightbarLightsMode.update();
+            }
+
+            this.updateWorldLights();
+
+            for(var25 = 0; var25 < IsoPlayer.numPlayers; ++var25) {
+               if (this.current == null || !this.current.lighting[var25].bCanSee()) {
+                  this.setTargetAlpha(var25, 0.0F);
+               }
+
+               IsoPlayer var28 = IsoPlayer.players[var25];
+               if (var28 != null && this.DistToSquared(var28) < 225.0F) {
+                  this.setTargetAlpha(var25, 1.0F);
+               }
+            }
+
+            for(var25 = 0; var25 < this.getScript().getPassengerCount(); ++var25) {
+               if (this.getCharacter(var25) != null) {
+                  Vector3f var31 = this.getPassengerWorldPos(var25, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
+                  this.getCharacter(var25).setX(var31.x);
+                  this.getCharacter(var25).setY(var31.y);
+                  this.getCharacter(var25).setZ(var31.z * 1.0F);
+                  ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var31);
+               }
+            }
+
+            VehiclePart var30 = this.getPartById("lightbar");
+            if (var30 != null && this.lightbarLightsMode.isEnable() && var30.getCondition() == 0 && !GameClient.bClient) {
+               this.setLightbarLightsMode(0);
+            }
+
+            if (var30 != null && this.lightbarSirenMode.isEnable() && var30.getCondition() == 0 && !GameClient.bClient) {
+               this.setLightbarSirenMode(0);
+            }
+
+            if (!this.needPartsUpdate() && !this.isMechanicUIOpen()) {
+               this.drainBatteryUpdateHack();
             } else {
-               boolean var37 = false;
+               this.updateParts();
             }
 
-            this.updateTransform();
-            Vector3f var38 = allocVector3f().set(this.jniLinearVelocity);
-            if (this.jniIsCollide && this.limitCrash.Check()) {
-               this.jniIsCollide = false;
-               this.limitCrash.Reset();
-               Vector3f var39 = allocVector3f();
-               var39.set(var38).sub(this.lastLinearVelocity);
-               var39.y = 0.0F;
-               float var41 = var39.length();
-               DebugLog.Vehicle.debugln("Vehicle vid=%d velocity last=%s/%f current=%s/%f delta=%f", this.VehicleID, this.lastLinearVelocity, this.lastLinearVelocity.length(), var38, var38.length(), var41);
-               if (var38.lengthSquared() > this.lastLinearVelocity.lengthSquared() && var41 > 6.0F) {
-                  DebugLog.Vehicle.trace("Vehicle vid=%d got sharp speed increase delta=%f", this.VehicleID, var41);
-                  var41 = 6.0F;
-               }
+            if (this.engineState == BaseVehicle.engineStateTypes.Running || var1) {
+               this.updateBulletStats();
+            }
 
-               if (var41 > 1.0F) {
-                  if (this.lastLinearVelocity.length() < 6.0F) {
-                     var41 /= 3.0F;
+            if (this.bDoDamageOverlay) {
+               this.bDoDamageOverlay = false;
+               this.doDamageOverlay();
+            }
+
+            if (GameClient.bClient) {
+               this.checkPhysicsValidWithServer();
+            }
+
+            VehiclePart var32 = this.getPartById("GasTank");
+            if (var32 != null && var32.getContainerContentAmount() > (float)var32.getContainerCapacity()) {
+               var32.setContainerContentAmount((float)var32.getContainerCapacity());
+            }
+
+            boolean var29 = false;
+
+            for(var6 = 0; var6 < this.getMaxPassengers(); ++var6) {
+               Passenger var38 = this.getPassenger(var6);
+               if (var38.character != null) {
+                  var29 = true;
+                  break;
+               }
+            }
+
+            if (var29) {
+               this.m_surroundVehicle.update();
+            }
+
+            if (!this.notKillCrops() && this.getSquare() != null) {
+               for(var6 = -1; var6 < 1; ++var6) {
+                  for(var7 = -1; var7 < 1; ++var7) {
+                     var47 = IsoWorld.instance.CurrentCell.getGridSquare(this.getSquare().getX() + var6, this.getSquare().getY() + var7, this.getSquare().getZ());
+                     if (var47 != null) {
+                        var47.checkForIntersectingCrops(this);
+                     }
                   }
+               }
+            }
 
-                  DebugLog.Vehicle.trace("Vehicle vid=%d crash delta=%f", this.VehicleID, var41);
-                  Vector3f var42 = this.getForwardVector(allocVector3f());
-                  float var43 = var39.dot(var42);
-                  releaseVector3f(var42);
-                  this.crash(var41 * 3.0F, var43 < 0.0F);
-                  this.damageObjects(var41 * 30.0F);
+            if (!GameServer.bServer) {
+               if (this.physics != null) {
+                  Bullet.setVehicleMass(this.VehicleID, this.getFudgedMass());
                }
 
-               releaseVector3f(var39);
+               this.updateVelocityMultiplier();
             }
 
-            this.lastLinearVelocity.set(var38);
-            releaseVector3f(var38);
          }
-
-         if (this.soundHornOn && this.hornemitter != null) {
-            this.hornemitter.setPos(this.getX(), this.getY(), this.getZ());
-         }
-
-         int var21;
-         for(var21 = 0; var21 < this.impulseFromSquishedZombie.length; ++var21) {
-            VehicleImpulse var23 = this.impulseFromSquishedZombie[var21];
-            if (var23 != null) {
-               var23.enable = false;
-            }
-         }
-
-         this.updateSounds();
-         this.brekingObjects();
-         if (this.bAddThumpWorldSound) {
-            this.bAddThumpWorldSound = false;
-            WorldSoundManager.instance.addSound(this, (int)this.x, (int)this.y, (int)this.z, 20, 20, true);
-         }
-
-         if (this.script.getLightbar().enable && this.lightbarLightsMode.isEnable() && this.getBatteryCharge() > 0.0F) {
-            this.lightbarLightsMode.update();
-         }
-
-         this.updateWorldLights();
-
-         for(var21 = 0; var21 < IsoPlayer.numPlayers; ++var21) {
-            if (this.current == null || !this.current.lighting[var21].bCanSee()) {
-               this.setTargetAlpha(var21, 0.0F);
-            }
-
-            IsoPlayer var24 = IsoPlayer.players[var21];
-            if (var24 != null && this.DistToSquared(var24) < 225.0F) {
-               this.setTargetAlpha(var21, 1.0F);
-            }
-         }
-
-         for(var21 = 0; var21 < this.getScript().getPassengerCount(); ++var21) {
-            if (this.getCharacter(var21) != null) {
-               Vector3f var27 = this.getPassengerWorldPos(var21, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-               this.getCharacter(var21).setX(var27.x);
-               this.getCharacter(var21).setY(var27.y);
-               this.getCharacter(var21).setZ(var27.z * 1.0F);
-               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var27);
-            }
-         }
-
-         VehiclePart var25 = this.getPartById("lightbar");
-         if (var25 != null && this.lightbarLightsMode.isEnable() && var25.getCondition() == 0 && !GameClient.bClient) {
-            this.setLightbarLightsMode(0);
-         }
-
-         if (var25 != null && this.lightbarSirenMode.isEnable() && var25.getCondition() == 0 && !GameClient.bClient) {
-            this.setLightbarSirenMode(0);
-         }
-
-         if (!this.needPartsUpdate() && !this.isMechanicUIOpen()) {
-            this.drainBatteryUpdateHack();
-         } else {
-            this.updateParts();
-         }
-
-         if (this.engineState == BaseVehicle.engineStateTypes.Running || var18) {
-            this.updateBulletStats();
-         }
-
-         if (this.bDoDamageOverlay) {
-            this.bDoDamageOverlay = false;
-            this.doDamageOverlay();
-         }
-
-         if (GameClient.bClient) {
-            this.checkPhysicsValidWithServer();
-         }
-
-         VehiclePart var28 = this.getPartById("GasTank");
-         if (var28 != null && var28.getContainerContentAmount() > (float)var28.getContainerCapacity()) {
-            var28.setContainerContentAmount((float)var28.getContainerCapacity());
-         }
-
-         boolean var26 = false;
-
-         for(var6 = 0; var6 < this.getMaxPassengers(); ++var6) {
-            Passenger var34 = this.getPassenger(var6);
-            if (var34.character != null) {
-               var26 = true;
-               break;
-            }
-         }
-
-         if (var26) {
-            this.m_surroundVehicle.update();
-         }
-
-         if (!GameServer.bServer) {
-            if (this.physics != null) {
-               Bullet.setVehicleMass(this.VehicleID, this.getFudgedMass());
-            }
-
-            this.updateVelocityMultiplier();
-         }
-
       }
    }
 
@@ -3198,7 +3607,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
-   private void applyImpulseFromHitZombies() {
+   public void applyImpulseFromHitZombies() {
       if (!this.impulseFromHitZombie.isEmpty()) {
          if ((!GameClient.bClient || this.hasAuthorization(GameClient.connection)) && !GameServer.bServer) {
             Vector3f var7 = ((Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc()).set(0.0F, 0.0F, 0.0F);
@@ -3223,9 +3632,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             float var11 = 30.0F;
             Bullet.applyCentralForceToVehicle(this.VehicleID, var7.x * var11, var7.y * var11, var7.z * var11);
             Bullet.applyTorqueToVehicle(this.VehicleID, var8.x * var11, var8.y * var11, var8.z * var11);
-            if (GameServer.bServer) {
-            }
-
             ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var7);
             ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var8);
             ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var9);
@@ -3243,7 +3649,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
-   private void applyImpulseFromProneCharacters() {
+   public void applyImpulseFromProneCharacters() {
       if ((!GameClient.bClient || this.hasAuthorization(GameClient.connection)) && !GameServer.bServer) {
          boolean var1 = PZArrayUtil.contains((Object[])this.impulseFromSquishedZombie, (var0) -> {
             return var0 != null && var0.enable;
@@ -3255,10 +3661,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
             for(int var5 = 0; var5 < this.impulseFromSquishedZombie.length; ++var5) {
                VehicleImpulse var6 = this.impulseFromSquishedZombie[var5];
-               if (var6 != null && var6.enable) {
+               if (var6 != null && var6.enable && !var6.applied) {
                   var2.add(var6.impulse);
                   var3.add(var6.rel_pos.cross(var6.impulse, var4));
-                  var6.enable = false;
+                  var6.applied = true;
                }
             }
 
@@ -3373,11 +3779,12 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void postupdate() {
-      this.current = this.getCell().getGridSquare((int)this.x, (int)this.y, 0);
-      int var1;
+      int var1 = PZMath.fastfloor(this.getZ());
+      this.current = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), var1);
+      int var2;
       if (this.current == null) {
-         for(var1 = (int)this.z; var1 >= 0; --var1) {
-            this.current = this.getCell().getGridSquare((int)this.x, (int)this.y, var1);
+         for(var2 = PZMath.fastfloor(this.getZ()); var2 >= 0; --var2) {
+            this.current = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor((float)var2));
             if (this.current != null) {
                break;
             }
@@ -3398,9 +3805,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (this.sprite.hasActiveModel()) {
          this.updateAnimationPlayer(this.getAnimationPlayer(), (VehiclePart)null);
 
-         for(var1 = 0; var1 < this.models.size(); ++var1) {
-            ModelInfo var2 = (ModelInfo)this.models.get(var1);
-            this.updateAnimationPlayer(var2.getAnimationPlayer(), var2.part);
+         for(var2 = 0; var2 < this.models.size(); ++var2) {
+            ModelInfo var3 = (ModelInfo)this.models.get(var2);
+            this.updateAnimationPlayer(var3.getAnimationPlayer(), var3.part);
          }
       }
 
@@ -3578,21 +3985,24 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public void setWorldTransform(Transform var1) {
       this.jniTransform.set(var1);
-      Quaternionf var2 = this.tempQuat4f;
+      Quaternionf var2 = allocQuaternionf();
       var1.getRotation(var2);
       if (!GameServer.bServer) {
          Bullet.teleportVehicle(this.VehicleID, var1.origin.x + WorldSimulation.instance.offsetX, var1.origin.z + WorldSimulation.instance.offsetY, var1.origin.y, var2.x, var2.y, var2.z, var2.w);
       }
 
+      releaseQuaternionf(var2);
    }
 
    public void flipUpright() {
-      Transform var1 = this.tempTransform;
+      Transform var1 = allocTransform();
       var1.set(this.jniTransform);
-      Quaternionf var2 = this.tempQuat4f;
+      Quaternionf var2 = allocQuaternionf();
       var2.setAngleAxis(0.0F, _UNIT_Y.x, _UNIT_Y.y, _UNIT_Y.z);
       var1.setRotation(var2);
+      releaseQuaternionf(var2);
       this.setWorldTransform(var1);
+      releaseTransform(var1);
    }
 
    public void setAngles(float var1, float var2, float var3) {
@@ -3601,41 +4011,54 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          float var4 = var1 * 0.017453292F;
          float var5 = var2 * 0.017453292F;
          float var6 = var3 * 0.017453292F;
-         this.tempQuat4f.rotationXYZ(var4, var5, var6);
-         this.tempTransform.set(this.jniTransform);
-         this.tempTransform.setRotation(this.tempQuat4f);
-         this.setWorldTransform(this.tempTransform);
+         Quaternionf var7 = allocQuaternionf();
+         var7.rotationXYZ(var4, var5, var6);
+         Transform var8 = allocTransform();
+         var8.set(this.jniTransform);
+         var8.setRotation(var7);
+         releaseQuaternionf(var7);
+         this.setWorldTransform(var8);
+         releaseTransform(var8);
       }
    }
 
    public float getAngleX() {
       Vector3f var1 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-      this.jniTransform.getRotation(this.tempQuat4f).getEulerAnglesXYZ(var1);
-      float var2 = var1.x * 57.295776F;
+      Quaternionf var2 = allocQuaternionf();
+      this.jniTransform.getRotation(var2).getEulerAnglesXYZ(var1);
+      releaseQuaternionf(var2);
+      float var3 = var1.x * 57.295776F;
       ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var1);
-      return var2;
+      return var3;
    }
 
    public float getAngleY() {
       Vector3f var1 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-      this.jniTransform.getRotation(this.tempQuat4f).getEulerAnglesXYZ(var1);
-      float var2 = var1.y * 57.295776F;
+      Quaternionf var2 = allocQuaternionf();
+      this.jniTransform.getRotation(var2).getEulerAnglesXYZ(var1);
+      releaseQuaternionf(var2);
+      float var3 = var1.y * 57.295776F;
       ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var1);
-      return var2;
+      return var3;
    }
 
    public float getAngleZ() {
       Vector3f var1 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-      this.jniTransform.getRotation(this.tempQuat4f).getEulerAnglesXYZ(var1);
-      float var2 = var1.z * 57.295776F;
+      Quaternionf var2 = allocQuaternionf();
+      this.jniTransform.getRotation(var2).getEulerAnglesXYZ(var1);
+      releaseQuaternionf(var2);
+      float var3 = var1.z * 57.295776F;
       ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var1);
-      return var2;
+      return var3;
    }
 
    public void setDebugZ(float var1) {
-      this.tempTransform.set(this.jniTransform);
-      this.tempTransform.origin.y = PZMath.clamp(var1, 0.0F, 1.0F) * 3.0F * 0.82F;
-      this.setWorldTransform(this.tempTransform);
+      Transform var2 = allocTransform();
+      var2.set(this.jniTransform);
+      int var3 = PZMath.fastfloor(this.jniTransform.origin.y / 2.44949F);
+      var2.origin.y = ((float)var3 + PZMath.clamp(var1, 0.0F, 0.99F)) * 3.0F * 0.8164967F;
+      this.setWorldTransform(var2);
+      releaseTransform(var2);
    }
 
    public void setPhysicsActive(boolean var1) {
@@ -3653,10 +4076,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public float getDebugZ() {
-      return this.jniTransform.origin.y / 2.46F;
+      return this.jniTransform.origin.y / 2.44949F;
    }
 
-   public PolygonalMap2.VehiclePoly getPoly() {
+   public VehiclePoly getPoly() {
       if (this.polyDirty) {
          if (this.polyGarageCheck && this.square != null) {
             if (this.square.getRoom() != null && this.square.getRoom().RoomDef != null && this.square.getRoom().RoomDef.contains("garagestorage")) {
@@ -3678,7 +4101,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       return this.poly;
    }
 
-   public PolygonalMap2.VehiclePoly getPolyPlusRadius() {
+   public VehiclePoly getPolyPlusRadius() {
       if (this.polyDirty) {
          if (this.polyGarageCheck && this.square != null) {
             if (this.square.getRoom() != null && this.square.getRoom().RoomDef != null && this.square.getRoom().RoomDef.contains("garagestorage")) {
@@ -3701,60 +4124,62 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    private void initShadowPoly() {
-      this.getWorldTransform(this.tempTransform);
-      Quaternionf var1 = this.tempTransform.getRotation(this.tempQuat4f);
-      Vector2f var2 = this.script.getShadowExtents();
-      Vector2f var3 = this.script.getShadowOffset();
-      float var4 = var2.x / 2.0F;
-      float var5 = var2.y / 2.0F;
-      Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-      if (var1.x < 0.0F) {
-         this.getWorldPos(var3.x - var4, 0.0F, var3.y + var5, var6);
-         this.shadowCoord.x1 = var6.x;
-         this.shadowCoord.y1 = var6.y;
-         this.getWorldPos(var3.x + var4, 0.0F, var3.y + var5, var6);
-         this.shadowCoord.x2 = var6.x;
-         this.shadowCoord.y2 = var6.y;
-         this.getWorldPos(var3.x + var4, 0.0F, var3.y - var5, var6);
-         this.shadowCoord.x3 = var6.x;
-         this.shadowCoord.y3 = var6.y;
-         this.getWorldPos(var3.x - var4, 0.0F, var3.y - var5, var6);
-         this.shadowCoord.x4 = var6.x;
-         this.shadowCoord.y4 = var6.y;
+      Transform var1 = this.getWorldTransform(allocTransform());
+      Quaternionf var2 = var1.getRotation(allocQuaternionf());
+      releaseTransform(var1);
+      Vector2f var3 = this.script.getShadowExtents();
+      Vector2f var4 = this.script.getShadowOffset();
+      float var5 = var3.x / 2.0F;
+      float var6 = var3.y / 2.0F;
+      Vector3f var7 = allocVector3f();
+      if (var2.x < 0.0F) {
+         this.getWorldPos(var4.x - var5, 0.0F, var4.y + var6, var7);
+         this.shadowCoord.x1 = var7.x;
+         this.shadowCoord.y1 = var7.y;
+         this.getWorldPos(var4.x + var5, 0.0F, var4.y + var6, var7);
+         this.shadowCoord.x2 = var7.x;
+         this.shadowCoord.y2 = var7.y;
+         this.getWorldPos(var4.x + var5, 0.0F, var4.y - var6, var7);
+         this.shadowCoord.x3 = var7.x;
+         this.shadowCoord.y3 = var7.y;
+         this.getWorldPos(var4.x - var5, 0.0F, var4.y - var6, var7);
+         this.shadowCoord.x4 = var7.x;
+         this.shadowCoord.y4 = var7.y;
       } else {
-         this.getWorldPos(var3.x - var4, 0.0F, var3.y + var5, var6);
-         this.shadowCoord.x1 = var6.x;
-         this.shadowCoord.y1 = var6.y;
-         this.getWorldPos(var3.x + var4, 0.0F, var3.y + var5, var6);
-         this.shadowCoord.x2 = var6.x;
-         this.shadowCoord.y2 = var6.y;
-         this.getWorldPos(var3.x + var4, 0.0F, var3.y - var5, var6);
-         this.shadowCoord.x3 = var6.x;
-         this.shadowCoord.y3 = var6.y;
-         this.getWorldPos(var3.x - var4, 0.0F, var3.y - var5, var6);
-         this.shadowCoord.x4 = var6.x;
-         this.shadowCoord.y4 = var6.y;
+         this.getWorldPos(var4.x - var5, 0.0F, var4.y + var6, var7);
+         this.shadowCoord.x1 = var7.x;
+         this.shadowCoord.y1 = var7.y;
+         this.getWorldPos(var4.x + var5, 0.0F, var4.y + var6, var7);
+         this.shadowCoord.x2 = var7.x;
+         this.shadowCoord.y2 = var7.y;
+         this.getWorldPos(var4.x + var5, 0.0F, var4.y - var6, var7);
+         this.shadowCoord.x3 = var7.x;
+         this.shadowCoord.y3 = var7.y;
+         this.getWorldPos(var4.x - var5, 0.0F, var4.y - var6, var7);
+         this.shadowCoord.x4 = var7.x;
+         this.shadowCoord.y4 = var7.y;
       }
 
-      ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var6);
+      releaseVector3f(var7);
+      releaseQuaternionf(var2);
    }
 
    private void initPolyPlusRadiusBounds() {
       if (this.polyPlusRadiusMinX == -123.0F) {
-         PolygonalMap2.VehiclePoly var1 = this.getPolyPlusRadius();
+         VehiclePoly var1 = this.getPolyPlusRadius();
          Vector3f var10 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
          Vector3f var11 = this.getLocalPos(var1.x1, var1.y1, var1.z, var10);
-         float var2 = (float)((int)(var11.x * 100.0F)) / 100.0F;
-         float var3 = (float)((int)(var11.z * 100.0F)) / 100.0F;
+         float var2 = (float)PZMath.fastfloor(var11.x * 100.0F) / 100.0F;
+         float var3 = (float)PZMath.fastfloor(var11.z * 100.0F) / 100.0F;
          var11 = this.getLocalPos(var1.x2, var1.y2, var1.z, var10);
-         float var4 = (float)((int)(var11.x * 100.0F)) / 100.0F;
-         float var5 = (float)((int)(var11.z * 100.0F)) / 100.0F;
+         float var4 = (float)PZMath.fastfloor(var11.x * 100.0F) / 100.0F;
+         float var5 = (float)PZMath.fastfloor(var11.z * 100.0F) / 100.0F;
          var11 = this.getLocalPos(var1.x3, var1.y3, var1.z, var10);
-         float var6 = (float)((int)(var11.x * 100.0F)) / 100.0F;
-         float var7 = (float)((int)(var11.z * 100.0F)) / 100.0F;
+         float var6 = (float)PZMath.fastfloor(var11.x * 100.0F) / 100.0F;
+         float var7 = (float)PZMath.fastfloor(var11.z * 100.0F) / 100.0F;
          var11 = this.getLocalPos(var1.x4, var1.y4, var1.z, var10);
-         float var8 = (float)((int)(var11.x * 100.0F)) / 100.0F;
-         float var9 = (float)((int)(var11.z * 100.0F)) / 100.0F;
+         float var8 = (float)PZMath.fastfloor(var11.x * 100.0F) / 100.0F;
+         float var9 = (float)PZMath.fastfloor(var11.z * 100.0F) / 100.0F;
          this.polyPlusRadiusMinX = Math.min(var2, Math.min(var4, Math.min(var6, var8)));
          this.polyPlusRadiusMaxX = Math.max(var2, Math.max(var4, Math.max(var6, var8)));
          this.polyPlusRadiusMinY = Math.min(var3, Math.min(var5, Math.min(var7, var9)));
@@ -3815,14 +4240,15 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             var2 = this.sprite.modelSlot.model.scale;
          }
 
-         Transform var3 = this.getWorldTransform(this.tempTransform);
+         Quaternionf var3 = (Quaternionf)((QuaternionfObjectPool)TL_quaternionf_pool.get()).alloc();
          Quaternionf var4 = (Quaternionf)((QuaternionfObjectPool)TL_quaternionf_pool.get()).alloc();
-         Quaternionf var5 = (Quaternionf)((QuaternionfObjectPool)TL_quaternionf_pool.get()).alloc();
-         Matrix4f var6 = (Matrix4f)((Matrix4fObjectPool)TL_matrix4f_pool.get()).alloc();
-         var3.getRotation(var4);
-         var4.y *= -1.0F;
-         var4.z *= -1.0F;
-         Matrix4f var7 = var4.get(var6);
+         Matrix4f var5 = (Matrix4f)((Matrix4fObjectPool)TL_matrix4f_pool.get()).alloc();
+         Transform var6 = this.getWorldTransform(allocTransform());
+         var6.getRotation(var3);
+         releaseTransform(var6);
+         var3.y *= -1.0F;
+         var3.z *= -1.0F;
+         Matrix4f var7 = var3.get(var5);
          float var8 = 1.0F;
          if (this.sprite.modelSlot.model.m_modelScript != null) {
             var8 = this.sprite.modelSlot.model.m_modelScript.invertX ? -1.0F : 1.0F;
@@ -3830,8 +4256,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
          Vector3f var9 = this.script.getModel().getOffset();
          Vector3f var10 = this.getScript().getModel().getRotate();
-         var5.rotationXYZ(var10.x * 0.017453292F, var10.y * 0.017453292F, var10.z * 0.017453292F);
-         this.renderTransform.translationRotateScale(var9.x * -1.0F, var9.y, var9.z, var5.x, var5.y, var5.z, var5.w, var1 * var2 * var8, var1 * var2, var1 * var2);
+         var4.rotationXYZ(var10.x * 0.017453292F, var10.y * 0.017453292F, var10.z * 0.017453292F);
+         this.renderTransform.translationRotateScale(var9.x * -1.0F, var9.y, var9.z, var4.x, var4.y, var4.z, var4.w, var1 * var2 * var8, var1 * var2, var1 * var2);
          var7.mul(this.renderTransform, this.renderTransform);
          this.vehicleTransform.translationRotateScale(var9.x * -1.0F, var9.y, var9.z, 0.0F, 0.0F, 0.0F, 1.0F, var1);
          var7.mul(this.vehicleTransform, this.vehicleTransform);
@@ -3839,20 +4265,38 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          for(int var21 = 0; var21 < this.models.size(); ++var21) {
             ModelInfo var22 = (ModelInfo)this.models.get(var21);
             VehicleScript.Model var23 = var22.scriptModel;
-            var10 = var23.getOffset();
-            Vector3f var11 = var23.getRotate();
-            float var12 = var23.scale;
+            var9 = var23.getOffset();
+            var10 = var23.getRotate();
+            float var11 = var23.scale;
             var2 = 1.0F;
-            float var13 = 1.0F;
+            float var12 = 1.0F;
             if (var22.modelScript != null) {
                var2 = var22.modelScript.scale;
-               var13 = var22.modelScript.invertX ? -1.0F : 1.0F;
+               var12 = var22.modelScript.invertX ? -1.0F : 1.0F;
             }
 
-            var5.rotationXYZ(var11.x * 0.017453292F, var11.y * 0.017453292F, var11.z * 0.017453292F);
+            byte var13 = 1;
             if (var22.wheelIndex == -1) {
-               var22.renderTransform.translationRotateScale(var10.x * -1.0F, var10.y, var10.z, var5.x, var5.y, var5.z, var5.w, var12 * var2 * var13, var12 * var2, var12 * var2);
-               this.vehicleTransform.mul(var22.renderTransform, var22.renderTransform);
+               var13 = -1;
+            }
+
+            var4.rotationXYZ(var10.x * 0.017453292F, var10.y * 0.017453292F * (float)var13, var10.z * 0.017453292F * (float)var13);
+            if (var22.wheelIndex == -1) {
+               if (var22.part != null && var22.part.scriptPart != null && var22.part.scriptPart.parent != null && var23.attachmentNameParent != null) {
+                  ModelInfo var24 = this.getModelInfoForPart(var22.part.getParent());
+                  Matrix4f var25 = (Matrix4f)((Matrix4fObjectPool)TL_matrix4f_pool.get()).alloc();
+                  this.initTransform(var24.modelInstance, var24.modelScript, var22.modelScript, var23.attachmentNameParent, var23.attachmentNameSelf, var25);
+                  Model var26 = var24.modelInstance.model;
+                  ModelInstanceRenderData.preMultiplyMeshTransform(var25, var26.Mesh);
+                  var24.renderTransform.mul(var25, var22.renderTransform);
+                  boolean var27 = var23.bIgnoreVehicleScale;
+                  float var28 = var27 ? 1.5F / this.getScript().getModelScale() : 1.0F;
+                  var22.renderTransform.scale(var11 * var2 * var28);
+                  ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var25);
+               } else {
+                  var22.renderTransform.translationRotateScale(var9.x * -1.0F, var9.y, var9.z, var4.x, var4.y, var4.z, var4.w, var11 * var2 * var12, var11 * var2, var11 * var2);
+                  this.vehicleTransform.mul(var22.renderTransform, var22.renderTransform);
+               }
             } else {
                WheelInfo var14 = this.wheelInfo[var22.wheelIndex];
                float var15 = var14.steering;
@@ -3861,25 +4305,53 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                VehicleImpulse var18 = var22.wheelIndex < this.impulseFromSquishedZombie.length ? this.impulseFromSquishedZombie[var22.wheelIndex] : null;
                float var19 = var18 != null && var18.enable ? 0.05F : 0.0F;
                if (var14.suspensionLength == 0.0F) {
-                  var6.translation(var17.offset.x / var1 * -1.0F, var17.offset.y / var1, var17.offset.z / var1);
+                  var5.translation(var17.offset.x / var1 * -1.0F, var17.offset.y / var1, var17.offset.z / var1);
                } else {
-                  var6.translation(var17.offset.x / var1 * -1.0F, (var17.offset.y + this.script.getSuspensionRestLength() - var14.suspensionLength) / var1 + var19 * 0.5F, var17.offset.z / var1);
+                  var5.translation(var17.offset.x / var1 * -1.0F, (var17.offset.y + this.script.getSuspensionRestLength() - var14.suspensionLength) / var1 + var19 * 0.5F, var17.offset.z / var1);
                }
 
                var22.renderTransform.identity();
-               var22.renderTransform.mul(var6);
+               var22.renderTransform.mul(var5);
                var22.renderTransform.rotateY(var15 * -1.0F);
                var22.renderTransform.rotateX(var16);
-               var6.translationRotateScale(var10.x * -1.0F, var10.y, var10.z, var5.x, var5.y, var5.z, var5.w, var12 * var2 * var13, var12 * var2, var12 * var2);
-               var22.renderTransform.mul(var6);
+               var5.translationRotateScale(var9.x * -1.0F, var9.y, var9.z, var4.x, var4.y, var4.z, var4.w, var11 * var2 * var12, var11 * var2, var11 * var2);
+               var22.renderTransform.mul(var5);
                this.vehicleTransform.mul(var22.renderTransform, var22.renderTransform);
             }
          }
 
-         ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var6);
+         ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var5);
+         ((QuaternionfObjectPool)TL_quaternionf_pool.get()).release(var3);
          ((QuaternionfObjectPool)TL_quaternionf_pool.get()).release(var4);
-         ((QuaternionfObjectPool)TL_quaternionf_pool.get()).release(var5);
       }
+   }
+
+   void initTransform(ModelInstance var1, ModelScript var2, ModelScript var3, String var4, String var5, Matrix4f var6) {
+      var6.identity();
+      Matrix4f var7 = (Matrix4f)((Matrix4fObjectPool)TL_matrix4f_pool.get()).alloc();
+      ModelAttachment var8 = var2.getAttachmentById(var4);
+      if (var8 == null) {
+         var8 = this.getScript().getAttachmentById(var4);
+      }
+
+      if (var8 != null) {
+         ModelInstanceRenderData.makeBoneTransform(var1.AnimPlayer, var8.getBone(), var6);
+         var6.scale(1.0F / var2.scale);
+         ModelInstanceRenderData.makeAttachmentTransform(var8, var7);
+         var6.mul(var7);
+      }
+
+      ModelAttachment var9 = var3.getAttachmentById(var5);
+      if (var9 != null) {
+         ModelInstanceRenderData.makeAttachmentTransform(var9, var7);
+         if (ModelInstanceRenderData.INVERT_ATTACHMENT_SELF_TRANSFORM) {
+            var7.invert();
+         }
+
+         var6.mul(var7);
+      }
+
+      ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var7);
    }
 
    public void updatePhysics() {
@@ -3891,13 +4363,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          VehicleManager.instance.sendPhysic(this);
          if (this.limitPhysicPositionSent == null) {
             this.limitPhysicPositionSent = new Vector2();
-         } else if (IsoUtils.DistanceToSquared(this.limitPhysicPositionSent.x, this.limitPhysicPositionSent.y, this.x, this.y) > 0.001F) {
+         } else if (IsoUtils.DistanceToSquared(this.limitPhysicPositionSent.x, this.limitPhysicPositionSent.y, this.getX(), this.getY()) > 0.001F) {
             this.limitPhysicSend.setUpdatePeriod(150L);
          } else {
             this.limitPhysicSend.setSmoothUpdatePeriod(300L);
          }
 
-         this.limitPhysicPositionSent.set(this.x, this.y);
+         this.limitPhysicPositionSent.set(this.getX(), this.getY());
       }
 
    }
@@ -3905,8 +4377,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public void checkPhysicsValidWithServer() {
       float var1 = 0.05F;
       if (this.limitPhysicValid.Check() && Bullet.getOwnVehiclePhysics(this.VehicleID, physicsParams) == 0) {
-         float var2 = Math.abs(physicsParams[0] - this.x);
-         float var3 = Math.abs(physicsParams[1] - this.y);
+         float var2 = Math.abs(physicsParams[0] - this.getX());
+         float var3 = Math.abs(physicsParams[1] - this.getY());
          if (var2 > var1 || var3 > var1) {
             VehicleManager.instance.sendRequestGetPosition(this.VehicleID, PacketTypes.PacketType.Vehicles);
             DebugLog.Vehicle.trace("diff-x=%f diff-y=%f delta=%f", var2, var3, var1);
@@ -3976,6 +4448,21 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
          this.damagePlayers(Math.abs(var4));
          SoundManager.instance.PlayWorldSound(this.getCrashSound(var4), this.square, 1.0F, 20.0F, 1.0F, true);
+         if (this.getVehicleTowing() != null) {
+            this.getVehicleTowing().crash(var1, var2);
+         }
+
+         if (this.getAnimals() != null && !this.getAnimals().isEmpty()) {
+            for(int var5 = 0; var5 < this.getAnimals().size(); ++var5) {
+               ((IsoAnimal)this.getAnimals().get(var5)).carCrash(var1, var2);
+            }
+         }
+
+         IsoPlayer var6 = (IsoPlayer)Type.tryCastTo(this.getDriver(), IsoPlayer.class);
+         if (var6 != null && var6.isLocalPlayer()) {
+            var6.triggerMusicIntensityEvent("VehicleCrash");
+         }
+
       }
    }
 
@@ -3988,237 +4475,247 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void addDamageFrontHitAChr(int var1) {
-      if (var1 >= 4 || !Rand.NextBool(7)) {
-         VehiclePart var2 = this.getPartById("EngineDoor");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
-         }
-
-         if (var2 != null && (var2.getCondition() <= 0 || var2.getInventoryItem() == null) && Rand.NextBool(4)) {
-            var2 = this.getPartById("Engine");
-            if (var2 != null) {
-               var2.damage(Rand.Next(2, 4));
-            }
-         }
-
-         if (var1 > 12) {
-            var2 = this.getPartById("Windshield");
+      if (!this.isDriverGodMode()) {
+         if (var1 >= 4 || !Rand.NextBool(7)) {
+            VehiclePart var2 = this.getPartById("EngineDoor");
             if (var2 != null && var2.getInventoryItem() != null) {
                var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
             }
-         }
 
-         if (Rand.Next(5) < var1) {
-            if (Rand.NextBool(2)) {
-               var2 = this.getPartById("TireFrontLeft");
-            } else {
-               var2 = this.getPartById("TireFrontRight");
+            if (var2 != null && (var2.getCondition() <= 0 || var2.getInventoryItem() == null) && Rand.NextBool(4)) {
+               var2 = this.getPartById("Engine");
+               if (var2 != null) {
+                  var2.damage(Rand.Next(2, 4));
+               }
             }
 
-            if (var2 != null && var2.getInventoryItem() != null) {
-               var2.damage(Rand.Next(1, 3));
+            if (var1 > 12) {
+               var2 = this.getPartById("Windshield");
+               if (var2 != null && var2.getInventoryItem() != null) {
+                  var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+               }
             }
-         }
 
-         if (Rand.Next(7) < var1) {
-            this.damageHeadlight("HeadlightLeft", Rand.Next(1, 4));
-         }
+            if (Rand.Next(5) < var1) {
+               if (Rand.NextBool(2)) {
+                  var2 = this.getPartById("TireFrontLeft");
+               } else {
+                  var2 = this.getPartById("TireFrontRight");
+               }
 
-         if (Rand.Next(7) < var1) {
-            this.damageHeadlight("HeadlightRight", Rand.Next(1, 4));
-         }
+               if (var2 != null && var2.getInventoryItem() != null) {
+                  var2.damage(Rand.Next(1, 3));
+               }
+            }
 
-         float var3 = this.getBloodIntensity("Front");
-         this.setBloodIntensity("Front", var3 + 0.01F);
+            if (Rand.Next(7) < var1) {
+               this.damageHeadlight("HeadlightLeft", Rand.Next(1, 4));
+            }
+
+            if (Rand.Next(7) < var1) {
+               this.damageHeadlight("HeadlightRight", Rand.Next(1, 4));
+            }
+
+            float var3 = this.getBloodIntensity("Front");
+            this.setBloodIntensity("Front", var3 + 0.01F);
+         }
       }
    }
 
    public void addDamageRearHitAChr(int var1) {
-      if (var1 >= 4 || !Rand.NextBool(7)) {
+      if (!this.isDriverGodMode()) {
+         if (var1 >= 4 || !Rand.NextBool(7)) {
+            VehiclePart var2 = this.getPartById("TruckBed");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.setCondition(var2.getCondition() - Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+               var2.doInventoryItemStats(var2.getInventoryItem(), 0);
+               this.transmitPartCondition(var2);
+            }
+
+            var2 = this.getPartById("DoorRear");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+            }
+
+            var2 = this.getPartById("TrunkDoor");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+            }
+
+            if (var1 > 12) {
+               var2 = this.getPartById("WindshieldRear");
+               if (var2 != null && var2.getInventoryItem() != null) {
+                  var2.damage(var1);
+               }
+            }
+
+            if (Rand.Next(5) < var1) {
+               if (Rand.NextBool(2)) {
+                  var2 = this.getPartById("TireRearLeft");
+               } else {
+                  var2 = this.getPartById("TireRearRight");
+               }
+
+               if (var2 != null && var2.getInventoryItem() != null) {
+                  var2.damage(Rand.Next(1, 3));
+               }
+            }
+
+            if (Rand.Next(7) < var1) {
+               this.damageHeadlight("HeadlightRearLeft", Rand.Next(1, 4));
+            }
+
+            if (Rand.Next(7) < var1) {
+               this.damageHeadlight("HeadlightRearRight", Rand.Next(1, 4));
+            }
+
+            if (Rand.Next(6) < var1) {
+               var2 = this.getPartById("GasTank");
+               if (var2 != null && var2.getInventoryItem() != null) {
+                  var2.damage(Rand.Next(1, 3));
+               }
+            }
+
+            float var3 = this.getBloodIntensity("Rear");
+            this.setBloodIntensity("Rear", var3 + 0.01F);
+         }
+      }
+   }
+
+   private void addDamageFront(int var1) {
+      if (!this.isDriverGodMode()) {
+         this.currentFrontEndDurability -= var1;
+         VehiclePart var2 = this.getPartById("EngineDoor");
+         if (var2 != null && var2.getInventoryItem() != null) {
+            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+         }
+
+         if (var2 == null || var2.getInventoryItem() == null || var2.getCondition() < 25) {
+            var2 = this.getPartById("Engine");
+            if (var2 != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 3), var1 + 3));
+            }
+         }
+
+         var2 = this.getPartById("Windshield");
+         if (var2 != null && var2.getInventoryItem() != null) {
+            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+         }
+
+         if (Rand.Next(4) == 0) {
+            var2 = this.getPartById("DoorFrontLeft");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+            }
+
+            var2 = this.getPartById("WindowFrontLeft");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+            }
+         }
+
+         if (Rand.Next(4) == 0) {
+            var2 = this.getPartById("DoorFrontRight");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+            }
+
+            var2 = this.getPartById("WindowFrontRight");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+            }
+         }
+
+         if (Rand.Next(20) < var1) {
+            this.damageHeadlight("HeadlightLeft", var1);
+         }
+
+         if (Rand.Next(20) < var1) {
+            this.damageHeadlight("HeadlightRight", var1);
+         }
+
+      }
+   }
+
+   private void addDamageRear(int var1) {
+      if (!this.isDriverGodMode()) {
+         this.currentRearEndDurability -= var1;
          VehiclePart var2 = this.getPartById("TruckBed");
          if (var2 != null && var2.getInventoryItem() != null) {
-            var2.setCondition(var2.getCondition() - Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+            var2.setCondition(var2.getCondition() - Rand.Next(Math.max(1, var1 - 5), var1 + 5));
             var2.doInventoryItemStats(var2.getInventoryItem(), 0);
             this.transmitPartCondition(var2);
          }
 
          var2 = this.getPartById("DoorRear");
          if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
          }
 
          var2 = this.getPartById("TrunkDoor");
          if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 10), var1 + 3));
+            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
          }
 
-         if (var1 > 12) {
-            var2 = this.getPartById("WindshieldRear");
+         var2 = this.getPartById("WindshieldRear");
+         if (var2 != null && var2.getInventoryItem() != null) {
+            var2.damage(var1);
+         }
+
+         if (Rand.Next(4) == 0) {
+            var2 = this.getPartById("DoorRearLeft");
             if (var2 != null && var2.getInventoryItem() != null) {
-               var2.damage(var1);
-            }
-         }
-
-         if (Rand.Next(5) < var1) {
-            if (Rand.NextBool(2)) {
-               var2 = this.getPartById("TireRearLeft");
-            } else {
-               var2 = this.getPartById("TireRearRight");
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
             }
 
+            var2 = this.getPartById("WindowRearLeft");
             if (var2 != null && var2.getInventoryItem() != null) {
-               var2.damage(Rand.Next(1, 3));
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
             }
          }
 
-         if (Rand.Next(7) < var1) {
-            this.damageHeadlight("HeadlightRearLeft", Rand.Next(1, 4));
-         }
-
-         if (Rand.Next(7) < var1) {
-            this.damageHeadlight("HeadlightRearRight", Rand.Next(1, 4));
-         }
-
-         if (Rand.Next(6) < var1) {
-            var2 = this.getPartById("GasTank");
+         if (Rand.Next(4) == 0) {
+            var2 = this.getPartById("DoorRearRight");
             if (var2 != null && var2.getInventoryItem() != null) {
-               var2.damage(Rand.Next(1, 3));
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+            }
+
+            var2 = this.getPartById("WindowRearRight");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
             }
          }
 
-         float var3 = this.getBloodIntensity("Rear");
-         this.setBloodIntensity("Rear", var3 + 0.01F);
-      }
-   }
-
-   private void addDamageFront(int var1) {
-      this.currentFrontEndDurability -= var1;
-      VehiclePart var2 = this.getPartById("EngineDoor");
-      if (var2 != null && var2.getInventoryItem() != null) {
-         var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-      }
-
-      if (var2 == null || var2.getInventoryItem() == null || var2.getCondition() < 25) {
-         var2 = this.getPartById("Engine");
-         if (var2 != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 3), var1 + 3));
-         }
-      }
-
-      var2 = this.getPartById("Windshield");
-      if (var2 != null && var2.getInventoryItem() != null) {
-         var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-      }
-
-      if (Rand.Next(4) == 0) {
-         var2 = this.getPartById("DoorFrontLeft");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+         if (Rand.Next(20) < var1) {
+            this.damageHeadlight("HeadlightRearLeft", var1);
          }
 
-         var2 = this.getPartById("WindowFrontLeft");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         }
-      }
-
-      if (Rand.Next(4) == 0) {
-         var2 = this.getPartById("DoorFrontRight");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+         if (Rand.Next(20) < var1) {
+            this.damageHeadlight("HeadlightRearRight", var1);
          }
 
-         var2 = this.getPartById("WindowFrontRight");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         }
-      }
-
-      if (Rand.Next(20) < var1) {
-         this.damageHeadlight("HeadlightLeft", var1);
-      }
-
-      if (Rand.Next(20) < var1) {
-         this.damageHeadlight("HeadlightRight", var1);
-      }
-
-   }
-
-   private void addDamageRear(int var1) {
-      this.currentRearEndDurability -= var1;
-      VehiclePart var2 = this.getPartById("TruckBed");
-      if (var2 != null && var2.getInventoryItem() != null) {
-         var2.setCondition(var2.getCondition() - Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         var2.doInventoryItemStats(var2.getInventoryItem(), 0);
-         this.transmitPartCondition(var2);
-      }
-
-      var2 = this.getPartById("DoorRear");
-      if (var2 != null && var2.getInventoryItem() != null) {
-         var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-      }
-
-      var2 = this.getPartById("TrunkDoor");
-      if (var2 != null && var2.getInventoryItem() != null) {
-         var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-      }
-
-      var2 = this.getPartById("WindshieldRear");
-      if (var2 != null && var2.getInventoryItem() != null) {
-         var2.damage(var1);
-      }
-
-      if (Rand.Next(4) == 0) {
-         var2 = this.getPartById("DoorRearLeft");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+         if (Rand.Next(20) < var1) {
+            var2 = this.getPartById("Muffler");
+            if (var2 != null && var2.getInventoryItem() != null) {
+               var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
+            }
          }
 
-         var2 = this.getPartById("WindowRearLeft");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         }
       }
-
-      if (Rand.Next(4) == 0) {
-         var2 = this.getPartById("DoorRearRight");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         }
-
-         var2 = this.getPartById("WindowRearRight");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         }
-      }
-
-      if (Rand.Next(20) < var1) {
-         this.damageHeadlight("HeadlightRearLeft", var1);
-      }
-
-      if (Rand.Next(20) < var1) {
-         this.damageHeadlight("HeadlightRearRight", var1);
-      }
-
-      if (Rand.Next(20) < var1) {
-         var2 = this.getPartById("Muffler");
-         if (var2 != null && var2.getInventoryItem() != null) {
-            var2.damage(Rand.Next(Math.max(1, var1 - 5), var1 + 5));
-         }
-      }
-
    }
 
    private void damageHeadlight(String var1, int var2) {
-      VehiclePart var3 = this.getPartById(var1);
-      if (var3 != null && var3.getInventoryItem() != null) {
-         var3.damage(var2);
-         if (var3.getCondition() <= 0) {
-            var3.setInventoryItem((InventoryItem)null);
-            this.transmitPartItem(var3);
+      if (!this.isDriverGodMode()) {
+         VehiclePart var3 = this.getPartById(var1);
+         if (var3 != null && var3.getInventoryItem() != null) {
+            var3.damage(var2);
+            if (var3.getCondition() <= 0) {
+               var3.setInventoryItem((InventoryItem)null);
+               this.transmitPartItem(var3);
+            }
          }
-      }
 
+      }
    }
 
    private float clamp(float var1, float var2, float var3) {
@@ -4234,14 +4731,15 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public boolean isCharacterAdjacentTo(IsoGameCharacter var1) {
-      if ((int)var1.z != (int)this.z) {
+      if (PZMath.fastfloor(var1.getZ()) != PZMath.fastfloor(this.getZ())) {
          return false;
       } else {
-         Transform var2 = this.getWorldTransform(this.tempTransform);
+         Transform var2 = this.getWorldTransform(allocTransform());
          var2.inverse();
          Vector3f var3 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-         var3.set(var1.x - WorldSimulation.instance.offsetX, 0.0F, var1.y - WorldSimulation.instance.offsetY);
+         var3.set(var1.getX() - WorldSimulation.instance.offsetX, 0.0F, var1.getY() - WorldSimulation.instance.offsetY);
          var2.transform(var3);
+         releaseTransform(var2);
          Vector3f var4 = this.script.getExtents();
          Vector3f var5 = this.script.getCenterOfMassOffset();
          float var6 = var5.x - var4.x / 2.0F;
@@ -4268,7 +4766,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             return null;
          } else {
             Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-            this.getLocalPos(var1.nx, var1.ny, 0.0F, var6);
+            this.getLocalPos(var1.getNextX(), var1.getNextY(), 0.0F, var6);
             float var7 = var5.x - var4.x / 2.0F;
             float var8 = var5.x + var4.x / 2.0F;
             float var9 = var5.z - var4.z / 2.0F;
@@ -4294,9 +4792,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                }
 
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var6);
-               Transform var19 = this.getWorldTransform(this.tempTransform);
+               Transform var19 = this.getWorldTransform(allocTransform());
                var19.origin.set(0.0F, 0.0F, 0.0F);
                var19.transform(var18);
+               releaseTransform(var19);
                var18.x += this.getX();
                var18.z += this.getY();
                this.collideX = var18.x;
@@ -4321,9 +4820,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                      var16.mul(var2 + 0.015F);
                      var16.x += var11;
                      var16.z += var12;
-                     Transform var17 = this.getWorldTransform(this.tempTransform);
+                     Transform var17 = this.getWorldTransform(allocTransform());
                      var17.origin.set(0.0F, 0.0F, 0.0F);
                      var17.transform(var16);
+                     releaseTransform(var17);
                      var16.x += this.getX();
                      var16.z += this.getY();
                      this.collideX = var16.x;
@@ -4367,48 +4867,52 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          } else if (Math.abs(this.jniSpeed) < 3.0F) {
             return 0;
          } else {
-            float var7 = var1.x + var2 * 0.65F;
-            float var8 = var1.y + var3 * 0.65F;
-            float var9 = var1.x - var2 * 0.65F;
-            float var10 = var1.y - var3 * 0.65F;
-            int var11 = 0;
-            Vector3f var12 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+            float var7 = 0.65F;
+            if (var1 instanceof IsoDeadBody && var1.getModData() != null && var1.getModData().rawget("corpseLength") != null) {
+            }
+
+            float var8 = var1.getX() + var2 * var7;
+            float var9 = var1.getY() + var3 * var7;
+            float var10 = var1.getX() - var2 * var7;
+            float var11 = var1.getY() - var3 * var7;
+            int var12 = 0;
             Vector3f var13 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+            Vector3f var14 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
 
-            for(int var14 = 0; var14 < this.script.getWheelCount(); ++var14) {
-               VehicleScript.Wheel var15 = this.script.getWheel(var14);
-               boolean var16 = true;
+            for(int var15 = 0; var15 < this.script.getWheelCount(); ++var15) {
+               VehicleScript.Wheel var16 = this.script.getWheel(var15);
+               boolean var17 = true;
 
-               for(int var17 = 0; var17 < this.models.size(); ++var17) {
-                  ModelInfo var18 = (ModelInfo)this.models.get(var17);
-                  if (var18.wheelIndex == var14) {
-                     this.getWorldPos(var15.offset.x, var15.offset.y - this.wheelInfo[var14].suspensionLength, var15.offset.z, var12);
-                     if (var12.z > this.script.getWheel(var14).radius + 0.05F) {
-                        var16 = false;
+               for(int var18 = 0; var18 < this.models.size(); ++var18) {
+                  ModelInfo var19 = (ModelInfo)this.models.get(var18);
+                  if (var19.wheelIndex == var15) {
+                     this.getWorldPos(var16.offset.x, var16.offset.y - this.wheelInfo[var15].suspensionLength, var16.offset.z, var13);
+                     if (var13.z > this.script.getWheel(var15).radius + 0.05F) {
+                        var17 = false;
                      }
                      break;
                   }
                }
 
-               if (var16) {
-                  this.getWorldPos(var15.offset.x, var15.offset.y, var15.offset.z, var13);
-                  float var21 = var13.x;
-                  float var22 = var13.y;
-                  double var23 = (double)((var21 - var9) * (var7 - var9) + (var22 - var10) * (var8 - var10)) / (Math.pow((double)(var7 - var9), 2.0) + Math.pow((double)(var8 - var10), 2.0));
-                  float var25;
+               if (var17) {
+                  this.getWorldPos(var16.offset.x, var16.offset.y, var16.offset.z, var14);
+                  float var22 = var14.x;
+                  float var23 = var14.y;
+                  double var24 = (double)((var22 - var10) * (var8 - var10) + (var23 - var11) * (var9 - var11)) / (Math.pow((double)(var8 - var10), 2.0) + Math.pow((double)(var9 - var11), 2.0));
                   float var26;
-                  if (var23 <= 0.0) {
-                     var25 = var9;
+                  float var27;
+                  if (var24 <= 0.0) {
                      var26 = var10;
-                  } else if (var23 >= 1.0) {
-                     var25 = var7;
+                     var27 = var11;
+                  } else if (var24 >= 1.0) {
                      var26 = var8;
+                     var27 = var9;
                   } else {
-                     var25 = var9 + (var7 - var9) * (float)var23;
-                     var26 = var10 + (var8 - var10) * (float)var23;
+                     var26 = var10 + (var8 - var10) * (float)var24;
+                     var27 = var11 + (var9 - var11) * (float)var24;
                   }
 
-                  if (!(IsoUtils.DistanceToSquared(var13.x, var13.y, var25, var26) > var15.radius * var15.radius)) {
+                  if (!(IsoUtils.DistanceToSquared(var14.x, var14.y, var26, var27) > var16.radius * var16.radius)) {
                      if (var4 && Math.abs(this.jniSpeed) > 10.0F) {
                         if (GameServer.bServer && var1 instanceof IsoZombie) {
                            ((IsoZombie)var1).setThumpFlag(1);
@@ -4419,25 +4923,31 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                         var4 = false;
                      }
 
-                     if (var14 < this.impulseFromSquishedZombie.length) {
-                        if (this.impulseFromSquishedZombie[var14] == null) {
-                           this.impulseFromSquishedZombie[var14] = new VehicleImpulse();
+                     if (var15 < this.impulseFromSquishedZombie.length) {
+                        if (this.impulseFromSquishedZombie[var15] == null) {
+                           this.impulseFromSquishedZombie[var15] = new VehicleImpulse();
                         }
 
-                        this.impulseFromSquishedZombie[var14].impulse.set(0.0F, 1.0F, 0.0F);
-                        float var27 = Math.max(Math.abs(this.jniSpeed), 20.0F) / 20.0F;
-                        this.impulseFromSquishedZombie[var14].impulse.mul(0.065F * this.getFudgedMass() * var27);
-                        this.impulseFromSquishedZombie[var14].rel_pos.set(var13.x - this.x, 0.0F, var13.y - this.y);
-                        this.impulseFromSquishedZombie[var14].enable = true;
-                        ++var11;
+                        this.impulseFromSquishedZombie[var15].impulse.set(0.0F, 1.0F, 0.0F);
+                        float var28 = Math.max(Math.abs(this.jniSpeed), 10.0F) / 10.0F;
+                        float var29 = 1.0F;
+                        if (var1 instanceof IsoDeadBody && var1.getModData() != null && var1.getModData().rawget("corpseSize") != null) {
+                           var29 = ((KahluaTableImpl)var1.getModData()).rawgetFloat("corpseSize");
+                        }
+
+                        this.impulseFromSquishedZombie[var15].impulse.mul(0.065F * this.getFudgedMass() * var28 * var29);
+                        this.impulseFromSquishedZombie[var15].rel_pos.set(var14.x - this.getX(), 0.0F, var14.y - this.getY());
+                        this.impulseFromSquishedZombie[var15].enable = true;
+                        this.impulseFromSquishedZombie[var15].applied = false;
+                        ++var12;
                      }
                   }
                }
             }
 
-            ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var12);
             ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var13);
-            return var11;
+            ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var14);
+            return var12;
          }
       }
    }
@@ -4483,9 +4993,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                }
 
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var9);
-               Transform var22 = this.getWorldTransform(this.tempTransform);
+               Transform var22 = this.getWorldTransform(allocTransform());
                var22.origin.set(0.0F, 0.0F, 0.0F);
                var22.transform(var21);
+               releaseTransform(var22);
                var21.x += this.getX();
                var21.z += this.getY();
                this.collideX = var21.x;
@@ -4510,9 +5021,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                      var19.mul(var2 + 0.015F);
                      var19.x += var14;
                      var19.z += var15;
-                     Transform var20 = this.getWorldTransform(this.tempTransform);
+                     Transform var20 = this.getWorldTransform(allocTransform());
                      var20.origin.set(0.0F, 0.0F, 0.0F);
                      var20.transform(var19);
+                     releaseTransform(var20);
                      var19.x += this.getX();
                      var19.z += this.getY();
                      this.collideX = var19.x;
@@ -4590,10 +5102,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       float var3 = this.getObjectX(var1);
       float var4 = this.getObjectY(var1);
       VehicleImpulse var5 = BaseVehicle.VehicleImpulse.alloc();
-      var5.impulse.set(this.x - var3, 0.0F, this.y - var4);
+      var5.impulse.set(this.getX() - var3, 0.0F, this.getY() - var4);
       var5.impulse.normalize();
       var5.impulse.mul(var2);
-      var5.rel_pos.set(var3 - this.x, 0.0F, var4 - this.y);
+      var5.rel_pos.set(var3 - this.getX(), 0.0F, var4 - this.getY());
       this.impulseFromHitZombie.add(var5);
    }
 
@@ -4603,7 +5115,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       VehicleImpulse var5 = BaseVehicle.VehicleImpulse.alloc();
       this.getLinearVelocity(var5.impulse);
       var5.impulse.mul(-var2 * this.getFudgedMass());
-      var5.rel_pos.set(var3 - this.x, 0.0F, var4 - this.y);
+      var5.rel_pos.set(var3 - this.getX(), 0.0F, var4 - this.getY());
       this.impulseFromHitZombie.add(var5);
    }
 
@@ -4611,7 +5123,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       IsoZombie var3 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
       if (var1.getCurrentState() != StaggerBackState.instance() && var1.getCurrentState() != ZombieFallDownState.instance()) {
-         if (!(Math.abs(var1.x - this.x) < 0.01F) && !(Math.abs(var1.y - this.y) < 0.01F)) {
+         if (!(Math.abs(var1.getX() - this.getX()) < 0.01F) && !(Math.abs(var1.getY() - this.getY()) < 0.01F)) {
             float var4 = 15.0F;
             Vector3f var5 = this.getLinearVelocity((Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
             var5.y = 0.0F;
@@ -4621,7 +5133,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var5);
             } else {
                Vector3f var7 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-               var7.set(this.x - var1.x, 0.0F, this.y - var1.y);
+               var7.set(this.getX() - var1.getX(), 0.0F, this.getY() - var1.getY());
                var7.normalize();
                var5.normalize();
                float var8 = var5.dot(var7);
@@ -4640,10 +5152,16 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                   var3.setVehicleHitLocation(this);
                }
 
-               BaseSoundEmitter var11 = IsoWorld.instance.getFreeEmitter(var1.x, var1.y, var1.z);
+               BaseSoundEmitter var11 = IsoWorld.instance.getFreeEmitter(var1.getX(), var1.getY(), var1.getZ());
                long var12 = var11.playSound("VehicleHitCharacter");
+               var11.setParameterValue(var12, FMODManager.instance.getParameterDescription("VehicleHitLocation"), (float)ParameterVehicleHitLocation.calculateLocation(this, var1.getX(), var1.getY(), var1.getZ()).getValue());
                var11.setParameterValue(var12, FMODManager.instance.getParameterDescription("VehicleSpeed"), this.getCurrentSpeedKmHour());
                var1.Hit(this, var10, var8 > 0.0F, var9.set(-var7.x, -var7.z));
+               IsoPlayer var14 = (IsoPlayer)Type.tryCastTo(this.getDriver(), IsoPlayer.class);
+               if (var14 != null && var14.isLocalPlayer()) {
+                  var14.triggerMusicIntensityEvent("VehicleHitCharacter");
+               }
+
                ((Vector2ObjectPool)TL_vector2_pool.get()).release(var9);
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var7);
                long var17 = System.currentTimeMillis();
@@ -4658,7 +5176,82 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                if (var6 >= 5.0F || this.zombiesHits > 10) {
                   var6 = this.getCurrentSpeedKmHour() / 5.0F;
                   Vector3f var15 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-                  this.getLocalPos(var1.x, var1.y, var1.z, var15);
+                  this.getLocalPos(var1.getX(), var1.getY(), var1.getZ(), var15);
+                  int var16;
+                  if (var15.z > 0.0F) {
+                     var16 = this.caclulateDamageWithBodies(true);
+                     this.addDamageFrontHitAChr(var16);
+                  } else {
+                     var16 = this.caclulateDamageWithBodies(false);
+                     this.addDamageRearHitAChr(var16);
+                  }
+
+                  ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var15);
+               }
+
+            }
+         }
+      }
+   }
+
+   public void hitCharacter(IsoAnimal var1) {
+      IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      IsoAnimal var3 = (IsoAnimal)Type.tryCastTo(var1, IsoAnimal.class);
+      if (var1.getCurrentState() != AnimalFalldownState.instance()) {
+         if (!(Math.abs(var1.getX() - this.getX()) < 0.01F) && !(Math.abs(var1.getY() - this.getY()) < 0.01F)) {
+            float var4 = 15.0F;
+            Vector3f var5 = this.getLinearVelocity((Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
+            var5.y = 0.0F;
+            float var6 = var5.length();
+            var6 = Math.min(var6, var4);
+            if (var6 < 0.05F) {
+               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var5);
+            } else {
+               Vector3f var7 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+               var7.set(this.getX() - var1.getX(), 0.0F, this.getY() - var1.getY());
+               var7.normalize();
+               var5.normalize();
+               float var8 = var5.dot(var7);
+               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var5);
+               if (var8 < 0.0F && !GameServer.bServer) {
+                  this.ApplyImpulse(var1, this.getFudgedMass() * 7.0F * var6 / var4 * Math.abs(var8));
+               }
+
+               var7.normalize();
+               var7.mul(3.0F * var6 / var4);
+               Vector2 var9 = (Vector2)((Vector2ObjectPool)TL_vector2_pool.get()).alloc();
+               float var10 = var6 + this.physics.clientForce / this.getFudgedMass();
+               if (var2 != null) {
+                  var2.setVehicleHitLocation(this);
+               } else if (var3 != null) {
+                  var3.setVehicleHitLocation(this);
+               }
+
+               BaseSoundEmitter var11 = IsoWorld.instance.getFreeEmitter(var1.getX(), var1.getY(), var1.getZ());
+               long var12 = var11.playSound("VehicleHitCharacter");
+               var11.setParameterValue(var12, FMODManager.instance.getParameterDescription("VehicleHitLocation"), (float)ParameterVehicleHitLocation.calculateLocation(this, var1.getX(), var1.getY(), var1.getZ()).getValue());
+               var11.setParameterValue(var12, FMODManager.instance.getParameterDescription("VehicleSpeed"), this.getCurrentSpeedKmHour());
+               var1.Hit(this, var10, var8 > 0.0F, var9.set(-var7.x, -var7.z));
+               IsoPlayer var14 = (IsoPlayer)Type.tryCastTo(this.getDriver(), IsoPlayer.class);
+               if (var14 != null && var14.isLocalPlayer()) {
+                  var14.triggerMusicIntensityEvent("VehicleHitCharacter");
+               }
+
+               ((Vector2ObjectPool)TL_vector2_pool.get()).release(var9);
+               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var7);
+               long var17 = System.currentTimeMillis();
+               long var13 = (var17 - this.zombieHitTimestamp) / 1000L;
+               this.zombiesHits = Math.max(this.zombiesHits - (int)var13, 0);
+               if (var17 - this.zombieHitTimestamp > 700L) {
+                  this.zombieHitTimestamp = var17;
+                  ++this.zombiesHits;
+                  this.zombiesHits = Math.min(this.zombiesHits, 20);
+               }
+
+               if (var6 >= 5.0F || this.zombiesHits > 10) {
+                  var6 = this.getCurrentSpeedKmHour() / 5.0F;
+                  Vector3f var15 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+                  this.getLocalPos(var1.getX(), var1.getY(), var1.getZ(), var15);
                   int var16;
                   if (var15.z > 0.0F) {
                      var16 = this.caclulateDamageWithBodies(true);
@@ -4696,7 +5289,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public int calculateDamageWithCharacter(IsoGameCharacter var1) {
       Vector3f var2 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-      this.getLocalPos(var1.x, var1.y, var1.z, var2);
+      this.getLocalPos(var1.getX(), var1.getY(), var1.getZ(), var2);
       int var3;
       if (var2.z > 0.0F) {
          var3 = this.caclulateDamageWithBodies(true);
@@ -4712,18 +5305,19 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (!this.removedFromWorld && this.current != null && this.getController() != null) {
          if (this.getController() == null) {
             return false;
-         } else if (var3 != (int)this.getZ()) {
+         } else if (var3 != PZMath.fastfloor(this.getZ())) {
             return false;
-         } else if (IsoUtils.DistanceTo2D((float)var1 + 0.5F, (float)var2 + 0.5F, this.x, this.y) > 5.0F) {
+         } else if (IsoUtils.DistanceTo2D((float)var1 + 0.5F, (float)var2 + 0.5F, this.getX(), this.getY()) > 5.0F) {
             return false;
          } else {
             float var4 = 0.3F;
-            Transform var5 = this.tempTransform3;
+            Transform var5 = allocTransform();
             this.getWorldTransform(var5);
             var5.inverse();
             Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
             var6.set((float)var1 + 0.5F - WorldSimulation.instance.offsetX, 0.0F, (float)var2 + 0.5F - WorldSimulation.instance.offsetY);
             var5.transform(var6);
+            releaseTransform(var5);
             Vector3f var7 = this.script.getExtents();
             Vector3f var8 = this.script.getCenterOfMassOffset();
             float var9 = this.clamp(var6.x, var8.x - var7.x / 2.0F, var8.x + var7.x / 2.0F);
@@ -4740,7 +5334,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public boolean isIntersectingSquare(int var1, int var2, int var3) {
-      if (var3 != (int)this.getZ()) {
+      if (var3 != PZMath.fastfloor(this.getZ())) {
          return false;
       } else if (!this.removedFromWorld && this.current != null && this.getController() != null) {
          tempPoly.x1 = tempPoly.x4 = (float)var1;
@@ -4753,8 +5347,12 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
+   public boolean isIntersectingSquare(IsoGridSquare var1) {
+      return this.isIntersectingSquare(var1.getX(), var1.getY(), var1.getZ());
+   }
+
    public boolean isIntersectingSquareWithShadow(int var1, int var2, int var3) {
-      if (var3 != (int)this.getZ()) {
+      if (var3 != PZMath.fastfloor(this.getZ())) {
          return false;
       } else if (!this.removedFromWorld && this.current != null && this.getController() != null) {
          tempPoly.x1 = tempPoly.x4 = (float)var1;
@@ -4770,9 +5368,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public boolean circleIntersects(float var1, float var2, float var3, float var4) {
       if (this.getController() == null) {
          return false;
-      } else if ((int)var3 != (int)this.getZ()) {
+      } else if (PZMath.fastfloor(var3) != PZMath.fastfloor(this.getZ())) {
          return false;
-      } else if (IsoUtils.DistanceTo2D(var1, var2, this.x, this.y) > 5.0F) {
+      } else if (IsoUtils.DistanceTo2D(var1, var2, this.getX(), this.getY()) > 5.0F) {
          return false;
       } else {
          Vector3f var5 = this.script.getExtents();
@@ -4996,9 +5594,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             IsoLightSource var6;
             if (this.lightbarLightsMode.getLightTexIndex() == 1) {
                var1 = this.getWorldPos(0.4F, 0.0F, 0.0F, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-               var2 = (int)var1.x;
-               var3 = (int)var1.y;
-               var4 = (int)(this.getZ() + 1.0F);
+               var2 = PZMath.fastfloor(var1.x);
+               var3 = PZMath.fastfloor(var1.y);
+               var4 = PZMath.fastfloor(this.getZ());
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var1);
                var5 = this.leftLightIndex;
                if (var5 == 1 && this.leftLight1.x == var2 && this.leftLight1.y == var3 && this.leftLight1.z == var4) {
@@ -5025,9 +5623,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                IsoWorld.instance.CurrentCell.addLamppost(var6);
             } else {
                var1 = this.getWorldPos(-0.4F, 0.0F, 0.0F, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-               var2 = (int)var1.x;
-               var3 = (int)var1.y;
-               var4 = (int)(this.getZ() + 1.0F);
+               var2 = PZMath.fastfloor(var1.x);
+               var3 = PZMath.fastfloor(var1.y);
+               var4 = PZMath.fastfloor(this.getZ());
                ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var1);
                var5 = this.rightLightIndex;
                if (var5 == 1 && this.rightLight1.x == var2 && this.rightLight1.y == var3 && this.rightLight1.z == var4) {
@@ -5371,6 +5969,49 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       var1[13] = var3;
    }
 
+   public boolean isOnScreen() {
+      if (super.isOnScreen()) {
+         return true;
+      } else if (this.physics == null) {
+         return false;
+      } else if (this.script == null) {
+         return false;
+      } else {
+         int var1 = IsoCamera.frameState.playerIndex;
+         if (this.polyDirty) {
+            this.getPoly();
+         }
+
+         float var2 = IsoUtils.XToScreenExact(this.shadowCoord.x1, this.shadowCoord.y1, 0.0F, 0);
+         float var3 = IsoUtils.YToScreenExact(this.shadowCoord.x1, this.shadowCoord.y1, 0.0F, 0);
+         float var4 = IsoUtils.XToScreenExact(this.shadowCoord.x2, this.shadowCoord.y2, 0.0F, 0);
+         float var5 = IsoUtils.YToScreenExact(this.shadowCoord.x2, this.shadowCoord.y2, 0.0F, 0);
+         float var6 = IsoUtils.XToScreenExact(this.shadowCoord.x3, this.shadowCoord.y3, 0.0F, 0);
+         float var7 = IsoUtils.YToScreenExact(this.shadowCoord.x3, this.shadowCoord.y3, 0.0F, 0);
+         float var8 = IsoUtils.XToScreenExact(this.shadowCoord.x4, this.shadowCoord.y4, 0.0F, 0);
+         float var9 = IsoUtils.YToScreenExact(this.shadowCoord.x4, this.shadowCoord.y4, 0.0F, 0);
+         float var10 = (this.script.getCenterOfMassOffset().y + this.script.getExtents().y) / 0.8164967F * 24.0F * (float)Core.TileScale;
+         float var11 = Core.getInstance().getZoom(var1);
+         float var12 = PZMath.min(var2, var4, var6, var8) / var11;
+         float var13 = PZMath.max(var2, var4, var6, var8) / var11;
+         float var14 = PZMath.min(var3, var5, var7, var9) / var11;
+         float var15 = PZMath.max(var3, var5, var7, var9) / var11;
+         if (var12 < (float)(IsoCamera.getScreenLeft(var1) + IsoCamera.getScreenWidth(var1)) && var13 > (float)IsoCamera.getScreenLeft(var1) && var14 < (float)(IsoCamera.getScreenTop(var1) + IsoCamera.getScreenHeight(var1)) && var15 > (float)IsoCamera.getScreenTop(var1)) {
+            return true;
+         } else {
+            var3 -= var10;
+            var5 -= var10;
+            var7 -= var10;
+            var9 -= var10;
+            var12 = PZMath.min(var2, var4, var6, var8) / var11;
+            var13 = PZMath.max(var2, var4, var6, var8) / var11;
+            var14 = PZMath.min(var3, var5, var7, var9) / var11;
+            var15 = PZMath.max(var3, var5, var7, var9) / var11;
+            return var12 < (float)(IsoCamera.getScreenLeft(var1) + IsoCamera.getScreenWidth(var1)) && var13 > (float)IsoCamera.getScreenLeft(var1) && var14 < (float)(IsoCamera.getScreenTop(var1) + IsoCamera.getScreenHeight(var1)) && var15 > (float)IsoCamera.getScreenTop(var1);
+         }
+      }
+   }
+
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       if (this.script != null) {
          if (this.physics != null) {
@@ -5378,9 +6019,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          }
 
          int var8 = IsoCamera.frameState.playerIndex;
-         boolean var9 = IsoCamera.CamCharacter != null && IsoCamera.CamCharacter.getVehicle() == this;
-         if (var9 || this.square.lighting[var8].bSeen()) {
-            if (!var9 && !this.square.lighting[var8].bCouldSee()) {
+         IsoGameCharacter var9 = IsoCamera.getCameraCharacter();
+         boolean var10 = var9 != null && var9.getVehicle() == this;
+         if (var10 || this.square.lighting[var8].bSeen()) {
+            if (!var10 && !this.square.lighting[var8].bCouldSee()) {
                this.setTargetAlpha(var8, 0.0F);
             } else {
                this.setTargetAlpha(var8, 1.0F);
@@ -5388,17 +6030,22 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
             if (this.sprite.hasActiveModel()) {
                this.updateLights();
-               boolean var10 = Core.getInstance().getOptionBloodDecals() != 0;
-               if (this.OptionBloodDecals != var10) {
-                  this.OptionBloodDecals = var10;
+               boolean var11 = Core.getInstance().getOptionBloodDecals() != 0;
+               if (this.OptionBloodDecals != var11) {
+                  this.OptionBloodDecals = var11;
                   this.doBloodOverlay();
                }
 
-               var4.a = this.getAlpha(var8);
-               inf.a = var4.a;
-               inf.r = var4.r;
-               inf.g = var4.g;
-               inf.b = var4.b;
+               if (var4 == null) {
+                  inf.set(1.0F, 1.0F, 1.0F, 1.0F);
+               } else {
+                  var4.a = this.getAlpha(var8);
+                  inf.a = var4.a;
+                  inf.r = var4.r;
+                  inf.g = var4.g;
+                  inf.b = var4.b;
+               }
+
                this.sprite.renderVehicle(this.def, this, var1, var2, 0.0F, 0.0F, 0.0F, inf, true);
             }
 
@@ -5453,6 +6100,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                var5 += (float)(20 * Core.TileScale);
                var4 /= Core.getInstance().getZoom(var1);
                var5 /= Core.getInstance().getZoom(var1);
+               var4 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsX;
+               var5 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsY;
                var3.chatElement.renderBatched(var1, (int)var4, (int)var5);
             }
          }
@@ -5472,12 +6121,22 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                }
 
                Texture var2 = this.getShadowTexture();
-               if (var2 != null && this.getCurrentSquare() != null) {
+               if (var2 != null && var2.isReady() && this.getCurrentSquare() != null) {
                   float var3 = 0.6F * this.getAlpha(var1);
                   ColorInfo var4 = this.getCurrentSquare().lighting[var1].lightInfo();
                   var3 *= (var4.r + var4.g + var4.b) / 3.0F;
                   if (this.polyDirty) {
                      this.getPoly();
+                  }
+
+                  if (PerformanceSettings.FBORenderChunk) {
+                     float var5 = (float)PZMath.fastfloor(this.getZ());
+                     if (this.current != null && this.current.hasSlopedSurface()) {
+                        var5 = this.current.getApparentZ(this.getX() % 1.0F, this.getY() % 1.0F);
+                     }
+
+                     FBORenderShadows.getInstance().addShadow(this.getX(), this.getY(), var5, this.shadowCoord.x2, this.shadowCoord.y2, this.shadowCoord.x1, this.shadowCoord.y1, this.shadowCoord.x4, this.shadowCoord.y4, this.shadowCoord.x3, this.shadowCoord.y3, 1.0F, 1.0F, 1.0F, 0.8F * var3, var2, true);
+                     return;
                   }
 
                   SpriteRenderer.instance.renderPoly(var2, (float)((int)IsoUtils.XToScreenExact(this.shadowCoord.x2, this.shadowCoord.y2, 0.0F, 0)), (float)((int)IsoUtils.YToScreenExact(this.shadowCoord.x2, this.shadowCoord.y2, 0.0F, 0)), (float)((int)IsoUtils.XToScreenExact(this.shadowCoord.x1, this.shadowCoord.y1, 0.0F, 0)), (float)((int)IsoUtils.YToScreenExact(this.shadowCoord.x1, this.shadowCoord.y1, 0.0F, 0)), (float)((int)IsoUtils.XToScreenExact(this.shadowCoord.x4, this.shadowCoord.y4, 0.0F, 0)), (float)((int)IsoUtils.YToScreenExact(this.shadowCoord.x4, this.shadowCoord.y4, 0.0F, 0)), (float)((int)IsoUtils.XToScreenExact(this.shadowCoord.x3, this.shadowCoord.y3, 0.0F, 0)), (float)((int)IsoUtils.YToScreenExact(this.shadowCoord.x3, this.shadowCoord.y3, 0.0F, 0)), 1.0F, 1.0F, 1.0F, 0.8F * var3);
@@ -5511,7 +6170,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
          var4.z = 0.0F;
          Vector3f var8 = this.getPassengerPositionWorldPos(var2, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-         boolean var9 = PolygonalMap2.instance.lineClearCollide(var8.x, var8.y, var4.x, var4.y, (int)this.z, this, false, false);
+         boolean var9 = PolygonalMap2.instance.lineClearCollide(var8.x, var8.y, var4.x, var4.y, PZMath.fastfloor(this.getZ()), this, false, false);
          ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var4);
          ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var8);
          return var9;
@@ -5539,7 +6198,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
          var5.z = 0.0F;
          Vector3f var9 = this.getPassengerPositionWorldPos(var3, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-         boolean var10 = PolygonalMap2.instance.lineClearCollide(var9.x, var9.y, var5.x, var5.y, (int)this.z, this, false, false);
+         boolean var10 = PolygonalMap2.instance.lineClearCollide(var9.x, var9.y, var5.x, var5.y, (int)this.getZ(), this, false, false);
          ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var5);
          ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var9);
          if (!var10 && GameClient.bClient) {
@@ -5559,7 +6218,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       VehicleScript.Position var3 = this.getPassengerPosition(var2, "outside2");
       if (var3 != null) {
          Vector3f var4 = this.getPassengerPositionWorldPos(var3, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-         var4.sub(var1.x, var1.y, var1.z);
+         var4.sub(var1.getX(), var1.getY(), var1.getZ());
          float var5 = var4.length();
          ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var4);
          if (var5 < 2.0F) {
@@ -5581,7 +6240,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          Vector3f var4 = this.getPassengerPositionWorldPos(var3, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
          var4.z = 0.0F;
          Vector3f var5 = this.getPassengerPositionWorldPos(var2, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-         boolean var6 = PolygonalMap2.instance.lineClearCollide(var5.x, var5.y, var4.x, var4.y, (int)this.z, this, false, false);
+         boolean var6 = PolygonalMap2.instance.lineClearCollide(var5.x, var5.y, var4.x, var4.y, PZMath.fastfloor(this.getZ()), this, false, false);
          IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var4.x, (double)var4.y, (double)var4.z);
          IsoGameCharacter var8 = this.getCharacter(var1);
          if (var8 instanceof IsoPlayer && !SafeHouse.isPlayerAllowedOnSquare((IsoPlayer)var8, var7)) {
@@ -5608,29 +6267,36 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             float var7 = 0.3F;
             this.getPassengerPositionWorldPos(var6, var2);
             this.getPassengerPositionWorldPos(var5, var3);
-            int var8 = (int)Math.floor((double)(var2.x - var7));
-            int var9 = (int)Math.floor((double)(var2.x + var7));
-            int var10 = (int)Math.floor((double)(var2.y - var7));
-            int var11 = (int)Math.floor((double)(var2.y + var7));
+            int var8 = PZMath.fastfloor(var2.x - var7);
+            int var9 = PZMath.fastfloor(var2.x + var7);
+            int var10 = PZMath.fastfloor(var2.y - var7);
+            int var11 = PZMath.fastfloor(var2.y + var7);
 
+            float var14;
             for(int var12 = var10; var12 <= var11; ++var12) {
                for(int var13 = var8; var13 <= var9; ++var13) {
-                  int var14 = (int)IsoUtils.XToScreenExact((float)var13, (float)(var12 + 1), (float)((int)this.z), 0);
-                  int var15 = (int)IsoUtils.YToScreenExact((float)var13, (float)(var12 + 1), (float)((int)this.z), 0);
-                  SpriteRenderer.instance.renderPoly((float)var14, (float)var15, (float)(var14 + 32 * var1), (float)(var15 - 16 * var1), (float)(var14 + 64 * var1), (float)var15, (float)(var14 + 32 * var1), (float)(var15 + 16 * var1), 1.0F, 1.0F, 1.0F, 0.5F);
+                  var14 = IsoUtils.XToScreenExact((float)var13, (float)(var12 + 1), (float)PZMath.fastfloor(this.getZ()), 0);
+                  float var15 = IsoUtils.YToScreenExact((float)var13, (float)(var12 + 1), (float)PZMath.fastfloor(this.getZ()), 0);
+                  if (PerformanceSettings.FBORenderChunk) {
+                     var14 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsX * IsoCamera.frameState.zoom;
+                     var15 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsY * IsoCamera.frameState.zoom;
+                  }
+
+                  IndieGL.glBlendFunc(770, 771);
+                  SpriteRenderer.instance.renderPoly(var14, var15, var14 + (float)(32 * var1), var15 - (float)(16 * var1), var14 + (float)(64 * var1), var15, var14 + (float)(32 * var1), var15 + (float)(16 * var1), 1.0F, 1.0F, 1.0F, 0.5F);
                }
             }
 
             float var16 = 1.0F;
             float var17 = 1.0F;
-            float var18 = 1.0F;
+            var14 = 1.0F;
             if (this.isExitBlocked(var4)) {
-               var18 = 0.0F;
+               var14 = 0.0F;
                var17 = 0.0F;
             }
 
             this.getController().drawCircle(var3.x, var3.y, var7, 0.0F, 0.0F, 1.0F, 1.0F);
-            this.getController().drawCircle(var2.x, var2.y, var7, var16, var17, var18, 1.0F);
+            this.getController().drawCircle(var2.x, var2.y, var7, var16, var17, var14, 1.0F);
          }
       }
 
@@ -5705,7 +6371,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                if (var5 != null) {
                   Vector2 var6 = this.areaPositionWorld(var5, var2);
                   if (var6 != null) {
-                     boolean var7 = this.isInArea(var5.id, IsoPlayer.getInstance());
+                     boolean var7 = this.isInArea(var5.id, (IsoGameCharacter)IsoPlayer.getInstance());
                      this.getController().drawRect(var1, var6.x - WorldSimulation.instance.offsetX, var6.y - WorldSimulation.instance.offsetY, var5.w, var5.h / 2.0F, var7 ? 0.0F : 0.65F, var7 ? 1.0F : 0.65F, var7 ? 1.0F : 0.65F);
                      var6 = this.areaPositionWorld4PlayerInteract(var5, var2);
                      this.getController().drawRect(var1, var6.x - WorldSimulation.instance.offsetX, var6.y - WorldSimulation.instance.offsetY, 0.1F, 0.1F, 1.0F, 0.0F, 0.0F);
@@ -5729,8 +6395,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    private void renderInterpolateBuffer() {
       if (this.netPlayerAuthorization == BaseVehicle.Authorization.Remote) {
-         float var1 = IsoUtils.XToScreenExact(this.x, this.y, 0.0F, 0);
-         float var2 = IsoUtils.YToScreenExact(this.x, this.y, 0.0F, 0);
+         float var1 = IsoUtils.XToScreenExact(this.getX(), this.getY(), 0.0F, 0);
+         float var2 = IsoUtils.YToScreenExact(this.getX(), this.getY(), 0.0F, 0);
          float var3 = var1 - 310.0F;
          float var4 = var2 + 22.0F;
          float var5 = 300.0F;
@@ -5751,8 +6417,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          this.renderInterpolateBuffer_drawVertLine(var18, var8, var3, var4, var5, var6, var16, var18, true);
          this.renderInterpolateBuffer_drawVertLine(var14, var9, var3, var4, var5, var6, var16, var18, true);
          this.renderInterpolateBuffer_drawVertLine(var14 - (long)this.interpolation.delay, var10, var3, var4, var5, var6, var16, var18, true);
-         this.renderInterpolateBuffer_drawPoint(var14 - (long)this.interpolation.delay, this.x, var12, 5, var3, var4, var5, var6, var16, var18, this.x - var7, this.x + var7);
-         this.renderInterpolateBuffer_drawPoint(var14 - (long)this.interpolation.delay, this.y, var13, 5, var3, var4, var5, var6, var16, var18, this.y - var7, this.y + var7);
+         this.renderInterpolateBuffer_drawPoint(var14 - (long)this.interpolation.delay, this.getX(), var12, 5, var3, var4, var5, var6, var16, var18, this.getX() - var7, this.getX() + var7);
+         this.renderInterpolateBuffer_drawPoint(var14 - (long)this.interpolation.delay, this.getY(), var13, 5, var3, var4, var5, var6, var16, var18, this.getY() - var7, this.getY() + var7);
          long var20 = 0L;
          float var22 = 0.0F / 0.0F;
          float var23 = 0.0F / 0.0F;
@@ -5774,11 +6440,11 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                this.renderInterpolateBuffer_drawTextHL(var29.time, "L", var10, var3, var4, var5, var6, var16, var18);
             }
 
-            this.renderInterpolateBuffer_drawPoint(var29.time, var29.x, var12, 5, var3, var4, var5, var6, var16, var18, this.x - var7, this.x + var7);
-            this.renderInterpolateBuffer_drawPoint(var29.time, var29.y, var13, 5, var3, var4, var5, var6, var16, var18, this.y - var7, this.y + var7);
+            this.renderInterpolateBuffer_drawPoint(var29.time, var29.x, var12, 5, var3, var4, var5, var6, var16, var18, this.getX() - var7, this.getX() + var7);
+            this.renderInterpolateBuffer_drawPoint(var29.time, var29.y, var13, 5, var3, var4, var5, var6, var16, var18, this.getY() - var7, this.getY() + var7);
             if (!Float.isNaN(var22)) {
-               this.renderInterpolateBuffer_drawLine(var20, var22, var29.time, var29.x, var12, var3, var4, var5, var6, var16, var18, this.x - var7, this.x + var7);
-               this.renderInterpolateBuffer_drawLine(var20, var23, var29.time, var29.y, var13, var3, var4, var5, var6, var16, var18, this.y - var7, this.y + var7);
+               this.renderInterpolateBuffer_drawLine(var20, var22, var29.time, var29.x, var12, var3, var4, var5, var6, var16, var18, this.getX() - var7, this.getX() + var7);
+               this.renderInterpolateBuffer_drawLine(var20, var23, var29.time, var29.y, var13, var3, var4, var5, var6, var16, var18, this.getY() - var7, this.getY() + var7);
             }
 
             var20 = var29.time;
@@ -5790,9 +6456,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          boolean var30 = this.interpolation.interpolationDataGet(var31, var32, var14 - (long)this.interpolation.delay);
          TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 20.0F), String.format("interpolationDataGet=%s", var30 ? "True" : "False"), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
          TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 30.0F), String.format("buffer.size=%d buffering=%s", this.interpolation.buffer.size(), String.valueOf(this.interpolation.buffering)), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
+         TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 40.0F), String.format("delayTarget=%d", this.interpolation.delayTarget), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
          if (this.interpolation.buffer.size() >= 2) {
-            TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 40.0F), String.format("last=%d first=%d", ((VehicleInterpolationData)this.interpolation.buffer.last()).time, ((VehicleInterpolationData)this.interpolation.buffer.first()).time), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
-            TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 50.0F), String.format("(last-first).time=%d delay=%d", ((VehicleInterpolationData)this.interpolation.buffer.last()).time - ((VehicleInterpolationData)this.interpolation.buffer.first()).time, this.interpolation.delay), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
+            TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 50.0F), String.format("last=%d first=%d", ((VehicleInterpolationData)this.interpolation.buffer.last()).time, ((VehicleInterpolationData)this.interpolation.buffer.first()).time), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
+            TextManager.instance.DrawString((double)var3, (double)(var4 + var6 + 60.0F), String.format("(last-first).time=%d delay=%d", ((VehicleInterpolationData)this.interpolation.buffer.last()).time - ((VehicleInterpolationData)this.interpolation.buffer.first()).time, this.interpolation.delay), (double)var10.r, (double)var10.g, (double)var10.b, (double)var10.a);
          }
 
       }
@@ -5879,8 +6546,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       var3 = 0.75F;
       var4 = 1.0F;
       float var11 = 10.0F;
-      float var12 = IsoUtils.XToScreenExact(this.x, this.y, 0.0F, 0);
-      float var13 = IsoUtils.YToScreenExact(this.x, this.y, 0.0F, 0);
+      float var12 = IsoUtils.XToScreenExact(this.getX(), this.getY(), 0.0F, 0);
+      float var13 = IsoUtils.YToScreenExact(this.getX(), this.getY(), 0.0F, 0);
       IsoPlayer var14 = (IsoPlayer)GameClient.IDToPlayerMap.get(this.netPlayerId);
       String var10000 = var14 == null ? "@server" : var14.getUsername();
       String var15 = var10000 + " ( " + this.netPlayerId + " )";
@@ -5899,10 +6566,11 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       var10002 = (double)(var13 + (var11 += 12.0F));
       boolean var17 = this.isStatic;
       TextManager.instance.DrawString(var10001, var10002, "Static/active: " + var17 + "/" + this.isActive, (double)var1, (double)var2, (double)var3, (double)var4);
+      var16 = TextManager.instance;
       var10001 = (double)var12;
       var10002 = (double)(var13 + (var11 += 12.0F));
-      float var18 = this.x;
-      TextManager.instance.DrawString(var10001, var10002, "x=" + var18 + " / y=" + this.y, (double)var1, (double)var2, (double)var3, (double)var4);
+      float var18 = this.getX();
+      var16.DrawString(var10001, var10002, "x=" + var18 + " / y=" + this.getY(), (double)var1, (double)var2, (double)var3, (double)var4);
       TextManager.instance.DrawString((double)var12, (double)(var13 + (var11 += 14.0F)), String.format("Passengers: %d/%d", Arrays.stream(this.passengers).filter((var0) -> {
          return var0.character != null;
       }).count(), this.passengers.length), (double)var1, (double)var2, (double)var3, (double)var4);
@@ -5960,7 +6628,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    private void renderIntersectedSquares() {
-      PolygonalMap2.VehiclePoly var1 = this.getPoly();
+      VehiclePoly var1 = this.getPoly();
       float var2 = Math.min(var1.x1, Math.min(var1.x2, Math.min(var1.x3, var1.x4)));
       float var3 = Math.min(var1.y1, Math.min(var1.y2, Math.min(var1.y3, var1.y4)));
       float var4 = Math.max(var1.x1, Math.max(var1.x2, Math.max(var1.x3, var1.x4)));
@@ -5968,8 +6636,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
       for(int var6 = (int)var3; var6 < (int)Math.ceil((double)var5); ++var6) {
          for(int var7 = (int)var2; var7 < (int)Math.ceil((double)var4); ++var7) {
-            if (this.isIntersectingSquare(var7, var6, (int)this.z)) {
-               LineDrawer.addLine((float)var7, (float)var6, (float)((int)this.z), (float)(var7 + 1), (float)(var6 + 1), (float)((int)this.z), 1.0F, 1.0F, 1.0F, (String)null, false);
+            if (this.isIntersectingSquare(var7, var6, PZMath.fastfloor(this.getZ()))) {
+               LineDrawer.addLine((float)var7, (float)var6, (float)PZMath.fastfloor(this.getZ()), (float)(var7 + 1), (float)(var6 + 1), (float)PZMath.fastfloor(this.getZ()), 1.0F, 1.0F, 1.0F, (String)null, false);
             }
          }
       }
@@ -5989,7 +6657,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          boolean var5;
          if (var4 != null) {
             this.getWorldPos(var4, var4);
-            var5 = PolygonalMap2.instance.lineClearCollide(var2.x, var2.y, var4.x, var4.y, (int)this.z, this, false, false);
+            var5 = PolygonalMap2.instance.lineClearCollide(var2.x, var2.y, var4.x, var4.y, PZMath.fastfloor(this.getZ()), this, false, false);
             this.physics.drawCircle(var4.x, var4.y, 0.3F, 1.0F, var5 ? 0.0F : 1.0F, var5 ? 0.0F : 1.0F, 1.0F);
             if (var5) {
                LineDrawer.addLine(var4.x, var4.y, 0.0F, var2.x, var2.y, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
@@ -5999,7 +6667,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          var4 = this.getPlayerTrailerLocalPos("trailer", true, var1);
          if (var4 != null) {
             this.getWorldPos(var4, var4);
-            var5 = PolygonalMap2.instance.lineClearCollide(var2.x, var2.y, var4.x, var4.y, (int)this.z, this, false, false);
+            var5 = PolygonalMap2.instance.lineClearCollide(var2.x, var2.y, var4.x, var4.y, PZMath.fastfloor(this.getZ()), this, false, false);
             this.physics.drawCircle(var4.x, var4.y, 0.3F, 1.0F, var5 ? 0.0F : 1.0F, var5 ? 0.0F : 1.0F, 1.0F);
             if (var5) {
                LineDrawer.addLine(var4.x, var4.y, 0.0F, var2.x, var2.y, 0.0F, 1.0F, 0.0F, 0.0F, 1.0F);
@@ -6020,23 +6688,31 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       var4.mul(var5, var4);
       ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var5);
       ((Matrix4fObjectPool)TL_matrix4f_pool.get()).release(var4);
-      var4.getColumn(2, this.tempVector4f);
-      var2.set(this.tempVector4f.x, 0.0F, this.tempVector4f.z);
+      Vector4f var6 = allocVector4f();
+      var4.getColumn(2, var6);
+      var2.set(var6.x, 0.0F, var6.z);
+      releaseVector4f(var6);
    }
 
    public void tryStartEngine(boolean var1) {
       if (this.getDriver() == null || !(this.getDriver() instanceof IsoPlayer) || !((IsoPlayer)this.getDriver()).isBlockMovement()) {
-         if (this.engineState == BaseVehicle.engineStateTypes.Idle) {
-            if ((!Core.bDebug || !DebugOptions.instance.CheatVehicleStartWithoutKey.getValue()) && !SandboxOptions.instance.VehicleEasyUse.getValue() && !this.isKeysInIgnition() && !var1 && this.getDriver().getInventory().haveThisKeyId(this.getKeyId()) == null && !this.isHotwired()) {
-               if (GameServer.bServer) {
-                  this.getDriver().sendObjectChange("vehicleNoKey");
-               } else {
-                  this.getDriver().SayDebug(" [img=media/ui/CarKey_none.png]");
-               }
-            } else {
-               this.engineDoStarting();
-            }
+         VehiclePart var2 = this.getPartById("Engine");
+         if (var2 != null && var2.getCondition() > 0) {
+            if (this.getEngineQuality() > 0) {
+               if (this.engineState == BaseVehicle.engineStateTypes.Idle) {
+                  if ((!Core.bDebug || !DebugOptions.instance.Cheat.Vehicle.StartWithoutKey.getValue()) && !SandboxOptions.instance.VehicleEasyUse.getValue() && !this.isKeysInIgnition() && !var1 && this.getDriver().getInventory().haveThisKeyId(this.getKeyId()) == null && !this.isHotwired()) {
+                     if (GameServer.bServer) {
+                        this.getDriver().sendObjectChange("vehicleNoKey");
+                     } else {
+                        this.getDriver().SayDebug(" [img=media/ui/CarKey_none.png]");
+                        this.checkVehicleFailsToStartWithZombiesTargeting();
+                     }
+                  } else {
+                     this.engineDoStarting();
+                  }
 
+               }
+            }
          }
       }
    }
@@ -6056,6 +6732,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.engineLastUpdateStateTime = System.currentTimeMillis();
       this.transmitEngine();
       this.setKeysInIgnition(true);
+      this.setPreviouslyMoved(true);
    }
 
    public boolean isStarting() {
@@ -6088,6 +6765,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.engineState = BaseVehicle.engineStateTypes.RetryingStarting;
       this.engineLastUpdateStateTime = System.currentTimeMillis();
       this.transmitEngine();
+      this.checkVehicleFailsToStartWithZombiesTargeting();
    }
 
    public void engineDoStartingSuccess() {
@@ -6104,6 +6782,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
       this.transmitEngine();
       this.setKeysInIgnition(true);
+      this.checkVehicleStartsWithZombiesTargeting();
    }
 
    public void engineDoStartingFailed() {
@@ -6113,6 +6792,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.engineState = BaseVehicle.engineStateTypes.StartingFailed;
       this.engineLastUpdateStateTime = System.currentTimeMillis();
       this.transmitEngine();
+      this.checkVehicleFailsToStartWithZombiesTargeting();
    }
 
    public void engineDoStartingFailedNoPower() {
@@ -6122,6 +6802,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.engineState = BaseVehicle.engineStateTypes.StartingFailedNoPower;
       this.engineLastUpdateStateTime = System.currentTimeMillis();
       this.transmitEngine();
+      this.checkVehicleFailsToStartWithZombiesTargeting();
    }
 
    public void engineDoRunning() {
@@ -6138,6 +6819,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       this.stopEngineSounds();
       this.engineSoundIndex = 0;
       this.transmitEngine();
+      this.checkVehicleFailsToStartWithZombiesTargeting();
       if (!Core.getInstance().getOptionLeaveKeyInIgnition()) {
          this.setKeysInIgnition(false);
       }
@@ -6272,11 +6954,8 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          if (var4 != null && var4.getCurrentSquare() != null) {
             float var5 = var4.getX();
             float var6 = var4.getY();
-            float var7 = IsoUtils.DistanceToSquared(var5, var6, this.x, this.y);
-            if (var4.Traits.HardOfHearing.isSet()) {
-               var7 *= 4.5F;
-            }
-
+            float var7 = IsoUtils.DistanceToSquared(var5, var6, this.getX(), this.getY());
+            var7 *= var4.getHearDistanceModifier();
             if (var4.Traits.Deaf.isSet()) {
                var7 = 3.4028235E38F;
             }
@@ -6290,7 +6969,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
       if (var1 == null) {
          if (this.emitter != null) {
-            this.emitter.setPos(this.x, this.y, this.z);
+            this.emitter.setPos(this.getX(), this.getY(), this.getZ());
             if (!this.emitter.isEmpty()) {
                this.emitter.tick();
             }
@@ -6316,7 +6995,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             if (var2 > 1200.0F) {
                this.stopEngineSounds();
                if (this.emitter != null && !this.emitter.isEmpty()) {
-                  this.emitter.setPos(this.x, this.y, this.z);
+                  this.emitter.setPos(this.getX(), this.getY(), this.getZ());
                   this.emitter.tick();
                }
 
@@ -6330,7 +7009,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             }
          }
 
-         this.startTime -= GameTime.instance.getMultiplier();
          if (this.getController() != null) {
             if (!GameServer.bServer) {
                if (this.emitter == null) {
@@ -6346,7 +7024,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                if (this.startTime <= 0.0F && this.engineState == BaseVehicle.engineStateTypes.Running && !this.getEmitter().isPlaying(this.combinedEngineSound)) {
                   this.combinedEngineSound = this.emitter.playSoundImpl(this.getEngineSound(), (IsoObject)null);
                   if (this.getEngineSound().equals(this.getEngineStartSound())) {
-                     this.emitter.setTimelinePosition(this.combinedEngineSound, "idle");
                   }
                }
 
@@ -6387,14 +7064,40 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                   this.emitter.set3D(this.soundSirenSignal, !var10);
                }
 
+               this.updateDoorAlarmSound();
                if (this.emitter != null && (this.engineState != BaseVehicle.engineStateTypes.Idle || !this.emitter.isEmpty())) {
                   this.getFMODParameters().update();
-                  this.emitter.setPos(this.x, this.y, this.z);
+                  this.emitter.setPos(this.getX(), this.getY(), this.getZ());
                   this.emitter.tick();
                }
 
             }
          }
+      }
+   }
+
+   private void updateDoorAlarmSound() {
+      if (this.emitter != null) {
+         boolean var1 = false;
+         if (this.isEngineRunning()) {
+            for(int var2 = 0; var2 < this.getMaxPassengers(); ++var2) {
+               VehiclePart var3 = this.getPassengerDoor(var2);
+               if (var3 != null && !var3.isInventoryItemUninstalled() && var3.getDoor().isOpen()) {
+                  var1 = true;
+                  break;
+               }
+            }
+         }
+
+         if (var1) {
+            if (!this.emitter.isPlaying(this.doorAlarmSound)) {
+               this.doorAlarmSound = this.emitter.playSoundImpl("VehicleDoorAlarm", (IsoObject)null);
+            }
+         } else if (this.emitter.isPlaying(this.doorAlarmSound)) {
+            this.emitter.stopSound(this.doorAlarmSound);
+            this.doorAlarmSound = 0L;
+         }
+
       }
    }
 
@@ -6528,7 +7231,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public void addToWorld() {
       if (this.addedToWorld) {
-         DebugLog.General.error("added vehicle twice " + this + " id=" + this.VehicleID);
+         DebugLog.Vehicle.error("added vehicle twice " + this + " id=" + this.VehicleID);
       } else {
          VehiclesDB2.instance.setVehicleLoaded(this);
          this.addedToWorld = true;
@@ -6555,7 +7258,11 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          }
 
          if (this.chunk != null && this.chunk.jobType != IsoChunk.JobType.SoftReset) {
-            PolygonalMap2.instance.addVehicleToWorld(this);
+            if (PathfindNative.USE_NATIVE_CODE) {
+               PathfindNative.instance.addVehicle(this);
+            } else {
+               PolygonalMap2.instance.addVehicleToWorld(this);
+            }
          }
 
          if (this.engineState != BaseVehicle.engineStateTypes.Idle) {
@@ -6599,13 +7306,16 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          this.addedToWorld = false;
 
          for(var1 = 0; var1 < this.parts.size(); ++var1) {
-            VehiclePart var3 = (VehiclePart)this.parts.get(var1);
-            if (var3.getItemContainer() != null) {
-               var3.getItemContainer().removeItemsFromProcessItems();
+            VehiclePart var4 = (VehiclePart)this.parts.get(var1);
+            if (var4.getItemContainer() != null) {
+               var4.getItemContainer().removeItemsFromProcessItems();
             }
 
-            if (var3.getDeviceData() != null && !GameServer.bServer) {
-               ZomboidRadio.getInstance().UnRegisterDevice(var3);
+            if (var4.getDeviceData() != null) {
+               var4.getDeviceData().cleanSoundsAndEmitter();
+               if (!GameServer.bServer) {
+                  ZomboidRadio.getInstance().UnRegisterDevice(var4);
+               }
             }
          }
 
@@ -6644,13 +7354,25 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
          IsoWorld.instance.CurrentCell.addVehicles.remove(this);
          IsoWorld.instance.CurrentCell.vehicles.remove(this);
-         PolygonalMap2.instance.removeVehicleFromWorld(this);
+         if (PathfindNative.USE_NATIVE_CODE) {
+            PathfindNative.instance.removeVehicle(this);
+         } else {
+            PolygonalMap2.instance.removeVehicleFromWorld(this);
+         }
+
          if (GameClient.bClient) {
             this.chunk.vehicles.remove(this);
          }
 
          this.m_surroundVehicle.reset();
          this.removeWorldLights();
+         Iterator var3 = this.animals.iterator();
+
+         while(var3.hasNext()) {
+            IsoAnimal var5 = (IsoAnimal)var3.next();
+            var5.delete();
+         }
+
          super.removeFromWorld();
       }
    }
@@ -6701,7 +7423,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public float getBatteryCharge() {
       VehiclePart var1 = this.getBattery();
-      return var1 != null && var1.getInventoryItem() instanceof DrainableComboItem ? ((DrainableComboItem)var1.getInventoryItem()).getUsedDelta() : 0.0F;
+      return var1 != null && var1.getInventoryItem() instanceof DrainableComboItem ? ((DrainableComboItem)var1.getInventoryItem()).getCurrentUsesFloat() : 0.0F;
    }
 
    public int getPartCount() {
@@ -6848,7 +7570,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                return false;
             } else {
                Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-               this.getLocalPos(var2.x, var2.y, this.z, var6);
+               this.getLocalPos(var2.getX(), var2.getY(), this.getZ(), var6);
                float var7 = var5.x - var3.w / 2.0F;
                float var8 = var5.y - var3.h / 2.0F;
                float var9 = var5.x + var3.w / 2.0F;
@@ -6864,11 +7586,31 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
+   public float getAreaDist(String var1, float var2, float var3, float var4) {
+      if (var1 != null && this.getScript() != null) {
+         VehicleScript.Area var5 = this.getScript().getAreaById(var1);
+         if (var5 != null) {
+            Vector3f var6 = this.getLocalPos(var2, var3, var4, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
+            float var7 = Math.abs(var5.x - var5.w / 2.0F);
+            float var8 = Math.abs(var5.y - var5.h / 2.0F);
+            float var9 = Math.abs(var5.x + var5.w / 2.0F);
+            float var10 = Math.abs(var5.y + var5.h / 2.0F);
+            float var11 = Math.abs(var6.x + var7) + Math.abs(var6.z + var8);
+            ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var6);
+            return var11;
+         } else {
+            return 999.0F;
+         }
+      } else {
+         return 999.0F;
+      }
+   }
+
    public float getAreaDist(String var1, IsoGameCharacter var2) {
       if (var1 != null && this.getScript() != null) {
          VehicleScript.Area var3 = this.getScript().getAreaById(var1);
          if (var3 != null) {
-            Vector3f var4 = this.getLocalPos(var2.x, var2.y, this.z, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
+            Vector3f var4 = this.getLocalPos(var2.getX(), var2.getY(), this.getZ(), (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
             float var5 = Math.abs(var3.x - var3.w / 2.0F);
             float var6 = Math.abs(var3.y - var3.h / 2.0F);
             float var7 = Math.abs(var3.x + var3.w / 2.0F);
@@ -6944,6 +7686,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
+   private void callLuaVoid(String var1, Object var2) {
+      Object var3 = LuaManager.getFunctionObject(var1);
+      if (var3 != null) {
+         LuaManager.caller.protectedCallVoid(LuaManager.thread, var3, var2);
+      }
+   }
+
    private void callLuaVoid(String var1, Object var2, Object var3, Object var4) {
       Object var5 = LuaManager.getFunctionObject(var1);
       if (var5 != null) {
@@ -6966,6 +7715,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void setTireInflation(int var1, float var2) {
+      Bullet.setTireInflation(this.VehicleID, var1, var2);
    }
 
    public void setTireRemoved(int var1, boolean var2) {
@@ -6976,12 +7726,16 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public Vector3f chooseBestAttackPosition(IsoGameCharacter var1, IsoGameCharacter var2, Vector3f var3) {
-      Vector2f var4 = (Vector2f)((Vector2fObjectPool)TL_vector2f_pool.get()).alloc();
-      Vector2f var5 = var1.getVehicle().getSurroundVehicle().getPositionForZombie((IsoZombie)var2, var4);
-      float var6 = var4.x;
-      float var7 = var4.y;
-      ((Vector2fObjectPool)TL_vector2f_pool.get()).release(var4);
-      return var5 != null ? var3.set(var6, var7, this.z) : null;
+      if (var2 instanceof IsoAnimal) {
+         return null;
+      } else {
+         Vector2f var4 = allocVector2f();
+         Vector2f var5 = var1.getVehicle().getSurroundVehicle().getPositionForZombie((IsoZombie)var2, var4);
+         float var6 = var4.x;
+         float var7 = var4.y;
+         releaseVector2f(var4);
+         return var5 != null ? var3.set(var6, var7, this.getZ()) : null;
+      }
    }
 
    public MinMaxPosition getMinMaxPosition() {
@@ -7131,7 +7885,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                   if (var3 != null) {
                      this.setCurrentKey(var3);
                      InventoryItem var4 = var3.getContainer().getContainingItem();
-                     if (var4 instanceof InventoryContainer && "KeyRing".equals(var4.getType())) {
+                     if (var4 instanceof InventoryContainer && (var4.hasTag("KeyRing") || "KeyRing".equals(var4.getType()))) {
                         var3.getModData().rawset("keyRing", (double)var4.getID());
                      } else if (var3.hasModData()) {
                         var3.getModData().rawset("keyRing", (Object)null);
@@ -7155,7 +7909,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                   if (var3.hasModData() && var3.getModData().rawget("keyRing") instanceof Double) {
                      Double var5 = (Double)var3.getModData().rawget("keyRing");
                      InventoryItem var6 = var7.getItemWithID(var5.intValue());
-                     if (var6 instanceof InventoryContainer && "KeyRing".equals(var6.getType())) {
+                     if (var6 instanceof InventoryContainer && (var6.hasTag("KeyRing") || "KeyRing".equals(var6.getType()))) {
                         var7 = ((InventoryContainer)var6).getInventory();
                      }
 
@@ -7247,7 +8001,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                VehiclePart var8 = (VehiclePart)this.parts.get(var7);
                if (var8.getItemContainer() != null) {
                   if (Core.bDebug) {
-                     DebugLog.log("VEHICLE MISSING CONT DISTRIBUTION: " + var2);
+                     DebugLog.Vehicle.debugln("VEHICLE MISSING CONT DISTRIBUTION: " + var2);
                   }
 
                   return;
@@ -7284,7 +8038,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                      var9.getItemContainer().clear();
                      if (Rand.Next(100) <= 100) {
                         this.randomizeContainer(var9, var4);
-                        LuaEventManager.triggerEvent("OnFillContainer", var2, var9.getItemContainer().getType(), var9.getItemContainer());
                      }
 
                      var9.getItemContainer().setExplored(true);
@@ -7296,18 +8049,39 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
+   private void randomizeContainers(ItemPickerJava.ItemPickerRoom var1) {
+      for(int var2 = 0; var2 < this.parts.size(); ++var2) {
+         VehiclePart var3 = (VehiclePart)this.parts.get(var2);
+         if (var3.getItemContainer() != null) {
+            if (GameServer.bServer && GameServer.bSoftReset) {
+               var3.getItemContainer().setExplored(false);
+            }
+
+            if (!var3.getItemContainer().bExplored) {
+               var3.getItemContainer().clear();
+               if (Rand.Next(100) <= 100) {
+                  this.randomizeContainer(var3, var1);
+               }
+
+               var3.getItemContainer().setExplored(true);
+            }
+         }
+      }
+
+   }
+
    private void randomizeContainer(VehiclePart var1, ItemPickerJava.ItemPickerRoom var2) {
       if (!GameClient.bClient) {
          if (var2 != null) {
             if (!var1.getId().contains("Seat") && !var2.Containers.containsKey(var1.getId())) {
-               String var10000 = var1.getId();
-               DebugLog.log("NO CONT DISTRIB FOR PART: " + var10000 + " CAR: " + this.getScriptName().replaceFirst("Base.", ""));
+               DebugLogStream var10000 = DebugLog.Vehicle;
+               String var10001 = var1.getId();
+               var10000.debugln("NO CONT DISTRIB FOR PART: " + var10001 + " CAR: " + this.getScriptName().replaceFirst("Base.", ""));
             }
 
             ItemPickerJava.fillContainerType(var2, var1.getItemContainer(), "", (IsoGameCharacter)null);
-            if (GameServer.bServer && !var1.getItemContainer().getItems().isEmpty()) {
-            }
-
+            String var3 = this.getScriptName().substring(this.getScriptName().indexOf(46) + 1);
+            LuaEventManager.triggerEvent("OnFillContainer", var3, var1.getItemContainer().getType(), var1.getItemContainer());
          }
       }
    }
@@ -7323,10 +8097,12 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public void onHornStart() {
       this.soundHornOn = true;
+      WorldSoundManager.WorldSound var1;
       if (GameServer.bServer) {
          this.updateFlags = (short)(this.updateFlags | 1024);
          if (this.script.getSounds().hornEnable) {
-            WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 150, 150, false);
+            var1 = WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 150, 150, false);
+            var1.stressAnimals = true;
          }
 
       } else {
@@ -7341,7 +8117,14 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             this.hornemitter.setVolume(this.soundHorn, 1.0F);
             this.hornemitter.setPitch(this.soundHorn, 1.0F);
             if (!GameClient.bClient) {
-               WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 150, 150, false);
+               var1 = WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 150, 150, false);
+               var1.stressAnimals = true;
+            }
+
+            IsoGameCharacter var3 = this.getDriver();
+            IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var3, IsoPlayer.class);
+            if (var2 != null && var2.isLocalPlayer()) {
+               var2.triggerMusicIntensityEvent("VehicleHorn");
             }
          }
 
@@ -7408,6 +8191,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (GameServer.bServer) {
          this.updateFlags = (short)(this.updateFlags | 1024);
       }
+
    }
 
    public int getLightbarSirenMode() {
@@ -7565,6 +8349,10 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                this.engineLoudness = (int)((float)this.engineLoudness * (1.0F + (100.0F - var3.getEngineLoudness()) / 100.0F));
                var1 = true;
             }
+
+            if (var3.getInventoryItem().getDurability() > 0.0F) {
+               var3.setDurability(var3.getInventoryItem().getDurability());
+            }
          }
       }
 
@@ -7609,20 +8397,21 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    public void updateBulletStats() {
       if (!this.getScriptName().contains("Burnt") && WorldSimulation.instance.created) {
          float[] var1 = wheelParams;
+         double var2 = 0.0;
          double var4 = 2.4;
-         byte var6 = 5;
-         double var2;
-         float var7;
+         byte var6 = 100;
+         float var7 = 1.0F;
          if (this.isInForest() && this.isDoingOffroad() && Math.abs(this.getCurrentSpeedKmHour()) > 1.0F) {
-            var2 = (double)Rand.Next(0.08F, 0.18F);
+            var2 = (double)Rand.Next(0.04F, 0.13F);
             var7 = 0.7F;
-            var6 = 3;
+            var6 = 15;
          } else if (this.isDoingOffroad() && Math.abs(this.getCurrentSpeedKmHour()) > 1.0F) {
-            var2 = (double)Rand.Next(0.05F, 0.15F);
+            var6 = 25;
+            var2 = (double)Rand.Next(0.02F, 0.1F);
             var7 = 0.7F;
          } else {
             if (Math.abs(this.getCurrentSpeedKmHour()) > 1.0F && Rand.Next(100) < 10) {
-               var2 = (double)Rand.Next(0.05F, 0.15F);
+               var2 = (double)Rand.Next(0.01F, 0.05F);
             } else {
                var2 = 0.0;
             }
@@ -7705,7 +8494,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             var2[var10 + 4] = 0.1F;
          }
 
-         if (Rand.Next(var5) == 0) {
+         if (var5 > 0 && Rand.Next(var5) == 0) {
             var2[var10 + 5] = (float)(Math.sin(var6 * (double)var12.x()) * Math.sin(var6 * (double)var12.y()) * var8);
          } else {
             var2[var10 + 5] = 0.0F;
@@ -7808,10 +8597,12 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void triggerAlarm() {
-      if (this.alarmed) {
+      if (this.alarmed && !this.previouslyEntered) {
          this.alarmed = false;
          this.alarmTime = Rand.Next(1500, 3000);
          this.alarmAccumulator = 0.0F;
+      } else {
+         this.alarmed = false;
       }
    }
 
@@ -7826,7 +8617,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             return;
          }
 
-         this.alarmAccumulator += GameTime.instance.getMultiplier() / 1.6F;
+         this.alarmAccumulator += GameTime.instance.getThirtyFPSMultiplier();
          if (this.alarmAccumulator >= (float)this.alarmTime) {
             this.onHornStop();
             this.setHeadlightsOn(false);
@@ -7844,8 +8635,26 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             this.onHornStop();
             this.setHeadlightsOn(false);
          }
+
+         this.checkMusicIntensityEvent_AlarmNearby();
       }
 
+   }
+
+   private void checkMusicIntensityEvent_AlarmNearby() {
+      if (!GameServer.bServer) {
+         for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
+            IsoPlayer var2 = IsoPlayer.players[var1];
+            if (var2 != null && !var2.isDeaf() && !var2.isDead()) {
+               float var3 = IsoUtils.DistanceToSquared(this.getX(), this.getY(), var2.getX(), var2.getY());
+               if (!(var3 > 2500.0F)) {
+                  var2.triggerMusicIntensityEvent("AlarmNearby");
+                  break;
+               }
+            }
+         }
+
+      }
    }
 
    public boolean isMechanicUIOpen() {
@@ -7862,11 +8671,13 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             for(int var2 = 0; var2 < this.passengers.length; ++var2) {
                if (this.getPassenger(var2).character != null) {
                   IsoGameCharacter var3 = this.getPassenger(var2).character;
-                  if (GameServer.bServer && var3 instanceof IsoPlayer) {
-                     GameServer.sendPlayerDamagedByCarCrash((IsoPlayer)var3, var1);
-                  } else {
-                     this.addRandomDamageFromCrash(var3, var1);
-                     LuaEventManager.triggerEvent("OnPlayerGetDamage", var3, "CARCRASHDAMAGE", var1);
+                  if (!var3.isGodMod()) {
+                     if (GameServer.bServer && var3 instanceof IsoPlayer) {
+                        GameServer.sendPlayerDamagedByCarCrash((IsoPlayer)var3, var1);
+                     } else {
+                        this.addRandomDamageFromCrash(var3, var1);
+                        LuaEventManager.triggerEvent("OnPlayerGetDamage", var3, "CARCRASHDAMAGE", var1);
+                     }
                   }
                }
             }
@@ -7920,7 +8731,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             var7.generateDeepWound();
          } else if (var8 > 50.0F && Rand.Next(10) == 0 && SandboxOptions.instance.BoneFracture.getValue()) {
             if (var7.getType() != BodyPartType.Neck && var7.getType() != BodyPartType.Groin) {
-               var7.setFractureTime(Rand.Next(Rand.Next(10.0F, var8 + 10.0F), Rand.Next(var8 + 20.0F, var8 + 30.0F)));
+               var7.generateFracture(Rand.Next(Rand.Next(10.0F, var8 + 10.0F), Rand.Next(var8 + 20.0F, var8 + 30.0F)));
             } else {
                var7.generateDeepWound();
             }
@@ -7933,58 +8744,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                var7.setHaveGlass(true);
             }
          }
-      }
-
-   }
-
-   public void hitVehicle(IsoGameCharacter var1, HandWeapon var2) {
-      float var3 = 1.0F;
-      if (var2 == null) {
-         var2 = (HandWeapon)InventoryItemFactory.CreateItem("Base.BareHands");
-      }
-
-      var3 = (float)var2.getDoorDamage();
-      if (var1.isCriticalHit()) {
-         var3 *= 10.0F;
-      }
-
-      VehiclePart var4 = this.getNearestBodyworkPart(var1);
-      if (var4 != null) {
-         VehicleWindow var5 = var4.getWindow();
-
-         for(int var6 = 0; var6 < var4.getChildCount(); ++var6) {
-            VehiclePart var7 = var4.getChild(var6);
-            if (var7.getWindow() != null) {
-               var5 = var7.getWindow();
-               break;
-            }
-         }
-
-         if (var5 != null && var5.getHealth() > 0) {
-            var5.damage((int)var3);
-            this.transmitPartWindow(var4);
-            if (var5.getHealth() == 0) {
-               VehicleManager.sendSoundFromServer(this, (byte)1);
-            }
-         } else {
-            var4.setCondition(var4.getCondition() - (int)var3);
-            this.transmitPartItem(var4);
-         }
-
-         var4.updateFlags = (short)(var4.updateFlags | 2048);
-         this.updateFlags = (short)(this.updateFlags | 2048);
-      } else {
-         Vector3f var8 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-         this.getLocalPos(var1.getX(), var1.getY(), var1.getZ(), var8);
-         boolean var9 = var8.x > 0.0F;
-         ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var8);
-         if (var9) {
-            this.addDamageFront((int)var3);
-         } else {
-            this.addDamageRear((int)var3);
-         }
-
-         this.updateFlags = (short)(this.updateFlags | 2048);
       }
 
    }
@@ -8095,6 +8854,14 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       return this.getSquare() != null && this.getSquare().getZone() != null && ("Forest".equals(this.getSquare().getZone().getType()) || "DeepForest".equals(this.getSquare().getZone().getType()) || "FarmLand".equals(this.getSquare().getZone().getType()));
    }
 
+   public boolean shouldNotHaveLoot() {
+      if (this.getSquare() != null && IsoWorld.instance.MetaGrid.getVehicleZoneAt(this.getSquare().getX(), this.getSquare().getY(), this.getSquare().getZ()) != null && Objects.equals(((VehicleZone)Objects.requireNonNull(IsoWorld.instance.MetaGrid.getVehicleZoneAt(this.getSquare().getX(), this.getSquare().getY(), this.getSquare().getZ()))).name, "junkyard")) {
+         return true;
+      } else {
+         return this.getSquare() != null && IsoWorld.instance.MetaGrid.getVehicleZoneAt(this.getSquare().getX(), this.getSquare().getY(), this.getSquare().getZ()) != null && Objects.equals(((VehicleZone)Objects.requireNonNull(IsoWorld.instance.MetaGrid.getVehicleZoneAt(this.getSquare().getX(), this.getSquare().getY(), this.getSquare().getZ()))).name, "luxuryDealership");
+      }
+   }
+
    public float getOffroadEfficiency() {
       return this.isInForest() ? this.script.getOffroadEfficiency() * 1.5F : this.script.getOffroadEfficiency() * 2.0F;
    }
@@ -8104,7 +8871,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       Vector3f var3 = this.getLinearVelocity((Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
       var3.y = 0.0F;
       Vector3f var4 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-      var4.set(this.x - var1.getX(), 0.0F, this.z - var1.getY());
+      var4.set(this.getX() - var1.getX(), 0.0F, this.getZ() - var1.getY());
       var4.normalize();
       var3.mul(var4);
       ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var4);
@@ -8122,7 +8889,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          }
 
          Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-         var6.set(this.x - var1.getX(), 0.0F, this.y - var1.getY());
+         var6.set(this.getX() - var1.getX(), 0.0F, this.getY() - var1.getY());
          var6.normalize();
          var3.normalize();
          float var7 = var3.dot(var6);
@@ -8145,7 +8912,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public IsoGridSquare getSquare() {
-      return this.getCell().getGridSquare((double)this.x, (double)this.y, (double)this.z);
+      return this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)this.getZ());
    }
 
    public void setColor(float var1, float var2, float var3) {
@@ -8217,6 +8984,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    public void setAddThumpWorldSound(boolean var1) {
       this.bAddThumpWorldSound = var1;
+   }
+
+   public void createImpulse(Vector3f var1) {
    }
 
    public void Thump(IsoMovingObject var1) {
@@ -8364,9 +9134,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          return null;
       } else {
          this.getWorldPos(var3, var3);
-         var3.z = (float)((int)this.z);
+         var3.z = (float)PZMath.fastfloor(this.getZ());
          Vector3f var4 = this.getTowingWorldPos(var1, (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc());
-         boolean var5 = PolygonalMap2.instance.lineClearCollide(var3.x, var3.y, var4.x, var4.y, (int)this.z, this, false, false);
+         boolean var5 = PolygonalMap2.instance.lineClearCollide(var3.x, var3.y, var4.x, var4.y, PZMath.fastfloor(this.getZ()), this, false, false);
          ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var4);
          return var5 ? null : var3;
       }
@@ -8384,22 +9154,22 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          }
 
          Vector2 var6 = new Vector2();
-         var6.x = var1.x;
-         var6.y = var1.y;
-         var6.x -= this.x;
-         var6.y -= this.y;
+         var6.x = var1.getX();
+         var6.y = var1.getY();
+         var6.x -= this.getX();
+         var6.y -= this.getY();
          var6.setLength(2.0F);
          this.drawDirectionLine(var6, var6.getLength(), 1.0F, 0.5F, 0.5F);
       }
    }
 
    public void drawDirectionLine(Vector2 var1, float var2, float var3, float var4, float var5) {
-      float var6 = this.x + var1.x * var2;
-      float var7 = this.y + var1.y * var2;
-      float var8 = IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-      float var9 = IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
-      float var10 = IsoUtils.XToScreenExact(var6, var7, this.z, 0);
-      float var11 = IsoUtils.YToScreenExact(var6, var7, this.z, 0);
+      float var6 = this.getX() + var1.x * var2;
+      float var7 = this.getY() + var1.y * var2;
+      float var8 = IsoUtils.XToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+      float var9 = IsoUtils.YToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+      float var10 = IsoUtils.XToScreenExact(var6, var7, this.getZ(), 0);
+      float var11 = IsoUtils.YToScreenExact(var6, var7, this.getZ(), 0);
       LineDrawer.drawLine(var8, var9, var10, var11, var3, var4, var5, 0.5F, 1);
    }
 
@@ -8408,8 +9178,9 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
    }
 
    public void addPointConstraint(IsoPlayer var1, BaseVehicle var2, String var3, String var4, Boolean var5) {
-      if (var2 == null || var1 != null && (IsoUtils.DistanceToSquared(var1.x, var1.y, this.x, this.y) > 100.0F || IsoUtils.DistanceToSquared(var1.x, var1.y, var2.x, var2.y) > 100.0F)) {
-         DebugLog.General.warn("The " + var1.getUsername() + " user attached vehicles at a long distance");
+      this.setPreviouslyMoved(true);
+      if (var2 == null || var1 != null && (IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), this.getX(), this.getY()) > 100.0F || IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), var2.getX(), var2.getY()) > 100.0F)) {
+         DebugLog.Vehicle.warn("The " + var1.getUsername() + " user attached vehicles at a long distance");
       }
 
       this.breakConstraint(true, var5);
@@ -8547,7 +9318,6 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
                } else if (var11 != null && var11.getCanAttach() != null && !var11.getCanAttach().contains(var2)) {
                   return false;
                } else {
-                  DebugLog.Vehicle.trace("vidA=%d (%s) vidB=%d (%s) dist: %f", this.getId(), var2, var1.getId(), var3, var9);
                   boolean var12 = this.getScriptName().contains("Trailer") || var1.getScriptName().contains("Trailer");
                   return var9 < (var4 ? 10.0F : (var12 ? 1.0F : 4.0F));
                }
@@ -8601,15 +9371,16 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          Vector3f var3 = this.getTowingWorldPos("trailer", (Vector3f)var2.alloc());
          Vector3f var4 = var1.getTowedByWorldPos("trailer", (Vector3f)var2.alloc());
          if (var3 != null && var4 != null) {
-            var4.sub(var1.x, var1.y, var1.z);
+            var4.sub(var1.getX(), var1.getY(), var1.getZ());
             var3.sub(var4);
-            Transform var5 = var1.getWorldTransform(this.tempTransform);
+            Transform var5 = var1.getWorldTransform(allocTransform());
             var5.origin.set(var3.x - WorldSimulation.instance.offsetX, var1.jniTransform.origin.y, var3.y - WorldSimulation.instance.offsetY);
             var1.setWorldTransform(var5);
+            releaseTransform(var5);
             var1.setX(var3.x);
-            var1.setLx(var3.x);
+            var1.setLastX(var3.x);
             var1.setY(var3.y);
-            var1.setLy(var3.y);
+            var1.setLastY(var3.y);
             var1.setCurrent(this.getCell().getGridSquare((double)var3.x, (double)var3.y, 0.0));
             this.addPointConstraint((IsoPlayer)null, var1, "trailer", "trailer");
             var2.release(var3);
@@ -8630,7 +9401,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (this.vehicleEngineRPM == null) {
          this.vehicleEngineRPM = ScriptManager.instance.getVehicleEngineRPM(this.getScript().getEngineRPMType());
          if (this.vehicleEngineRPM == null) {
-            DebugLog.General.warn("unknown vehicleEngineRPM \"%s\"", this.getScript().getEngineRPMType());
+            DebugLog.Vehicle.warn("unknown vehicleEngineRPM \"%s\"", this.getScript().getEngineRPMType());
             this.vehicleEngineRPM = new VehicleEngineRPM();
          }
       }
@@ -8721,42 +9492,49 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
          }
       }
 
-      int var9 = this.getKeyId();
+      int var10 = this.getKeyId();
       if (var3 != null) {
          this.removeFromWorld();
          this.permanentlyRemove();
-         BaseVehicle var10 = new BaseVehicle(IsoWorld.instance.CurrentCell);
-         var10.setScriptName(var3);
-         var10.setScript();
-         var10.setSkinIndex(var4);
-         var10.setX(this.x);
-         var10.setY(this.y);
-         var10.setZ(this.z);
-         var10.setDir(this.getDir());
-         var10.savedRot.set(this.savedRot);
+         BaseVehicle var11 = new BaseVehicle(IsoWorld.instance.CurrentCell);
+         var11.setScriptName(var3);
+         var11.setScript();
+         var11.setSkinIndex(var4);
+         var11.setX(this.getX());
+         var11.setY(this.getY());
+         var11.setZ(this.getZ());
+         var11.setDir(this.getDir());
+         var11.savedRot.set(this.savedRot);
+         var11.savedPhysicsZ = this.savedPhysicsZ;
          if (var2) {
             float var8 = this.getAngleY();
-            var10.savedRot.rotationXYZ(0.0F, var8 * 0.017453292F, 3.1415927F);
+            var11.savedRot.rotationXYZ(0.0F, var8 * 0.017453292F, 3.1415927F);
          }
 
-         var10.jniTransform.setRotation(var10.savedRot);
-         if (IsoChunk.doSpawnedVehiclesInInvalidPosition(var10)) {
-            var10.setSquare(this.square);
-            var10.square.chunk.vehicles.add(var10);
-            var10.chunk = var10.square.chunk;
-            var10.addToWorld();
-            VehiclesDB2.instance.addVehicle(var10);
+         var11.jniTransform.setRotation(var11.savedRot);
+         if (IsoChunk.doSpawnedVehiclesInInvalidPosition(var11)) {
+            var11.setSquare(this.square);
+            var11.square.chunk.vehicles.add(var11);
+            var11.chunk = var11.square.chunk;
+            var11.addToWorld();
+            VehiclesDB2.instance.addVehicle(var11);
          }
 
-         var10.setGeneralPartCondition(0.5F, 60.0F);
-         VehiclePart var11 = var10.getPartById("Engine");
-         if (var11 != null) {
-            var11.setCondition(0);
+         var11.setGeneralPartCondition(0.5F, 60.0F);
+         VehiclePart var12 = var11.getPartById("Engine");
+         if (var12 != null) {
+            var12.setCondition(0);
          }
 
-         var10.engineQuality = 0;
-         var10.setKeyId(var9);
-         return var10;
+         VehiclePart var9 = var11.getPartById("GloveBox");
+         if (var9 != null) {
+            var9.setInventoryItem((InventoryItem)null);
+            var9.setCondition(0);
+         }
+
+         var11.engineQuality = 0;
+         var11.setKeyId(var10);
+         return var11;
       } else {
          return this;
       }
@@ -8823,7 +9601,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       if (var2.vehicleSpeed >= 5.0F || this.zombiesHits > 10) {
          var2.vehicleSpeed = this.getCurrentSpeedKmHour() / 5.0F;
          Vector3f var7 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
-         this.getLocalPos(var1.x, var1.y, var1.z, var7);
+         this.getLocalPos(var1.getX(), var1.getY(), var1.getZ(), var7);
          int var8;
          if (var7.z > 0.0F) {
             var8 = this.caclulateDamageWithBodies(true);
@@ -8850,6 +9628,881 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
 
    }
 
+   public float getAnimalTrailerSize() {
+      return this.getScript().getAnimalTrailerSize();
+   }
+
+   public ArrayList<IsoAnimal> getAnimals() {
+      return this.animals;
+   }
+
+   public void addAnimalFromHandsInTrailer(IsoAnimal var1, IsoPlayer var2) {
+      this.animals.add(var1);
+      var1.setVehicle(this);
+      AnimalInventoryItem var3 = var2.getInventory().getAnimalInventoryItem(var1);
+      if (var3 != null) {
+         var2.getInventory().Remove((InventoryItem)var3);
+      } else {
+         DebugLog.Animal.error("Animal not found: id=%d/%d", var1.getAnimalID(), var1.getOnlineID());
+      }
+
+      var2.setPrimaryHandItem((InventoryItem)null);
+      var2.setSecondaryHandItem((InventoryItem)null);
+      this.recalcAnimalSize();
+   }
+
+   public void addAnimalFromHandsInTrailer(IsoDeadBody var1, IsoPlayer var2) {
+      IsoAnimal var3 = IsoAnimal.createAnimalFromCorpse(var1);
+      var3.setHealth(0.0F);
+      InventoryItem var4 = var2.getPrimaryHandItem();
+      var2.getInventory().Remove(var4);
+      var2.setPrimaryHandItem((InventoryItem)null);
+      var2.setSecondaryHandItem((InventoryItem)null);
+      this.addAnimalInTrailer(var3);
+   }
+
+   public void addAnimalInTrailer(IsoDeadBody var1) {
+      IsoAnimal var2 = IsoAnimal.createAnimalFromCorpse(var1);
+      var2.setHealth(0.0F);
+      this.addAnimalInTrailer(var2);
+      var1.getSquare().removeCorpse(var1, false);
+      var1.invalidateCorpse();
+   }
+
+   public void addAnimalInTrailer(IsoAnimal var1) {
+      this.animals.add(var1);
+      if (var1.mother != null) {
+         var1.attachBackToMother = var1.mother.animalID;
+      }
+
+      var1.setVehicle(this);
+      if (var1.getData().getAttachedPlayer() != null) {
+         var1.getData().getAttachedPlayer().removeAttachedAnimal(var1);
+         var1.getData().setAttachedPlayer((IsoPlayer)null);
+      }
+
+      var1.removeFromWorld();
+      var1.removeFromSquare();
+      var1.setX(this.getX());
+      var1.setY(this.getY());
+      this.recalcAnimalSize();
+   }
+
+   private void recalcAnimalSize() {
+      this.totalAnimalSize = 0.0F;
+
+      for(int var1 = 0; var1 < this.animals.size(); ++var1) {
+         this.totalAnimalSize += ((IsoAnimal)this.animals.get(var1)).getAnimalTrailerSize();
+      }
+
+   }
+
+   public IsoObject removeAnimalFromTrailer(IsoAnimal var1) {
+      Object var2 = null;
+
+      for(int var3 = 0; var3 < this.animals.size(); ++var3) {
+         IsoAnimal var4 = (IsoAnimal)this.animals.get(var3);
+         if (var4 == var1) {
+            this.animals.remove(var4);
+            Vector2 var5 = this.getAreaCenter("AnimalEntry");
+            IsoAnimal var6 = new IsoAnimal(this.getSquare().getCell(), (int)var5.x, (int)var5.y, this.getSquare().z, var1.getAnimalType(), var1.getBreed());
+            var6.copyFrom(var1);
+            AnimalInstanceManager.getInstance().remove(var1);
+            AnimalInstanceManager.getInstance().add(var6, var1.getOnlineID());
+            var6.attachBackToMotherTimer = 10000.0F;
+            var2 = var6;
+            if (var1.getHealth() == 0.0F) {
+               IsoDeadBody var7 = new IsoDeadBody(var6);
+               if (var6.getSquare() != null) {
+                  var6.getSquare().addCorpse(var7, false);
+                  var7.invalidateCorpse();
+               }
+
+               var2 = var7;
+            }
+         }
+      }
+
+      this.recalcAnimalSize();
+      return (IsoObject)var2;
+   }
+
+   public void replaceGrownAnimalInTrailer(IsoAnimal var1, IsoAnimal var2) {
+      if (var1 != null && var2 != null && var1 != var2 && !this.animals.contains(var2)) {
+         for(int var3 = 0; var3 < this.animals.size(); ++var3) {
+            IsoAnimal var4 = (IsoAnimal)this.animals.get(var3);
+            if (var4 == var1) {
+               this.animals.set(var3, var2);
+               break;
+            }
+         }
+
+         this.recalcAnimalSize();
+      }
+   }
+
+   public float getCurrentTotalAnimalSize() {
+      return this.totalAnimalSize;
+   }
+
+   public void setCurrentTotalAnimalSize(float var1) {
+      this.totalAnimalSize = var1;
+   }
+
+   public void keyNamerVehicle(InventoryItem var1) {
+      keyNamerVehicle(var1, this);
+   }
+
+   public static void keyNamerVehicle(InventoryItem var0, BaseVehicle var1) {
+      if (!var0.getType().equals("KeyRing") && !var0.hasTag("KeyRing")) {
+         String var2 = var1.getScript().getName();
+         if (var1.getScript().getCarModelName() != null) {
+            var2 = var1.getScript().getCarModelName();
+         }
+
+         String var10001 = Translator.getText(var0.getScriptItem().getDisplayName());
+         var0.setName(var10001 + " - " + Translator.getText("IGUI_VehicleName" + var2));
+      }
+
+   }
+
+   public boolean checkZombieKeyForVehicle(IsoZombie var1) {
+      return this.checkZombieKeyForVehicle(var1, this.getScriptName());
+   }
+
+   public boolean checkZombieKeyForVehicle(IsoZombie var1, String var2) {
+      if (!var2.contains("Burnt") && !var2.equals("Trailer") && !var2.equals("TrailerAdvert")) {
+         String var3 = var1.getOutfitName();
+         if (var3 == null) {
+            return false;
+         } else if (this.getZombieType() != null && this.hasZombieType(var3)) {
+            return true;
+         } else if (var3.contains("Survivalist")) {
+            return true;
+         } else if (this.getZombieType() != null) {
+            return false;
+         } else if (this.checkForSpecialMatchOne("Fire", var2, var3)) {
+            return this.checkForSpecialMatchTwo("Fire", var2, var3);
+         } else if (this.checkForSpecialMatchOne("Police", var2, var3)) {
+            return this.checkForSpecialMatchTwo("Police", var2, var3);
+         } else if (this.checkForSpecialMatchOne("Spiffo", var2, var3)) {
+            return this.checkForSpecialMatchTwo("Spiffo", var2, var3);
+         } else if (!var2.contains("Ranger") && (!var2.contains("Lights") || this.getSkinIndex() != 0)) {
+            if ((!var2.contains("Lights") || this.getSkinIndex() != 1) && (!var2.contains("VanSpecial") || this.getSkinIndex() != 0) && !var2.contains("Fossoil")) {
+               if (var3.contains("Postal")) {
+                  return var2.contains("Mail") || var2.contains("VanSpecial") && this.getSkinIndex() == 2;
+               } else if (!var2.contains("Mccoy") && (!var2.contains("VanSpecial") || this.getSkinIndex() != 1)) {
+                  if (var2.contains("Taxi")) {
+                     return var3.contains("Generic");
+                  } else if (!var3.contains("Cook") && !var3.contains("Security") && !var3.contains("Waiter")) {
+                     if (!var3.contains("Farmer") && !var3.contains("Fisherman") && !var3.contains("Hunter")) {
+                        if (var3.contains("Teacher")) {
+                           return var2.contains("Normal") || var2.contains("Small") || var2.contains("StationWagon") || var2.contains("SUV");
+                        } else if (!var3.contains("Young") && !var3.contains("Student") || var2.contains("Small") && Rand.Next(2) == 0) {
+                           if (!var2.contains("Luxury") && !var2.contains("Modern") && !var2.contains("SUV")) {
+                              if (var2.contains("Sports")) {
+                                 return var3.contains("Classy") || var3.contains("Doctor") || var3.contains("Dress") || var3.contains("Generic") || var3.contains("Golfer") || var3.contains("OfficeWorker") || var3.contains("Trader") || var3.contains("Bandit") || var3.contains("Biker") || var3.contains("Redneck") || var3.contains("Veteran") || var3.contains("Thug") || var3.contains("Foreman");
+                              } else if (!var2.contains("Small") && !var2.contains("StationWagon") || !var3.contains("Foreman") && !var3.contains("Classy") && !var3.contains("Doctor") && !var3.contains("Golfer") && !var3.contains("Trader") && !var3.contains("Biker")) {
+                                 if (!var2.contains("Pickup") && !var2.contains("Van") || !var3.contains("Classy") && !var3.contains("Doctor") && !var3.contains("Golfer") && !var3.contains("Trader")) {
+                                    if (!var3.contains("ConstructionWorker") && !var3.contains("Fossoil")) {
+                                       if (var2.contains("OffRoad")) {
+                                          return var3.contains("Classy") || var3.contains("Doctor") || var3.contains("Generic") || var3.contains("Golfer") || var3.contains("Foreman") || var3.contains("Trader") || var3.contains("Biker") || var3.contains("Redneck");
+                                       } else if (!var3.contains("Redneck") && !var3.contains("Thug") && !var3.contains("Veteran")) {
+                                          if (!var3.contains("Biker")) {
+                                             return true;
+                                          } else {
+                                             return var2.contains("Normal") || var2.contains("Pickup") || var2.contains("Offroad");
+                                          }
+                                       } else {
+                                          return var2.contains("Normal") || var2.contains("Pickup") || var2.contains("Offroad") || var2.contains("Small");
+                                       }
+                                    } else {
+                                       return var2.contains("Pickup") || var2.contains("Offroad");
+                                    }
+                                 } else {
+                                    return false;
+                                 }
+                              } else {
+                                 return false;
+                              }
+                           } else {
+                              return var3.contains("Classy") || var3.contains("Doctor") || var3.contains("Dress") || var3.contains("Generic") || var3.contains("Golfer") || var3.contains("OfficeWorker") || var3.contains("Foreman") || var3.contains("Priest") || var3.contains("Thug") || var3.contains("Trader") || var3.contains("FitnessInstructor");
+                           }
+                        } else {
+                           return false;
+                        }
+                     } else {
+                        return var2.contains("Pickup") || var2.contains("OffRoad") || var2.contains("SUV") || var2.equals("Trailer_Horsebox") || var2.equals("Trailer_Livestock");
+                     }
+                  } else {
+                     return var2.contains("Normal") || var2.contains("Small");
+                  }
+               } else {
+                  return var3.contains("Foreman") || var3.contains("Mccoy");
+               }
+            } else {
+               return var3.contains("ConstructionWorker") || var3.contains("Fossoil") || var3.contains("Foreman") || var3.contains("Mechanic") || var3.contains("MetalWorker");
+            }
+         } else {
+            return var3.contains("Ranger");
+         }
+      } else {
+         return false;
+      }
+   }
+
+   public boolean checkForSpecialMatchOne(String var1, String var2, String var3) {
+      return var2.contains(var1) || var3.contains(var1);
+   }
+
+   public boolean checkForSpecialMatchTwo(String var1, String var2, String var3) {
+      return var2.contains(var1) && var3.contains(var1);
+   }
+
+   public boolean checkIfGoodVehicleForKey() {
+      return !this.getScriptName().contains("Burnt");
+   }
+
+   public boolean trySpawnVehicleKeyOnZombie(IsoZombie var1) {
+      if (var1.shouldZombieHaveKey(true) && this.checkZombieKeyForVehicle(var1)) {
+         InventoryItem var2;
+         if (Rand.Next(2) == 0) {
+            var2 = this.createVehicleKey();
+            this.keySpawned = 1;
+            this.keyNamerVehicle(var2);
+            var1.addItemToSpawnAtDeath(var2);
+            return true;
+         } else {
+            var2 = InventoryItemFactory.CreateItem("KeyRing");
+            InventoryContainer var3 = (InventoryContainer)var2;
+            this.keyNamerVehicle(var3);
+            InventoryItem var4 = this.createVehicleKey();
+            this.keySpawned = 1;
+            this.keyNamerVehicle(var4);
+            var3.getInventory().AddItem(var4);
+            var1.addItemToSpawnAtDeath(var2);
+            if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100) {
+               float var5 = this.getX();
+               float var6 = this.getY();
+               Vector2f var7 = new Vector2f();
+               BuildingDef var8 = AmbientStreamManager.getNearestBuilding(var5, var6, var7);
+               if (var8 != null && var8.getKeyId() != -1) {
+                  String var9 = "Base.Key1";
+                  InventoryItem var10 = InventoryItemFactory.CreateItem(var9);
+                  var10.setKeyId(var8.getKeyId());
+                  IsoGridSquare var11 = var8.getFreeSquareInRoom();
+                  if (var11 != null) {
+                     ItemPickerJava.KeyNamer.nameKey(var10, (IsoGridSquare)Objects.requireNonNull(var8.getFreeSquareInRoom()));
+                  }
+
+                  var3.getInventory().AddItem(var10);
+               }
+            }
+
+            return true;
+         }
+      } else {
+         return false;
+      }
+   }
+
+   public boolean trySpawnVehicleKeyInObject(IsoObject var1) {
+      if (var1.container != null && var1.container.getFirstTagRecurse("CarKey") == null && (var1.container.type.equals("counter") || var1.container.type.equals("officedrawers") || var1.container.type.equals("shelves") || var1.container.type.equals("desk") || var1.container.type.equals("filingcabinet") || var1.container.type.equals("locker") || var1.container.type.equals("metal_shelves") || var1.container.type.equals("tent") || var1.container.type.equals("shelter") || var1.container.type.equals("sidetable") || var1.container.type.equals("plankstash") || var1.container.type.equals("wardrobe") || var1.container.type.equals("dresser"))) {
+         this.putKeyToContainer(var1.container, this.square, var1);
+         if ((float)Rand.Next(100) < 1.0F * this.keySpawnChancedD100 && this.square.getBuilding() != null && this.square.getBuilding().getDef() != null && this.square.getBuilding().getDef().getKeyId() != -1) {
+            this.addBuildingKeyToGloveBox(this.square);
+         }
+
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   public boolean checkSquareForVehicleKeySpot(IsoGridSquare var1) {
+      boolean var2 = false;
+      if (var1 != null) {
+         var2 = this.checkSquareForVehicleKeySpotContainer(var1) || this.checkSquareForVehicleKeySpotZombie(var1);
+      }
+
+      return var2;
+   }
+
+   public boolean checkSquareForVehicleKeySpotContainer(IsoGridSquare var1) {
+      boolean var2 = false;
+      if (var1 != null && !this.getScriptName().contains("Smashed")) {
+         for(int var3 = 0; var3 < var1.getObjects().size(); ++var3) {
+            IsoObject var4 = (IsoObject)var1.getObjects().get(var3);
+            var2 = this.trySpawnVehicleKeyInObject(var4);
+            if (var2) {
+               return true;
+            }
+         }
+      }
+
+      return var2;
+   }
+
+   public boolean checkSquareForVehicleKeySpotZombie(IsoGridSquare var1) {
+      boolean var2 = false;
+      if (var1 != null) {
+         for(int var3 = 0; var3 < var1.getMovingObjects().size(); ++var3) {
+            if (var1.getMovingObjects().get(var3) instanceof IsoZombie && ((IsoZombie)var1.getMovingObjects().get(var3)).shouldZombieHaveKey(true)) {
+               IsoZombie var4 = (IsoZombie)var1.getMovingObjects().get(var3);
+               var2 = this.trySpawnVehicleKeyOnZombie(var4);
+               if (var2) {
+                  return true;
+               }
+            }
+         }
+      }
+
+      return var2;
+   }
+
+   private static float doKeySandboxSettings(int var0) {
+      switch (var0) {
+         case 1:
+            return 0.0F;
+         case 2:
+            return 0.05F;
+         case 3:
+            return 0.2F;
+         case 4:
+            return 0.6F;
+         case 5:
+            return 1.0F;
+         case 6:
+            return 2.0F;
+         case 7:
+            return 2.4F;
+         default:
+            return 0.6F;
+      }
+   }
+
+   public void forceVehicleDistribution(String var1) {
+      ItemPickerJava.VehicleDistribution var2 = (ItemPickerJava.VehicleDistribution)ItemPickerJava.VehicleDistributions.get(var1);
+      ItemPickerJava.ItemPickerRoom var3 = var2.Normal;
+
+      for(int var4 = 0; var4 < this.getPartCount(); ++var4) {
+         VehiclePart var5 = this.getPartByIndex(var4);
+         if (var5.getItemContainer() != null) {
+            if (GameServer.bServer && GameServer.bSoftReset) {
+               var5.getItemContainer().setExplored(false);
+            }
+
+            if (!var5.getItemContainer().bExplored) {
+               var5.getItemContainer().clear();
+               this.randomizeContainer(var5, var3);
+               var5.getItemContainer().setExplored(true);
+            }
+         }
+      }
+
+   }
+
+   public boolean canLightSmoke(IsoGameCharacter var1) {
+      if (var1 == null) {
+         return false;
+      } else if (!this.hasLighter()) {
+         return false;
+      } else if (this.getBatteryCharge() <= 0.0F) {
+         return false;
+      } else {
+         return this.getSeat(var1) <= 1;
+      }
+   }
+
+   private void checkVehicleFailsToStartWithZombiesTargeting() {
+      if (!GameServer.bServer) {
+         for(int var1 = 0; var1 < this.getMaxPassengers(); ++var1) {
+            Passenger var2 = this.getPassenger(var1);
+            IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var2.character, IsoPlayer.class);
+            if (var3 != null && var3.isLocalPlayer()) {
+               int var4 = var3.getStats().MusicZombiesTargeting_NearbyMoving;
+               var4 += var3.getStats().MusicZombiesTargeting_NearbyNotMoving;
+               if (var4 > 0) {
+                  var3.triggerMusicIntensityEvent("VehicleFailsToStartWithZombiesTargeting");
+               }
+            }
+         }
+
+      }
+   }
+
+   private void checkVehicleStartsWithZombiesTargeting() {
+      if (!GameServer.bServer) {
+         for(int var1 = 0; var1 < this.getMaxPassengers(); ++var1) {
+            Passenger var2 = this.getPassenger(var1);
+            IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var2.character, IsoPlayer.class);
+            if (var3 != null && var3.isLocalPlayer()) {
+               int var4 = var3.getStats().MusicZombiesTargeting_NearbyMoving;
+               var4 += var3.getStats().MusicZombiesTargeting_NearbyNotMoving;
+               if (var4 > 0) {
+                  var3.triggerMusicIntensityEvent("VehicleStartsWithZombiesTargeting");
+               }
+            }
+         }
+
+      }
+   }
+
+   public ArrayList<String> getZombieType() {
+      return this.script.getZombieType();
+   }
+
+   public String getRandomZombieType() {
+      return this.script.getRandomZombieType();
+   }
+
+   public boolean hasZombieType(String var1) {
+      return this.script.hasZombieType(var1);
+   }
+
+   public String getFirstZombieType() {
+      return this.script.getFirstZombieType();
+   }
+
+   public boolean notKillCrops() {
+      return this.script.notKillCrops();
+   }
+
+   public boolean hasLighter() {
+      return this.script.hasLighter();
+   }
+
+   public boolean leftSideFuel() {
+      VehicleScript.Area var1 = this.getScript().getAreaById("GasTank");
+      return var1 != null && !(var1.x < 0.0F);
+   }
+
+   public boolean rightSideFuel() {
+      VehicleScript.Area var1 = this.getScript().getAreaById("GasTank");
+      return var1 != null && !(var1.x > 0.0F);
+   }
+
+   public boolean isCreated() {
+      return this.bCreated;
+   }
+
+   public float getTotalContainerItemWeight() {
+      float var1 = 0.0F;
+
+      for(int var2 = 0; var2 < this.parts.size(); ++var2) {
+         VehiclePart var3 = (VehiclePart)this.parts.get(var2);
+         if (var3.getItemContainer() != null) {
+            var1 += var3.getItemContainer().getCapacityWeight();
+         }
+      }
+
+      return var1;
+   }
+
+   public boolean isSirening() {
+      return this.hasLightbar() && this.lightbarSirenMode.get() > 0;
+   }
+
+   private boolean isDriverGodMode() {
+      IsoGameCharacter var1 = this.getDriver();
+      return var1 != null && var1.isGodMod();
+   }
+
+   public Vector3 getIntersectPoint(Vector3 var1, Vector3 var2) {
+      Vector3f var3 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+      float var4 = this.script.getExtents().x * 0.5F + this.script.getCenterOfMassOffset().x();
+      float var5 = this.script.getExtents().y * 0.5F + this.script.getCenterOfMassOffset().y();
+      float var6 = this.script.getExtents().z * 0.5F + this.script.getCenterOfMassOffset().z();
+      Vector3 var7 = new Vector3(var4, var5, var6);
+      this.getLocalPos(var1.x(), var1.y(), var1.z(), var3);
+      Vector3 var8 = new Vector3(var3.x(), var3.y(), var3.z());
+      this.getLocalPos(var2.x(), var2.y(), var2.z(), var3);
+      Vector3 var9 = new Vector3(var3.x(), var3.y(), var3.z());
+      Vector3 var10 = this.getIntersectPoint(var8, var9, var7);
+      if (var10 == null) {
+         return null;
+      } else {
+         this.getWorldPos(var10.x(), var10.y(), var10.z(), var3);
+         var10.set(var3.x(), var3.y(), var3.z());
+         ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var3);
+         return var10;
+      }
+   }
+
+   private Vector3 getIntersectPoint(Vector3 var1, Vector3 var2, Vector3 var3) {
+      Vector3 var4 = new Vector3(var3);
+      Vector3 var5 = new Vector3(var3.mul(-1.0F));
+      float var6 = 0.0F;
+      float var7 = 1.0F;
+      Vector3 var8 = var2.sub(var1);
+
+      for(int var9 = 0; var9 < 3; ++var9) {
+         float var10 = var1.get(var9);
+         float var11 = var5.get(var9);
+         float var12 = var4.get(var9);
+         float var13 = var8.get(var9);
+         if ((double)Math.abs(var13) < 1.0E-6) {
+            if (var10 < var11 || var10 > var12) {
+               return null;
+            }
+         } else {
+            float var14 = (var11 - var10) / var13;
+            float var15 = (var12 - var10) / var13;
+            if (var14 > var15) {
+               float var16 = var14;
+               var14 = var15;
+               var15 = var16;
+            }
+
+            var6 = Math.max(var6, var14);
+            var7 = Math.min(var7, var15);
+            if (var6 > var7) {
+               return null;
+            }
+         }
+      }
+
+      return var1.add(var8.mul(var6));
+   }
+
+   public VehiclePart getNearestVehiclePart(float var1, float var2, float var3, boolean var4) {
+      Vector3f var5 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+      Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+      var5.set(var1, var2, var3);
+      VehiclePart var7 = null;
+      Object var8 = null;
+      float var9 = 3.4028235E38F;
+
+      for(int var10 = 0; var10 < this.script.getAreaCount(); ++var10) {
+         VehicleScript.Area var11 = this.script.getArea(var10);
+         String var12 = var11.getId();
+         VehiclePart var13 = this.getPartById(var12);
+         if (var13 != null && (var4 || var13.condition != 0) && this.isInArea(var12, var5)) {
+            this.getWorldPos(var11.x, var11.y, var3, var6);
+            float var14 = var5.distance(var6);
+            if (var14 < var9) {
+               var9 = var14;
+               var7 = var13;
+            }
+         }
+      }
+
+      ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var6);
+      ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var5);
+      return var7;
+   }
+
+   public boolean isInArea(String var1, Vector3f var2) {
+      if (var1 != null && this.getScript() != null) {
+         VehicleScript.Area var3 = this.getScript().getAreaById(var1);
+         if (var3 == null) {
+            return false;
+         } else {
+            Vector2 var4 = (Vector2)((Vector2ObjectPool)TL_vector2_pool.get()).alloc();
+            Vector2 var5 = this.areaPositionLocal(var3, var4);
+            if (var5 == null) {
+               ((Vector2ObjectPool)TL_vector2_pool.get()).release(var4);
+               return false;
+            } else {
+               Vector3f var6 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+               this.getLocalPos(var2.x, var2.y, this.getZ(), var6);
+               float var7 = var5.x - (var3.w + 0.01F) * 0.5F;
+               float var8 = var5.y - (var3.h + 0.01F) * 0.5F;
+               float var9 = var5.x + (var3.w + 0.01F) * 0.5F;
+               float var10 = var5.y + (var3.h + 0.01F) * 0.5F;
+               boolean var11 = var6.x >= var7 && var6.x < var9 && var6.z >= var8 && var6.z < var10;
+               ((Vector2ObjectPool)TL_vector2_pool.get()).release(var4);
+               ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var6);
+               return var11;
+            }
+         }
+      } else {
+         return false;
+      }
+   }
+
+   private boolean processRangeHit(IsoGameCharacter var1, HandWeapon var2, float var3) {
+      VehiclePart var4 = null;
+      float var5 = var2.getMaxRange(var1);
+      Vector3 var6 = new Vector3();
+      Vector3 var7 = new Vector3();
+      BallisticsController var8 = var1.getBallisticsController();
+      float var9 = var1.getLookAngleRadians();
+      Vector3 var10 = new Vector3();
+      var10.set((float)Math.cos((double)var9), (float)Math.sin((double)var9), 0.0F);
+      var10.normalize();
+      zombie.iso.Vector3 var11 = var8.getMuzzlePosition();
+      var6.set(var11.x, var11.y, var11.z);
+      var7.set(var6.x() + var10.x() * var5, var6.y() + var10.y() * var5, var6.z() + var10.z() * var5);
+      Vector3 var12 = this.getIntersectPoint(var6, var7);
+      if (var12 == null) {
+         return false;
+      } else {
+         var4 = this.getPartByDirection(var1.getX(), var1.getY(), var1.getZ());
+         if (var4 == null) {
+            return false;
+         } else {
+            this.applyDamageToPart(var1, var2, var4, var3);
+            return true;
+         }
+      }
+   }
+
+   private boolean processMeleeHit(IsoGameCharacter var1, HandWeapon var2, float var3) {
+      IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      if (var4 != null) {
+         var4.setVehicleHitLocation(this);
+      }
+
+      VehiclePart var5 = this.getNearestBodyworkPart(var1);
+      if (var5 == null) {
+         return false;
+      } else {
+         this.applyDamageToPart(var1, var2, var5, var3);
+         return true;
+      }
+   }
+
+   private void applyDamageToPart(IsoGameCharacter var1, HandWeapon var2, VehiclePart var3, float var4) {
+      if (var3 != null) {
+         VehicleWindow var5 = var3.getWindow();
+
+         for(int var6 = 0; var6 < var3.getChildCount(); ++var6) {
+            VehiclePart var7 = var3.getChild(var6);
+            if (var7 != null && var7.getWindow() != null) {
+               var5 = var7.getWindow();
+               break;
+            }
+         }
+
+         float var8 = 0.0F;
+         if (var3.light != null) {
+            var8 = CombatManager.getInstance().calculateDamageToVehicle(var1, var3.getDurability(), var4, var2.getDoorDamage());
+            var3.setCondition(var3.getCondition() - (int)var8);
+            if (GameServer.bServer) {
+               this.transmitPartItem(var3);
+               GameServer.PlayWorldSoundServer(var1, "HitVehicleWindowWithWeapon", false, var3.getSquare(), 0.2F, 10.0F, 1.1F, true);
+            } else if (!GameClient.bClient) {
+               var1.playSound("HitVehicleWindowWithWeapon");
+            }
+         } else if (var5 != null && var5.isHittable()) {
+            var8 = CombatManager.getInstance().calculateDamageToVehicle(var1, var3.getDurability(), var4, var2.getDoorDamage());
+            var5.damage((int)var8);
+            if (GameServer.bServer) {
+               this.transmitPartWindow(var3);
+               GameServer.PlayWorldSoundServer(var1, "HitVehicleWindowWithWeapon", false, var3.getSquare(), 0.2F, 10.0F, 1.1F, true);
+            } else if (!GameClient.bClient) {
+               var1.playSound("HitVehicleWindowWithWeapon");
+            }
+         } else {
+            var8 = CombatManager.getInstance().calculateDamageToVehicle(var1, var3.getDurability(), var4, var2.getDoorDamage());
+            var3.setCondition(var3.getCondition() - (int)var8);
+            if (GameServer.bServer) {
+               this.transmitPartItem(var3);
+               GameServer.PlayWorldSoundServer(var1, "HitVehiclePartWithWeapon", false, var3.getSquare(), 0.2F, 10.0F, 1.1F, true);
+            } else if (!GameClient.bClient) {
+               var1.playSound("HitVehiclePartWithWeapon");
+            }
+         }
+
+         var3.updateFlags = (short)(var3.updateFlags | 2048);
+         this.updateFlags = (short)(this.updateFlags | 2048);
+         DebugLog.Combat.debugln("VehiclePart = %s : durability = %f : damage = %f : conditionalDamage = %f", var3.getId(), var3.getDurability(), var4, var8);
+      }
+
+   }
+
+   public boolean processHit(IsoGameCharacter var1, HandWeapon var2, float var3) {
+      return var2.isRanged() ? this.processRangeHit(var1, var2, var3) : this.processMeleeHit(var1, var2, var3);
+   }
+
+   private VehiclePart getPartByDirection(float var1, float var2, float var3) {
+      Vector3f var4 = (Vector3f)((Vector3fObjectPool)TL_vector3f_pool.get()).alloc();
+      this.getLocalPos(var1, var2, var3, var4);
+      var1 = var4.x;
+      var3 = var4.z;
+      ((Vector3fObjectPool)TL_vector3f_pool.get()).release(var4);
+      Vector3f var5 = this.script.getExtents();
+      Vector3f var6 = this.script.getCenterOfMassOffset();
+      float var7 = var6.x - var5.x * 0.5F;
+      float var8 = var6.x + var5.x * 0.5F;
+      float var9 = var6.z - var5.z * 0.5F;
+      float var10 = var6.z + var5.z * 0.5F;
+      if (var1 < var7 * 0.98F) {
+         return this.getWeightedRandomSidePart("Right");
+      } else if (var1 > var8 * 0.98F) {
+         return this.getWeightedRandomSidePart("Left");
+      } else if (var3 < var9 * 0.98F) {
+         return this.getWeightedRandomRearPart();
+      } else {
+         return var3 > var10 * 0.98F ? this.getWeightedRandomFrontPart() : this.getAnyRandomPart();
+      }
+   }
+
+   private void buildVehiclePartList(String var1, float var2, ArrayList<WeightedVehiclePart> var3) {
+      WeightedVehiclePart var4 = new WeightedVehiclePart();
+      var4.vehiclePart = this.getPartById(var1);
+      var4.weight = var2;
+      if (var4.vehiclePart != null) {
+         if (var4.vehiclePart.condition != 0) {
+            var3.add(var4);
+         }
+      }
+   }
+
+   private VehiclePart getAnyRandomPart() {
+      ArrayList var1 = new ArrayList();
+
+      for(int var2 = 0; var2 < this.getPartCount(); ++var2) {
+         VehiclePart var3 = this.getPartByIndex(var2);
+         if (var3 != null && var3.condition != 0) {
+            var1.add(var3);
+         }
+      }
+
+      if (!var1.isEmpty()) {
+         return (VehiclePart)var1.get(Rand.Next(0, var1.size()));
+      } else {
+         return null;
+      }
+   }
+
+   private boolean isGasTakeSide(String var1) {
+      if (var1.contains("Left") && this.leftSideFuel()) {
+         return true;
+      } else {
+         return var1.contains("Right") && this.rightSideFuel();
+      }
+   }
+
+   private VehiclePart getWeightedRandomSidePart(String var1) {
+      ArrayList var2 = new ArrayList();
+
+      for(int var3 = 0; var3 < this.getPartCount(); ++var3) {
+         VehiclePart var4 = this.getPartByIndex(var3);
+         if (var4.getId().contains(var1) || this.isGasTakeSide(var1)) {
+            this.buildVehiclePartList(var4.getId(), 1.0F, var2);
+         }
+      }
+
+      if (var1.equals("Right")) {
+         this.buildVehiclePartList("WindowRearRight", 19.0F, var2);
+         this.buildVehiclePartList("WindowFrontRight", 19.0F, var2);
+         this.buildVehiclePartList("TireRearRight", 19.0F, var2);
+         this.buildVehiclePartList("TireFrontRight", 19.0F, var2);
+         this.buildVehiclePartList("HeadlightRight", 19.0F, var2);
+         this.buildVehiclePartList("DoorFrontRight", 19.0F, var2);
+         this.buildVehiclePartList("DoorRearRight", 19.0F, var2);
+         this.buildVehiclePartList("HeadlightRearRight", 19.0F, var2);
+      } else {
+         this.buildVehiclePartList("WindowRearLeft", 19.0F, var2);
+         this.buildVehiclePartList("WindowFrontLeft", 19.0F, var2);
+         this.buildVehiclePartList("TireRearLeft", 19.0F, var2);
+         this.buildVehiclePartList("TireFrontLeft", 19.0F, var2);
+         this.buildVehiclePartList("HeadlightLeft", 19.0F, var2);
+         this.buildVehiclePartList("DoorFrontLeft", 19.0F, var2);
+         this.buildVehiclePartList("DoorRearLeft", 19.0F, var2);
+         this.buildVehiclePartList("HeadlightRearLeft", 19.0F, var2);
+      }
+
+      this.buildVehiclePartList("GasTank", 9.0F, var2);
+      this.buildVehiclePartList("lightbar", 20.0F, var2);
+      if (!var2.isEmpty()) {
+         return this.getWeightedRandomPart(var2);
+      } else {
+         return null;
+      }
+   }
+
+   private VehiclePart getWeightedRandomFrontPart() {
+      ArrayList var1 = new ArrayList();
+
+      for(int var2 = 0; var2 < this.getPartCount(); ++var2) {
+         VehiclePart var3 = this.getPartByIndex(var2);
+         if (var3.getId().contains("Front")) {
+            this.buildVehiclePartList(var3.getId(), 1.0F, var1);
+         }
+      }
+
+      this.buildVehiclePartList("HeadlightRight", 20.0F, var1);
+      this.buildVehiclePartList("HeadlightLeft", 20.0F, var1);
+      this.buildVehiclePartList("TireFrontRight", 19.0F, var1);
+      this.buildVehiclePartList("TireFrontLeft", 19.0F, var1);
+      this.buildVehiclePartList("Engine", 5.0F, var1);
+      this.buildVehiclePartList("EngineDoor", 10.0F, var1);
+      this.buildVehiclePartList("Battery", 5.0F, var1);
+      this.buildVehiclePartList("Windshield", 20.0F, var1);
+      this.buildVehiclePartList("Heater", 2.0F, var1);
+      this.buildVehiclePartList("Hood", 10.0F, var1);
+      this.buildVehiclePartList("Radio", 0.5F, var1);
+      this.buildVehiclePartList("GloveBox", 0.5F, var1);
+      this.buildVehiclePartList("lightbar", 20.0F, var1);
+      if (!var1.isEmpty()) {
+         return this.getWeightedRandomPart(var1);
+      } else {
+         return null;
+      }
+   }
+
+   private VehiclePart getWeightedRandomRearPart() {
+      ArrayList var1 = new ArrayList();
+
+      for(int var2 = 0; var2 < this.getPartCount(); ++var2) {
+         VehiclePart var3 = this.getPartByIndex(var2);
+         if (var3.getId().contains("Rear")) {
+            this.buildVehiclePartList(var3.getId(), 1.0F, var1);
+         }
+      }
+
+      this.buildVehiclePartList("HeadlightRearRight", 19.0F, var1);
+      this.buildVehiclePartList("HeadlightRearLeft", 19.0F, var1);
+      this.buildVehiclePartList("TireRearRight", 19.0F, var1);
+      this.buildVehiclePartList("TireRearLeft", 19.0F, var1);
+      this.buildVehiclePartList("WindshieldRear", 19.0F, var1);
+      this.buildVehiclePartList("TruckBed", 5.0F, var1);
+      this.buildVehiclePartList("TrunkDoor", 10.0F, var1);
+      this.buildVehiclePartList("DoorRear", 9.0F, var1);
+      this.buildVehiclePartList("Muffler", 0.5F, var1);
+      this.buildVehiclePartList("lightbar", 20.0F, var1);
+      if (!var1.isEmpty()) {
+         return this.getWeightedRandomPart(var1);
+      } else {
+         return null;
+      }
+   }
+
+   private VehiclePart getWeightedRandomPart(ArrayList<WeightedVehiclePart> var1) {
+      float var2 = 0.0F;
+
+      WeightedVehiclePart var4;
+      for(Iterator var3 = var1.iterator(); var3.hasNext(); var2 += var4.weight) {
+         var4 = (WeightedVehiclePart)var3.next();
+      }
+
+      float var6 = Rand.Next(0.0F, 1.0F) * var2;
+      Iterator var7 = var1.iterator();
+
+      WeightedVehiclePart var5;
+      do {
+         if (!var7.hasNext()) {
+            return null;
+         }
+
+         var5 = (WeightedVehiclePart)var7.next();
+         var6 -= var5.weight;
+      } while(!(var6 <= 0.0F));
+
+      return var5.vehiclePart;
+   }
+
+   public boolean canAddAnimalInTrailer(IsoAnimal var1) {
+      return this.getAnimalTrailerSize() >= this.getCurrentTotalAnimalSize() + var1.getAnimalTrailerSize();
+   }
+
+   public boolean canAddAnimalInTrailer(IsoDeadBody var1) {
+      return this.getAnimalTrailerSize() >= this.getCurrentTotalAnimalSize() + ((KahluaTableImpl)var1.getModData()).rawgetFloat("animalTrailerSize");
+   }
+
    protected static class UpdateFlags {
       public static final short Full = 1;
       public static final short PositionOrientation = 2;
@@ -8871,6 +10524,45 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
+   public static final class Matrix4fObjectPool extends ObjectPool<Matrix4f> {
+      int allocated = 0;
+
+      Matrix4fObjectPool() {
+         super(Matrix4f::new);
+      }
+
+      protected Matrix4f makeObject() {
+         ++this.allocated;
+         return (Matrix4f)super.makeObject();
+      }
+   }
+
+   public static final class QuaternionfObjectPool extends ObjectPool<Quaternionf> {
+      int allocated = 0;
+
+      QuaternionfObjectPool() {
+         super(Quaternionf::new);
+      }
+
+      protected Quaternionf makeObject() {
+         ++this.allocated;
+         return (Quaternionf)super.makeObject();
+      }
+   }
+
+   public static final class TransformPool extends ObjectPool<Transform> {
+      int allocated = 0;
+
+      TransformPool() {
+         super(Transform::new);
+      }
+
+      protected Transform makeObject() {
+         ++this.allocated;
+         return (Transform)super.makeObject();
+      }
+   }
+
    public static final class Vector2ObjectPool extends ObjectPool<Vector2> {
       int allocated = 0;
 
@@ -8881,6 +10573,19 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       protected Vector2 makeObject() {
          ++this.allocated;
          return (Vector2)super.makeObject();
+      }
+   }
+
+   public static final class Vector2fObjectPool extends ObjectPool<Vector2f> {
+      int allocated = 0;
+
+      Vector2fObjectPool() {
+         super(Vector2f::new);
+      }
+
+      protected Vector2f makeObject() {
+         ++this.allocated;
+         return (Vector2f)super.makeObject();
       }
    }
 
@@ -8897,11 +10602,25 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
+   public static final class Vector4fObjectPool extends ObjectPool<Vector4f> {
+      int allocated = 0;
+
+      Vector4fObjectPool() {
+         super(Vector4f::new);
+      }
+
+      protected Vector4f makeObject() {
+         ++this.allocated;
+         return (Vector4f)super.makeObject();
+      }
+   }
+
    private static final class VehicleImpulse {
       static final ArrayDeque<VehicleImpulse> pool = new ArrayDeque();
       final Vector3f impulse = new Vector3f();
       final Vector3f rel_pos = new Vector3f();
       boolean enable = false;
+      boolean applied = false;
 
       private VehicleImpulse() {
       }
@@ -9045,7 +10764,7 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
             }
          }
 
-         this.targetImpulse.set(var2.x - var1.x, 0.0F, var2.y - var1.y);
+         this.targetImpulse.set(var2.getX() - var1.getX(), 0.0F, var2.getY() - var1.getY());
          this.targetImpulse.normalize();
          this.velocity.normalize();
          this.dot = this.velocity.dot(this.targetImpulse);
@@ -9100,51 +10819,12 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       }
    }
 
-   public static final class Matrix4fObjectPool extends ObjectPool<Matrix4f> {
-      int allocated = 0;
-
-      Matrix4fObjectPool() {
-         super(Matrix4f::new);
-      }
-
-      protected Matrix4f makeObject() {
-         ++this.allocated;
-         return (Matrix4f)super.makeObject();
-      }
-   }
-
-   public static final class QuaternionfObjectPool extends ObjectPool<Quaternionf> {
-      int allocated = 0;
-
-      QuaternionfObjectPool() {
-         super(Quaternionf::new);
-      }
-
-      protected Quaternionf makeObject() {
-         ++this.allocated;
-         return (Quaternionf)super.makeObject();
-      }
-   }
-
    private static final class L_testCollisionWithVehicle {
       static final Vector2[] testVecs1 = new Vector2[4];
       static final Vector2[] testVecs2 = new Vector2[4];
       static final Vector3f worldPos = new Vector3f();
 
       private L_testCollisionWithVehicle() {
-      }
-   }
-
-   public static final class Vector2fObjectPool extends ObjectPool<Vector2f> {
-      int allocated = 0;
-
-      Vector2fObjectPool() {
-         super(Vector2f::new);
-      }
-
-      protected Vector2f makeObject() {
-         ++this.allocated;
-         return (Vector2f)super.makeObject();
       }
    }
 
@@ -9155,6 +10835,14 @@ public final class BaseVehicle extends IsoMovingObject implements Thumpable, IFM
       public float maxY;
 
       public MinMaxPosition() {
+      }
+   }
+
+   private class WeightedVehiclePart {
+      public VehiclePart vehiclePart = null;
+      public float weight = 1.0F;
+
+      private WeightedVehiclePart() {
       }
    }
 }

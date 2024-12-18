@@ -2,6 +2,7 @@ package zombie.text.templating;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,7 +14,7 @@ public class TemplateTextBuilder implements ITemplateBuilder {
    private static final String fieldEnd = "\\}";
    private static final String regex = "\\$\\{([^}]+)\\}";
    private static final Pattern pattern = Pattern.compile("\\$\\{([^}]+)\\}");
-   private Map<String, IReplace> m_keys = new HashMap();
+   private final Map<String, IReplace> m_keys = new HashMap();
 
    protected TemplateTextBuilder() {
    }
@@ -92,5 +93,19 @@ public class TemplateTextBuilder implements ITemplateBuilder {
       }
 
       this.m_keys.put(var1.toLowerCase().trim(), var2);
+   }
+
+   public void CopyFrom(Object var1) {
+      if (!(var1 instanceof TemplateTextBuilder)) {
+         DebugLog.log("TemplateTextBuilder -> Warning: CopyFrom other not instance of TemplateTextBuilder.");
+      } else {
+         Iterator var2 = ((TemplateTextBuilder)var1).m_keys.entrySet().iterator();
+
+         while(var2.hasNext()) {
+            Map.Entry var3 = (Map.Entry)var2.next();
+            this.m_keys.put((String)var3.getKey(), (IReplace)var3.getValue());
+         }
+
+      }
    }
 }

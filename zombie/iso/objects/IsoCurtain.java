@@ -5,22 +5,26 @@ import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.util.Iterator;
 import zombie.GameTime;
-import zombie.SystemDisabler;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.textures.ColorInfo;
+import zombie.inventory.InventoryItem;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.LosUtil;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
@@ -47,18 +51,17 @@ public class IsoCurtain extends IsoObject {
 
    public void removeSheet(IsoGameCharacter var1) {
       this.square.transmitRemoveItemFromSquare(this);
+      InventoryItem var2 = var1.getInventory().AddItem("Base.Sheet");
       if (GameServer.bServer) {
-         var1.sendObjectChange("addItemOfType", new Object[]{"type", "Base.Sheet"});
-      } else {
-         var1.getInventory().AddItem("Base.Sheet");
+         GameServer.sendAddItemToContainer(var1.getInventory(), var2);
       }
 
-      for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
-         LosUtil.cachecleared[var2] = true;
+      for(int var3 = 0; var3 < IsoPlayer.numPlayers; ++var3) {
+         LosUtil.cachecleared[var3] = true;
       }
 
       GameTime.instance.lightSourceUpdate = 100.0F;
-      IsoGridSquare.setRecalcLightTime(-1);
+      IsoGridSquare.setRecalcLightTime(-1.0F);
    }
 
    public IsoCurtain(IsoCell var1, IsoGridSquare var2, IsoSprite var3, boolean var4, boolean var5) {
@@ -123,10 +126,6 @@ public class IsoCurtain extends IsoObject {
       } else {
          this.openSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
          this.closedSprite = this.sprite;
-      }
-
-      if (SystemDisabler.doObjectStateSyncEnable && GameClient.bClient) {
-         GameClient.instance.objectSyncReq.putRequestLoad(this.square);
       }
 
    }
@@ -236,6 +235,8 @@ public class IsoCurtain extends IsoObject {
             }
 
             this.syncIsoObject(false, (byte)(this.open ? 1 : 0), (UdpConnection)null);
+            this.invalidateVispolyChunkLevel();
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          }
       }
    }
@@ -249,7 +250,7 @@ public class IsoCurtain extends IsoObject {
          }
 
          GameTime.instance.lightSourceUpdate = 100.0F;
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          this.open = !this.open;
          this.sprite = this.closedSprite;
          if (this.open) {
@@ -261,14 +262,39 @@ public class IsoCurtain extends IsoObject {
    }
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
-      int var8 = IsoCamera.frameState.playerIndex;
-      IsoObject var9 = this.getObjectAttachedTo();
-      if (var9 != null && this.getSquare().getTargetDarkMulti(var8) <= var9.getSquare().getTargetDarkMulti(var8)) {
-         var4 = var9.getSquare().lighting[var8].lightInfo();
-         this.setTargetAlpha(var8, var9.getTargetAlpha(var8));
+      if (!PerformanceSettings.FBORenderChunk) {
+         int var8 = IsoCamera.frameState.playerIndex;
+         IsoObject var9 = this.getObjectAttachedTo();
+         if (var9 != null && this.getSquare().getTargetDarkMulti(var8) <= var9.getSquare().getTargetDarkMulti(var8)) {
+            var4 = var9.getSquare().lighting[var8].lightInfo();
+            this.setTargetAlpha(var8, var9.getTargetAlpha(var8));
+         }
       }
 
-      super.render(var1, var2, var3, var4, var5, var6, var7);
+      IsoDirections var10000;
+      switch (this.getType()) {
+         case curtainN:
+            var10000 = IsoDirections.N;
+            break;
+         case curtainS:
+            var10000 = IsoDirections.S;
+            break;
+         case curtainW:
+            var10000 = IsoDirections.W;
+            break;
+         case curtainE:
+            var10000 = IsoDirections.E;
+            break;
+         default:
+            var10000 = IsoDirections.Max;
+      }
+
+      IsoDirections var10 = var10000;
+      if (IsoBarricade.GetBarricadeOnSquare(this.getSquare(), var10) != null) {
+         super.render(var1 - (float)var10.dx() * 0.03F, var2 - (float)var10.dy() * 0.03F, var3, var4, var5, var6, var7);
+      } else {
+         super.render(var1, var2, var3, var4, var5, var6, var7);
+      }
    }
 
    public void syncIsoObjectSend(ByteBufferWriter var1) {
@@ -298,13 +324,15 @@ public class IsoCurtain extends IsoObject {
             PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
             this.syncIsoObjectSend(var7);
             PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
-         } else if (var1) {
-            if (var2 == 1) {
-               this.open = true;
-               this.sprite = this.openSprite;
-            } else {
-               this.open = false;
-               this.sprite = this.closedSprite;
+         } else {
+            if (var1) {
+               if (var2 == 1) {
+                  this.open = true;
+                  this.sprite = this.openSprite;
+               } else {
+                  this.open = false;
+                  this.sprite = this.closedSprite;
+               }
             }
 
             if (GameServer.bServer) {
@@ -312,12 +340,10 @@ public class IsoCurtain extends IsoObject {
 
                while(var4.hasNext()) {
                   UdpConnection var5 = (UdpConnection)var4.next();
-                  if (var3 != null && var5.getConnectedGUID() != var3.getConnectedGUID()) {
-                     ByteBufferWriter var6 = var5.startPacket();
-                     PacketTypes.PacketType.SyncIsoObject.doPacket(var6);
-                     this.syncIsoObjectSend(var6);
-                     PacketTypes.PacketType.SyncIsoObject.send(var5);
-                  }
+                  ByteBufferWriter var6 = var5.startPacket();
+                  PacketTypes.PacketType.SyncIsoObject.doPacket(var6);
+                  this.syncIsoObjectSend(var6);
+                  PacketTypes.PacketType.SyncIsoObject.send(var5);
                }
             }
          }
@@ -329,8 +355,9 @@ public class IsoCurtain extends IsoObject {
             LosUtil.cachecleared[var8] = true;
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          GameTime.instance.lightSourceUpdate = 100.0F;
+         ++Core.dirtyGlobalLightsCount;
          LuaEventManager.triggerEvent("OnContainerUpdate");
          if (this.square != null) {
             this.square.RecalcProperties();

@@ -18,6 +18,8 @@ import zombie.core.skinnedmodel.advancedanimation.LiveAnimNode;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
 
 public final class AnimatorDebugMonitor {
+   public static AnimatorDebugMonitor instance = null;
+   private IsoGameCharacter targetIsoGameCharacter = null;
    private static final ArrayList<String> knownVariables = new ArrayList();
    private static boolean knownVarsDirty = false;
    private String currentState = "null";
@@ -55,7 +57,20 @@ public final class AnimatorDebugMonitor {
    private static final String TAG_TRACK = "[anim_tracks]";
    private boolean[] logFlags;
 
+   public IsoGameCharacter getTarget() {
+      return this.targetIsoGameCharacter;
+   }
+
+   public void setTarget(IsoGameCharacter var1) {
+      this.targetIsoGameCharacter = var1;
+   }
+
    public AnimatorDebugMonitor(IsoGameCharacter var1) {
+      if (instance != this) {
+         instance = this;
+         this.targetIsoGameCharacter = var1;
+      }
+
       this.logFlags = new boolean[AnimatorDebugMonitor.LogType.MAX.value()];
       this.logFlags[AnimatorDebugMonitor.LogType.DEFAULT.value()] = true;
 
@@ -332,7 +347,7 @@ public final class AnimatorDebugMonitor {
          while(var5.hasNext()) {
             AnimationTrack var7 = (AnimationTrack)var5.next();
             if (var7.getLayerIdx() == var1) {
-               this.updateAnimTrack(var3, var7.name, var7.BlendDelta);
+               this.updateAnimTrack(var3, var7.getName(), var7.BlendDelta);
             }
          }
       }

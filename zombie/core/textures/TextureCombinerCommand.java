@@ -30,26 +30,18 @@ public final class TextureCombinerCommand {
       return "{" + var1 + "\tpos: " + this.x + "," + this.y + var1 + "\tsize: " + this.w + "," + this.h + var1 + "\tmask:" + this.mask + var1 + "\ttex:" + this.tex + var1 + "\tblendSrc:" + this.blendSrc + var1 + "\tblendDest:" + this.blendDest + var1 + "\tblendSrcA:" + this.blendSrcA + var1 + "\tblendDestA:" + this.blendDestA + var1 + "\tshader:" + this.shader + var1 + "\tshaderParams:" + PZArrayUtil.arrayToString((Iterable)this.shaderParams) + var1 + "}";
    }
 
-   public TextureCombinerCommand init(Texture var1) {
+   public TextureCombinerCommand initSeparate(Texture var1, SmartShader var2, int var3, int var4, int var5, int var6) {
       this.tex = this.requireNonNull(var1);
-      this.blendSrc = 770;
-      this.blendDest = 771;
-      this.blendSrcA = 1;
-      this.blendDestA = 771;
+      this.shader = var2;
+      this.blendSrc = var3;
+      this.blendDest = var4;
+      this.blendSrcA = var5;
+      this.blendDestA = var6;
       return this;
    }
 
-   public TextureCombinerCommand initSeparate(Texture var1, int var2, int var3, int var4, int var5) {
-      this.tex = this.requireNonNull(var1);
-      this.blendSrc = var2;
-      this.blendDest = var3;
-      this.blendSrcA = var4;
-      this.blendDestA = var5;
-      return this;
-   }
-
-   public TextureCombinerCommand init(Texture var1, int var2, int var3) {
-      return this.initSeparate(var1, var2, var3, 1, 771);
+   public TextureCombinerCommand init(Texture var1, SmartShader var2, int var3, int var4) {
+      return this.initSeparate(var1, var2, var3, var4, 1, 771);
    }
 
    public TextureCombinerCommand init(Texture var1, SmartShader var2) {
@@ -73,12 +65,13 @@ public final class TextureCombinerCommand {
       return this;
    }
 
-   public TextureCombinerCommand init(Texture var1, int var2, int var3, int var4, int var5) {
+   public TextureCombinerCommand init(Texture var1, SmartShader var2, int var3, int var4, int var5, int var6) {
       this.tex = this.requireNonNull(var1);
-      this.x = var2;
-      this.y = var3;
-      this.w = var4;
-      this.h = var5;
+      this.shader = var2;
+      this.x = var3;
+      this.y = var4;
+      this.w = var5;
+      this.h = var6;
       this.blendSrc = 770;
       this.blendDest = 771;
       this.blendSrcA = 1;

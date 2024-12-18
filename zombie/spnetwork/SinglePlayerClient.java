@@ -16,11 +16,11 @@ import zombie.debug.DebugLog;
 import zombie.globalObjects.CGlobalObjectNetwork;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
-import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.network.GameClient;
 import zombie.network.PacketTypes;
 import zombie.network.TableNetworkUtils;
+import zombie.network.fields.Square;
 import zombie.vehicles.BaseVehicle;
 import zombie.vehicles.VehicleManager;
 
@@ -102,7 +102,7 @@ public final class SinglePlayerClient {
 
    private static void receiveObjectChange(ByteBuffer var0) {
       byte var1 = var0.get();
-      int var2;
+      short var2;
       String var3;
       if (var1 == 1) {
          var2 = var0.getShort();
@@ -122,66 +122,63 @@ public final class SinglePlayerClient {
             DebugLog.log("receiveObjectChange " + var3);
          }
 
-         BaseVehicle var11 = VehicleManager.instance.getVehicleByID((short)var2);
-         if (var11 != null) {
-            var11.loadChange(var3, var0);
+         BaseVehicle var10 = VehicleManager.instance.getVehicleByID(var2);
+         if (var10 != null) {
+            var10.loadChange(var3, var0);
          } else if (Core.bDebug) {
             DebugLog.log("receiveObjectChange: unknown vehicle id=" + var2);
          }
       } else {
-         int var5;
-         String var6;
-         IsoGridSquare var7;
-         int var10;
-         int var12;
+         IsoGridSquare var5;
+         Square var8;
+         int var9;
+         String var11;
          if (var1 == 3) {
-            var2 = var0.getInt();
-            var10 = var0.getInt();
-            var12 = var0.getInt();
-            var5 = var0.getInt();
-            var6 = GameWindow.ReadString(var0);
+            var8 = new Square();
+            var8.parse(var0, (zombie.core.raknet.UdpConnection)null);
+            var9 = var0.getInt();
+            var11 = GameWindow.ReadString(var0);
             if (Core.bDebug) {
-               DebugLog.log("receiveObjectChange " + var6);
+               DebugLog.log("receiveObjectChange " + var11);
             }
 
-            var7 = IsoWorld.instance.CurrentCell.getGridSquare(var2, var10, var12);
-            if (var7 == null) {
-               delayPacket(var2, var10, var12);
+            var5 = var8.getSquare();
+            if (var5 == null) {
+               delayPacket((int)var8.getX(), (int)var8.getY(), (int)var8.getZ());
                return;
             }
 
-            for(int var8 = 0; var8 < var7.getWorldObjects().size(); ++var8) {
-               IsoWorldInventoryObject var9 = (IsoWorldInventoryObject)var7.getWorldObjects().get(var8);
-               if (var9.getItem() != null && var9.getItem().getID() == var5) {
-                  var9.loadChange(var6, var0);
+            for(int var6 = 0; var6 < var5.getWorldObjects().size(); ++var6) {
+               IsoWorldInventoryObject var7 = (IsoWorldInventoryObject)var5.getWorldObjects().get(var6);
+               if (var7.getItem() != null && var7.getItem().getID() == var9) {
+                  var7.loadChange(var11, var0);
                   return;
                }
             }
 
             if (Core.bDebug) {
-               DebugLog.log("receiveObjectChange: itemID=" + var5 + " is invalid x,y,z=" + var2 + "," + var10 + "," + var12);
+               DebugLog.log("receiveObjectChange: itemID=" + var9 + " is invalid x,y,z=" + var8.getX() + "," + var8.getY() + "," + var8.getZ());
             }
          } else {
-            var2 = var0.getInt();
-            var10 = var0.getInt();
-            var12 = var0.getInt();
-            var5 = var0.getInt();
-            var6 = GameWindow.ReadString(var0);
+            var8 = new Square();
+            var8.parse(var0, (zombie.core.raknet.UdpConnection)null);
+            var9 = var0.getInt();
+            var11 = GameWindow.ReadString(var0);
             if (Core.bDebug) {
-               DebugLog.log("receiveObjectChange " + var6);
+               DebugLog.log("receiveObjectChange " + var11);
             }
 
-            var7 = IsoWorld.instance.CurrentCell.getGridSquare(var2, var10, var12);
-            if (var7 == null) {
-               delayPacket(var2, var10, var12);
+            var5 = var8.getSquare();
+            if (var5 == null) {
+               delayPacket((int)var8.getX(), (int)var8.getY(), (int)var8.getZ());
                return;
             }
 
-            if (var5 >= 0 && var5 < var7.getObjects().size()) {
-               IsoObject var13 = (IsoObject)var7.getObjects().get(var5);
-               var13.loadChange(var6, var0);
+            if (var9 >= 0 && var9 < var5.getObjects().size()) {
+               IsoObject var12 = (IsoObject)var5.getObjects().get(var9);
+               var12.loadChange(var11, var0);
             } else if (Core.bDebug) {
-               DebugLog.log("receiveObjectChange: index=" + var5 + " is invalid x,y,z=" + var2 + "," + var10 + "," + var12);
+               DebugLog.log("receiveObjectChange: index=" + var9 + " is invalid x,y,z=" + var8.getX() + "," + var8.getY() + "," + var8.getZ());
             }
          }
       }

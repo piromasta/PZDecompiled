@@ -2,6 +2,7 @@ package zombie.core.znet;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
+import zombie.SystemDisabler;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
 import zombie.debug.LogSeverity;
@@ -40,8 +41,11 @@ public class ZNet {
    }
 
    private static void logPutsCallback(String var0) {
-      String var1 = s_logSdf.format(Calendar.getInstance().getTime());
-      DebugLog.Network.print("[" + var1 + "] > " + var0);
-      System.out.flush();
+      if (SystemDisabler.printDetailedInfo()) {
+         String var1 = s_logSdf.format(Calendar.getInstance().getTime());
+         DebugLog.Network.print("[" + var1 + "] > " + var0);
+         System.out.flush();
+      }
+
    }
 }

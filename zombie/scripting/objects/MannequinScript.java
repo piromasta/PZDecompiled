@@ -2,6 +2,7 @@ package zombie.scripting.objects;
 
 import java.util.Iterator;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 import zombie.util.StringUtils;
 
 public final class MannequinScript extends BaseScriptObject {
@@ -15,6 +16,7 @@ public final class MannequinScript extends BaseScriptObject {
    private String outfit;
 
    public MannequinScript() {
+      super(ScriptType.Mannequin);
    }
 
    public String getName() {
@@ -77,10 +79,11 @@ public final class MannequinScript extends BaseScriptObject {
       this.outfit = StringUtils.discardNullOrWhitespace(var1);
    }
 
-   public void Load(String var1, String var2) {
+   public void Load(String var1, String var2) throws Exception {
       this.name = var1;
       ScriptParser.Block var3 = ScriptParser.parse(var2);
       var3 = (ScriptParser.Block)var3.children.get(0);
+      super.LoadCommonBlock(var3);
       Iterator var4 = var3.values.iterator();
 
       while(var4.hasNext()) {

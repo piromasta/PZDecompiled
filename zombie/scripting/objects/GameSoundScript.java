@@ -5,17 +5,20 @@ import zombie.audio.GameSound;
 import zombie.audio.GameSoundClip;
 import zombie.core.math.PZMath;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 
 public final class GameSoundScript extends BaseScriptObject {
    public final GameSound gameSound = new GameSound();
 
    public GameSoundScript() {
+      super(ScriptType.Sound);
    }
 
-   public void Load(String var1, String var2) {
+   public void Load(String var1, String var2) throws Exception {
       this.gameSound.name = var1;
       ScriptParser.Block var3 = ScriptParser.parse(var2);
       var3 = (ScriptParser.Block)var3.children.get(0);
+      super.LoadCommonBlock(var3);
       Iterator var4 = var3.values.iterator();
 
       while(var4.hasNext()) {

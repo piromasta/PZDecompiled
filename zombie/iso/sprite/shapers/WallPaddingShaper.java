@@ -10,6 +10,5 @@ public class WallPaddingShaper implements Consumer<TextureDraw> {
    }
 
    public void accept(TextureDraw var1) {
-      SpritePadding.applyIsoPadding(var1, SpritePaddingSettings.getSettings().IsoPadding);
    }
 }

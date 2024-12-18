@@ -12,15 +12,16 @@ import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.ZombieGroup;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.iso.Vector3;
+import zombie.iso.zones.Zone;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
@@ -36,7 +37,7 @@ public final class ZombieGroupManager {
    }
 
    public void preupdate() {
-      this.tickCount += GameTime.getInstance().getMultiplier() / 1.6F;
+      this.tickCount += GameTime.getInstance().getThirtyFPSMultiplier();
       if (this.tickCount >= 30.0F) {
          this.tickCount = 0.0F;
       }
@@ -77,9 +78,11 @@ public final class ZombieGroupManager {
             return false;
          } else if (VirtualZombieManager.instance.isReused(var1)) {
             return false;
+         } else if (var1.isReanimatedForGrappleOnly()) {
+            return false;
          } else {
             IsoGridSquare var2 = var1.getSquare();
-            IsoMetaGrid.Zone var3 = var2 == null ? null : var2.getZone();
+            Zone var3 = var2 == null ? null : var2.getZone();
             return var3 == null || !"Forest".equals(var3.getType()) && !"DeepForest".equals(var3.getType());
          }
       } else {
@@ -120,22 +123,22 @@ public final class ZombieGroupManager {
 
                      for(var5 = 0; var5 < this.groups.size(); ++var5) {
                         ZombieGroup var13 = (ZombieGroup)this.groups.get(var5);
-                        if (var13.getLeader() != null && var13 != var1.group && (int)var13.getLeader().getZ() == (int)var1.getZ()) {
+                        if (var13.getLeader() != null && var13 != var1.group && PZMath.fastfloor(var13.getLeader().getZ()) == PZMath.fastfloor(var1.getZ())) {
                            float var7 = var13.getLeader().getX();
                            float var8 = var13.getLeader().getY();
-                           float var9 = IsoUtils.DistanceToSquared(var1.x, var1.y, var7, var8);
+                           float var9 = IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), var7, var8);
                            if (!(var9 > (float)(var11 * var11))) {
-                              var12.x = var12.x - var7 + var1.x;
-                              var12.y = var12.y - var8 + var1.y;
+                              var12.x = var12.x - var7 + var1.getX();
+                              var12.y = var12.y - var8 + var1.getY();
                            }
                         }
                      }
 
-                     var5 = this.lineClearCollideCount(var1, var1.getCell(), (int)(var1.x + var12.x), (int)(var1.y + var12.y), (int)var1.z, (int)var1.x, (int)var1.y, (int)var1.z, 10, this.tempVec3);
+                     var5 = this.lineClearCollideCount(var1, var1.getCell(), PZMath.fastfloor(var1.getX() + var12.x), PZMath.fastfloor(var1.getY() + var12.y), PZMath.fastfloor(var1.getZ()), PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()), 10, this.tempVec3);
                      if (var5 >= 1) {
                         if (GameClient.bClient || GameServer.bServer || !(IsoPlayer.getInstance().getHoursSurvived() < 2.0)) {
-                           if (!(this.tempVec3.x < 0.0F) && !(this.tempVec3.y < 0.0F) && IsoWorld.instance.MetaGrid.isValidChunk((int)this.tempVec3.x / 10, (int)this.tempVec3.y / 10)) {
-                              var1.pathToLocation((int)(this.tempVec3.x + 0.5F), (int)(this.tempVec3.y + 0.5F), (int)this.tempVec3.z);
+                           if (!(this.tempVec3.x < 0.0F) && !(this.tempVec3.y < 0.0F) && IsoWorld.instance.MetaGrid.isValidChunk(PZMath.fastfloor(this.tempVec3.x) / 8, PZMath.fastfloor(this.tempVec3.y) / 8)) {
+                              var1.pathToLocation(PZMath.fastfloor(this.tempVec3.x + 0.5F), PZMath.fastfloor(this.tempVec3.y + 0.5F), PZMath.fastfloor(this.tempVec3.z));
                               if (var1.getCurrentState() == PathFindState.instance() || var1.getCurrentState() == WalkTowardState.instance()) {
                                  var1.setLastHeardSound(var1.getPathTargetX(), var1.getPathTargetY(), var1.getPathTargetZ());
                                  var1.AllowRepathDelay = 400.0F;
@@ -149,12 +152,12 @@ public final class ZombieGroupManager {
                   var10 = var1.group.getLeader().getX();
                   float var3 = var1.group.getLeader().getY();
                   int var4 = SandboxOptions.instance.zombieConfig.RallyGroupRadius.getValue();
-                  if (!(IsoUtils.DistanceToSquared(var1.x, var1.y, var10, var3) < (float)(var4 * var4))) {
+                  if (!(IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), var10, var3) < (float)(var4 * var4))) {
                      if (GameClient.bClient || GameServer.bServer || !(IsoPlayer.getInstance().getHoursSurvived() < 2.0) || Core.bDebug) {
-                        var5 = (int)(var10 + (float)Rand.Next(-var4, var4));
-                        int var6 = (int)(var3 + (float)Rand.Next(-var4, var4));
-                        if (var5 >= 0 && var6 >= 0 && IsoWorld.instance.MetaGrid.isValidChunk(var5 / 10, var6 / 10)) {
-                           var1.pathToLocation(var5, var6, (int)var1.group.getLeader().getZ());
+                        var5 = PZMath.fastfloor(var10 + (float)Rand.Next(-var4, var4));
+                        int var6 = PZMath.fastfloor(var3 + (float)Rand.Next(-var4, var4));
+                        if (var5 >= 0 && var6 >= 0 && IsoWorld.instance.MetaGrid.isValidChunk(var5 / 8, var6 / 8)) {
+                           var1.pathToLocation(var5, var6, PZMath.fastfloor(var1.group.getLeader().getZ()));
                            if (var1.getCurrentState() == PathFindState.instance() || var1.getCurrentState() == WalkTowardState.instance()) {
                               var1.setLastHeardSound(var1.getPathTargetX(), var1.getPathTargetY(), var1.getPathTargetZ());
                               var1.AllowRepathDelay = 400.0F;
@@ -176,12 +179,17 @@ public final class ZombieGroupManager {
 
       for(int var7 = 0; var7 < this.groups.size(); ++var7) {
          ZombieGroup var8 = (ZombieGroup)this.groups.get(var7);
+         int var9 = (int)((float)SandboxOptions.instance.zombieConfig.RallyGroupSize.getValue() * var8.idealSizeFactor);
+         if (var9 < 1) {
+            var9 = 1;
+         }
+
          if (var8.isEmpty()) {
             this.groups.remove(var7--);
-         } else if ((int)var8.getLeader().getZ() == (int)var3 && var8.size() < SandboxOptions.instance.zombieConfig.RallyGroupSize.getValue()) {
-            float var9 = IsoUtils.DistanceToSquared(var1, var2, var8.getLeader().getX(), var8.getLeader().getY());
-            if (var9 < (float)(var6 * var6) && var9 < var5) {
-               var5 = var9;
+         } else if (PZMath.fastfloor(var8.getLeader().getZ()) == PZMath.fastfloor(var3) && var8.size() < var9) {
+            float var10 = IsoUtils.DistanceToSquared(var1, var2, var8.getLeader().getX(), var8.getLeader().getY());
+            if (var10 < (float)(var6 * var6) && var10 < var5) {
+               var5 = var10;
                var4 = var8;
             }
          }
@@ -218,7 +226,7 @@ public final class ZombieGroupManager {
             var6 += var13;
             var15 += var21;
             var16 += var22;
-            var23 = var2.getGridSquare(var6, (int)var15, (int)var16);
+            var23 = var2.getGridSquare(var6, PZMath.fastfloor(var15), PZMath.fastfloor(var16));
             if (var23 != null && var20 != null) {
                var24 = var23.testCollideAdjacent(var1, var20.getX() - var23.getX(), var20.getY() - var23.getY(), var20.getZ() - var23.getZ());
                if (var24) {
@@ -227,8 +235,8 @@ public final class ZombieGroupManager {
             }
 
             var20 = var23;
-            var18 = (int)var15;
-            var19 = (int)var16;
+            var18 = PZMath.fastfloor(var15);
+            var19 = PZMath.fastfloor(var16);
             var10.set((float)var6, (float)var18, (float)var19);
             ++var11;
             if (var11 >= var9) {
@@ -250,7 +258,7 @@ public final class ZombieGroupManager {
                var7 += var12;
                var15 += var21;
                var16 += var22;
-               var23 = var2.getGridSquare((int)var15, var7, (int)var16);
+               var23 = var2.getGridSquare(PZMath.fastfloor(var15), var7, PZMath.fastfloor(var16));
                if (var23 != null && var20 != null) {
                   var24 = var23.testCollideAdjacent(var1, var20.getX() - var23.getX(), var20.getY() - var23.getY(), var20.getZ() - var23.getZ());
                   if (var24) {
@@ -259,8 +267,8 @@ public final class ZombieGroupManager {
                }
 
                var20 = var23;
-               var17 = (int)var15;
-               var19 = (int)var16;
+               var17 = PZMath.fastfloor(var15);
+               var19 = PZMath.fastfloor(var16);
                var10.set((float)var17, (float)var7, (float)var19);
                ++var11;
                if (var11 >= var9) {
@@ -280,7 +288,7 @@ public final class ZombieGroupManager {
                var8 += var14;
                var15 += var21;
                var16 += var22;
-               var23 = var2.getGridSquare((int)var15, (int)var16, var8);
+               var23 = var2.getGridSquare(PZMath.fastfloor(var15), PZMath.fastfloor(var16), var8);
                if (var23 != null && var20 != null) {
                   var24 = var23.testCollideAdjacent(var1, var20.getX() - var23.getX(), var20.getY() - var23.getY(), var20.getZ() - var23.getZ());
                   if (var24) {
@@ -289,8 +297,8 @@ public final class ZombieGroupManager {
                }
 
                var20 = var23;
-               var17 = (int)var15;
-               var18 = (int)var16;
+               var17 = PZMath.fastfloor(var15);
+               var18 = PZMath.fastfloor(var16);
                var10.set((float)var17, (float)var18, (float)var8);
                ++var11;
                if (var11 >= var9) {

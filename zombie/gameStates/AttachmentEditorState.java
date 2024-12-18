@@ -6,6 +6,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Locale;
 import se.krka.kahlua.vm.KahluaTable;
@@ -14,6 +16,7 @@ import zombie.Lua.LuaManager;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.input.GameKeyboard;
@@ -21,7 +24,7 @@ import zombie.scripting.ScriptManager;
 import zombie.scripting.ScriptParser;
 import zombie.scripting.objects.ModelAttachment;
 import zombie.scripting.objects.ModelScript;
-import zombie.ui.UIElement;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIManager;
 import zombie.vehicles.EditVehicleState;
 
@@ -29,10 +32,11 @@ public final class AttachmentEditorState extends GameState {
    public static AttachmentEditorState instance;
    private EditVehicleState.LuaEnvironment m_luaEnv;
    private boolean bExit = false;
-   private final ArrayList<UIElement> m_gameUI = new ArrayList();
-   private final ArrayList<UIElement> m_selfUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_gameUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_selfUI = new ArrayList();
    private boolean m_bSuspendUI;
    private KahluaTable m_table = null;
+   private final ArrayList<String> m_clipNames = new ArrayList();
 
    public AttachmentEditorState() {
    }
@@ -128,7 +132,7 @@ public final class AttachmentEditorState extends GameState {
    private void updateScene() {
       ModelManager.instance.update();
       if (GameKeyboard.isKeyPressed(17)) {
-         DebugOptions.instance.ModelRenderWireframe.setValue(!DebugOptions.instance.ModelRenderWireframe.getValue());
+         DebugOptions.instance.Model.Render.Wireframe.setValue(!DebugOptions.instance.Model.Render.Wireframe.getValue());
       }
 
    }
@@ -146,6 +150,20 @@ public final class AttachmentEditorState extends GameState {
 
    public Object fromLua0(String var1) {
       switch (var1) {
+         case "getClipNames":
+            if (this.m_clipNames.isEmpty()) {
+               Collection var4 = ModelManager.instance.getAllAnimationClips();
+               Iterator var5 = var4.iterator();
+
+               while(var5.hasNext()) {
+                  AnimationClip var6 = (AnimationClip)var5.next();
+                  this.m_clipNames.add(var6.Name);
+               }
+
+               this.m_clipNames.sort(Comparator.naturalOrder());
+            }
+
+            return this.m_clipNames;
          case "exit":
             this.bExit = true;
             return null;
@@ -162,9 +180,13 @@ public final class AttachmentEditorState extends GameState {
                throw new NullPointerException("model script \"" + var2 + "\" not found");
             }
 
-            ArrayList var6 = this.readScript(var5.getFileName());
+            ArrayList var6 = readScript(var5.getFileName());
             if (var6 != null) {
-               this.updateScript(var5.getFileName(), var6, var5);
+               String var7 = var5.getFileName();
+               if (updateScript(var7, var6, var5)) {
+                  String var8 = ZomboidFileSystem.instance.getString(var7);
+                  this.m_luaEnv.caller.pcall(this.m_luaEnv.thread, this.m_table.rawget("wroteScript"), new Object[]{this.m_table, var8});
+               }
             }
 
             return null;
@@ -173,25 +195,165 @@ public final class AttachmentEditorState extends GameState {
       }
    }
 
-   private ArrayList<String> readScript(String var1) {
-      StringBuilder var2 = new StringBuilder();
-      var1 = ZomboidFileSystem.instance.getString(var1);
-      File var3 = new File(var1);
+   public static ArrayList<String> readScript(String var0) {
+      StringBuilder var1 = new StringBuilder();
+      var0 = ZomboidFileSystem.instance.getString(var0);
+      File var2 = new File(var0);
 
       try {
-         FileReader var4 = new FileReader(var3);
+         FileReader var3 = new FileReader(var2);
 
          try {
-            BufferedReader var5 = new BufferedReader(var4);
+            BufferedReader var4 = new BufferedReader(var3);
 
             try {
-               String var6 = System.lineSeparator();
+               String var5 = System.lineSeparator();
 
-               String var7;
-               while((var7 = var5.readLine()) != null) {
-                  var2.append(var7);
-                  var2.append(var6);
+               String var6;
+               while((var6 = var4.readLine()) != null) {
+                  var1.append(var6);
+                  var1.append(var5);
                }
+            } catch (Throwable var9) {
+               try {
+                  var4.close();
+               } catch (Throwable var8) {
+                  var9.addSuppressed(var8);
+               }
+
+               throw var9;
+            }
+
+            var4.close();
+         } catch (Throwable var10) {
+            try {
+               var3.close();
+            } catch (Throwable var7) {
+               var10.addSuppressed(var7);
+            }
+
+            throw var10;
+         }
+
+         var3.close();
+      } catch (Throwable var11) {
+         ExceptionLogger.logException(var11);
+         return null;
+      }
+
+      String var12 = ScriptParser.stripComments(var1.toString());
+      return ScriptParser.parseTokens(var12);
+   }
+
+   public static boolean updateScript(String var0, ArrayList<String> var1, ModelScript var2) {
+      var0 = ZomboidFileSystem.instance.getString(var0);
+
+      for(int var3 = var1.size() - 1; var3 >= 0; --var3) {
+         String var4 = ((String)var1.get(var3)).trim();
+         int var5 = var4.indexOf("{");
+         int var6 = var4.lastIndexOf("}");
+         String var7 = var4.substring(0, var5);
+         if (var7.startsWith("module")) {
+            var7 = var4.substring(0, var5).trim();
+            String[] var8 = var7.split("\\s+");
+            String var9 = var8.length > 1 ? var8[1].trim() : "";
+            if (var9.equals(var2.getModule().getName())) {
+               String var10 = var4.substring(var5 + 1, var6).trim();
+               ArrayList var11 = ScriptParser.parseTokens(var10);
+
+               for(int var12 = var11.size() - 1; var12 >= 0; --var12) {
+                  String var13 = ((String)var11.get(var12)).trim();
+                  if (var13.startsWith("model")) {
+                     var5 = var13.indexOf("{");
+                     var7 = var13.substring(0, var5).trim();
+                     var8 = var7.split("\\s+");
+                     String var14 = var8.length > 1 ? var8[1].trim() : "";
+                     if (var14.equals(var2.getName())) {
+                        var13 = modelScriptToText(var2, var13).trim();
+                        var11.set(var12, var13);
+                        String var15 = System.lineSeparator();
+                        String var16 = String.join(var15 + "\t", var11);
+                        var16 = "module " + var9 + var15 + "{" + var15 + "\t" + var16 + var15 + "}" + var15;
+                        var1.set(var3, var16);
+                        return writeScript(var0, var1);
+                     }
+                  }
+               }
+            }
+         }
+      }
+
+      return false;
+   }
+
+   private static String modelScriptToText(ModelScript var0, String var1) {
+      ScriptParser.Block var2 = ScriptParser.parse(var1);
+      var2 = (ScriptParser.Block)var2.children.get(0);
+
+      int var3;
+      for(var3 = var2.children.size() - 1; var3 >= 0; --var3) {
+         ScriptParser.Block var4 = (ScriptParser.Block)var2.children.get(var3);
+         if ("attachment".equals(var4.type)) {
+            var2.elements.remove(var4);
+            var2.children.remove(var3);
+         }
+      }
+
+      for(var3 = 0; var3 < var0.getAttachmentCount(); ++var3) {
+         ModelAttachment var7 = var0.getAttachment(var3);
+         ScriptParser.Block var5 = var2.getBlock("attachment", var7.getId());
+         if (var5 == null) {
+            var5 = new ScriptParser.Block();
+            var5.type = "attachment";
+            var5.id = var7.getId();
+            var5.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var7.getOffset().x(), var7.getOffset().y(), var7.getOffset().z()));
+            var5.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var7.getRotate().x(), var7.getRotate().y(), var7.getRotate().z()));
+            if (var7.getScale() != 1.0F) {
+               var5.setValue("scale", String.format(Locale.US, "%.4f", var7.getScale()));
+            }
+
+            if (var7.getBone() != null) {
+               var5.setValue("bone", var7.getBone());
+            }
+
+            var2.elements.add(var5);
+            var2.children.add(var5);
+         } else {
+            var5.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var7.getOffset().x(), var7.getOffset().y(), var7.getOffset().z()));
+            var5.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var7.getRotate().x(), var7.getRotate().y(), var7.getRotate().z()));
+            if (var7.getScale() != 1.0F) {
+               var5.setValue("scale", String.format(Locale.US, "%.4f", var7.getScale()));
+            }
+         }
+      }
+
+      StringBuilder var6 = new StringBuilder();
+      String var8 = System.lineSeparator();
+      var2.prettyPrint(1, var6, var8);
+      return var6.toString();
+   }
+
+   public static boolean writeScript(String var0, ArrayList<String> var1) {
+      String var2 = ZomboidFileSystem.instance.getString(var0);
+      File var3 = new File(var2);
+
+      try {
+         FileWriter var4 = new FileWriter(var3);
+
+         boolean var13;
+         try {
+            BufferedWriter var5 = new BufferedWriter(var4);
+
+            try {
+               DebugLog.General.printf("writing %s\n", var0);
+               Iterator var6 = var1.iterator();
+
+               while(var6.hasNext()) {
+                  String var7 = (String)var6.next();
+                  var5.write(var7);
+               }
+
+               var13 = true;
             } catch (Throwable var10) {
                try {
                   var5.close();
@@ -214,144 +376,10 @@ public final class AttachmentEditorState extends GameState {
          }
 
          var4.close();
+         return var13;
       } catch (Throwable var12) {
          ExceptionLogger.logException(var12);
-         return null;
+         return false;
       }
-
-      String var13 = ScriptParser.stripComments(var2.toString());
-      return ScriptParser.parseTokens(var13);
-   }
-
-   private void updateScript(String var1, ArrayList<String> var2, ModelScript var3) {
-      var1 = ZomboidFileSystem.instance.getString(var1);
-
-      for(int var4 = var2.size() - 1; var4 >= 0; --var4) {
-         String var5 = ((String)var2.get(var4)).trim();
-         int var6 = var5.indexOf("{");
-         int var7 = var5.lastIndexOf("}");
-         String var8 = var5.substring(0, var6);
-         if (var8.startsWith("module")) {
-            var8 = var5.substring(0, var6).trim();
-            String[] var9 = var8.split("\\s+");
-            String var10 = var9.length > 1 ? var9[1].trim() : "";
-            if (var10.equals(var3.getModule().getName())) {
-               String var11 = var5.substring(var6 + 1, var7).trim();
-               ArrayList var12 = ScriptParser.parseTokens(var11);
-
-               for(int var13 = var12.size() - 1; var13 >= 0; --var13) {
-                  String var14 = ((String)var12.get(var13)).trim();
-                  if (var14.startsWith("model")) {
-                     var6 = var14.indexOf("{");
-                     var8 = var14.substring(0, var6).trim();
-                     var9 = var8.split("\\s+");
-                     String var15 = var9.length > 1 ? var9[1].trim() : "";
-                     if (var15.equals(var3.getName())) {
-                        var14 = this.modelScriptToText(var3, var14).trim();
-                        var12.set(var13, var14);
-                        String var16 = System.lineSeparator();
-                        String var17 = String.join(var16 + "\t", var12);
-                        var17 = "module " + var10 + var16 + "{" + var16 + "\t" + var17 + var16 + "}" + var16;
-                        var2.set(var4, var17);
-                        this.writeScript(var1, var2);
-                        return;
-                     }
-                  }
-               }
-            }
-         }
-      }
-
-   }
-
-   private String modelScriptToText(ModelScript var1, String var2) {
-      ScriptParser.Block var3 = ScriptParser.parse(var2);
-      var3 = (ScriptParser.Block)var3.children.get(0);
-
-      int var4;
-      for(var4 = var3.children.size() - 1; var4 >= 0; --var4) {
-         ScriptParser.Block var5 = (ScriptParser.Block)var3.children.get(var4);
-         if ("attachment".equals(var5.type)) {
-            var3.elements.remove(var5);
-            var3.children.remove(var4);
-         }
-      }
-
-      for(var4 = 0; var4 < var1.getAttachmentCount(); ++var4) {
-         ModelAttachment var8 = var1.getAttachment(var4);
-         ScriptParser.Block var6 = var3.getBlock("attachment", var8.getId());
-         if (var6 == null) {
-            var6 = new ScriptParser.Block();
-            var6.type = "attachment";
-            var6.id = var8.getId();
-            var6.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var8.getOffset().x(), var8.getOffset().y(), var8.getOffset().z()));
-            var6.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var8.getRotate().x(), var8.getRotate().y(), var8.getRotate().z()));
-            if (var8.getBone() != null) {
-               var6.setValue("bone", var8.getBone());
-            }
-
-            var3.elements.add(var6);
-            var3.children.add(var6);
-         } else {
-            var6.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var8.getOffset().x(), var8.getOffset().y(), var8.getOffset().z()));
-            var6.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var8.getRotate().x(), var8.getRotate().y(), var8.getRotate().z()));
-         }
-      }
-
-      StringBuilder var7 = new StringBuilder();
-      String var9 = System.lineSeparator();
-      var3.prettyPrint(1, var7, var9);
-      return var7.toString();
-   }
-
-   private void writeScript(String var1, ArrayList<String> var2) {
-      String var3 = ZomboidFileSystem.instance.getString(var1);
-      File var4 = new File(var3);
-
-      try {
-         FileWriter var5 = new FileWriter(var4);
-
-         try {
-            BufferedWriter var6 = new BufferedWriter(var5);
-
-            try {
-               DebugLog.General.printf("writing %s\n", var1);
-               Iterator var7 = var2.iterator();
-
-               while(true) {
-                  if (!var7.hasNext()) {
-                     this.m_luaEnv.caller.pcall(this.m_luaEnv.thread, this.m_table.rawget("wroteScript"), new Object[]{this.m_table, var3});
-                     break;
-                  }
-
-                  String var8 = (String)var7.next();
-                  var6.write(var8);
-               }
-            } catch (Throwable var11) {
-               try {
-                  var6.close();
-               } catch (Throwable var10) {
-                  var11.addSuppressed(var10);
-               }
-
-               throw var11;
-            }
-
-            var6.close();
-         } catch (Throwable var12) {
-            try {
-               var5.close();
-            } catch (Throwable var9) {
-               var12.addSuppressed(var9);
-            }
-
-            throw var12;
-         }
-
-         var5.close();
-      } catch (Throwable var13) {
-         ExceptionLogger.logException(var13);
-      }
-
    }
 }

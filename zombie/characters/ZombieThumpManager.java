@@ -25,6 +25,10 @@ public final class ZombieThumpManager extends BaseZombieSoundManager {
          var2 = var1.getEmitter().playSoundImpl("ZombieThumpMetal", (IsoObject)null);
       } else if (var1.thumpFlag == 5) {
          var2 = var1.getEmitter().playSoundImpl("ZombieThumpGarageDoor", (IsoObject)null);
+      } else if (var1.thumpFlag == 6) {
+         var2 = var1.getEmitter().playSoundImpl("ZombieThumpWireFence", (IsoObject)null);
+      } else if (var1.thumpFlag == 7) {
+         var2 = var1.getEmitter().playSoundImpl("ZombieThumpMetalPoleGate", (IsoObject)null);
       }
 
       FMOD_STUDIO_PARAMETER_DESCRIPTION var4 = FMODManager.instance.getParameterDescription("ObjectCondition");

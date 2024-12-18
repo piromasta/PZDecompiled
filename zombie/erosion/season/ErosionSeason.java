@@ -1,6 +1,7 @@
 package zombie.erosion.season;
 
 import java.util.GregorianCalendar;
+import zombie.core.Translator;
 import zombie.debug.DebugLog;
 import zombie.erosion.utils.Noise2D;
 
@@ -53,6 +54,7 @@ public final class ErosionSeason {
    private int seedB = 128;
    private int seedC = 255;
    String[] names = new String[]{"Default", "Spring", "Early Summer", "Late Summer", "Autumn", "Winter"};
+   String[] namesTranslated = new String[]{Translator.getText("IGUI_Season_Default"), Translator.getText("IGUI_Season_Spring"), Translator.getText("IGUI_Season_SummerE"), Translator.getText("IGUI_Season_SummerL"), Translator.getText("IGUI_Season_Autumn"), Translator.getText("IGUI_Season_Winter")};
 
    public ErosionSeason() {
    }
@@ -192,6 +194,10 @@ public final class ErosionSeason {
 
    public String getSeasonName() {
       return this.names[this.curSeason];
+   }
+
+   public String getSeasonNameTranslated() {
+      return this.namesTranslated[this.curSeason];
    }
 
    public boolean isSeason(int var1) {

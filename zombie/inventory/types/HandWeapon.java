@@ -3,16 +3,20 @@ package zombie.inventory.types;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
 import zombie.GameWindow;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.Moodles.MoodleType;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.BoxedStaticValues;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.debug.DebugLog;
 import zombie.inventory.InventoryItem;
@@ -67,7 +71,7 @@ public final class HandWeapon extends InventoryItem {
    protected float otherBoost = 1.0F;
    protected int DoorDamage = 1;
    protected String doorHitSound = "BaseballBatHit";
-   protected int ConditionLowerChance = 10000;
+   protected int ConditionLowerChance = 10;
    protected boolean MultipleHitConditionAffected = true;
    protected boolean shareEndurance = true;
    protected boolean AlwaysKnockdown = false;
@@ -89,16 +93,15 @@ public final class HandWeapon extends InventoryItem {
    private int RecoilDelay = 0;
    private boolean PiercingBullets = false;
    private float soundGain = 1.0F;
-   private WeaponPart scope = null;
-   private WeaponPart canon = null;
-   private WeaponPart clip = null;
-   private WeaponPart recoilpad = null;
-   private WeaponPart sling = null;
-   private WeaponPart stock = null;
+   private final HashMap<String, WeaponPart> attachments = new HashMap();
+   public WeaponPart activeSight = null;
+   private WeaponPart activeLight = null;
    private int ClipSize = 0;
    private int reloadTime = 0;
    private int aimingTime = 0;
    private float minRangeRanged = 0.0F;
+   private float minSightRange = 2.0F;
+   private float maxSightRange = 6.0F;
    private int treeDamage = 0;
    private String bulletOutSound = null;
    private String shellFallSound = null;
@@ -112,6 +115,7 @@ public final class HandWeapon extends InventoryItem {
    private int noiseRange = 0;
    private float extraDamage = 0.0F;
    private int explosionTimer = 0;
+   private int explosionDuration = 0;
    private String placedSprite = null;
    private boolean canBeReused = false;
    private int sensorRange = 0;
@@ -134,6 +138,12 @@ public final class HandWeapon extends InventoryItem {
    private boolean bSpentRoundChambered = false;
    private int spentRoundCount = 0;
    private float jamGunChance = 5.0F;
+   private int ProjectileCount = 1;
+   private float projectileSpread = 0.0F;
+   private float projectileWeightCenter = 1.0F;
+   private float aimingMod = 1.0F;
+   private float CriticalChance = 20.0F;
+   private String hitSound = "BaseballBatHit";
    private boolean isJammed = false;
    private ArrayList<ModelWeaponPart> modelWeaponPart = null;
    private boolean haveChamber = true;
@@ -144,10 +154,8 @@ public final class HandWeapon extends InventoryItem {
    private boolean insertAllBulletsReload = false;
    private String fireMode = null;
    private ArrayList<String> fireModePossibilities = null;
-   public int ProjectileCount = 1;
-   public float aimingMod = 1.0F;
-   public float CriticalChance = 20.0F;
-   private String hitSound = "BaseballBatHit";
+   private ArrayList<String> weaponSpritesByIndex = null;
+   private static final Comparator<InventoryItem> magazineComparator = Comparator.comparingInt(InventoryItem::getCurrentAmmoCount);
 
    public float getSplatSize() {
       return this.SplatSize;
@@ -206,12 +214,12 @@ public final class HandWeapon extends InventoryItem {
 
    public float getActualWeight() {
       float var1 = this.getScriptItem().getActualWeight();
-      var1 += this.getWeaponPartWeightModifier(this.canon);
-      var1 += this.getWeaponPartWeightModifier(this.clip);
-      var1 += this.getWeaponPartWeightModifier(this.recoilpad);
-      var1 += this.getWeaponPartWeightModifier(this.scope);
-      var1 += this.getWeaponPartWeightModifier(this.sling);
-      var1 += this.getWeaponPartWeightModifier(this.stock);
+
+      WeaponPart var3;
+      for(Iterator var2 = this.attachments.values().iterator(); var2.hasNext(); var1 += this.getWeaponPartWeightModifier(var3)) {
+         var3 = (WeaponPart)var2.next();
+      }
+
       return var1;
    }
 
@@ -240,46 +248,122 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public void DoTooltip(ObjectTooltip var1, ObjectTooltip.Layout var2) {
-      float var4 = 1.0F;
-      float var5 = 1.0F;
-      float var6 = 0.8F;
-      float var7 = 1.0F;
-      ColorInfo var8 = new ColorInfo();
-      ObjectTooltip.LayoutItem var3 = var2.addItem();
-      var3.setLabel(Translator.getText("Tooltip_weapon_Condition") + ":", var4, var5, var6, var7);
-      float var9 = (float)this.Condition / (float)this.ConditionMax;
-      Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var9, var8);
-      var3.setProgress(var9, var8.getR(), var8.getG(), var8.getB(), 1.0F);
-      float var10;
-      float var11;
+      ColorInfo var4 = new ColorInfo();
+      ObjectTooltip.LayoutItem var3;
+      float var5;
+      if (this.hasSharpness()) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_weapon_Sharpness") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var5 = this.getSharpness();
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var5, var4);
+         var3.setProgress(var5, var4.getR(), var4.getG(), var4.getB(), 1.0F);
+      }
+
+      var3 = var2.addItem();
+      String var10 = "Tooltip_weapon_Condition";
+      if (this.hasHeadCondition()) {
+         var10 = "Tooltip_weapon_HandleCondition";
+      }
+
+      var3.setLabel(Translator.getText(var10) + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+      float var6 = (float)this.getCondition() / (float)this.getConditionMax();
+      Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var6, var4);
+      var3.setProgress(var6, var4.getR(), var4.getG(), var4.getB(), 1.0F);
+      if (this.hasHeadCondition()) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_weapon_HeadCondition") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var5 = (float)this.getHeadCondition() / (float)this.getConditionMax();
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var5, var4);
+         var3.setProgress(var5, var4.getR(), var4.getG(), var4.getB(), 1.0F);
+      }
+
+      float var7;
       if (this.getMaxDamage() > 0.0F) {
          var3 = var2.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Damage") + ":", var4, var5, var6, var7);
-         var9 = this.getMaxDamage() + this.getMinDamage();
-         var10 = 5.0F;
-         var11 = var9 / var10;
-         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var11, var8);
-         var3.setProgress(var11, var8.getR(), var8.getG(), var8.getB(), 1.0F);
+         var3.setLabel(Translator.getText("Tooltip_weapon_Damage") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var5 = this.getMaxDamage() + this.getMinDamage();
+         var6 = 5.0F;
+         var7 = var5 / var6;
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var7, var4);
+         var3.setProgress(var7, var4.getR(), var4.getG(), var4.getB(), 1.0F);
+      }
+
+      if (this.bloodLevel != 0.0F) {
+         ColorInfo var11 = new ColorInfo();
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_clothing_bloody") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var6 = this.bloodLevel;
+         Core.getInstance().getGoodHighlitedColor().interp(Core.getInstance().getBadHighlitedColor(), var6, var11);
+         var3.setProgress(var6, var11.getR(), var11.getG(), var11.getB(), 1.0F);
+      }
+
+      if (this.hasTag("FishingRod")) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_fishing_line_Condition") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         Object var12 = this.getModData().rawget("fishing_LineCondition");
+         var6 = 1.0F;
+         if (var12 == null) {
+            this.getModData().rawset("fishing_LineCondition", 1.0);
+         } else {
+            var6 = (float)(Double)var12;
+         }
+
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var6, var4);
+         var3.setProgress(var6, var4.getR(), var4.getG(), var4.getB(), 1.0F);
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_fishing_line") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         Object var13 = this.getModData().rawget("fishing_LineType");
+         if (var13 == null) {
+            this.getModData().rawset("fishing_LineType", "FishingLine");
+            var3.setValue(Translator.getText(ScriptManager.instance.FindItem("Base.FishingLine").getDisplayName()), 1.0F, 1.0F, 1.0F, 1.0F);
+         } else if (ScriptManager.instance.FindItem("FishingLine") != null && ScriptManager.instance.FindItem((String)var13) != null) {
+            var3.setValue(Translator.getText(ScriptManager.instance.FindItem((String)var13).getDisplayName()), 1.0F, 1.0F, 1.0F, 1.0F);
+         } else {
+            var3.setValue(Translator.getText("Tooltip_fishing_line"), 1.0F, 1.0F, 1.0F, 1.0F);
+         }
+
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_fishing_hook") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         Object var8 = this.getModData().rawget("fishing_HookType");
+         if (var8 == null) {
+            this.getModData().rawset("fishing_HookType", "FishingHook");
+            var3.setValue(Translator.getText(ScriptManager.instance.FindItem("FishingHook").getDisplayName()), 1.0F, 1.0F, 1.0F, 1.0F);
+         } else if (ScriptManager.instance.FindItem((String)var8) != null && ScriptManager.instance.FindItem("FishingHook") != null) {
+            var3.setValue(Translator.getText(ScriptManager.instance.FindItem((String)var8).getDisplayName()), 1.0F, 1.0F, 1.0F, 1.0F);
+         } else {
+            var3.setValue(Translator.getText("Tooltip_fishing_hook"), 1.0F, 1.0F, 1.0F, 1.0F);
+         }
+
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_fishing_bait") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         Object var9 = this.getModData().rawget("fishing_Lure");
+         if (var9 == null) {
+            var3.setValue(Translator.getText("UI_None"), 1.0F, 0.0F, 0.0F, 1.0F);
+         } else if (ScriptManager.instance.FindItem((String)var9) != null && Translator.getText("UI_None") != null) {
+            var3.setValue(Translator.getText(ScriptManager.instance.FindItem((String)var9).getDisplayName()), 1.0F, 1.0F, 1.0F, 1.0F);
+         } else {
+            var3.setValue(Translator.getText("Tooltip_fishing_bait"), 1.0F, 1.0F, 1.0F, 1.0F);
+         }
       }
 
       if (this.isRanged()) {
          var3 = var2.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Range") + ":", var4, var5, var6, 1.0F);
-         var9 = this.getMaxRange(IsoPlayer.getInstance());
-         var10 = 40.0F;
-         var11 = var9 / var10;
-         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var11, var8);
-         var3.setProgress(var11, var8.getR(), var8.getG(), var8.getB(), 1.0F);
+         var3.setLabel(Translator.getText("Tooltip_weapon_Range") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var5 = this.getMaxRange(IsoPlayer.getInstance());
+         var6 = 40.0F;
+         var7 = var5 / var6;
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var7, var4);
+         var3.setProgress(var7, var4.getR(), var4.getG(), var4.getB(), 1.0F);
       }
 
       if (this.isTwoHandWeapon() && !this.isRequiresEquippedBothHands()) {
          var3 = var2.addItem();
-         var3.setLabel(Translator.getText("Tooltip_item_TwoHandWeapon"), var4, var5, var6, var7);
+         var3.setLabel(Translator.getText("Tooltip_item_TwoHandWeapon"), 1.0F, 1.0F, 0.8F, 1.0F);
       }
 
       if (!StringUtils.isNullOrEmpty(this.getFireMode())) {
          var3 = var2.addItem();
-         var3.setLabel(Translator.getText("Tooltip_item_FireMode") + ":", var4, var5, var6, var7);
+         var3.setLabel(Translator.getText("Tooltip_item_FireMode") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
          var3.setValue(Translator.getText("ContextMenu_FireMode_" + this.getFireMode()), 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
@@ -288,138 +372,59 @@ public final class HandWeapon extends InventoryItem {
          var3.setLabel(Translator.getText("Tooltip_weapon_Unusable_at_max_exertion"), Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
       }
 
-      String var16 = this.getAmmoType();
-      if (Core.getInstance().isNewReloading()) {
-         String var17;
-         if (this.getMaxAmmo() > 0) {
-            var17 = String.valueOf(this.getCurrentAmmoCount());
-            if (this.isRoundChambered()) {
-               var17 = var17 + "+1";
-            }
-
-            var3 = var2.addItem();
-            if (this.bulletName == null) {
-               if (this.getMagazineType() != null) {
-                  this.bulletName = InventoryItemFactory.CreateItem(this.getMagazineType()).getDisplayName();
-               } else {
-                  this.bulletName = InventoryItemFactory.CreateItem(this.getAmmoType()).getDisplayName();
-               }
-            }
-
-            var3.setLabel(this.bulletName + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-            var3.setValue(var17 + " / " + this.getMaxAmmo(), 1.0F, 1.0F, 1.0F, 1.0F);
+      if (this.getMaxAmmo() > 0) {
+         var10 = String.valueOf(this.getCurrentAmmoCount());
+         if (this.isRoundChambered()) {
+            var10 = var10 + "+1";
          }
 
-         if (this.isJammed()) {
-            var3 = var2.addItem();
-            var3.setLabel(Translator.getText("Tooltip_weapon_Jammed"), Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
-         } else if (this.haveChamber() && !this.isRoundChambered() && this.getCurrentAmmoCount() > 0) {
-            var3 = var2.addItem();
-            var17 = this.isSpentRoundChambered() ? "Tooltip_weapon_SpentRoundChambered" : "Tooltip_weapon_NoRoundChambered";
-            var3.setLabel(Translator.getText(var17), Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
-         } else if (this.getSpentRoundCount() > 0) {
-            var3 = var2.addItem();
-            var3.setLabel(Translator.getText("Tooltip_weapon_SpentRounds") + ":", Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
-            var3.setValue(this.getSpentRoundCount() + " / " + this.getMaxAmmo(), 1.0F, 1.0F, 1.0F, 1.0F);
-         }
-
-         if (!StringUtils.isNullOrEmpty(this.getMagazineType())) {
-            if (this.isContainsClip()) {
-               var3 = var2.addItem();
-               var3.setLabel(Translator.getText("Tooltip_weapon_ContainsClip"), 1.0F, 1.0F, 0.8F, 1.0F);
+         var3 = var2.addItem();
+         if (this.bulletName == null) {
+            if (this.getMagazineType() != null) {
+               this.bulletName = InventoryItemFactory.CreateItem(this.getMagazineType()).getDisplayName();
             } else {
-               var3 = var2.addItem();
-               var3.setLabel(Translator.getText("Tooltip_weapon_NoClip"), 1.0F, 1.0F, 0.8F, 1.0F);
+               this.bulletName = InventoryItemFactory.CreateItem(this.getAmmoType()).getDisplayName();
             }
          }
+
+         var3.setLabel(this.bulletName + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var3.setValue(var10 + " / " + this.getMaxAmmo(), 1.0F, 1.0F, 1.0F, 1.0F);
+      }
+
+      if (this.isJammed()) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_weapon_Jammed"), Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
+      } else if (this.haveChamber() && !this.isRoundChambered() && this.getCurrentAmmoCount() > 0) {
+         var3 = var2.addItem();
+         var10 = this.isSpentRoundChambered() ? "Tooltip_weapon_SpentRoundChambered" : "Tooltip_weapon_NoRoundChambered";
+         var3.setLabel(Translator.getText(var10), Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
+      } else if (this.getSpentRoundCount() > 0) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_weapon_SpentRounds") + ":", Core.getInstance().getBadHighlitedColor().getR(), Core.getInstance().getBadHighlitedColor().getG(), Core.getInstance().getBadHighlitedColor().getB(), 1.0F);
+         var3.setValue(this.getSpentRoundCount() + " / " + this.getMaxAmmo(), 1.0F, 1.0F, 1.0F, 1.0F);
+      }
+
+      if (!StringUtils.isNullOrEmpty(this.getMagazineType())) {
+         if (this.isContainsClip()) {
+            var3 = var2.addItem();
+            var3.setLabel(Translator.getText("Tooltip_weapon_ContainsClip"), 1.0F, 1.0F, 0.8F, 1.0F);
+         } else {
+            var3 = var2.addItem();
+            var3.setLabel(Translator.getText("Tooltip_weapon_NoClip"), 1.0F, 1.0F, 0.8F, 1.0F);
+         }
+      }
+
+      ObjectTooltip.Layout var14 = var1.beginLayout();
+      this.attachments.forEach((var1x, var2x) -> {
+         ObjectTooltip.LayoutItem var3 = var14.addItem();
+         var3.setLabel(Translator.getText("Tooltip_weapon_" + var1x) + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var3.setValue(var2x.getName(), 1.0F, 1.0F, 1.0F, 1.0F);
+      });
+      if (!var14.items.isEmpty()) {
+         var2.next = var14;
+         var14.nextPadY = var1.getLineSpacing();
       } else {
-         if (var16 == null && this.hasModData()) {
-            Object var19 = this.getModData().rawget("defaultAmmo");
-            if (var19 instanceof String) {
-               var16 = (String)var19;
-            }
-         }
-
-         if (var16 != null) {
-            Item var20 = ScriptManager.instance.FindItem(var16);
-            if (var20 == null) {
-               ScriptManager var10000 = ScriptManager.instance;
-               String var10001 = this.getModule();
-               var20 = var10000.FindItem(var10001 + "." + var16);
-            }
-
-            if (var20 != null) {
-               var3 = var2.addItem();
-               var3.setLabel(Translator.getText("Tooltip_weapon_Ammo") + ":", var4, var5, var6, var7);
-               var3.setValue(var20.getDisplayName(), 1.0F, 1.0F, 1.0F, 1.0F);
-            }
-
-            Object var18 = this.getModData().rawget("currentCapacity");
-            Object var12 = this.getModData().rawget("maxCapacity");
-            if (var18 instanceof Double && var12 instanceof Double) {
-               int var22 = ((Double)var18).intValue();
-               String var13 = "" + var22 + " / " + ((Double)var12).intValue();
-               Object var14 = this.getModData().rawget("roundChambered");
-               if (var14 instanceof Double && ((Double)var14).intValue() == 1) {
-                  var22 = ((Double)var18).intValue();
-                  var13 = "" + var22 + "+1 / " + ((Double)var12).intValue();
-               } else {
-                  Object var15 = this.getModData().rawget("emptyShellChambered");
-                  if (var15 instanceof Double && ((Double)var15).intValue() == 1) {
-                     var22 = ((Double)var18).intValue();
-                     var13 = "" + var22 + "+x / " + ((Double)var12).intValue();
-                  }
-               }
-
-               var3 = var2.addItem();
-               var3.setLabel(Translator.getText("Tooltip_weapon_AmmoCount") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-               var3.setValue(var13, 1.0F, 1.0F, 1.0F, 1.0F);
-            }
-         }
-      }
-
-      ObjectTooltip.Layout var21 = var1.beginLayout();
-      if (this.getStock() != null) {
-         var3 = var21.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Stock") + ":", var4, var5, var6, var7);
-         var3.setValue(this.getStock().getName(), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
-
-      if (this.getSling() != null) {
-         var3 = var21.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Sling") + ":", var4, var5, var6, var7);
-         var3.setValue(this.getSling().getName(), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
-
-      if (this.getScope() != null) {
-         var3 = var21.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Scope") + ":", var4, var5, var6, var7);
-         var3.setValue(this.getScope().getName(), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
-
-      if (this.getCanon() != null) {
-         var3 = var21.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Canon") + ":", var4, var5, var6, var7);
-         var3.setValue(this.getCanon().getName(), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
-
-      if (this.getClip() != null) {
-         var3 = var21.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_Clip") + ":", var4, var5, var6, var7);
-         var3.setValue(this.getClip().getName(), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
-
-      if (this.getRecoilpad() != null) {
-         var3 = var21.addItem();
-         var3.setLabel(Translator.getText("Tooltip_weapon_RecoilPad") + ":", var4, var5, var6, var7);
-         var3.setValue(this.getRecoilpad().getName(), 1.0F, 1.0F, 1.0F, 1.0F);
-      }
-
-      if (!var21.items.isEmpty()) {
-         var2.next = var21;
-         var21.nextPadY = var1.getLineSpacing();
-      } else {
-         var1.endLayout(var21);
+         var1.endLayout(var14);
       }
 
    }
@@ -750,6 +755,34 @@ public final class HandWeapon extends InventoryItem {
       return 1.0F;
    }
 
+   public PerkFactory.Perk getPerk() {
+      if (this.getCategories().contains("Axe")) {
+         return PerkFactory.Perks.Axe;
+      } else if (this.getCategories().contains("LongBlade")) {
+         return PerkFactory.Perks.LongBlade;
+      } else if (this.getCategories().contains("Spear")) {
+         return PerkFactory.Perks.Spear;
+      } else if (this.getCategories().contains("SmallBlade")) {
+         return PerkFactory.Perks.SmallBlade;
+      } else if (this.getCategories().contains("SmallBlunt")) {
+         return PerkFactory.Perks.SmallBlunt;
+      } else {
+         return WeaponType.getWeaponType(this).isRanged ? PerkFactory.Perks.Aiming : PerkFactory.Perks.Blunt;
+      }
+   }
+
+   public float muscleStrainMod(IsoGameCharacter var1) {
+      float var2 = 1.0F;
+      int var3 = this.getWeaponSkill(var1);
+      var2 -= (float)var3 * 0.075F;
+      var2 *= this.getStrainModifier();
+      return var2;
+   }
+
+   public int getWeaponSkill(IsoGameCharacter var1) {
+      return var1.getPerkLevel(this.getPerk());
+   }
+
    public boolean isAngleFalloff() {
       return this.angleFalloff;
    }
@@ -799,7 +832,14 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public float getMaxDamage() {
-      return this.maxDamage;
+      float var1 = this.maxDamage;
+      if (this.hasSharpness() && this.maxDamage > this.getMinDamage()) {
+         float var2 = this.maxDamage - this.getMinDamage();
+         var2 *= this.getSharpnessMultiplier();
+         var1 = var2 + this.getMinDamage();
+      }
+
+      return var1;
    }
 
    public void setMaxDamage(float var1) {
@@ -995,7 +1035,7 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public String getWeaponSprite() {
-      return this.weaponSprite;
+      return this.getModelIndex() != -1 && this.getWeaponSpritesByIndex() != null ? (String)this.getWeaponSpritesByIndex().get(this.getModelIndex()) : this.weaponSprite;
    }
 
    public void setWeaponSprite(String var1) {
@@ -1011,7 +1051,7 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public int getDoorDamage() {
-      return this.DoorDamage;
+      return (int)((float)this.DoorDamage * this.getSharpnessMultiplier());
    }
 
    public void setDoorDamage(int var1) {
@@ -1098,6 +1138,22 @@ public final class HandWeapon extends InventoryItem {
       this.ProjectileCount = var1;
    }
 
+   public float getProjectileSpread() {
+      return this.projectileSpread;
+   }
+
+   public void setProjectileSpread(float var1) {
+      this.projectileSpread = var1;
+   }
+
+   public float getProjectileWeightCenter() {
+      return this.projectileWeightCenter;
+   }
+
+   public void setProjectileWeightCenter(float var1) {
+      this.projectileWeightCenter = var1;
+   }
+
    public float getAimingMod() {
       return this.aimingMod;
    }
@@ -1111,7 +1167,7 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public float getCriticalChance() {
-      return this.CriticalChance;
+      return this.hasSharpness() ? this.CriticalChance * this.getSharpness() : this.CriticalChance;
    }
 
    public void setSubCategory(String var1) {
@@ -1182,6 +1238,10 @@ public final class HandWeapon extends InventoryItem {
       return this.RecoilDelay;
    }
 
+   public int getRecoilDelay(IsoGameCharacter var1) {
+      return PZMath.max(0, (int)((float)this.RecoilDelay * (1.0F - (float)var1.getPerkLevel(PerkFactory.Perks.Aiming) / 40.0F) * (1.0F - (-10.0F + (float)var1.getPerkLevel(PerkFactory.Perks.Strength) * 2.0F) / 40.0F) * (var1.getPrimaryHandItem() == this && var1.getSecondaryHandItem() != this && var1.getSecondaryHandItem() != null ? 1.3F : 1.0F)));
+   }
+
    public void setRecoilDelay(int var1) {
       this.RecoilDelay = var1;
    }
@@ -1200,38 +1260,6 @@ public final class HandWeapon extends InventoryItem {
 
    public void setSoundGain(float var1) {
       this.soundGain = var1;
-   }
-
-   public WeaponPart getScope() {
-      return this.scope;
-   }
-
-   public void setScope(WeaponPart var1) {
-      this.scope = var1;
-   }
-
-   public WeaponPart getClip() {
-      return this.clip;
-   }
-
-   public void setClip(WeaponPart var1) {
-      this.clip = var1;
-   }
-
-   public WeaponPart getCanon() {
-      return this.canon;
-   }
-
-   public void setCanon(WeaponPart var1) {
-      this.canon = var1;
-   }
-
-   public WeaponPart getRecoilpad() {
-      return this.recoilpad;
-   }
-
-   public void setRecoilpad(WeaponPart var1) {
-      this.recoilpad = var1;
    }
 
    public int getClipSize() {
@@ -1296,36 +1324,6 @@ public final class HandWeapon extends InventoryItem {
          var1.putFloat(this.minAngle);
       }
 
-      if (this.getScope() != null) {
-         var3.addFlags(1024);
-         var1.putShort(this.getScope().getRegistry_id());
-      }
-
-      if (this.getClip() != null) {
-         var3.addFlags(2048);
-         var1.putShort(this.getClip().getRegistry_id());
-      }
-
-      if (this.getRecoilpad() != null) {
-         var3.addFlags(4096);
-         var1.putShort(this.getRecoilpad().getRegistry_id());
-      }
-
-      if (this.getSling() != null) {
-         var3.addFlags(8192);
-         var1.putShort(this.getSling().getRegistry_id());
-      }
-
-      if (this.getStock() != null) {
-         var3.addFlags(16384);
-         var1.putShort(this.getStock().getRegistry_id());
-      }
-
-      if (this.getCanon() != null) {
-         var3.addFlags(32768);
-         var1.putShort(this.getCanon().getRegistry_id());
-      }
-
       if (this.getExplosionTimer() != 0) {
          var3.addFlags(65536);
          var1.putInt(this.getExplosionTimer());
@@ -1358,12 +1356,33 @@ public final class HandWeapon extends InventoryItem {
          GameWindow.WriteString(var1, this.weaponSprite);
       }
 
+      if (this.minSightRange != 2.0F) {
+         var3.addFlags(8388608);
+         var1.putFloat(this.minSightRange);
+      }
+
+      if (this.maxSightRange != 6.0F) {
+         var3.addFlags(16777216);
+         var1.putFloat(this.maxSightRange);
+      }
+
+      if (!this.attachments.isEmpty()) {
+         var3.addFlags(33554432);
+         ArrayList var4 = this.getAllWeaponParts();
+         var1.put((byte)var4.size());
+
+         for(int var5 = 0; var5 < var4.size(); ++var5) {
+            var1.putShort(((WeaponPart)var4.get(var5)).getRegistry_id());
+         }
+      }
+
       var3.write();
       var3.release();
    }
 
    public void load(ByteBuffer var1, int var2) throws IOException {
       super.load(var1, var2);
+      this.attachments.clear();
       this.maxRange = 1.0F;
       this.minRangeRanged = 0.0F;
       this.ClipSize = 0;
@@ -1374,12 +1393,6 @@ public final class HandWeapon extends InventoryItem {
       this.reloadTime = 0;
       this.HitChance = 0;
       this.minAngle = 0.5F;
-      this.scope = null;
-      this.clip = null;
-      this.recoilpad = null;
-      this.sling = null;
-      this.stock = null;
-      this.canon = null;
       this.explosionTimer = 0;
       this.maxAngle = 1.0F;
       this.bloodLevel = 0.0F;
@@ -1429,49 +1442,6 @@ public final class HandWeapon extends InventoryItem {
             this.setMinAngle(var1.getFloat());
          }
 
-         InventoryItem var4;
-         if (var3.hasFlags(1024)) {
-            var4 = InventoryItemFactory.CreateItem(var1.getShort());
-            if (var4 != null && var4 instanceof WeaponPart) {
-               this.attachWeaponPart((WeaponPart)var4, false);
-            }
-         }
-
-         if (var3.hasFlags(2048)) {
-            var4 = InventoryItemFactory.CreateItem(var1.getShort());
-            if (var4 != null && var4 instanceof WeaponPart) {
-               this.attachWeaponPart((WeaponPart)var4, false);
-            }
-         }
-
-         if (var3.hasFlags(4096)) {
-            var4 = InventoryItemFactory.CreateItem(var1.getShort());
-            if (var4 != null && var4 instanceof WeaponPart) {
-               this.attachWeaponPart((WeaponPart)var4, false);
-            }
-         }
-
-         if (var3.hasFlags(8192)) {
-            var4 = InventoryItemFactory.CreateItem(var1.getShort());
-            if (var4 != null && var4 instanceof WeaponPart) {
-               this.attachWeaponPart((WeaponPart)var4, false);
-            }
-         }
-
-         if (var3.hasFlags(16384)) {
-            var4 = InventoryItemFactory.CreateItem(var1.getShort());
-            if (var4 != null && var4 instanceof WeaponPart) {
-               this.attachWeaponPart((WeaponPart)var4, false);
-            }
-         }
-
-         if (var3.hasFlags(32768)) {
-            var4 = InventoryItemFactory.CreateItem(var1.getShort());
-            if (var4 != null && var4 instanceof WeaponPart) {
-               this.attachWeaponPart((WeaponPart)var4, false);
-            }
-         }
-
          if (var3.hasFlags(65536)) {
             this.setExplosionTimer(var1.getInt());
          }
@@ -1494,9 +1464,72 @@ public final class HandWeapon extends InventoryItem {
          if (var3.hasFlags(4194304)) {
             this.setWeaponSprite(GameWindow.ReadStringUTF(var1));
          }
+
+         if (var3.hasFlags(8388608)) {
+            this.setMinSightRange(var1.getFloat());
+         }
+
+         if (var3.hasFlags(16777216)) {
+            this.setMaxSightRange(var1.getFloat());
+         }
+
+         if (var3.hasFlags(33554432)) {
+            byte var4 = var1.get();
+
+            for(byte var5 = 0; var5 < var4; ++var5) {
+               InventoryItem var6 = InventoryItemFactory.CreateItem(var1.getShort());
+               if (var6 instanceof WeaponPart) {
+                  this.attachWeaponPart((IsoGameCharacter)null, (WeaponPart)var6, false);
+               }
+            }
+         }
       }
 
       var3.release();
+   }
+
+   public WeaponPart getActiveLight() {
+      return this.activeLight;
+   }
+
+   public void setActiveLight(WeaponPart var1) {
+      this.activeLight = var1;
+   }
+
+   public WeaponPart getActiveSight() {
+      return this.activeSight;
+   }
+
+   public void setActiveSight(WeaponPart var1) {
+      this.activeSight = var1;
+   }
+
+   public void setMinSightRange(float var1) {
+      this.minSightRange = var1;
+   }
+
+   public float getMinSightRange() {
+      return this.minSightRange;
+   }
+
+   public float getMinSightRange(IsoGameCharacter var1) {
+      return (this.activeSight != null ? this.activeSight.getMinSightRange() : this.minSightRange) * (1.0F - (float)var1.getPerkLevel(PerkFactory.Perks.Aiming) / 30.0F);
+   }
+
+   public void setMaxSightRange(float var1) {
+      this.maxSightRange = var1;
+   }
+
+   public float getMaxSightRange() {
+      return this.maxSightRange;
+   }
+
+   public float getMaxSightRange(IsoGameCharacter var1) {
+      return var1.Traits.ShortSighted.isSet() && !var1.isWearingGlasses() ? this.getMinSightRange(var1) : (this.activeSight != null ? this.activeSight.getMaxSightRange() : this.maxSightRange) * (1.0F + (float)var1.getPerkLevel(PerkFactory.Perks.Aiming) / 30.0F) * (var1.Traits.EagleEyed.isSet() ? 1.2F : 1.0F);
+   }
+
+   public float getLowLightBonus() {
+      return this.activeSight != null ? this.activeSight.getLowLightBonus() : 0.0F;
    }
 
    public float getMinRangeRanged() {
@@ -1515,14 +1548,6 @@ public final class HandWeapon extends InventoryItem {
       this.reloadTime = var1;
    }
 
-   public WeaponPart getSling() {
-      return this.sling;
-   }
-
-   public void setSling(WeaponPart var1) {
-      this.sling = var1;
-   }
-
    public int getAimingTime() {
       return this.aimingTime;
    }
@@ -1531,16 +1556,8 @@ public final class HandWeapon extends InventoryItem {
       this.aimingTime = var1;
    }
 
-   public WeaponPart getStock() {
-      return this.stock;
-   }
-
-   public void setStock(WeaponPart var1) {
-      this.stock = var1;
-   }
-
    public int getTreeDamage() {
-      return this.treeDamage;
+      return (int)((float)this.treeDamage * this.getSharpnessMultiplier());
    }
 
    public void setTreeDamage(int var1) {
@@ -1577,53 +1594,61 @@ public final class HandWeapon extends InventoryItem {
 
    public ArrayList<WeaponPart> getAllWeaponParts(ArrayList<WeaponPart> var1) {
       var1.clear();
-      this.addPartToList("Scope", var1);
-      this.addPartToList("Clip", var1);
-      this.addPartToList("Sling", var1);
-      this.addPartToList("Canon", var1);
-      this.addPartToList("Stock", var1);
-      this.addPartToList("RecoilPad", var1);
+      var1.addAll(this.attachments.values());
       return var1;
    }
 
+   public void clearAllWeaponParts() {
+      this.activeLight = null;
+      this.activeSight = null;
+      this.attachments.clear();
+   }
+
+   public void clearWeaponPart(WeaponPart var1) {
+      if (var1 == this.activeLight) {
+         this.activeLight = null;
+      }
+
+      if (var1 == this.activeSight) {
+         this.activeSight = null;
+      }
+
+      this.attachments.remove(var1.getPartType());
+   }
+
+   public void clearWeaponPart(String var1) {
+      this.clearWeaponPart((WeaponPart)this.attachments.get(var1));
+   }
+
+   public void setWeaponPart(WeaponPart var1) {
+      this.setWeaponPart(var1.getPartType(), var1);
+   }
+
    public void setWeaponPart(String var1, WeaponPart var2) {
-      if (var2 == null || var1.equalsIgnoreCase(var2.getPartType())) {
-         if ("Scope".equalsIgnoreCase(var1)) {
-            this.scope = var2;
-         } else if ("Clip".equalsIgnoreCase(var1)) {
-            this.clip = var2;
-         } else if ("Sling".equalsIgnoreCase(var1)) {
-            this.sling = var2;
-         } else if ("Canon".equalsIgnoreCase(var1)) {
-            this.canon = var2;
-         } else if ("Stock".equalsIgnoreCase(var1)) {
-            this.stock = var2;
-         } else if ("RecoilPad".equalsIgnoreCase(var1)) {
-            this.recoilpad = var2;
+      if (!StringUtils.isNullOrEmpty(var1)) {
+         if (var2 == null) {
+            this.clearWeaponPart(var1);
          } else {
-            DebugLog.log("ERROR: unknown WeaponPart type \"" + var1 + "\"");
+            if (var2.hasTag("optics") && this.activeSight == null) {
+               this.activeSight = var2;
+            }
+
+            if (var2.isTorchCone() && this.activeLight == null) {
+               this.activeLight = var2;
+            }
+
+            this.attachments.put(var1, var2);
          }
 
       }
    }
 
+   public WeaponPart getWeaponPart(WeaponPart var1) {
+      return (WeaponPart)this.attachments.get(var1.getPartType());
+   }
+
    public WeaponPart getWeaponPart(String var1) {
-      if ("Scope".equalsIgnoreCase(var1)) {
-         return this.scope;
-      } else if ("Clip".equalsIgnoreCase(var1)) {
-         return this.clip;
-      } else if ("Sling".equalsIgnoreCase(var1)) {
-         return this.sling;
-      } else if ("Canon".equalsIgnoreCase(var1)) {
-         return this.canon;
-      } else if ("Stock".equalsIgnoreCase(var1)) {
-         return this.stock;
-      } else if ("RecoilPad".equalsIgnoreCase(var1)) {
-         return this.recoilpad;
-      } else {
-         DebugLog.log("ERROR: unknown WeaponPart type \"" + var1 + "\"");
-         return null;
-      }
+      return (WeaponPart)this.attachments.get(var1);
    }
 
    public float getWeaponPartWeightModifier(String var1) {
@@ -1635,48 +1660,77 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public void attachWeaponPart(WeaponPart var1) {
-      this.attachWeaponPart(var1, true);
+      this.attachWeaponPart((IsoGameCharacter)null, var1, true);
    }
 
    public void attachWeaponPart(WeaponPart var1, boolean var2) {
-      if (var1 != null) {
-         WeaponPart var3 = this.getWeaponPart(var1.getPartType());
-         if (var3 != null) {
-            this.detachWeaponPart(var3);
+      this.attachWeaponPart((IsoGameCharacter)null, var1, var2);
+   }
+
+   public void attachWeaponPart(IsoGameCharacter var1, WeaponPart var2) {
+      this.attachWeaponPart(var1, var2, true);
+   }
+
+   public void attachWeaponPart(IsoGameCharacter var1, WeaponPart var2, boolean var3) {
+      if (var2 != null) {
+         if (this.attachments.containsKey(var2.getPartType())) {
+            this.detachWeaponPart(var1, (WeaponPart)this.attachments.get(var2.getPartType()), var3);
          }
 
-         this.setWeaponPart(var1.getPartType(), var1);
-         if (var2) {
-            this.setMaxRange(this.getMaxRange() + var1.getMaxRange());
-            this.setMinRangeRanged(this.getMinRangeRanged() + var1.getMinRangeRanged());
-            this.setClipSize(this.getClipSize() + var1.getClipSize());
-            this.setReloadTime(this.getReloadTime() + var1.getReloadTime());
-            this.setRecoilDelay((int)((float)this.getRecoilDelay() + var1.getRecoilDelay()));
-            this.setAimingTime(this.getAimingTime() + var1.getAimingTime());
-            this.setHitChance(this.getHitChance() + var1.getHitChance());
-            this.setMinAngle(this.getMinAngle() + var1.getAngle());
-            this.setMinDamage(this.getMinDamage() + var1.getDamage());
-            this.setMaxDamage(this.getMaxDamage() + var1.getDamage());
+         this.setWeaponPart(var2);
+         if (var3) {
+            this.setMaxRange(this.getMaxRange() + var2.getMaxRange());
+            this.setReloadTime(this.getReloadTime() + var2.getReloadTime());
+            this.setRecoilDelay((int)((float)this.getRecoilDelay() + var2.getRecoilDelay()));
+            this.setAimingTime(this.getAimingTime() + var2.getAimingTime());
+            this.setHitChance(this.getHitChance() + var2.getHitChance());
+            this.setProjectileSpread(this.getProjectileSpread() + var2.getSpreadModifier());
+            this.setMinDamage(this.getMinDamage() + var2.getDamage());
+            this.setMaxDamage(this.getMaxDamage() + var2.getDamage());
+            var2.onAttach(var1, this);
          }
-
       }
    }
 
+   public void detachAllWeaponParts() {
+      Iterator var1 = this.getAllWeaponParts().iterator();
+
+      while(var1.hasNext()) {
+         WeaponPart var2 = (WeaponPart)var1.next();
+         this.detachWeaponPart((IsoGameCharacter)null, var2, true);
+      }
+
+   }
+
    public void detachWeaponPart(WeaponPart var1) {
-      if (var1 != null) {
-         WeaponPart var2 = this.getWeaponPart(var1.getPartType());
-         if (var2 == var1) {
-            this.setWeaponPart(var1.getPartType(), (WeaponPart)null);
-            this.setMaxRange(this.getMaxRange() - var1.getMaxRange());
-            this.setMinRangeRanged(this.getMinRangeRanged() - var1.getMinRangeRanged());
-            this.setClipSize(this.getClipSize() - var1.getClipSize());
-            this.setReloadTime(this.getReloadTime() - var1.getReloadTime());
-            this.setRecoilDelay((int)((float)this.getRecoilDelay() - var1.getRecoilDelay()));
-            this.setAimingTime(this.getAimingTime() - var1.getAimingTime());
-            this.setHitChance(this.getHitChance() - var1.getHitChance());
-            this.setMinAngle(this.getMinAngle() - var1.getAngle());
-            this.setMinDamage(this.getMinDamage() - var1.getDamage());
-            this.setMaxDamage(this.getMaxDamage() - var1.getDamage());
+      this.detachWeaponPart((IsoGameCharacter)null, var1, true);
+   }
+
+   public void detachWeaponPart(String var1) {
+      this.detachWeaponPart((IsoGameCharacter)null, this.getWeaponPart(var1), true);
+   }
+
+   public void detachWeaponPart(IsoGameCharacter var1, WeaponPart var2) {
+      this.detachWeaponPart(var1, var2, true);
+   }
+
+   public void detachWeaponPart(IsoGameCharacter var1, WeaponPart var2, boolean var3) {
+      if (var2 != null && this.getAllWeaponParts().contains(var2)) {
+         WeaponPart var4 = this.getWeaponPart(var2.getPartType());
+         if (var4 == var2) {
+            this.clearWeaponPart(var2);
+            if (var3) {
+               this.setMaxRange(this.getMaxRange() - var2.getMaxRange());
+               this.setClipSize(this.getClipSize() - var2.getClipSize());
+               this.setReloadTime(this.getReloadTime() - var2.getReloadTime());
+               this.setRecoilDelay((int)((float)this.getRecoilDelay() - var2.getRecoilDelay()));
+               this.setAimingTime(this.getAimingTime() - var2.getAimingTime());
+               this.setHitChance(this.getHitChance() - var2.getHitChance());
+               this.setProjectileSpread(this.getProjectileSpread() - var2.getSpreadModifier());
+               this.setMinDamage(this.getMinDamage() - var2.getDamage());
+               this.setMaxDamage(this.getMaxDamage() - var2.getDamage());
+               var2.onDetach(var1, this);
+            }
          }
       }
    }
@@ -1765,6 +1819,14 @@ public final class HandWeapon extends InventoryItem {
       this.explosionTimer = var1;
    }
 
+   public int getExplosionDuration() {
+      return this.explosionDuration;
+   }
+
+   public void setExplosionDuration(int var1) {
+      this.explosionDuration = var1;
+   }
+
    public String getPlacedSprite() {
       return this.placedSprite;
    }
@@ -1794,7 +1856,7 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public float getCritDmgMultiplier() {
-      return this.critDmgMultiplier;
+      return this.hasSharpness() ? this.critDmgMultiplier * this.getSharpnessMultiplier() : this.critDmgMultiplier;
    }
 
    public void setCritDmgMultiplier(float var1) {
@@ -1802,7 +1864,15 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public String getStaticModel() {
-      return this.staticModel != null ? this.staticModel : this.weaponSprite;
+      if (this.getModelIndex() != -1 && this.getWeaponSpritesByIndex() != null) {
+         return (String)this.getWeaponSpritesByIndex().get(this.getModelIndex());
+      } else {
+         return this.staticModel != null ? this.staticModel : this.weaponSprite;
+      }
+   }
+
+   public String getStaticModelException() {
+      return this.hasTag("UseWorldStaticModel") ? this.getWorldStaticModel() : this.getStaticModel();
    }
 
    public float getBaseSpeed() {
@@ -1882,18 +1952,11 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public void setContainsClip(boolean var1) {
-      this.containsClip = var1;
+      this.containsClip = this.usesExternalMagazine() && var1;
    }
 
    public InventoryItem getBestMagazine(IsoGameCharacter var1) {
-      if (StringUtils.isNullOrEmpty(this.getMagazineType())) {
-         return null;
-      } else {
-         InventoryItem var2 = var1.getInventory().getBestTypeRecurse(this.getMagazineType(), (var0, var1x) -> {
-            return var0.getCurrentAmmoCount() - var1x.getCurrentAmmoCount();
-         });
-         return var2 != null && var2.getCurrentAmmoCount() != 0 ? var2 : null;
-      }
+      return StringUtils.isNullOrEmpty(this.getMagazineType()) ? null : var1.getInventory().getBestTypeRecurse(this.getMagazineType(), magazineComparator);
    }
 
    public String getWeaponReloadType() {
@@ -1917,7 +1980,7 @@ public final class HandWeapon extends InventoryItem {
    }
 
    public void setRoundChambered(boolean var1) {
-      this.roundChambered = var1;
+      this.roundChambered = this.haveChamber && var1;
    }
 
    public boolean isSpentRoundChambered() {
@@ -1962,6 +2025,38 @@ public final class HandWeapon extends InventoryItem {
 
    public void setJammed(boolean var1) {
       this.isJammed = var1;
+   }
+
+   public boolean checkJam(IsoPlayer var1, boolean var2) {
+      boolean var3 = !var2 && !this.isManuallyRemoveSpentRounds() && (var1.getPerkLevel(PerkFactory.Perks.Aiming) < 3 && var1.getPerkLevel(PerkFactory.Perks.Strength) < 6 || var1.getPerkLevel(PerkFactory.Perks.Aiming) < 6 && var1.getPerkLevel(PerkFactory.Perks.Strength) < 3);
+      float var4 = 8.0F * ((float)this.getCondition() / (float)this.getConditionMax());
+      float var5 = (this.jamGunChance + (float)(var3 ? 1 : 0) + (float)(this.getConditionMax() - this.getCondition()) / var4) * 0.01F;
+      float var6 = Rand.Next(0.0F, 1.0F);
+      DebugLog.Combat.debugln("Jam chance: " + var5 + ", roll: " + var6 + ", jammed: " + (var6 < var5));
+      if (var6 < var5) {
+         this.setJammed(true);
+      }
+
+      return this.isJammed;
+   }
+
+   public boolean checkUnJam(IsoPlayer var1) {
+      float var2 = 8.0F * ((float)this.getCondition() / (float)this.getConditionMax());
+      float var3 = 8.0F - (float)var1.getPerkLevel(PerkFactory.Perks.Aiming) * 0.5F + (float)((var1.getMoodleLevel(MoodleType.Panic) + var1.getMoodleLevel(MoodleType.Stress) + var1.getMoodleLevel(MoodleType.Drunk)) * 3);
+      var3 -= var1.HasTrait("Dextrous") ? 2.0F : 0.0F;
+      var3 += var1.HasTrait("AllThumbs") ? 2.0F : 0.0F;
+      var3 = PZMath.max(var3, 1.0F);
+      var3 = 1.0F - (var3 + (float)(this.getConditionMax() - this.getCondition()) / var2) * 0.01F;
+      float var4 = Rand.Next(0.0F, 1.0F);
+      DebugLog.Combat.debugln("UnJam chance: " + var3 + ", roll: " + var4 + ", unjammed: " + (var4 < var3));
+      if (var4 < var3) {
+         this.setJammed(false);
+         if (this.shellFallSound != null) {
+            var1.getEmitter().playSound(this.shellFallSound);
+         }
+      }
+
+      return this.isJammed;
    }
 
    public String getClickSound() {
@@ -2058,11 +2153,62 @@ public final class HandWeapon extends InventoryItem {
       }
    }
 
+   public boolean canEmitLight() {
+      return this.activeLight != null && this.activeLight.canEmitLight() || super.canEmitLight();
+   }
+
+   public float getLightStrength() {
+      return this.activeLight != null ? this.activeLight.getLightStrength() : super.getLightStrength();
+   }
+
+   public boolean isTorchCone() {
+      return this.activeLight != null && this.activeLight.isTorchCone() || super.isTorchCone();
+   }
+
+   public float getTorchDot() {
+      return this.activeLight != null ? this.activeLight.getTorchDot() : super.getTorchDot();
+   }
+
+   public int getLightDistance() {
+      return this.activeLight != null ? this.activeLight.getLightDistance() : super.getLightDistance();
+   }
+
+   public boolean canBeActivated() {
+      return this.activeLight != null ? this.activeLight.canBeActivated() : super.canBeActivated();
+   }
+
    public float getStopPower() {
       return this.getScriptItem().stopPower;
    }
 
    public boolean isInstantExplosion() {
-      return this.explosionTimer <= 0 && this.sensorRange <= 0 && this.getRemoteControlID() == -1;
+      return this.explosionTimer <= 0 && this.sensorRange <= 0 && this.getRemoteControlID() == -1 && !this.canBeRemote();
+   }
+
+   public void setWeaponSpritesByIndex(ArrayList<String> var1) {
+      this.weaponSpritesByIndex = var1;
+   }
+
+   public ArrayList<String> getWeaponSpritesByIndex() {
+      return this.weaponSpritesByIndex;
+   }
+
+   public boolean usesExternalMagazine() {
+      return this.getMagazineType() != null;
+   }
+
+   public void inheritAmmunition(HandWeapon var1) {
+      this.setJammed(var1.isJammed());
+      if (var1.haveChamber() && this.haveChamber()) {
+         this.setRoundChambered(var1.isRoundChambered());
+         this.setSpentRoundChambered(var1.isSpentRoundChambered());
+      }
+
+      if (var1.usesExternalMagazine() && this.usesExternalMagazine()) {
+         this.setContainsClip(var1.isContainsClip());
+      }
+
+      this.setCurrentAmmoCount(var1.getCurrentAmmoCount());
+      this.setFireMode(var1.getFireMode());
    }
 }

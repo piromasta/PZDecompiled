@@ -5,8 +5,26 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import zombie.core.math.PZMath;
+import zombie.debug.DebugLog;
 
 public final class Stats {
+   public static final byte _Anger = 0;
+   public static final byte _Endurance = 1;
+   public static final byte _Fatigue = 2;
+   public static final byte _Fitness = 3;
+   public static final byte _Hunger = 4;
+   public static final byte _Morale = 5;
+   public static final byte _Stress = 6;
+   public static final byte _Fear = 7;
+   public static final byte _Panic = 8;
+   public static final byte _Sanity = 9;
+   public static final byte _Sickness = 10;
+   public static final byte _Boredom = 11;
+   public static final byte _Pain = 12;
+   public static final byte _Drunkennes = 13;
+   public static final byte _Thirst = 14;
+   public static final byte _StressFromCigarettes = 15;
+   public static final byte _MaxStat = 16;
    public float Anger = 0.0F;
    public float boredom = 0.0F;
    public float endurance = 1.0F;
@@ -39,7 +57,10 @@ public final class Stats {
    public float stressFromCigarettes = 0.0F;
    public float ChasingZombiesDanger;
    public int MusicZombiesVisible = 0;
-   public int MusicZombiesTargeting = 0;
+   public int MusicZombiesTargeting_DistantNotMoving = 0;
+   public int MusicZombiesTargeting_NearbyNotMoving = 0;
+   public int MusicZombiesTargeting_DistantMoving = 0;
+   public int MusicZombiesTargeting_NearbyMoving = 0;
 
    public Stats() {
    }
@@ -92,10 +113,7 @@ public final class Stats {
       this.Pain = var1.getFloat();
       this.Drunkenness = var1.getFloat();
       this.thirst = var1.getFloat();
-      if (var2 >= 97) {
-         this.stressFromCigarettes = var1.getFloat();
-      }
-
+      this.stressFromCigarettes = var1.getFloat();
    }
 
    public void save(DataOutputStream var1) throws IOException {
@@ -135,6 +153,118 @@ public final class Stats {
       var1.putFloat(this.Drunkenness);
       var1.putFloat(this.thirst);
       var1.putFloat(this.stressFromCigarettes);
+   }
+
+   public void parse(ByteBuffer var1, byte var2) {
+      switch (var2) {
+         case 0:
+            this.Anger = var1.getFloat();
+            break;
+         case 1:
+            this.endurance = var1.getFloat();
+            break;
+         case 2:
+            this.fatigue = var1.getFloat();
+            break;
+         case 3:
+            this.fitness = var1.getFloat();
+            break;
+         case 4:
+            this.hunger = var1.getFloat();
+            break;
+         case 5:
+            this.morale = var1.getFloat();
+            break;
+         case 6:
+            this.stress = var1.getFloat();
+            break;
+         case 7:
+            this.Fear = var1.getFloat();
+            break;
+         case 8:
+            this.Panic = var1.getFloat();
+            break;
+         case 9:
+            this.Sanity = var1.getFloat();
+            break;
+         case 10:
+            this.Sickness = var1.getFloat();
+            break;
+         case 11:
+            this.boredom = var1.getFloat();
+            break;
+         case 12:
+            this.Pain = var1.getFloat();
+            break;
+         case 13:
+            this.Drunkenness = var1.getFloat();
+            break;
+         case 14:
+            this.thirst = var1.getFloat();
+            break;
+         case 15:
+            this.stressFromCigarettes = var1.getFloat();
+            break;
+         default:
+            DebugLog.Objects.warn("Wrong field %d provided for Stats::parse method", var2);
+      }
+
+   }
+
+   public void write(ByteBuffer var1, byte var2) {
+      switch (var2) {
+         case 0:
+            var1.putFloat(this.Anger);
+            break;
+         case 1:
+            var1.putFloat(this.endurance);
+            break;
+         case 2:
+            var1.putFloat(this.fatigue);
+            break;
+         case 3:
+            var1.putFloat(this.fitness);
+            break;
+         case 4:
+            var1.putFloat(this.hunger);
+            break;
+         case 5:
+            var1.putFloat(this.morale);
+            break;
+         case 6:
+            var1.putFloat(this.stress);
+            break;
+         case 7:
+            var1.putFloat(this.Fear);
+            break;
+         case 8:
+            var1.putFloat(this.Panic);
+            break;
+         case 9:
+            var1.putFloat(this.Sanity);
+            break;
+         case 10:
+            var1.putFloat(this.Sickness);
+            break;
+         case 11:
+            var1.putFloat(this.boredom);
+            break;
+         case 12:
+            var1.putFloat(this.Pain);
+            break;
+         case 13:
+            var1.putFloat(this.Drunkenness);
+            break;
+         case 14:
+            var1.putFloat(this.thirst);
+            break;
+         case 15:
+            var1.putFloat(this.stressFromCigarettes);
+            break;
+         default:
+            DebugLog.Objects.warn("Wrong field %d provided for Stats::write method", var2);
+      }
+
    }
 
    public float getAnger() {
@@ -227,6 +357,10 @@ public final class Stats {
 
    public void setMorale(float var1) {
       this.morale = var1;
+   }
+
+   public float getBasicStress() {
+      return this.stress;
    }
 
    public float getStress() {
@@ -337,6 +471,7 @@ public final class Stats {
       this.idleboredom = 0.0F;
       this.morale = 0.5F;
       this.stress = 0.0F;
+      this.stressFromCigarettes = 0.0F;
       this.Fear = 0.0F;
       this.Panic = 0.0F;
       this.Sanity = 1.0F;

@@ -10,7 +10,7 @@ import zombie.core.math.PZMath;
 
 public final class WorldMapImages {
    private static final HashMap<String, WorldMapImages> s_filenameToImages = new HashMap();
-   private String m_directory;
+   private String m_absolutePath;
    private ImagePyramid m_pyramid;
 
    public WorldMapImages() {
@@ -18,20 +18,28 @@ public final class WorldMapImages {
 
    public static WorldMapImages getOrCreate(String var0) {
       String var1 = ZomboidFileSystem.instance.getString(var0 + "/pyramid.zip");
-      if (!Files.exists(Paths.get(var1), new LinkOption[0])) {
+      return getOrCreateWithFileName(var1);
+   }
+
+   public static WorldMapImages getOrCreateWithFileName(String var0) {
+      if (!Files.exists(Paths.get(var0), new LinkOption[0])) {
          return null;
       } else {
-         WorldMapImages var2 = (WorldMapImages)s_filenameToImages.get(var1);
+         WorldMapImages var2 = (WorldMapImages)s_filenameToImages.get(var0);
          if (var2 == null) {
             var2 = new WorldMapImages();
-            var2.m_directory = var0;
+            var2.m_absolutePath = var0;
             var2.m_pyramid = new ImagePyramid();
-            var2.m_pyramid.setZipFile(var1);
-            s_filenameToImages.put(var1, var2);
+            var2.m_pyramid.setZipFile(var0);
+            s_filenameToImages.put(var0, var2);
          }
 
          return var2;
       }
+   }
+
+   public String getAbsolutePath() {
+      return this.m_absolutePath;
    }
 
    public ImagePyramid getPyramid() {
@@ -52,6 +60,14 @@ public final class WorldMapImages {
 
    public int getMaxY() {
       return this.m_pyramid.m_maxY;
+   }
+
+   public int getWidthInSquares() {
+      return this.getMaxX() - this.getMinX() + 1;
+   }
+
+   public int getHeightInSquares() {
+      return this.getMaxY() - this.getMinY() + 1;
    }
 
    public int getZoom(float var1) {

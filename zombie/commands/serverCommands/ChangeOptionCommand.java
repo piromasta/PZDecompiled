@@ -1,11 +1,13 @@
 package zombie.commands.serverCommands;
 
 import java.sql.SQLException;
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.znet.SteamGameServer;
@@ -23,11 +25,11 @@ import zombie.network.ServerOptions;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_ChangeOptions"
 )
-@RequiredRight(
-   requiredRights = 32
+@RequiredCapability(
+   requiredCapability = Capability.ChangeAndReloadServerOptions
 )
 public class ChangeOptionCommand extends CommandBase {
-   public ChangeOptionCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public ChangeOptionCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 

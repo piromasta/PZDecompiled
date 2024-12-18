@@ -12,7 +12,9 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.chat.ChatElement;
 import zombie.chat.ChatElementOwner;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.entity.GameEntity;
+import zombie.entity.GameEntityType;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
@@ -25,7 +27,7 @@ import zombie.radio.devices.WaveSignalDevice;
 import zombie.scripting.objects.VehicleScript;
 import zombie.ui.UIFont;
 
-public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
+public final class VehiclePart extends GameEntity implements ChatElementOwner, WaveSignalDevice {
    protected BaseVehicle vehicle;
    protected boolean bCreated;
    protected String partId;
@@ -47,6 +49,7 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
    private float suspensionDamping = 0.0F;
    private float suspensionCompression = 0.0F;
    private float engineLoudness = 0.0F;
+   private float durability = 0.0F;
    protected VehicleLight light;
    protected DeviceData deviceData;
    protected ChatElement chatElement;
@@ -188,6 +191,9 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
 
          this.setCondition(var1.getCondition());
          this.setMechanicSkillInstaller(var2);
+         if (var1.getDurability() > 0.0F) {
+            this.setDurability(var1.getDurability());
+         }
       } else {
          if (this.scriptPart != null && this.scriptPart.container != null) {
             if (this.scriptPart.container.capacity > 0) {
@@ -218,7 +224,7 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
 
          this.setCondition(Rand.Next(var3 - var3 / 3, var3));
          if (var1 != null) {
-            var1.setCondition(this.getCondition());
+            var1.setCondition(this.getCondition(), false);
          }
 
       } else {
@@ -273,7 +279,7 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
          var4 = Math.min(100.0F, var4);
          this.setCondition((int)var4);
          if (var1 != null) {
-            var1.setCondition(this.getCondition());
+            var1.setCondition(this.getCondition(), false);
          }
 
       }
@@ -318,7 +324,7 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
       var5 = Math.min(100.0F, var5);
       this.setCondition((int)var5);
       if (var1 != null) {
-         var1.setCondition(this.getCondition());
+         var1.setCondition(this.getCondition(), false);
       }
 
    }
@@ -556,6 +562,13 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
       var1.putInt(this.mechanicSkillInstaller);
       var1.putFloat(this.suspensionCompression);
       var1.putFloat(this.suspensionDamping);
+      if (!this.requiresEntitySave()) {
+         var1.put((byte)0);
+      } else {
+         var1.put((byte)1);
+         this.saveEntity(var1);
+      }
+
    }
 
    public void load(ByteBuffer var1, int var2) throws IOException {
@@ -615,18 +628,13 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
          this.window.load(var1, var2);
       }
 
-      if (var2 >= 116) {
-         this.setCondition(var1.getInt());
-      }
-
-      if (var2 >= 118) {
-         this.setWheelFriction(var1.getFloat());
-         this.setMechanicSkillInstaller(var1.getInt());
-      }
-
-      if (var2 >= 119) {
-         this.setSuspensionCompression(var1.getFloat());
-         this.setSuspensionDamping(var1.getFloat());
+      this.setCondition(var1.getInt());
+      this.setWheelFriction(var1.getFloat());
+      this.setMechanicSkillInstaller(var1.getInt());
+      this.setSuspensionCompression(var1.getFloat());
+      this.setSuspensionDamping(var1.getFloat());
+      if (var2 >= 200 && var1.get() == 1) {
+         this.loadEntity(var1, var2);
       }
 
    }
@@ -664,7 +672,7 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
    }
 
    public float getLightIntensity() {
-      return this.light == null ? 0.0F : 0.5F + 0.25F * (float)this.getCondition() / 100.0F;
+      return this.light == null ? 0.0F : 0.5F + 0.5F * (float)this.getCondition() / 100.0F;
    }
 
    public float getLightFocusing() {
@@ -705,6 +713,10 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
    public void setDeviceData(DeviceData var1) {
       if (var1 == null) {
          var1 = new DeviceData(this);
+      }
+
+      if (this.deviceData != null) {
+         this.deviceData.cleanSoundsAndEmitter();
       }
 
       this.deviceData = var1;
@@ -823,11 +835,11 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
 
       this.condition = var1;
       if (this.getInventoryItem() != null) {
-         this.getInventoryItem().setCondition(var1);
+         this.getInventoryItem().setCondition(var1, false);
       }
 
       this.getVehicle().bDoDamageOverlay = true;
-      if ("lightbar".equals(this.getId())) {
+      if (var1 <= 0 && "lightbar".equals(this.getId())) {
          this.getVehicle().lightbarLightsMode.set(0);
          this.getVehicle().setLightbarSirenMode(0);
       }
@@ -933,8 +945,8 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
          this.vehicle.transmitPartModData(this);
       }
 
-      if (this.getInventoryItem() instanceof Drainable && ((Drainable)this.getInventoryItem()).getUsedDelta() < 1.0F) {
-         ((Drainable)this.getInventoryItem()).setUsedDelta(1.0F);
+      if (this.getInventoryItem() instanceof Drainable && this.getInventoryItem().getCurrentUsesFloat() < 1.0F) {
+         this.getInventoryItem().setCurrentUses(this.getInventoryItem().getMaxUses());
          this.vehicle.transmitPartUsedDelta(this);
       }
 
@@ -959,5 +971,31 @@ public final class VehiclePart implements ChatElementOwner, WaveSignalDevice {
 
    public ChatElement getChatElement() {
       return this.chatElement;
+   }
+
+   public GameEntityType getGameEntityType() {
+      return GameEntityType.VehiclePart;
+   }
+
+   public boolean isEntityValid() {
+      return true;
+   }
+
+   public long getEntityNetID() {
+      long var1 = (long)this.getVehicle().VehicleID << 31;
+      long var3 = (long)this.getIndex();
+      long var5 = var1 + var3;
+      return var5;
+   }
+
+   public void setDurability(float var1) {
+      if (var1 > 0.0F) {
+         this.durability = var1;
+      }
+
+   }
+
+   public float getDurability() {
+      return this.durability;
    }
 }

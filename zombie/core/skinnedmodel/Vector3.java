@@ -118,4 +118,23 @@ public final class Vector3 {
    public Vector3 mul(Vector3 var1) {
       return this.mul(var1.x(), var1.y(), var1.z());
    }
+
+   public float get(int var1) throws IllegalArgumentException {
+      float var10000;
+      switch (var1) {
+         case 0:
+            var10000 = this.x;
+            break;
+         case 1:
+            var10000 = this.y;
+            break;
+         case 2:
+            var10000 = this.z;
+            break;
+         default:
+            throw new IllegalArgumentException();
+      }
+
+      return var10000;
+   }
 }

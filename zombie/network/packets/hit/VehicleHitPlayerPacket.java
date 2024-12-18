@@ -1,85 +1,64 @@
 package zombie.network.packets.hit;
 
-import java.nio.ByteBuffer;
+import zombie.characters.Capability;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
-import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
-import zombie.network.PacketValidator;
-import zombie.network.packets.INetworkPacket;
+import zombie.network.PacketSetting;
+import zombie.network.anticheats.AntiCheat;
+import zombie.network.anticheats.AntiCheatHitDamage;
+import zombie.network.anticheats.AntiCheatHitShortDistance;
+import zombie.network.anticheats.AntiCheatSafety;
+import zombie.network.anticheats.AntiCheatSpeed;
+import zombie.network.fields.Hit;
+import zombie.network.fields.IMovable;
 import zombie.vehicles.BaseVehicle;
 
-public class VehicleHitPlayerPacket extends VehicleHitPacket implements INetworkPacket {
-   protected final Player target = new Player();
-   protected final VehicleHit vehicleHit = new VehicleHit();
-   protected final Fall fall = new Fall();
-
+@PacketSetting(
+   ordering = 0,
+   priority = 0,
+   reliability = 3,
+   requiredCapability = Capability.LoginOnServer,
+   handlingType = 3,
+   anticheats = {AntiCheat.HitDamage, AntiCheat.HitShortDistance, AntiCheat.Safety, AntiCheat.Speed}
+)
+public class VehicleHitPlayerPacket extends VehicleHit implements AntiCheatHitDamage.IAntiCheat, AntiCheatHitShortDistance.IAntiCheat, AntiCheatSafety.IAntiCheat, AntiCheatSpeed.IAntiCheat {
    public VehicleHitPlayerPacket() {
-      super(HitCharacterPacket.HitType.VehicleHitPlayer);
    }
 
    public void set(IsoPlayer var1, IsoPlayer var2, BaseVehicle var3, float var4, boolean var5, int var6, float var7, boolean var8) {
-      super.set(var1, var3, false);
-      this.target.set(var2, false);
-      this.vehicleHit.set(false, var4, var2.getHitForce(), var2.getHitDir().x, var2.getHitDir().y, var6, var7, var8, var5);
-      this.fall.set(var2.getHitReactionNetworkAI());
    }
 
-   public void parse(ByteBuffer var1, UdpConnection var2) {
-      super.parse(var1, var2);
-      this.target.parse(var1, var2);
-      this.target.parsePlayer(var2);
-      this.vehicleHit.parse(var1, var2);
-      this.fall.parse(var1, var2);
+   public float getDistance() {
+      return 0.0F;
    }
 
-   public void write(ByteBufferWriter var1) {
-      super.write(var1);
-      this.target.write(var1);
-      this.vehicleHit.write(var1);
-      this.fall.write(var1);
+   public IsoGameCharacter getTarget() {
+      return null;
    }
 
-   public boolean isConsistent() {
-      return super.isConsistent() && this.target.isConsistent() && this.vehicleHit.isConsistent();
+   public IsoPlayer getWielder() {
+      return null;
    }
 
-   public String getDescription() {
-      String var10000 = super.getDescription();
-      return var10000 + "\n\tTarget " + this.target.getDescription() + "\n\tVehicleHit " + this.vehicleHit.getDescription() + "\n\tFall " + this.fall.getDescription();
+   public IMovable getMovable() {
+      return null;
    }
 
-   protected void preProcess() {
-      super.preProcess();
-      this.target.process();
+   public boolean isRelevant(UdpConnection var1) {
+      return false;
    }
 
-   protected void process() {
-      this.vehicleHit.process(this.wielder.getCharacter(), this.target.getCharacter(), this.vehicle.getVehicle());
-      this.fall.process(this.target.getCharacter());
+   public void preProcess() {
    }
 
-   protected void postProcess() {
-      super.postProcess();
-      this.target.process();
+   public void process() {
    }
 
-   protected void react() {
-      this.target.react();
+   public void postProcess() {
    }
 
-   protected void postpone() {
-      this.target.getCharacter().getNetworkCharacterAI().setVehicleHit(this);
-   }
-
-   public boolean validate(UdpConnection var1) {
-      if (!PacketValidator.checkPVP(var1, this.wielder, this.target, VehicleHitPlayerPacket.class.getSimpleName())) {
-         return false;
-      } else if (!PacketValidator.checkSpeed(var1, this.vehicleHit, VehicleHitPlayerPacket.class.getSimpleName())) {
-         return false;
-      } else if (!PacketValidator.checkShortDistance(var1, this.wielder, this.target, VehicleHitPlayerPacket.class.getSimpleName())) {
-         return false;
-      } else {
-         return PacketValidator.checkDamage(var1, this.vehicleHit, VehicleHitPlayerPacket.class.getSimpleName());
-      }
+   public Hit getHit() {
+      return null;
    }
 }

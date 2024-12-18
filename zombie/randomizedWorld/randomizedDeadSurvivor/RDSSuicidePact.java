@@ -1,6 +1,10 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
 import zombie.characters.IsoGameCharacter;
+import zombie.core.random.Rand;
+import zombie.inventory.InventoryItem;
+import zombie.inventory.InventoryItemFactory;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.RoomDef;
 import zombie.iso.objects.IsoDeadBody;
@@ -27,6 +31,15 @@ public final class RDSSuicidePact extends RandomizedDeadSurvivorBase {
                var4 = RandomizedDeadSurvivorBase.createBodyFromZombie(var3);
                if (var4 != null) {
                   this.addBloodSplat(var4.getSquare(), 4);
+                  if (Rand.Next(2) == 0) {
+                     InventoryItem var5 = InventoryItemFactory.CreateItem("Base.Note");
+                     if (Rand.Next(2) == 0) {
+                        ItemSpawner.spawnItem(var5, var4.getSquare(), Rand.Next(0.5F, 1.0F), Rand.Next(0.5F, 1.0F), 0.0F);
+                     } else {
+                        var4.getContainer().addItem(var5);
+                     }
+                  }
+
                }
             }
          }

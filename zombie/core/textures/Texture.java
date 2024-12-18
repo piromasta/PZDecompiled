@@ -188,6 +188,71 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
       this.addDependency(var1);
    }
 
+   public Texture(TextureID var1, String var2, int var3, int var4, int var5, int var6) {
+      super((AssetPath)null, TextureAssetManager.instance);
+      this.flip = false;
+      this.offsetX = 0.0F;
+      this.offsetY = 0.0F;
+      this.bindAlways = false;
+      this.xEnd = 1.0F;
+      this.yEnd = 1.0F;
+      this.xStart = 0.0F;
+      this.yStart = 0.0F;
+      this.realWidth = 0;
+      this.realHeight = 0;
+      this.destroyed = false;
+      this.splitX = -1;
+      this.dataid = var1;
+      ++this.dataid.referenceCount;
+      if (var1.isReady()) {
+         this.solid = this.dataid.solid;
+         this.width = var1.width;
+         this.height = var1.height;
+         this.xEnd = (float)this.width / (float)var1.widthHW;
+         this.yEnd = (float)this.height / (float)var1.heightHW;
+      }
+
+      this.name = var2;
+      this.splitX = var3;
+      this.splitY = var4;
+      this.splitW = var5;
+      this.splitH = var6;
+      if (var1.isReady()) {
+         this.setRegion(var3, var4, var5, var6);
+      }
+
+      this.assetParams = null;
+      this.onCreated(var1.getState());
+      this.addDependency(var1);
+   }
+
+   public void TexDeferedCreation(int var1, int var2, int var3, int var4, int var5) {
+      if (var2 > 2048) {
+         boolean var6 = false;
+      }
+
+      this.dataid = new TextureID(var1, var2, var3, var4, var5);
+      TextureID var7 = this.dataid;
+      ++this.dataid.referenceCount;
+      if (var7.isReady()) {
+         this.solid = this.dataid.solid;
+         this.width = var7.width;
+         this.height = var7.height;
+         this.xEnd = (float)this.width / (float)var7.widthHW;
+         this.yEnd = (float)this.height / (float)var7.heightHW;
+      } else {
+         assert false;
+      }
+
+      this.assetParams = null;
+      this.onCreated(var7.getState());
+      this.addDependency(var7);
+   }
+
+   public void TexDeferedCreation(int var1, int var2, int var3) {
+      this.TexDeferedCreation(var1, var2, var3, 6408, 6408);
+   }
+
    public Texture(String var1) throws Exception {
       this(new TextureID(var1), var1);
       this.setUseAlphaChannel(true);
@@ -247,6 +312,31 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
 
    public Texture(int var1, int var2, int var3) {
       this((TextureID)(new TextureID(var1, var2, var3)), (String)null);
+   }
+
+   public Texture(int var1, int var2, int var3, int var4, int var5) {
+      this((TextureID)(new TextureID(var1, var2, var3, var4, var5)), (String)null);
+   }
+
+   public Texture(int var1, int var2, int var3, boolean var4) {
+      super((AssetPath)null, TextureAssetManager.instance);
+      this.flip = false;
+      this.offsetX = 0.0F;
+      this.offsetY = 0.0F;
+      this.bindAlways = false;
+      this.xEnd = 1.0F;
+      this.yEnd = 1.0F;
+      this.xStart = 0.0F;
+      this.yStart = 0.0F;
+      this.realWidth = 0;
+      this.realHeight = 0;
+      this.destroyed = false;
+      this.splitX = -1;
+      int var5 = ImageUtils.getNextPowerOfTwoHW(var1);
+      int var6 = ImageUtils.getNextPowerOfTwoHW(var2);
+      this.xEnd = (float)var1 / (float)var5;
+      this.yEnd = (float)var2 / (float)var6;
+      this.isDefered = true;
    }
 
    public Texture(String var1, int var2, int var3, int var4) throws Exception {
@@ -761,7 +851,7 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
    }
 
    public int getHeightHW() {
-      if (!this.isReady() && this.height <= 0 && !(this instanceof SmartTexture)) {
+      if (!this.isReady() && this.height <= 0 && !(this instanceof SmartTexture) && this.splitX == -1) {
          this.syncReadSize();
       }
 
@@ -773,7 +863,7 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
    }
 
    public int getID() {
-      return this.dataid.id;
+      return this.dataid == null ? 0 : this.dataid.id;
    }
 
    public Mask getMask() {
@@ -782,6 +872,10 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
 
    public void setMask(Mask var1) {
       this.mask = var1;
+   }
+
+   public boolean isMaskSet(int var1, int var2) {
+      return this.getMask() == null ? true : this.getMask().get(var1 - (int)this.getOffsetX(), var2 - (int)this.getOffsetY());
    }
 
    public String getName() {
@@ -821,6 +915,14 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
       this.dataid.solid = this.solid = !var1;
    }
 
+   public int getX() {
+      return this.splitX;
+   }
+
+   public int getY() {
+      return this.splitY;
+   }
+
    public int getWidth() {
       if (!this.isReady() && this.width <= 0 && !(this instanceof SmartTexture)) {
          this.syncReadSize();
@@ -834,7 +936,7 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
    }
 
    public int getWidthHW() {
-      if (!this.isReady() && this.width <= 0 && !(this instanceof SmartTexture)) {
+      if (!this.isReady() && this.width <= 0 && !(this instanceof SmartTexture) && this.splitX == -1) {
          this.syncReadSize();
       }
 
@@ -1461,7 +1563,7 @@ public class Texture extends Asset implements IDestroyable, ITexture, Serializab
       } else {
          this.setRegion(this.splitX, this.splitY, this.splitW, this.splitH);
          if (this.dataid.mask != null) {
-            this.mask = new Mask(this.dataid.mask, this.dataid.width, this.dataid.height, this.splitX, this.splitY, this.splitW, this.splitH);
+            this.mask = new Mask(this.dataid.mask, this.splitX, this.splitY, this.splitW, this.splitH);
          }
       }
 

@@ -31,7 +31,7 @@ public final class ChunkMapFilenames {
             this.cacheDir = ZomboidFileSystem.instance.getGameModeCacheDir();
          }
 
-         String var5 = this.cacheDir + File.separator + Core.GameSaveWorld + File.separator + this.prefix + var1 + "_" + var2 + ".bin";
+         String var5 = this.cacheDir + File.separator + Core.GameSaveWorld + File.separator + "map" + File.separator + this.prefix + var1 + "_" + var2 + ".bin";
          File var6 = new File(var5);
          this.Map.put(var3, var6);
          return var6;
@@ -44,7 +44,7 @@ public final class ChunkMapFilenames {
       }
 
       if (this.dirFile == null) {
-         this.dirFile = new File(this.cacheDir + File.separator + var1);
+         this.dirFile = new File(this.cacheDir, "map" + File.separator + var1);
       }
 
       return this.dirFile;

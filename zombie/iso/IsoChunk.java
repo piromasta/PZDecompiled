@@ -1,6 +1,6 @@
 package zombie.iso;
 
-import gnu.trove.list.array.TIntArrayList;
+import gnu.trove.list.array.TLongArrayList;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -11,13 +11,17 @@ import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.zip.CRC32;
 import zombie.ChunkMapFilenames;
 import zombie.FliesSound;
+import zombie.GameProfiler;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.LoadGridsquarePerformanceWorkaround;
@@ -32,15 +36,19 @@ import zombie.ZombieSpawnRecorder;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.MapObjects;
+import zombie.audio.FMODAmbientWalls;
 import zombie.audio.ObjectAmbientEmitters;
+import zombie.basements.Basements;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.RagdollBuilder;
+import zombie.characters.animals.AnimalPopulationManager;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.logger.LoggerManager;
 import zombie.core.math.PZMath;
@@ -49,6 +57,7 @@ import zombie.core.physics.Bullet;
 import zombie.core.physics.WorldSimulation;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.core.stash.StashSystem;
 import zombie.core.utils.BoundedQueue;
 import zombie.debug.DebugLog;
@@ -57,10 +66,21 @@ import zombie.debug.DebugType;
 import zombie.erosion.ErosionData;
 import zombie.erosion.ErosionMain;
 import zombie.globalObjects.SGlobalObjects;
+import zombie.inventory.InventoryItem;
+import zombie.inventory.InventoryItemFactory;
+import zombie.inventory.ItemPickerJava;
+import zombie.inventory.ItemSpawner;
+import zombie.inventory.types.InventoryContainer;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.IsoBuilding;
 import zombie.iso.areas.IsoRoom;
+import zombie.iso.enums.ChunkGenerationStatus;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
+import zombie.iso.fboRenderChunk.FBORenderCutaways;
+import zombie.iso.fboRenderChunk.FBORenderLevels;
+import zombie.iso.fboRenderChunk.FBORenderOcclusion;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoGenerator;
@@ -70,7 +90,12 @@ import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.RainManager;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.iso.worldgen.WGChunk;
+import zombie.iso.worldgen.blending.BlendDirection;
+import zombie.iso.zones.VehicleZone;
+import zombie.iso.zones.Zone;
 import zombie.network.ChunkChecksum;
 import zombie.network.ClientChunkRequest;
 import zombie.network.GameClient;
@@ -78,9 +103,14 @@ import zombie.network.GameServer;
 import zombie.network.MPStatistics;
 import zombie.network.PacketTypes;
 import zombie.network.ServerMap;
-import zombie.network.ServerOptions;
+import zombie.pathfind.CollideWithObstaclesPoly;
+import zombie.pathfind.PolygonalMap2;
+import zombie.pathfind.nativeCode.PathfindNative;
 import zombie.popman.ZombiePopulationManager;
+import zombie.popman.animal.AnimalInstanceManager;
+import zombie.popman.animal.AnimalOwnershipManager;
 import zombie.randomizedWorld.randomizedBuilding.RandomizedBuildingBase;
+import zombie.randomizedWorld.randomizedRanch.RandomizedRanchBase;
 import zombie.randomizedWorld.randomizedVehicleStory.RandomizedVehicleStoryBase;
 import zombie.randomizedWorld.randomizedVehicleStory.VehicleStorySpawnData;
 import zombie.randomizedWorld.randomizedZoneStory.RandomizedZoneStoryBase;
@@ -88,31 +118,49 @@ import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.VehicleScript;
 import zombie.util.StringUtils;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.CollideWithObstaclesPoly;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.VehicleType;
 import zombie.vehicles.VehiclesDB2;
+import zombie.vispoly.VisibilityPolygon2;
 
 public final class IsoChunk {
    public static boolean bDoServerRequests = true;
    public int wx = 0;
    public int wy = 0;
-   public final IsoGridSquare[][] squares;
+   public IsoGridSquare[][] squares;
    public FliesSound.ChunkData corpseData;
    public final NearestWalls.ChunkData nearestWalls = new NearestWalls.ChunkData();
+   private final FBORenderLevels[] m_renderLevels = new FBORenderLevels[4];
    private ArrayList<IsoGameCharacter.Location> generatorsTouchingThisChunk;
-   public int maxLevel = -1;
+   private IsoChunkLevel[] levels = new IsoChunkLevel[1];
+   public int maxLevel = 0;
+   public int minLevel = 0;
    public final ArrayList<WorldSoundManager.WorldSound> SoundList = new ArrayList();
    private int m_treeCount = 0;
    private int m_numberOfWaterTiles = 0;
-   private IsoMetaGrid.Zone m_scavengeZone = null;
-   private final TIntArrayList m_spawnedRooms = new TIntArrayList();
+   public int lightingUpdateCounter = 0;
+   private Zone m_scavengeZone = null;
+   private final TLongArrayList m_spawnedRooms = new TLongArrayList();
    public IsoChunk next;
    public final CollideWithObstaclesPoly.ChunkData collision = new CollideWithObstaclesPoly.ChunkData();
    public int m_adjacentChunkLoadedCounter = 0;
    public VehicleStorySpawnData m_vehicleStorySpawnData;
    public Object m_loadVehiclesObject = null;
    public final ObjectAmbientEmitters.ChunkData m_objectEmitterData = new ObjectAmbientEmitters.ChunkData();
+   public final FBORenderCutaways.ChunkLevelsData m_cutawayData = new FBORenderCutaways.ChunkLevelsData(this);
+   public final VisibilityPolygon2.ChunkData m_vispolyData = new VisibilityPolygon2.ChunkData(this);
+   private boolean blendingDoneFull;
+   private boolean blendingDonePartial;
+   private boolean[] blendingModified = new boolean[4];
+   private byte[] blendingDepth;
+   private boolean attachmentsDoneFull;
+   private boolean[] attachmentsState;
+   private static final boolean[] comparatorBool4 = new boolean[]{true, true, true, true};
+   private static final boolean[] comparatorBool5 = new boolean[]{true, true, true, true, true};
+   private EnumSet<ChunkGenerationStatus> chunkGenerationStatus;
+   public long loadedFrame;
+   public long renderFrame;
+   private static int frameDelay = 0;
+   private static final int maxFrameDelay = 5;
    public JobType jobType;
    public LotHeader lotheader;
    public final BoundedQueue<IsoFloorBloodSplat> FloorBloodSplats;
@@ -124,32 +172,41 @@ public final class IsoChunk {
    public boolean bLoaded;
    private boolean blam;
    private boolean addZombies;
+   public ArrayList<IsoGridSquare> proceduralZombieSquares;
    private boolean bFixed2x;
    public final boolean[] lightCheck;
    public final boolean[] bLightingNeverDone;
    public final ArrayList<IsoRoomLight> roomLights;
    public final ArrayList<BaseVehicle> vehicles;
    public int lootRespawnHour;
+   public static final short LB_PATHFIND = 2;
+   public short loadedBits;
+   private static final short INVALID_LOAD_ID = -1;
+   private static short nextLoadID;
+   private short loadID;
    private long hashCodeObjects;
    public int ObjectsSyncCount;
    private static int AddVehicles_ForTest_vtype = 0;
    private static int AddVehicles_ForTest_vskin = 0;
    private static int AddVehicles_ForTest_vrot = 0;
    private static final ArrayList<BaseVehicle> BaseVehicleCheckedVehicles = new ArrayList();
-   protected boolean physicsCheck;
+   private int minLevelPhysics;
+   private int maxLevelPhysics;
    private static final int MAX_SHAPES = 4;
-   private final PhysicsShapes[] shapes;
+   private final int[] shapes;
    private static final byte[] bshapes = new byte[4];
    private static final ChunkGetter chunkGetter = new ChunkGetter();
+   static final ArrayList<IsoGridSquare> newSquareList = new ArrayList();
    private boolean loadedPhysics;
    public final Object vehiclesForAddToWorldLock;
-   public ArrayList<BaseVehicle> vehiclesForAddToWorld;
+   public ArrayList<IsoGameCharacter> ragdollControllersForAddToWorld;
    public static final ConcurrentLinkedQueue<IsoChunk> loadGridSquare = new ConcurrentLinkedQueue();
    private static final int BLOCK_SIZE = 65536;
    private static ByteBuffer SliceBuffer = ByteBuffer.allocate(65536);
    private static ByteBuffer SliceBufferLoad = ByteBuffer.allocate(65536);
    public static final Object WriteLock = new Object();
    private static final ArrayList<RoomDef> tempRoomDefs = new ArrayList();
+   private static final ArrayList<BuildingDef> tempBuildingDefs = new ArrayList();
    private static final ArrayList<IsoBuilding> tempBuildings = new ArrayList();
    private static final ArrayList<ChunkLock> Locks = new ArrayList();
    private static final Stack<ChunkLock> FreeLocks = new Stack();
@@ -178,23 +235,80 @@ public final class IsoChunk {
       }
    }
 
+   public boolean IsOnScreen(boolean var1) {
+      float var8 = IsoUtils.XToScreen((float)(this.wx * 8), (float)(this.wy * 8), (float)this.minLevel, 0);
+      float var9 = IsoUtils.YToScreen((float)(this.wx * 8), (float)(this.wy * 8), (float)this.minLevel, 0);
+      float var10 = IsoUtils.XToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8), (float)this.minLevel, 0);
+      float var11 = IsoUtils.YToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8), (float)this.minLevel, 0);
+      float var12 = IsoUtils.XToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8 + 8), (float)this.minLevel, 0);
+      float var13 = IsoUtils.YToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8 + 8), (float)this.minLevel, 0);
+      float var14 = IsoUtils.XToScreen((float)(this.wx * 8), (float)(this.wy * 8 + 8), (float)this.minLevel, 0);
+      float var15 = IsoUtils.YToScreen((float)(this.wx * 8), (float)(this.wy * 8 + 8), (float)this.minLevel, 0);
+      float var4 = PZMath.min(var8, var10, var12, var14);
+      float var5 = PZMath.max(var8, var10, var12, var14);
+      float var6 = PZMath.min(var9, var11, var13, var15);
+      float var7 = PZMath.max(var9, var11, var13, var15);
+      var8 = IsoUtils.XToScreen((float)(this.wx * 8), (float)(this.wy * 8), (float)(this.maxLevel + 1), 0);
+      var9 = IsoUtils.YToScreen((float)(this.wx * 8), (float)(this.wy * 8), (float)(this.maxLevel + 1), 0);
+      var10 = IsoUtils.XToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8), (float)(this.maxLevel + 1), 0);
+      var11 = IsoUtils.YToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8), (float)(this.maxLevel + 1), 0);
+      var12 = IsoUtils.XToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8 + 8), (float)(this.maxLevel + 1), 0);
+      var13 = IsoUtils.YToScreen((float)(this.wx * 8 + 8), (float)(this.wy * 8 + 8), (float)(this.maxLevel + 1), 0);
+      var14 = IsoUtils.XToScreen((float)(this.wx * 8), (float)(this.wy * 8 + 8), (float)(this.maxLevel + 1), 0);
+      var15 = IsoUtils.YToScreen((float)(this.wx * 8), (float)(this.wy * 8 + 8), (float)(this.maxLevel + 1), 0);
+      var4 = PZMath.min(var4, var8, var10, var12, var14);
+      var5 = PZMath.max(var5, var8, var10, var12, var14);
+      var6 = PZMath.min(var6, var9, var11, var13, var15);
+      var7 = PZMath.max(var7, var9, var11, var13, var15);
+      var6 -= (float)FBORenderLevels.extraHeightForJumboTrees(this.minLevel, this.maxLevel);
+      int var16 = IsoCamera.frameState.playerIndex;
+      var9 = IsoCamera.frameState.OffX;
+      var10 = IsoCamera.frameState.OffY;
+      var4 -= var9;
+      var6 -= var10;
+      var5 -= var9;
+      var7 -= var10;
+      float var10000 = var5 - var4;
+      var10000 = var7 - var6;
+      byte var17 = 0;
+      if (var5 <= (float)(0 - var17)) {
+         return false;
+      } else if (var7 <= (float)(0 - var17)) {
+         return false;
+      } else if (var4 >= (float)(IsoCamera.frameState.OffscreenWidth + var17)) {
+         return false;
+      } else {
+         return !(var6 >= (float)(IsoCamera.frameState.OffscreenHeight + var17));
+      }
+   }
+
    public IsoChunk(IsoCell var1) {
+      this.blendingDepth = new byte[]{BlendDirection.NORTH.defaultDepth, BlendDirection.SOUTH.defaultDepth, BlendDirection.WEST.defaultDepth, BlendDirection.EAST.defaultDepth};
+      this.attachmentsDoneFull = true;
+      this.attachmentsState = new boolean[]{true, true, true, true, true};
+      this.chunkGenerationStatus = EnumSet.noneOf(ChunkGenerationStatus.class);
       this.jobType = IsoChunk.JobType.None;
       this.FloorBloodSplats = new BoundedQueue(1000);
       this.FloorBloodSplatsFade = new ArrayList();
       this.refs = new ArrayList();
+      this.proceduralZombieSquares = new ArrayList();
       this.lightCheck = new boolean[4];
       this.bLightingNeverDone = new boolean[4];
       this.roomLights = new ArrayList();
       this.vehicles = new ArrayList();
       this.lootRespawnHour = -1;
+      this.loadID = -1;
       this.ObjectsSyncCount = 0;
-      this.physicsCheck = false;
-      this.shapes = new PhysicsShapes[4];
+      this.minLevelPhysics = 1000;
+      this.maxLevelPhysics = 1000;
+      this.shapes = new int[4];
       this.loadedPhysics = false;
       this.vehiclesForAddToWorldLock = new Object();
-      this.vehiclesForAddToWorld = null;
-      this.squares = new IsoGridSquare[8][100];
+      this.ragdollControllersForAddToWorld = null;
+      this.levels[0] = IsoChunkLevel.alloc().init(this, this.minLevel);
+      this.squares = new IsoGridSquare[1][];
+      this.squares[0] = this.levels[0].squares;
+      this.checkLightingLater_AllPlayers_OneLevel(this.levels[0].getLevel());
 
       for(int var2 = 0; var2 < 4; ++var2) {
          this.lightCheck[var2] = true;
@@ -224,12 +338,47 @@ public final class IsoChunk {
       return (int)this.hashCodeObjects;
    }
 
+   public void checkLightingLater_AllPlayers_AllLevels() {
+      Arrays.fill(this.lightCheck, true);
+
+      for(int var1 = this.getMinLevel(); var1 <= this.getMaxLevel(); ++var1) {
+         IsoChunkLevel var2 = this.getLevelData(var1);
+         Arrays.fill(var2.lightCheck, true);
+      }
+
+   }
+
+   public void checkLightingLater_AllPlayers_OneLevel(int var1) {
+      IsoChunkLevel var2 = this.getLevelData(var1);
+      if (var2 != null) {
+         Arrays.fill(this.lightCheck, true);
+         Arrays.fill(var2.lightCheck, true);
+      }
+   }
+
+   public void checkLightingLater_OnePlayer_AllLevels(int var1) {
+      this.lightCheck[var1] = true;
+
+      for(int var2 = this.getMinLevel(); var2 <= this.getMaxLevel(); ++var2) {
+         IsoChunkLevel var3 = this.getLevelData(var2);
+         var3.lightCheck[var1] = true;
+      }
+
+   }
+
+   public void checkLightingLater_OnePlayer_OneLevel(int var1, int var2) {
+      IsoChunkLevel var3 = this.getLevelData(var2);
+      if (var3 != null) {
+         var3.lightCheck[var1] = true;
+      }
+   }
+
    public void addBloodSplat(float var1, float var2, float var3, int var4) {
-      if (!(var1 < (float)(this.wx * 10)) && !(var1 >= (float)((this.wx + 1) * 10))) {
-         if (!(var2 < (float)(this.wy * 10)) && !(var2 >= (float)((this.wy + 1) * 10))) {
-            IsoGridSquare var5 = this.getGridSquare((int)(var1 - (float)(this.wx * 10)), (int)(var2 - (float)(this.wy * 10)), (int)var3);
+      if (!(var1 < (float)(this.wx * 8)) && !(var1 >= (float)((this.wx + 1) * 8))) {
+         if (!(var2 < (float)(this.wy * 8)) && !(var2 >= (float)((this.wy + 1) * 8))) {
+            IsoGridSquare var5 = this.getGridSquare(PZMath.fastfloor(var1 - (float)(this.wx * 8)), PZMath.fastfloor(var2 - (float)(this.wy * 8)), PZMath.fastfloor(var3));
             if (var5 != null && var5.isSolidFloor()) {
-               IsoFloorBloodSplat var6 = new IsoFloorBloodSplat(var1 - (float)(this.wx * 10), var2 - (float)(this.wy * 10), var3, var4, (float)GameTime.getInstance().getWorldAgeHours());
+               IsoFloorBloodSplat var6 = new IsoFloorBloodSplat(var1 - (float)(this.wx * 8), var2 - (float)(this.wy * 8), var3, var4, (float)GameTime.getInstance().getWorldAgeHours());
                if (var4 < 8) {
                   var6.index = ++this.nextSplatIndex;
                   if (this.nextSplatIndex >= 10) {
@@ -244,6 +393,9 @@ public final class IsoChunk {
                }
 
                this.FloorBloodSplats.add(var6);
+               if (PerformanceSettings.FBORenderChunk && Thread.currentThread() == GameWindow.GameThread) {
+                  this.invalidateRenderChunkLevel(var5.z, FBORenderChunk.DIRTY_BLOOD);
+               }
             }
 
          }
@@ -282,16 +434,16 @@ public final class IsoChunk {
                }
 
                if (var6 != null) {
-                  byte var12 = 14;
+                  byte var20 = 14;
                   if (Rand.Next(10) == 0) {
-                     var12 = 50;
+                     var20 = 50;
                   }
 
                   if (Rand.Next(40) == 0) {
-                     var12 = 100;
+                     var20 = 100;
                   }
 
-                  for(var9 = 0; var9 < var12; ++var9) {
+                  for(var9 = 0; var9 < var20; ++var9) {
                      float var10 = (float)Rand.Next(3000) / 1000.0F;
                      float var11 = (float)Rand.Next(3000) / 1000.0F;
                      --var10;
@@ -299,39 +451,117 @@ public final class IsoChunk {
                      this.addBloodSplat((float)var6.getX() + var10, (float)var6.getY() + var11, (float)var6.getZ(), Rand.Next(20));
                   }
 
-                  boolean var13 = Rand.Next(15 - SandboxOptions.instance.TimeSinceApo.getValue()) == 0;
+                  boolean var21 = Rand.Next(15 - SandboxOptions.instance.TimeSinceApo.getValue()) == 0;
                   VirtualZombieManager.instance.choices.clear();
                   VirtualZombieManager.instance.choices.add(var6);
-                  IsoZombie var14 = VirtualZombieManager.instance.createRealZombieAlways(Rand.Next(8), false);
-                  var14.setX((float)var6.x);
-                  var14.setY((float)var6.y);
-                  var14.setFakeDead(false);
-                  var14.setHealth(0.0F);
-                  var14.upKillCount = false;
-                  if (!var13) {
-                     var14.dressInRandomOutfit();
+                  IsoZombie var22 = VirtualZombieManager.instance.createRealZombieAlways(Rand.Next(8), false);
+                  if (var22 != null) {
+                     var22.setX((float)var6.x);
+                     var22.setY((float)var6.y);
+                     var22.setFakeDead(false);
+                     var22.setHealth(0.0F);
+                     var22.upKillCount = false;
+                     if (!var21) {
+                        var22.dressInRandomOutfit();
 
-                     for(int var15 = 0; var15 < 10; ++var15) {
-                        var14.addHole((BloodBodyPartType)null);
-                        var14.addBlood((BloodBodyPartType)null, false, true, false);
-                        var14.addDirt((BloodBodyPartType)null, (Integer)null, false);
+                        for(int var23 = 0; var23 < 10; ++var23) {
+                           var22.addHole((BloodBodyPartType)null);
+                           var22.addBlood((BloodBodyPartType)null, false, true, false);
+                           var22.addDirt((BloodBodyPartType)null, (Integer)null, false);
+                        }
+
+                        var22.DoCorpseInventory();
                      }
 
-                     var14.DoCorpseInventory();
-                  }
+                     var22.setSkeleton(var21);
+                     if (var21) {
+                        var22.getHumanVisual().setSkinTextureIndex(2);
+                     }
 
-                  var14.setSkeleton(var13);
-                  if (var13) {
-                     var14.getHumanVisual().setSkinTextureIndex(2);
-                  }
+                     IsoDeadBody var24 = new IsoDeadBody(var22, true);
+                     if (!var21 && Rand.Next(3) == 0) {
+                        VirtualZombieManager.instance.createEatingZombies(var24, Rand.Next(1, 4));
+                     } else if (var21 && Rand.Next(6) == 0) {
+                        VirtualZombieManager.instance.createEatingZombies(var24, Rand.Next(1, 4));
+                     } else if (!var21 && Rand.Next(10) == 0) {
+                        var24.setFakeDead(true);
+                        if (Rand.Next(5) == 0) {
+                           var24.setCrawling(true);
+                        }
+                     }
 
-                  IsoDeadBody var16 = new IsoDeadBody(var14, true);
-                  if (!var13 && Rand.Next(3) == 0) {
-                     VirtualZombieManager.instance.createEatingZombies(var16, Rand.Next(1, 4));
-                  } else if (!var13 && Rand.Next(10) == 0) {
-                     var16.setFakeDead(true);
-                     if (Rand.Next(5) == 0) {
-                        var16.setCrawling(true);
+                     int var12 = 300;
+                     if (Objects.equals(var6.getSquareZombiesType(), "StreetPoor") || Objects.equals(var6.getZoneType(), "TrailerPark")) {
+                        var12 /= 2;
+                     }
+
+                     if (Objects.equals(var6.getSquareZombiesType(), "Rich") || Objects.equals(var6.getLootZone(), "Rich")) {
+                        var12 *= 2;
+                     }
+
+                     if (var6.getZ() < 0) {
+                        var12 /= 2;
+                     }
+
+                     if (var6.canSpawnVermin() && Rand.Next(var12) < SandboxOptions.instance.getCurrentRatIndex()) {
+                        int var13 = SandboxOptions.instance.getCurrentRatIndex() / 10;
+                        if (Objects.equals(var6.getSquareZombiesType(), "StreetPoor") || Objects.equals(var6.getZoneType(), "TrailerPark")) {
+                           var13 *= 2;
+                        }
+
+                        if (var13 < 1) {
+                           var13 = 1;
+                        }
+
+                        if (var13 > 9) {
+                           var13 = 9;
+                        }
+
+                        int var14 = Rand.Next(1, var13);
+                        String var16 = "grey";
+                        if (var6 != null && var6.getBuilding() != null && (var6.getBuilding().hasRoom("laboratory") || var6.getBuilding().hasRoom("classroom") || var6.getBuilding().hasRoom("secondaryclassroom") || Objects.equals(var6.getZombiesType(), "University")) && !Rand.NextBool(3)) {
+                           var16 = "white";
+                        }
+
+                        IsoAnimal var15;
+                        if (Rand.NextBool(2)) {
+                           var15 = new IsoAnimal(IsoWorld.instance.getCell(), var6.getX(), var6.getY(), var6.getZ(), "rat", var16);
+                        } else {
+                           var15 = new IsoAnimal(IsoWorld.instance.getCell(), var6.getX(), var6.getY(), var6.getZ(), "ratfemale", var16);
+                        }
+
+                        var15.addToWorld();
+                        var15.randomizeAge();
+                        int var17;
+                        if (var14 > 1) {
+                           for(var17 = 1; var17 < var14; ++var17) {
+                              IsoGridSquare var18 = var6.getAdjacentSquare(IsoDirections.getRandom());
+                              if (var18 != null && var18.isFree(true) && var18.isSolidFloor()) {
+                                 if (Rand.NextBool(2)) {
+                                    var15 = new IsoAnimal(IsoWorld.instance.getCell(), var18.getX(), var18.getY(), var18.getZ(), "rat", var16);
+                                 } else {
+                                    var15 = new IsoAnimal(IsoWorld.instance.getCell(), var18.getX(), var18.getY(), var18.getZ(), "ratfemale", var16);
+                                 }
+
+                                 var15.addToWorld();
+                                 var15.randomizeAge();
+                                 if (Rand.NextBool(3)) {
+                                    var15.setStateEventDelayTimer(0.0F);
+                                 } else if (var18.canReachTo(var6)) {
+                                    var15.fleeTo(var6);
+                                 }
+                              }
+                           }
+                        }
+
+                        var17 = Rand.Next(0, var13);
+
+                        for(int var25 = 0; var25 < var17; ++var25) {
+                           IsoGridSquare var19 = var6.getAdjacentSquare(IsoDirections.getRandom());
+                           if (var19 != null && var19.isFree(true) && var19.isSolidFloor()) {
+                              this.addItemOnGround(var19, "Base.Dung_Rat");
+                           }
+                        }
                      }
                   }
                }
@@ -373,8 +603,8 @@ public final class IsoChunk {
       switch (var3) {
          case E:
          case W:
-            if (var1.x - (float)(var2.wx * 10) < var1.getScript().getExtents().x) {
-               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)(var1.x - var1.getScript().getExtents().x), (double)var1.y, (double)var1.z);
+            if (var1.getX() - (float)(var2.wx * 8) < var1.getScript().getExtents().x) {
+               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)(var1.getX() - var1.getScript().getExtents().x), (double)var1.getY(), (double)var1.getZ());
                if (var4 == null) {
                   return;
                }
@@ -382,8 +612,8 @@ public final class IsoChunk {
                this.fixVehiclePos(var1, var4.chunk);
             }
 
-            if (var1.x - (float)(var2.wx * 10) > 10.0F - var1.getScript().getExtents().x) {
-               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)(var1.x + var1.getScript().getExtents().x), (double)var1.y, (double)var1.z);
+            if (var1.getX() - (float)(var2.wx * 8) > 8.0F - var1.getScript().getExtents().x) {
+               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)(var1.getX() + var1.getScript().getExtents().x), (double)var1.getY(), (double)var1.getZ());
                if (var4 == null) {
                   return;
                }
@@ -393,8 +623,8 @@ public final class IsoChunk {
             break;
          case N:
          case S:
-            if (var1.y - (float)(var2.wy * 10) < var1.getScript().getExtents().z) {
-               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)var1.x, (double)(var1.y - var1.getScript().getExtents().z), (double)var1.z);
+            if (var1.getY() - (float)(var2.wy * 8) < var1.getScript().getExtents().z) {
+               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)var1.getX(), (double)(var1.getY() - var1.getScript().getExtents().z), (double)var1.getZ());
                if (var4 == null) {
                   return;
                }
@@ -402,8 +632,8 @@ public final class IsoChunk {
                this.fixVehiclePos(var1, var4.chunk);
             }
 
-            if (var1.y - (float)(var2.wy * 10) > 10.0F - var1.getScript().getExtents().z) {
-               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)var1.x, (double)(var1.y + var1.getScript().getExtents().z), (double)var1.z);
+            if (var1.getY() - (float)(var2.wy * 8) > 8.0F - var1.getScript().getExtents().z) {
+               var4 = IsoWorld.instance.CurrentCell.getGridSquare((double)var1.getX(), (double)(var1.getY() + var1.getScript().getExtents().z), (double)var1.getZ());
                if (var4 == null) {
                   return;
                }
@@ -427,14 +657,14 @@ public final class IsoChunk {
             case W:
                var4 = var8.minX - var3.maxX;
                if (var4 > 0.0F && var3.minY < var8.maxY && var3.maxY > var8.minY) {
-                  var1.x -= var4;
+                  var1.setX(var1.getX() - var4);
                   var3.minX -= var4;
                   var3.maxX -= var4;
                   var5 = true;
                } else {
                   var4 = var3.minX - var8.maxX;
                   if (var4 > 0.0F && var3.minY < var8.maxY && var3.maxY > var8.minY) {
-                     var1.x += var4;
+                     var1.setX(var1.getX() + var4);
                      var3.minX += var4;
                      var3.maxX += var4;
                      var5 = true;
@@ -445,14 +675,14 @@ public final class IsoChunk {
             case S:
                var4 = var8.minY - var3.maxY;
                if (var4 > 0.0F && var3.minX < var8.maxX && var3.maxX > var8.minX) {
-                  var1.y -= var4;
+                  var1.setY(var1.getY() - var4);
                   var3.minY -= var4;
                   var3.maxY -= var4;
                   var5 = true;
                } else {
                   var4 = var3.minY - var8.maxY;
                   if (var4 > 0.0F && var3.minX < var8.maxX && var3.maxX > var8.minX) {
-                     var1.y += var4;
+                     var1.setY(var1.getY() + var4);
                      var3.minY += var4;
                      var3.maxY += var4;
                      var5 = true;
@@ -465,18 +695,18 @@ public final class IsoChunk {
    }
 
    private boolean isGoodVehiclePos(BaseVehicle var1, IsoChunk var2) {
-      int var3 = ((int)var1.x - 4) / 10 - 1;
-      int var4 = ((int)var1.y - 4) / 10 - 1;
-      int var5 = (int)Math.ceil((double)((var1.x + 4.0F) / 10.0F)) + 1;
-      int var6 = (int)Math.ceil((double)((var1.y + 4.0F) / 10.0F)) + 1;
+      int var3 = (PZMath.fastfloor(var1.getX()) - 4) / 8 - 1;
+      int var4 = (PZMath.fastfloor(var1.getY()) - 4) / 8 - 1;
+      int var5 = (int)Math.ceil((double)((var1.getX() + 4.0F) / 8.0F)) + 1;
+      int var6 = (int)Math.ceil((double)((var1.getY() + 4.0F) / 8.0F)) + 1;
 
       for(int var7 = var4; var7 < var6; ++var7) {
          for(int var8 = var3; var8 < var5; ++var8) {
-            IsoChunk var9 = GameServer.bServer ? ServerMap.instance.getChunk(var8, var7) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var8 * 10, var7 * 10, 0);
+            IsoChunk var9 = GameServer.bServer ? ServerMap.instance.getChunk(var8, var7) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var8 * 8, var7 * 8, 0);
             if (var9 != null) {
                for(int var10 = 0; var10 < var9.vehicles.size(); ++var10) {
                   BaseVehicle var11 = (BaseVehicle)var9.vehicles.get(var10);
-                  if ((int)var11.z == (int)var1.z && var1.testCollisionWithVehicle(var11)) {
+                  if (PZMath.fastfloor(var11.getZ()) == PZMath.fastfloor(var1.getZ()) && var1.testCollisionWithVehicle(var11)) {
                      return false;
                   }
                }
@@ -487,17 +717,17 @@ public final class IsoChunk {
       return true;
    }
 
-   private void AddVehicles_ForTest(IsoMetaGrid.Zone var1) {
+   private void AddVehicles_ForTest(Zone var1) {
       int var2;
-      for(var2 = var1.y - this.wy * 10 + 3; var2 < 0; var2 += 6) {
+      for(var2 = var1.y - this.wy * 8 + 3; var2 < 0; var2 += 6) {
       }
 
       int var3;
-      for(var3 = var1.x - this.wx * 10 + 2; var3 < 0; var3 += 5) {
+      for(var3 = var1.x - this.wx * 8 + 2; var3 < 0; var3 += 5) {
       }
 
-      for(int var4 = var2; var4 < 10 && this.wy * 10 + var4 < var1.y + var1.h; var4 += 6) {
-         for(int var5 = var3; var5 < 10 && this.wx * 10 + var5 < var1.x + var1.w; var5 += 5) {
+      for(int var4 = var2; var4 < 8 && this.wy * 8 + var4 < var1.y + var1.h; var4 += 6) {
+         for(int var5 = var3; var5 < 8 && this.wx * 8 + var5 < var1.x + var1.w; var5 += 5) {
             IsoGridSquare var6 = this.getGridSquare(var5, var4, 0);
             if (var6 != null) {
                BaseVehicle var7 = new BaseVehicle(IsoWorld.instance.CurrentCell);
@@ -591,13 +821,13 @@ public final class IsoChunk {
                      var7.setScriptName("Base.PickUpTruckLightsFire");
                      break;
                   case 29:
-                     var7.setScriptName("Base.PickUpVanLights");
+                     var7.setScriptName("Base.PickUpVanLightsFossoil");
                      break;
                   case 30:
-                     var7.setScriptName("Base.PickUpTruckLights");
+                     var7.setScriptName("Base.PickUpTruckLightsFossoil");
                      break;
                   case 31:
-                     var7.setScriptName("Base.CarLights");
+                     var7.setScriptName("Base.CarLightsRanger");
                      break;
                   case 32:
                      var7.setScriptName("Base.StepVanMail");
@@ -670,6 +900,12 @@ public final class IsoChunk {
                      break;
                   case 55:
                      var7.setScriptName("Base.PickUpTruckMccoy");
+                     break;
+                  case 56:
+                     var7.setScriptName("Base.PickUpTruckLightsRanger");
+                     break;
+                  case 57:
+                     var7.setScriptName("Base.PickUpVanLightsRanger");
                }
 
                var7.setDir(IsoDirections.W);
@@ -707,7 +943,7 @@ public final class IsoChunk {
 
    }
 
-   private void AddVehicles_OnZone(IsoMetaGrid.VehicleZone var1, String var2) {
+   private void AddVehicles_OnZone(VehicleZone var1, String var2) {
       IsoDirections var3 = IsoDirections.N;
       byte var4 = 3;
       byte var5 = 4;
@@ -725,27 +961,27 @@ public final class IsoChunk {
          var4 = 5;
       }
 
-      byte var6 = 10;
+      byte var6 = 8;
 
       float var7;
-      for(var7 = (float)(var1.y - this.wy * 10) + (float)var5 / 2.0F; var7 < 0.0F; var7 += (float)var5) {
+      for(var7 = (float)(var1.y - this.wy * 8) + (float)var5 / 2.0F; var7 < 0.0F; var7 += (float)var5) {
       }
 
       float var8;
-      for(var8 = (float)(var1.x - this.wx * 10) + (float)var4 / 2.0F; var8 < 0.0F; var8 += (float)var4) {
+      for(var8 = (float)(var1.x - this.wx * 8) + (float)var4 / 2.0F; var8 < 0.0F; var8 += (float)var4) {
       }
 
       float var9 = var7;
 
       label214:
       while(true) {
-         if (var9 < 10.0F && (float)(this.wy * 10) + var9 < (float)(var1.y + var1.h)) {
+         if (var9 < 8.0F && (float)(this.wy * 8) + var9 < (float)(var1.y + var1.h)) {
             float var10 = var8;
 
             while(true) {
                label207: {
-                  if (var10 < 10.0F && (float)(this.wx * 10) + var10 < (float)(var1.x + var1.w)) {
-                     IsoGridSquare var11 = this.getGridSquare((int)var10, (int)var9, 0);
+                  if (var10 < 8.0F && (float)(this.wx * 8) + var10 < (float)(var1.x + var1.w)) {
+                     IsoGridSquare var11 = this.getGridSquare(PZMath.fastfloor(var10), PZMath.fastfloor(var9), 0);
                      if (var11 == null) {
                         break label207;
                      }
@@ -835,26 +1071,26 @@ public final class IsoChunk {
                            if (var3 == IsoDirections.N) {
                               var20 = (float)var11.x + (float)var4 / 2.0F - (float)((int)((float)var4 / 2.0F));
                               var21 = (float)var1.y + var18 / 2.0F + var19;
-                              if (var21 >= (float)(var11.y + 1) && (int)var9 < var6 - 1 && this.getGridSquare((int)var10, (int)var9 + 1, 0) != null) {
-                                 var11 = this.getGridSquare((int)var10, (int)var9 + 1, 0);
+                              if (var21 >= (float)(var11.y + 1) && PZMath.fastfloor(var9) < var6 - 1 && this.getGridSquare(PZMath.fastfloor(var10), PZMath.fastfloor(var9) + 1, 0) != null) {
+                                 var11 = this.getGridSquare(PZMath.fastfloor(var10), PZMath.fastfloor(var9) + 1, 0);
                               }
                            } else if (var3 == IsoDirections.S) {
                               var20 = (float)var11.x + (float)var4 / 2.0F - (float)((int)((float)var4 / 2.0F));
                               var21 = (float)(var1.y + var1.h) - var18 / 2.0F - var19;
-                              if (var21 < (float)var11.y && (int)var9 > 0 && this.getGridSquare((int)var10, (int)var9 - 1, 0) != null) {
-                                 var11 = this.getGridSquare((int)var10, (int)var9 - 1, 0);
+                              if (var21 < (float)var11.y && PZMath.fastfloor(var9) > 0 && this.getGridSquare(PZMath.fastfloor(var10), PZMath.fastfloor(var9) - 1, 0) != null) {
+                                 var11 = this.getGridSquare(PZMath.fastfloor(var10), PZMath.fastfloor(var9) - 1, 0);
                               }
                            } else if (var3 == IsoDirections.W) {
                               var20 = (float)var1.x + var18 / 2.0F + var19;
                               var21 = (float)var11.y + (float)var5 / 2.0F - (float)((int)((float)var5 / 2.0F));
-                              if (var20 >= (float)(var11.x + 1) && (int)var10 < var6 - 1 && this.getGridSquare((int)var10 + 1, (int)var9, 0) != null) {
-                                 var11 = this.getGridSquare((int)var10 + 1, (int)var9, 0);
+                              if (var20 >= (float)(var11.x + 1) && PZMath.fastfloor(var10) < var6 - 1 && this.getGridSquare(PZMath.fastfloor(var10) + 1, PZMath.fastfloor(var9), 0) != null) {
+                                 var11 = this.getGridSquare(PZMath.fastfloor(var10) + 1, PZMath.fastfloor(var9), 0);
                               }
                            } else if (var3 == IsoDirections.E) {
                               var20 = (float)(var1.x + var1.w) - var18 / 2.0F - var19;
                               var21 = (float)var11.y + (float)var5 / 2.0F - (float)((int)((float)var5 / 2.0F));
-                              if (var20 < (float)var11.x && (int)var10 > 0 && this.getGridSquare((int)var10 - 1, (int)var9, 0) != null) {
-                                 var11 = this.getGridSquare((int)var10 - 1, (int)var9, 0);
+                              if (var20 < (float)var11.x && PZMath.fastfloor(var10) > 0 && this.getGridSquare(PZMath.fastfloor(var10) - 1, PZMath.fastfloor(var9), 0) != null) {
+                                 var11 = this.getGridSquare(PZMath.fastfloor(var10) - 1, PZMath.fastfloor(var9), 0);
                               }
                            }
 
@@ -906,7 +1142,7 @@ public final class IsoChunk {
       }
    }
 
-   private void AddVehicles_OnZonePolyline(IsoMetaGrid.VehicleZone var1, String var2) {
+   private void AddVehicles_OnZonePolyline(VehicleZone var1, String var2) {
       byte var3 = 5;
       Vector2 var4 = new Vector2();
 
@@ -920,7 +1156,7 @@ public final class IsoChunk {
          for(float var10 = (float)var3 / 2.0F; var10 < var4.getLength(); var10 += (float)var3) {
             float var11 = (float)var6 + var4.x / var4.getLength() * var10;
             float var12 = (float)var7 + var4.y / var4.getLength() * var10;
-            if (var11 >= (float)(this.wx * 10) && var12 >= (float)(this.wy * 10) && var11 < (float)((this.wx + 1) * 10) && var12 < (float)((this.wy + 1) * 10)) {
+            if (var11 >= (float)(this.wx * 8) && var12 >= (float)(this.wy * 8) && var11 < (float)((this.wx + 1) * 8) && var12 < (float)((this.wy + 1) * 8)) {
                VehicleType var13 = VehicleType.getRandomVehicleType(var2);
                if (var13 == null) {
                   System.out.println("Can't find car: " + var2);
@@ -980,7 +1216,7 @@ public final class IsoChunk {
 
                var14.savedRot.setAngleAxis(var18, 0.0F, 1.0F, 0.0F);
                var14.jniTransform.setRotation(var14.savedRot);
-               IsoGridSquare var19 = this.getGridSquare((int)var11 - this.wx * 10, (int)var12 - this.wy * 10, 0);
+               IsoGridSquare var19 = this.getGridSquare(PZMath.fastfloor(var11) - this.wx * 8, PZMath.fastfloor(var12) - this.wy * 8, 0);
                if (var11 < (float)var19.x + 0.005F) {
                   var11 = (float)var19.x + 0.005F;
                }
@@ -1028,35 +1264,24 @@ public final class IsoChunk {
    }
 
    public static boolean doSpawnedVehiclesInInvalidPosition(BaseVehicle var0) {
-      IsoGridSquare var1;
-      if (GameServer.bServer) {
-         var1 = ServerMap.instance.getGridSquare((int)var0.getX(), (int)var0.getY(), 0);
-         if (var1 != null && var1.roomID != -1) {
-            return false;
-         }
-      } else if (!GameClient.bClient) {
-         var1 = IsoWorld.instance.CurrentCell.getGridSquare((int)var0.getX(), (int)var0.getY(), 0);
-         if (var1 != null && var1.roomID != -1) {
+      int var1 = PZMath.fastfloor(var0.getZ());
+      boolean var2 = true;
+
+      for(int var3 = 0; var3 < BaseVehicleCheckedVehicles.size(); ++var3) {
+         if (((BaseVehicle)BaseVehicleCheckedVehicles.get(var3)).testCollisionWithVehicle(var0)) {
+            var2 = false;
             return false;
          }
       }
 
-      boolean var3 = true;
-
-      for(int var2 = 0; var2 < BaseVehicleCheckedVehicles.size(); ++var2) {
-         if (((BaseVehicle)BaseVehicleCheckedVehicles.get(var2)).testCollisionWithVehicle(var0)) {
-            var3 = false;
-         }
-      }
-
-      if (var3) {
+      if (var2) {
          addFromCheckedVehicles(var0);
       }
 
-      return var3;
+      return var2;
    }
 
-   private void spawnVehicleRandomAngle(IsoGridSquare var1, IsoMetaGrid.Zone var2, String var3) {
+   private void spawnVehicleRandomAngle(IsoGridSquare var1, Zone var2, String var3) {
       boolean var4 = true;
       byte var5 = 3;
       byte var6 = 4;
@@ -1104,7 +1329,7 @@ public final class IsoChunk {
       }
    }
 
-   public boolean RandomizeModel(BaseVehicle var1, IsoMetaGrid.Zone var2, String var3, VehicleType var4) {
+   public boolean RandomizeModel(BaseVehicle var1, Zone var2, String var3, VehicleType var4) {
       if (var4.vehiclesDefinition.isEmpty()) {
          System.out.println("no vehicle definition found for " + var3);
          return false;
@@ -1148,17 +1373,17 @@ public final class IsoChunk {
       }
    }
 
-   private void AddVehicles_TrafficJam_W(IsoMetaGrid.Zone var1, String var2) {
+   private void AddVehicles_TrafficJam_W(Zone var1, String var2) {
       int var3;
-      for(var3 = var1.y - this.wy * 10 + 1; var3 < 0; var3 += 3) {
+      for(var3 = var1.y - this.wy * 8 + 1; var3 < 0; var3 += 3) {
       }
 
       int var4;
-      for(var4 = var1.x - this.wx * 10 + 3; var4 < 0; var4 += 6) {
+      for(var4 = var1.x - this.wx * 8 + 3; var4 < 0; var4 += 6) {
       }
 
-      for(int var5 = var3; var5 < 10 && this.wy * 10 + var5 < var1.y + var1.h; var5 += 3 + Rand.Next(1)) {
-         for(int var6 = var4; var6 < 10 && this.wx * 10 + var6 < var1.x + var1.w; var6 += 6 + Rand.Next(1)) {
+      for(int var5 = var3; var5 < 8 && this.wy * 8 + var5 < var1.y + var1.h; var5 += 3 + Rand.Next(1)) {
+         for(int var6 = var4; var6 < 8 && this.wx * 8 + var6 < var1.x + var1.w; var6 += 6 + Rand.Next(1)) {
             IsoGridSquare var7 = this.getGridSquare(var6, var5, 0);
             if (var7 != null) {
                VehicleType var8 = VehicleType.getRandomVehicleType(var2);
@@ -1209,17 +1434,17 @@ public final class IsoChunk {
 
    }
 
-   private void AddVehicles_TrafficJam_E(IsoMetaGrid.Zone var1, String var2) {
+   private void AddVehicles_TrafficJam_E(Zone var1, String var2) {
       int var3;
-      for(var3 = var1.y - this.wy * 10 + 1; var3 < 0; var3 += 3) {
+      for(var3 = var1.y - this.wy * 8 + 1; var3 < 0; var3 += 3) {
       }
 
       int var4;
-      for(var4 = var1.x - this.wx * 10 + 3; var4 < 0; var4 += 6) {
+      for(var4 = var1.x - this.wx * 8 + 3; var4 < 0; var4 += 6) {
       }
 
-      for(int var5 = var3; var5 < 10 && this.wy * 10 + var5 < var1.y + var1.h; var5 += 3 + Rand.Next(1)) {
-         for(int var6 = var4; var6 < 10 && this.wx * 10 + var6 < var1.x + var1.w; var6 += 6 + Rand.Next(1)) {
+      for(int var5 = var3; var5 < 8 && this.wy * 8 + var5 < var1.y + var1.h; var5 += 3 + Rand.Next(1)) {
+         for(int var6 = var4; var6 < 8 && this.wx * 8 + var6 < var1.x + var1.w; var6 += 6 + Rand.Next(1)) {
             IsoGridSquare var7 = this.getGridSquare(var6, var5, 0);
             if (var7 != null) {
                VehicleType var8 = VehicleType.getRandomVehicleType(var2);
@@ -1270,17 +1495,17 @@ public final class IsoChunk {
 
    }
 
-   private void AddVehicles_TrafficJam_S(IsoMetaGrid.Zone var1, String var2) {
+   private void AddVehicles_TrafficJam_S(Zone var1, String var2) {
       int var3;
-      for(var3 = var1.y - this.wy * 10 + 3; var3 < 0; var3 += 6) {
+      for(var3 = var1.y - this.wy * 8 + 3; var3 < 0; var3 += 6) {
       }
 
       int var4;
-      for(var4 = var1.x - this.wx * 10 + 1; var4 < 0; var4 += 3) {
+      for(var4 = var1.x - this.wx * 8 + 1; var4 < 0; var4 += 3) {
       }
 
-      for(int var5 = var3; var5 < 10 && this.wy * 10 + var5 < var1.y + var1.h; var5 += 6 + Rand.Next(-1, 1)) {
-         for(int var6 = var4; var6 < 10 && this.wx * 10 + var6 < var1.x + var1.w; var6 += 3 + Rand.Next(1)) {
+      for(int var5 = var3; var5 < 8 && this.wy * 8 + var5 < var1.y + var1.h; var5 += 6 + Rand.Next(-1, 1)) {
+         for(int var6 = var4; var6 < 8 && this.wx * 8 + var6 < var1.x + var1.w; var6 += 3 + Rand.Next(1)) {
             IsoGridSquare var7 = this.getGridSquare(var6, var5, 0);
             if (var7 != null) {
                VehicleType var8 = VehicleType.getRandomVehicleType(var2);
@@ -1331,17 +1556,17 @@ public final class IsoChunk {
 
    }
 
-   private void AddVehicles_TrafficJam_N(IsoMetaGrid.Zone var1, String var2) {
+   private void AddVehicles_TrafficJam_N(Zone var1, String var2) {
       int var3;
-      for(var3 = var1.y - this.wy * 10 + 3; var3 < 0; var3 += 6) {
+      for(var3 = var1.y - this.wy * 8 + 3; var3 < 0; var3 += 6) {
       }
 
       int var4;
-      for(var4 = var1.x - this.wx * 10 + 1; var4 < 0; var4 += 3) {
+      for(var4 = var1.x - this.wx * 8 + 1; var4 < 0; var4 += 3) {
       }
 
-      for(int var5 = var3; var5 < 10 && this.wy * 10 + var5 < var1.y + var1.h; var5 += 6 + Rand.Next(-1, 1)) {
-         for(int var6 = var4; var6 < 10 && this.wx * 10 + var6 < var1.x + var1.w; var6 += 3 + Rand.Next(1)) {
+      for(int var5 = var3; var5 < 8 && this.wy * 8 + var5 < var1.y + var1.h; var5 += 6 + Rand.Next(-1, 1)) {
+         for(int var6 = var4; var6 < 8 && this.wx * 8 + var6 < var1.x + var1.w; var6 += 3 + Rand.Next(1)) {
             IsoGridSquare var7 = this.getGridSquare(var6, var5, 0);
             if (var7 != null) {
                VehicleType var8 = VehicleType.getRandomVehicleType(var2);
@@ -1392,7 +1617,7 @@ public final class IsoChunk {
 
    }
 
-   private void AddVehicles_TrafficJam_Polyline(IsoMetaGrid.Zone var1, String var2) {
+   private void AddVehicles_TrafficJam_Polyline(Zone var1, String var2) {
       Vector2 var3 = new Vector2();
       Vector2 var4 = new Vector2();
       float var5 = 0.0F;
@@ -1440,9 +1665,9 @@ public final class IsoChunk {
 
    }
 
-   private void TryAddVehicle_TrafficJam(IsoMetaGrid.Zone var1, String var2, float var3, float var4, Vector2 var5, float var6, float var7) {
-      if (!(var3 < (float)(this.wx * 10)) && !(var3 >= (float)((this.wx + 1) * 10)) && !(var4 < (float)(this.wy * 10)) && !(var4 >= (float)((this.wy + 1) * 10))) {
-         IsoGridSquare var8 = this.getGridSquare((int)var3 - this.wx * 10, (int)var4 - this.wy * 10, 0);
+   private void TryAddVehicle_TrafficJam(Zone var1, String var2, float var3, float var4, Vector2 var5, float var6, float var7) {
+      if (!(var3 < (float)(this.wx * 8)) && !(var3 >= (float)((this.wx + 1) * 8)) && !(var4 < (float)(this.wy * 8)) && !(var4 >= (float)((this.wy + 1) * 8))) {
+         IsoGridSquare var8 = this.getGridSquare(PZMath.fastfloor(var3) - this.wx * 8, PZMath.fastfloor(var4) - this.wy * 8, 0);
          if (var8 != null) {
             VehicleType var9 = VehicleType.getRandomVehicleType(var2 + "W");
             if (var9 == null) {
@@ -1502,12 +1727,12 @@ public final class IsoChunk {
                   WorldSimulation.instance.create();
                }
 
-               IsoMetaCell var1 = IsoWorld.instance.getMetaGrid().getCellData(this.wx / 30, this.wy / 30);
+               IsoMetaCell var1 = IsoWorld.instance.getMetaGrid().getCellData(this.wx / IsoCell.CellSizeInChunks, this.wy / IsoCell.CellSizeInChunks);
                ArrayList var2 = var1 == null ? null : var1.vehicleZones;
 
                for(int var3 = 0; var2 != null && var3 < var2.size(); ++var3) {
-                  IsoMetaGrid.VehicleZone var4 = (IsoMetaGrid.VehicleZone)var2.get(var3);
-                  if (var4.x + var4.w >= this.wx * 10 && var4.y + var4.h >= this.wy * 10 && var4.x < (this.wx + 1) * 10 && var4.y < (this.wy + 1) * 10) {
+                  VehicleZone var4 = (VehicleZone)var2.get(var3);
+                  if (var4.x + var4.w >= this.wx * 8 && var4.y + var4.h >= this.wy * 8 && var4.x < (this.wx + 1) * 8 && var4.y < (this.wy + 1) * 8) {
                      String var5 = var4.name;
                      if (var5.isEmpty()) {
                         var5 = var4.type;
@@ -1575,8 +1800,8 @@ public final class IsoChunk {
 
                IsoMetaChunk var6 = IsoWorld.instance.getMetaChunk(this.wx, this.wy);
                if (var6 != null) {
-                  for(int var7 = 0; var7 < var6.numZones(); ++var7) {
-                     IsoMetaGrid.Zone var8 = var6.getZone(var7);
+                  for(int var7 = 0; var7 < var6.getZonesSize(); ++var7) {
+                     Zone var8 = var6.getZone(var7);
                      this.addRandomCarCrash(var8, false);
                   }
 
@@ -1590,8 +1815,8 @@ public final class IsoChunk {
       if (var1 || !IsoWorld.getZombiesDisabled()) {
          IsoMetaChunk var2 = IsoWorld.instance.getMetaChunk(this.wx, this.wy);
          if (var2 != null) {
-            for(int var3 = 0; var3 < var2.numZones(); ++var3) {
-               IsoMetaGrid.Zone var4 = var2.getZone(var3);
+            for(int var3 = 0; var3 < var2.getZonesSize(); ++var3) {
+               Zone var4 = var2.getZone(var3);
                if (this.canAddSurvivorInHorde(var4, var1)) {
                   int var5 = 4;
                   float var6 = (float)GameTime.getInstance().getWorldAgeHours() / 24.0F;
@@ -1611,7 +1836,7 @@ public final class IsoChunk {
       }
    }
 
-   private boolean canAddSurvivorInHorde(IsoMetaGrid.Zone var1, boolean var2) {
+   private boolean canAddSurvivorInHorde(Zone var1, boolean var2) {
       if (!var2 && IsoWorld.instance.getTimeSinceLastSurvivorInHorde() > 0) {
          return false;
       } else if (!var2 && IsoWorld.getZombiesDisabled()) {
@@ -1625,22 +1850,33 @@ public final class IsoChunk {
       }
    }
 
-   private void addSurvivorInHorde(IsoMetaGrid.Zone var1) {
+   private void addSurvivorInHorde(Zone var1) {
       ++var1.hourLastSeen;
       IsoWorld.instance.setTimeSinceLastSurvivorInHorde(5000);
-      int var2 = Math.max(var1.x, this.wx * 10);
-      int var3 = Math.max(var1.y, this.wy * 10);
-      int var4 = Math.min(var1.x + var1.w, (this.wx + 1) * 10);
-      int var5 = Math.min(var1.y + var1.h, (this.wy + 1) * 10);
+      int var2 = Math.max(var1.x, this.wx * 8);
+      int var3 = Math.max(var1.y, this.wy * 8);
+      int var4 = Math.min(var1.x + var1.w, (this.wx + 1) * 8);
+      int var5 = Math.min(var1.y + var1.h, (this.wy + 1) * 8);
       float var6 = (float)var2 + (float)(var4 - var2) / 2.0F;
       float var7 = (float)var3 + (float)(var5 - var3) / 2.0F;
       VirtualZombieManager.instance.choices.clear();
-      IsoGridSquare var8 = this.getGridSquare((int)var6 - this.wx * 10, (int)var7 - this.wy * 10, 0);
-      if (var8.getBuilding() == null) {
-         VirtualZombieManager.instance.choices.add(var8);
-         int var9 = Rand.Next(15, 20);
 
-         for(int var10 = 0; var10 < var9; ++var10) {
+      IsoGridSquare var8;
+      int var9;
+      int var10;
+      for(var9 = -2; var9 < 2; ++var9) {
+         for(var10 = -2; var10 < 2; ++var10) {
+            var8 = this.getGridSquare((int)(var6 + (float)var9) - this.wx * 8, (int)(var7 + (float)var10) - this.wy * 8, 0);
+            if (var8 != null && var8.getBuilding() == null && !var8.isVehicleIntersecting() && var8.isGoodSquare()) {
+               VirtualZombieManager.instance.choices.add(var8);
+            }
+         }
+      }
+
+      if (VirtualZombieManager.instance.choices.size() >= 1) {
+         var9 = Rand.Next(15, 20);
+
+         for(var10 = 0; var10 < var9; ++var10) {
             IsoZombie var11 = VirtualZombieManager.instance.createRealZombieAlways(Rand.Next(8), false);
             if (var11 != null) {
                var11.dressInRandomOutfit();
@@ -1648,16 +1884,21 @@ public final class IsoChunk {
             }
          }
 
-         IsoZombie var12 = VirtualZombieManager.instance.createRealZombieAlways(Rand.Next(8), false);
-         if (var12 != null) {
-            ZombieSpawnRecorder.instance.record(var12, "addSurvivorInHorde");
-            var12.setAsSurvivor();
+         VirtualZombieManager.instance.choices.clear();
+         var8 = this.getGridSquare((int)var6 - this.wx * 8, (int)var7 - this.wy * 8, 0);
+         if (var8 != null && var8.getBuilding() == null && !var8.isVehicleIntersecting() && var8.isGoodSquare()) {
+            VirtualZombieManager.instance.choices.add(var8);
+            IsoZombie var12 = VirtualZombieManager.instance.createRealZombieAlways(Rand.Next(8), false);
+            if (var12 != null) {
+               ZombieSpawnRecorder.instance.record(var12, "addSurvivorInHorde");
+               var12.setAsSurvivor();
+            }
          }
 
       }
    }
 
-   public boolean canAddRandomCarCrash(IsoMetaGrid.Zone var1, boolean var2) {
+   public boolean canAddRandomCarCrash(Zone var1, boolean var2) {
       if (!var2 && var1.hourLastSeen != 0) {
          return false;
       } else if (!var2 && var1.haveConstruction) {
@@ -1665,10 +1906,10 @@ public final class IsoChunk {
       } else if (!"Nav".equals(var1.getType())) {
          return false;
       } else {
-         int var3 = Math.max(var1.x, this.wx * 10);
-         int var4 = Math.max(var1.y, this.wy * 10);
-         int var5 = Math.min(var1.x + var1.w, (this.wx + 1) * 10);
-         int var6 = Math.min(var1.y + var1.h, (this.wy + 1) * 10);
+         int var3 = Math.max(var1.x, this.wx * 8);
+         int var4 = Math.max(var1.y, this.wy * 8);
+         int var5 = Math.min(var1.x + var1.w, (this.wx + 1) * 8);
+         int var6 = Math.min(var1.y + var1.h, (this.wy + 1) * 8);
          if (var1.w > 30 && var1.h < 13) {
             return var5 - var3 >= 10 && var6 - var4 >= 5;
          } else if (var1.h > 30 && var1.w < 13) {
@@ -1679,10 +1920,12 @@ public final class IsoChunk {
       }
    }
 
-   public void addRandomCarCrash(IsoMetaGrid.Zone var1, boolean var2) {
-      if (this.vehicles.isEmpty()) {
-         if ("Nav".equals(var1.getType())) {
-            RandomizedVehicleStoryBase.doRandomStory(var1, this, false);
+   public void addRandomCarCrash(Zone var1, boolean var2) {
+      if (var1 != null) {
+         if (this.vehicles.isEmpty()) {
+            if ("Nav".equals(var1.getType())) {
+               RandomizedVehicleStoryBase.doRandomStory(var1, this, false);
+            }
          }
       }
    }
@@ -1697,36 +1940,37 @@ public final class IsoChunk {
       return var2.exists();
    }
 
-   private void checkPhysics() {
-      if (this.physicsCheck) {
-         WorldSimulation.instance.create();
-         Bullet.beginUpdateChunk(this);
-         byte var1 = 0;
-         if (var1 < 8) {
-            for(int var2 = 0; var2 < 10; ++var2) {
-               for(int var3 = 0; var3 < 10; ++var3) {
-                  this.calcPhysics(var3, var2, var1, this.shapes);
-                  int var4 = 0;
-
-                  for(int var5 = 0; var5 < 4; ++var5) {
-                     if (this.shapes[var5] != null) {
-                        bshapes[var4++] = (byte)(this.shapes[var5].ordinal() + 1);
-                     }
-                  }
-
-                  Bullet.updateChunk(var3, var2, var1, var4, bshapes);
-               }
-            }
-         }
-
-         Bullet.endUpdateChunk();
-         this.physicsCheck = false;
+   public void checkPhysicsLater(int var1) {
+      IsoChunkLevel var2 = this.getLevelData(var1);
+      if (var2 != null) {
+         var2.physicsCheck = true;
       }
    }
 
-   private void calcPhysics(int var1, int var2, int var3, PhysicsShapes[] var4) {
+   public void updatePhysicsForLevel(int var1) {
+      Bullet.beginUpdateChunk(this, var1);
+
+      for(int var2 = 0; var2 < 8; ++var2) {
+         for(int var3 = 0; var3 < 8; ++var3) {
+            this.calcPhysics(var3, var2, var1, this.shapes);
+            int var4 = 0;
+
+            for(int var5 = 0; var5 < 4; ++var5) {
+               if (this.shapes[var5] != -1) {
+                  bshapes[var4++] = (byte)(this.shapes[var5] + 1);
+               }
+            }
+
+            Bullet.updateChunk(var3, var2, var4, bshapes);
+         }
+      }
+
+      Bullet.endUpdateChunk();
+   }
+
+   private void calcPhysics(int var1, int var2, int var3, int[] var4) {
       for(int var5 = 0; var5 < 4; ++var5) {
-         var4[var5] = null;
+         var4[var5] = -1;
       }
 
       IsoGridSquare var11 = this.getGridSquare(var1, var2, var3);
@@ -1746,7 +1990,7 @@ public final class IsoChunk {
             }
 
             if (var7) {
-               var4[var6++] = IsoChunk.PhysicsShapes.Tree;
+               var4[var6++] = IsoChunk.PhysicsShapes.Tree.ordinal();
             }
          }
 
@@ -1764,8 +2008,18 @@ public final class IsoChunk {
          }
 
          PropertyContainer var12 = var11.getProperties();
+         if (var11.HasStairs()) {
+            if (var11.Has(IsoObjectType.stairsMN)) {
+               var4[var6++] = IsoChunk.PhysicsShapes.StairsMiddleNorth.ordinal();
+            }
+
+            if (var11.Has(IsoObjectType.stairsMW)) {
+               var4[var6++] = IsoChunk.PhysicsShapes.StairsMiddleWest.ordinal();
+            }
+         }
+
          if (var11.hasTypes.isSet(IsoObjectType.isMoveAbleObject)) {
-            var4[var6++] = IsoChunk.PhysicsShapes.Tree;
+            var4[var6++] = IsoChunk.PhysicsShapes.Tree.ordinal();
          }
 
          String var14;
@@ -1773,38 +2027,40 @@ public final class IsoChunk {
             var14 = var11.getProperties().Val("tree");
             String var15 = var11.getProperties().Val("WindType");
             if (var14 == null) {
-               var4[var6++] = IsoChunk.PhysicsShapes.Tree;
+               var4[var6++] = IsoChunk.PhysicsShapes.Tree.ordinal();
             }
 
             if (var14 != null && !var14.equals("1") && (var15 == null || !var15.equals("2") || !var14.equals("2") && !var14.equals("1"))) {
-               var4[var6++] = IsoChunk.PhysicsShapes.Tree;
+               var4[var6++] = IsoChunk.PhysicsShapes.Tree.ordinal();
             }
-         } else if (!var12.Is(IsoFlagType.solid) && !var12.Is(IsoFlagType.solidtrans) && !var12.Is(IsoFlagType.blocksight) && !var11.HasStairs() && !var7) {
-            if (var3 > 0) {
-               label206: {
-                  if (var11.SolidFloorCached) {
-                     if (!var11.SolidFloor) {
-                        break label206;
-                     }
-                  } else if (!var11.TreatAsSolidFloor()) {
-                     break label206;
-                  }
-
-                  if (var6 == var4.length) {
-                     DebugLog.log(DebugType.General, "Error: Too many physics objects on gridsquare: " + var11.x + ", " + var11.y + ", " + var11.z);
-                     return;
-                  }
-
-                  var4[var6++] = IsoChunk.PhysicsShapes.Floor;
-               }
-            }
-         } else {
+         } else if (var12.Is(IsoFlagType.solid) || var12.Is(IsoFlagType.solidtrans) || var12.Is(IsoFlagType.blocksight) || var11.HasStairs() || var7) {
             if (var6 == var4.length) {
                DebugLog.log(DebugType.General, "Error: Too many physics objects on gridsquare: " + var11.x + ", " + var11.y + ", " + var11.z);
                return;
             }
 
-            var4[var6++] = IsoChunk.PhysicsShapes.Solid;
+            if (var11.HasStairs()) {
+               var4[var6++] = IsoChunk.PhysicsShapes.SolidStairs.ordinal();
+            } else {
+               var4[var6++] = IsoChunk.PhysicsShapes.Solid.ordinal();
+            }
+         }
+
+         label228: {
+            if (var11.SolidFloorCached) {
+               if (!var11.SolidFloor) {
+                  break label228;
+               }
+            } else if (!var11.TreatAsSolidFloor()) {
+               break label228;
+            }
+
+            if (var6 == var4.length) {
+               DebugLog.log(DebugType.General, "Error: Too many physics objects on gridsquare: " + var11.x + ", " + var11.y + ", " + var11.z);
+               return;
+            }
+
+            var4[var6++] = IsoChunk.PhysicsShapes.Floor.ordinal();
          }
 
          if (!var11.getProperties().Is("CarSlowFactor")) {
@@ -1814,7 +2070,7 @@ public final class IsoChunk {
                   return;
                }
 
-               var4[var6++] = IsoChunk.PhysicsShapes.WallW;
+               var4[var6++] = IsoChunk.PhysicsShapes.WallW.ordinal();
             }
 
             if (var12.Is(IsoFlagType.collideN) || var12.Is(IsoFlagType.windowN) || var11.getProperties().Is(IsoFlagType.DoorWallN) && !var11.getProperties().Is("GarageDoor")) {
@@ -1823,7 +2079,7 @@ public final class IsoChunk {
                   return;
                }
 
-               var4[var6++] = IsoChunk.PhysicsShapes.WallN;
+               var4[var6++] = IsoChunk.PhysicsShapes.WallN.ordinal();
             }
 
             if (var11.Is("PhysicsShape")) {
@@ -1834,74 +2090,189 @@ public final class IsoChunk {
 
                var14 = var11.getProperties().Val("PhysicsShape");
                if ("Solid".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.Solid;
+                  var4[var6++] = IsoChunk.PhysicsShapes.Solid.ordinal();
                } else if ("WallN".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.WallN;
+                  var4[var6++] = IsoChunk.PhysicsShapes.WallN.ordinal();
                } else if ("WallW".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.WallW;
+                  var4[var6++] = IsoChunk.PhysicsShapes.WallW.ordinal();
                } else if ("WallS".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.WallS;
+                  var4[var6++] = IsoChunk.PhysicsShapes.WallS.ordinal();
                } else if ("WallE".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.WallE;
+                  var4[var6++] = IsoChunk.PhysicsShapes.WallE.ordinal();
                } else if ("Tree".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.Tree;
+                  var4[var6++] = IsoChunk.PhysicsShapes.Tree.ordinal();
                } else if ("Floor".equals(var14)) {
-                  var4[var6++] = IsoChunk.PhysicsShapes.Floor;
+                  var4[var6++] = IsoChunk.PhysicsShapes.Floor.ordinal();
+               }
+            }
+
+            if (var11.Is("PhysicsMesh")) {
+               var14 = var11.getProperties().Val("PhysicsMesh");
+               if (!var14.contains(".")) {
+                  var14 = "Base." + var14;
+               }
+
+               Integer var16 = (Integer)Bullet.physicsShapeNameToIndex.getOrDefault(var14, (Object)null);
+               if (var16 != null) {
+                  var4[var6++] = IsoChunk.PhysicsShapes.FIRST_MESH.ordinal() + var16;
                }
             }
 
          }
       }
+   }
+
+   public void setBlendingDoneFull(boolean var1) {
+      this.blendingDoneFull = var1;
+   }
+
+   public boolean isBlendingDoneFull() {
+      return this.blendingDoneFull;
+   }
+
+   public void setBlendingDonePartial(boolean var1) {
+      this.blendingDonePartial = var1;
+   }
+
+   public boolean isBlendingDonePartial() {
+      return this.blendingDonePartial;
+   }
+
+   public void setBlendingModified(int var1) {
+      this.blendingModified[var1] = true;
+   }
+
+   public boolean isBlendingDone(int var1) {
+      return this.blendingModified[var1];
+   }
+
+   public void setModifDepth(BlendDirection var1, byte var2) {
+      this.blendingDepth[var1.index] = var2;
+   }
+
+   public void setModifDepth(BlendDirection var1, int var2) {
+      this.setModifDepth(var1, (byte)var2);
+   }
+
+   public byte getModifDepth(BlendDirection var1) {
+      return this.blendingDepth[var1.index];
+   }
+
+   public void setAttachmentsDoneFull(boolean var1) {
+      this.attachmentsDoneFull = var1;
+   }
+
+   public boolean isAttachmentsDoneFull() {
+      return this.attachmentsDoneFull;
+   }
+
+   public void setAttachmentsState(int var1, boolean var2) {
+      this.attachmentsState[var1] = var2;
+   }
+
+   public boolean isAttachmentsDone(int var1) {
+      return this.attachmentsState[var1];
+   }
+
+   public boolean[] getAttachmentsState() {
+      return this.attachmentsState;
+   }
+
+   public EnumSet<ChunkGenerationStatus> isModded() {
+      return this.chunkGenerationStatus;
+   }
+
+   public void isModded(EnumSet<ChunkGenerationStatus> var1) {
+      this.chunkGenerationStatus = var1;
+   }
+
+   public void isModded(ChunkGenerationStatus var1) {
+      this.chunkGenerationStatus = EnumSet.of(var1);
+   }
+
+   public void addModded(ChunkGenerationStatus var1) {
+      this.chunkGenerationStatus.add(var1);
+   }
+
+   public void rmModded(ChunkGenerationStatus var1) {
+      this.chunkGenerationStatus.remove(var1);
    }
 
    public boolean LoadBrandNew(int var1, int var2) {
       this.wx = var1;
       this.wy = var2;
-      if (!CellLoader.LoadCellBinaryChunk(IsoWorld.instance.CurrentCell, var1, var2, this)) {
-         return false;
+      CellLoader.LoadCellBinaryChunk(IsoWorld.instance.CurrentCell, var1, var2, this);
+      if (this.hasEmptySquaresOnLevelZero()) {
+         IsoWorld.instance.getWgChunk().genRandomChunk(IsoWorld.instance.CurrentCell, this, var1, var2);
       } else {
-         if (!Core.GameMode.equals("Tutorial") && !Core.GameMode.equals("LastStand") && !GameClient.bClient) {
-            this.addZombies = true;
+         IsoWorld.instance.getWgChunk().genMapChunk(IsoWorld.instance.CurrentCell, this, var1, var2);
+      }
+
+      IsoWorld.instance.getZoneGenerator().genForaging(var1, var2);
+      Basements.getInstance().onNewChunkLoaded(this);
+      if (!Core.GameMode.equals("Tutorial") && !Core.GameMode.equals("LastStand") && !GameClient.bClient) {
+         this.addZombies = true;
+      }
+
+      return true;
+   }
+
+   private boolean hasEmptySquaresOnLevelZero() {
+      for(int var1 = 0; var1 < 8; ++var1) {
+         for(int var2 = 0; var2 < 8; ++var2) {
+            IsoGridSquare var3 = this.getGridSquare(var2, var1, 0);
+            if ((var3 == null || var3.getObjects().isEmpty()) && !this.hasNonEmptySquareBelow(var2, var1, 0)) {
+               return true;
+            }
+         }
+      }
+
+      return false;
+   }
+
+   private boolean hasNonEmptySquareBelow(int var1, int var2, int var3) {
+      --var3;
+
+      while(var3 >= this.getMinLevel()) {
+         IsoGridSquare var4 = this.getGridSquare(var1, var2, var3);
+         if (var4 != null && !var4.getObjects().isEmpty()) {
+            return true;
          }
 
-         return true;
+         --var3;
       }
+
+      return false;
    }
 
    public boolean LoadOrCreate(int var1, int var2, ByteBuffer var3) {
       this.wx = var1;
       this.wy = var2;
+      boolean var4;
       if (var3 != null && !this.blam) {
-         return this.LoadFromBuffer(var1, var2, var3);
+         var4 = this.LoadFromBuffer(var1, var2, var3);
       } else {
-         File var4 = ChunkMapFilenames.instance.getFilename(var1, var2);
-         if (var4 == null) {
-            var4 = ZomboidFileSystem.instance.getFileInCurrentSave(prefix + var1 + "_" + var2 + ".bin");
-         }
-
-         if (var4.exists() && !this.blam) {
+         File var5 = ChunkMapFilenames.instance.getFilename(var1, var2);
+         if (var5.exists() && !this.blam) {
             try {
                this.LoadFromDisk();
-            } catch (Exception var6) {
-               ExceptionLogger.logException(var6, "Error loading chunk " + var1 + "," + var2);
+               var4 = true;
+            } catch (Exception var7) {
+               ExceptionLogger.logException(var7, "Error loading chunk " + var1 + "," + var2);
                if (GameServer.bServer) {
                   LoggerManager.getLogger("map").write("Error loading chunk " + var1 + "," + var2);
-                  LoggerManager.getLogger("map").write(var6);
+                  LoggerManager.getLogger("map").write(var7);
                }
 
-               this.BackupBlam(var1, var2, var6);
-               return false;
+               this.BackupBlam(var1, var2, var7);
+               var4 = false;
             }
-
-            if (GameClient.bClient) {
-               GameClient.instance.worldObjectsSyncReq.putRequestSyncIsoChunk(this);
-            }
-
-            return true;
          } else {
-            return this.LoadBrandNew(var1, var2);
+            var4 = this.LoadBrandNew(var1, var2);
          }
       }
+
+      return var4;
    }
 
    public boolean LoadFromBuffer(int var1, int var2, ByteBuffer var3) {
@@ -1926,17 +2297,26 @@ public final class IsoChunk {
       }
    }
 
-   private void ensureSurroundNotNull(int var1, int var2, int var3) {
+   private void assignRoom(IsoGridSquare var1) {
+      if (var1 != null && var1.getRoom() == null) {
+         RoomDef var2 = IsoWorld.instance.MetaGrid.getRoomAt(var1.x, var1.y, var1.z);
+         var1.setRoomID(var2 == null ? -1L : var2.ID);
+      }
+   }
+
+   private void ensureNotNull3x3(int var1, int var2, int var3) {
       IsoCell var4 = IsoWorld.instance.CurrentCell;
 
-      for(int var5 = -1; var5 <= 1; ++var5) {
-         for(int var6 = -1; var6 <= 1; ++var6) {
-            if ((var5 != 0 || var6 != 0) && var1 + var5 >= 0 && var1 + var5 < 10 && var2 + var6 >= 0 && var2 + var6 < 10) {
-               IsoGridSquare var7 = this.getGridSquare(var1 + var5, var2 + var6, var3);
-               if (var7 == null) {
-                  var7 = IsoGridSquare.getNew(var4, (SliceY)null, this.wx * 10 + var1 + var5, this.wy * 10 + var2 + var6, var3);
-                  this.setSquare(var1 + var5, var2 + var6, var3, var7);
-               }
+      for(int var5 = 0; var5 <= 8; ++var5) {
+         IsoDirections var6 = IsoDirections.fromIndex(var5);
+         int var7 = var6.dx();
+         int var8 = var6.dy();
+         if (var1 + var7 >= 0 && var1 + var7 < 8 && var2 + var8 >= 0 && var2 + var8 < 8) {
+            IsoGridSquare var9 = this.getGridSquare(var1 + var7, var2 + var8, var3);
+            if (var9 == null) {
+               var9 = IsoGridSquare.getNew(var4, (SliceY)null, this.wx * 8 + var1 + var7, this.wy * 8 + var2 + var8, var3);
+               this.setSquare(var1 + var7, var2 + var8, var3, var9);
+               this.assignRoom(var9);
             }
          }
       }
@@ -1944,44 +2324,29 @@ public final class IsoChunk {
    }
 
    public void loadInWorldStreamerThread() {
-      IsoCell var1 = IsoWorld.instance.CurrentCell;
-
+      int var1;
       int var2;
       int var3;
-      int var4;
-      IsoGridSquare var5;
-      for(var2 = 0; var2 <= this.maxLevel; ++var2) {
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 10; ++var4) {
-               var5 = this.getGridSquare(var4, var3, var2);
-               if (var5 == null && var2 == 0) {
-                  var5 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, this.wx * 10 + var4, this.wy * 10 + var3, var2);
-                  this.setSquare(var4, var3, var2, var5);
+      IsoGridSquare var4;
+      for(var1 = this.minLevel; var1 <= this.maxLevel; ++var1) {
+         for(var2 = 0; var2 < 8; ++var2) {
+            for(var3 = 0; var3 < 8; ++var3) {
+               var4 = this.getGridSquare(var3, var2, var1);
+               if (var4 == null && var1 == 0) {
+                  var4 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, this.wx * 8 + var3, this.wy * 8 + var2, var1);
+                  this.setSquare(var3, var2, var1, var4);
                }
 
-               if (var2 == 0 && var5.getFloor() == null) {
-                  DebugLog.log("ERROR: added floor at " + var5.x + "," + var5.y + "," + var5.z + " because there wasn't one");
-                  IsoObject var6 = IsoObject.getNew();
-                  var6.sprite = IsoSprite.getSprite(IsoSpriteManager.instance, (String)"carpentry_02_58", 0);
-                  var6.square = var5;
-                  var5.Objects.add(0, var6);
-               }
+               if (var4 != null) {
+                  if (!var4.getObjects().isEmpty()) {
+                     this.ensureNotNull3x3(var3, var2, var1);
 
-               if (var5 != null) {
-                  if (var2 > 0 && !var5.getObjects().isEmpty()) {
-                     this.ensureSurroundNotNull(var4, var3, var2);
-
-                     for(int var8 = var2 - 1; var8 > 0; --var8) {
-                        IsoGridSquare var7 = this.getGridSquare(var4, var3, var8);
-                        if (var7 == null) {
-                           var7 = IsoGridSquare.getNew(var1, (SliceY)null, this.wx * 10 + var4, this.wy * 10 + var3, var8);
-                           this.setSquare(var4, var3, var8, var7);
-                           this.ensureSurroundNotNull(var4, var3, var8);
-                        }
+                     for(int var5 = var1 - 1; var5 > this.minLevel; --var5) {
+                        this.ensureNotNull3x3(var3, var2, var5);
                      }
                   }
 
-                  var5.RecalcProperties();
+                  var4.RecalcProperties();
                }
             }
          }
@@ -1991,38 +2356,38 @@ public final class IsoChunk {
 
       chunkGetter.chunk = this;
 
-      for(var2 = 0; var2 < 10; ++var2) {
-         label136:
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = this.maxLevel; var4 > 0; --var4) {
-               var5 = this.getGridSquare(var3, var2, var4);
-               if (var5 != null && var5.Is(IsoFlagType.solidfloor)) {
-                  --var4;
+      for(var1 = 0; var1 < 8; ++var1) {
+         label127:
+         for(var2 = 0; var2 < 8; ++var2) {
+            for(var3 = this.maxLevel; var3 > 0; --var3) {
+               var4 = this.getGridSquare(var2, var1, var3);
+               if (var4 != null && var4.hasRainBlockingTile()) {
+                  --var3;
 
                   while(true) {
-                     if (var4 < 0) {
-                        continue label136;
+                     if (var3 < 0) {
+                        continue label127;
                      }
 
-                     var5 = this.getGridSquare(var3, var2, var4);
-                     if (var5 != null && !var5.haveRoof) {
-                        var5.haveRoof = true;
-                        var5.getProperties().UnSet(IsoFlagType.exterior);
+                     var4 = this.getGridSquare(var2, var1, var3);
+                     if (var4 != null && !var4.haveRoof) {
+                        var4.haveRoof = true;
+                        var4.getProperties().UnSet(IsoFlagType.exterior);
                      }
 
-                     --var4;
+                     --var3;
                   }
                }
             }
          }
       }
 
-      for(var2 = 0; var2 <= this.maxLevel; ++var2) {
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 10; ++var4) {
-               var5 = this.getGridSquare(var4, var3, var2);
-               if (var5 != null) {
-                  var5.RecalcAllWithNeighbours(true, chunkGetter);
+      for(var1 = this.minLevel; var1 <= this.maxLevel; ++var1) {
+         for(var2 = 0; var2 < 8; ++var2) {
+            for(var3 = 0; var3 < 8; ++var3) {
+               var4 = this.getGridSquare(var3, var2, var1);
+               if (var4 != null) {
+                  var4.RecalcAllWithNeighbours(true, chunkGetter);
                }
             }
          }
@@ -2030,12 +2395,12 @@ public final class IsoChunk {
 
       chunkGetter.chunk = null;
 
-      for(var2 = 0; var2 <= this.maxLevel; ++var2) {
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 10; ++var4) {
-               var5 = this.getGridSquare(var4, var3, var2);
-               if (var5 != null) {
-                  var5.propertiesDirty = true;
+      for(var1 = this.minLevel; var1 <= this.maxLevel; ++var1) {
+         for(var2 = 0; var2 < 8; ++var2) {
+            for(var3 = 0; var3 < 8; ++var3) {
+               var4 = this.getGridSquare(var3, var2, var1);
+               if (var4 != null) {
+                  var4.propertiesDirty = true;
                }
             }
          }
@@ -2044,24 +2409,8 @@ public final class IsoChunk {
    }
 
    private void RecalcAllWithNeighbour(IsoGridSquare var1, IsoDirections var2, int var3) {
-      byte var4 = 0;
-      byte var5 = 0;
-      if (var2 != IsoDirections.W && var2 != IsoDirections.NW && var2 != IsoDirections.SW) {
-         if (var2 == IsoDirections.E || var2 == IsoDirections.NE || var2 == IsoDirections.SE) {
-            var4 = 1;
-         }
-      } else {
-         var4 = -1;
-      }
-
-      if (var2 != IsoDirections.N && var2 != IsoDirections.NW && var2 != IsoDirections.NE) {
-         if (var2 == IsoDirections.S || var2 == IsoDirections.SW || var2 == IsoDirections.SE) {
-            var5 = 1;
-         }
-      } else {
-         var5 = -1;
-      }
-
+      int var4 = var2.dx();
+      int var5 = var2.dy();
       int var6 = var1.getX() + var4;
       int var7 = var1.getY() + var5;
       int var8 = var1.getZ() + var3;
@@ -2146,30 +2495,18 @@ public final class IsoChunk {
    }
 
    private void EnsureSurroundNotNullX(int var1, int var2, int var3) {
-      IsoCell var4 = IsoWorld.instance.CurrentCell;
-
-      for(int var5 = var1 - 1; var5 <= var1 + 1; ++var5) {
-         if (var5 >= 0 && var5 < 10) {
-            IsoGridSquare var6 = this.getGridSquare(var5, var2, var3);
-            if (var6 == null) {
-               var6 = IsoGridSquare.getNew(var4, (SliceY)null, this.wx * 10 + var5, this.wy * 10 + var2, var3);
-               var4.ConnectNewSquare(var6, false);
-            }
+      for(int var4 = var1 - 1; var4 <= var1 + 1; ++var4) {
+         if (var4 >= 0 && var4 < 8) {
+            this.EnsureSurroundNotNull(var4, var2, var3);
          }
       }
 
    }
 
    private void EnsureSurroundNotNullY(int var1, int var2, int var3) {
-      IsoCell var4 = IsoWorld.instance.CurrentCell;
-
-      for(int var5 = var2 - 1; var5 <= var2 + 1; ++var5) {
-         if (var5 >= 0 && var5 < 10) {
-            IsoGridSquare var6 = this.getGridSquare(var1, var5, var3);
-            if (var6 == null) {
-               var6 = IsoGridSquare.getNew(var4, (SliceY)null, this.wx * 10 + var1, this.wy * 10 + var5, var3);
-               var4.ConnectNewSquare(var6, false);
-            }
+      for(int var4 = var2 - 1; var4 <= var2 + 1; ++var4) {
+         if (var4 >= 0 && var4 < 8) {
+            this.EnsureSurroundNotNull(var1, var4, var3);
          }
       }
 
@@ -2179,9 +2516,19 @@ public final class IsoChunk {
       IsoCell var4 = IsoWorld.instance.CurrentCell;
       IsoGridSquare var5 = this.getGridSquare(var1, var2, var3);
       if (var5 == null) {
-         var5 = IsoGridSquare.getNew(var4, (SliceY)null, this.wx * 10 + var1, this.wy * 10 + var2, var3);
+         var5 = IsoGridSquare.getNew(var4, (SliceY)null, this.wx * 8 + var1, this.wy * 8 + var2, var3);
          var4.ConnectNewSquare(var5, false);
+         this.assignRoom(var5);
+         newSquareList.add(var5);
       }
+   }
+
+   private static int getMinLevelOf(int var0, IsoChunk var1) {
+      return var1 == null ? var0 : PZMath.min(var0, var1.minLevel);
+   }
+
+   private static int getMaxLevelOf(int var0, IsoChunk var1) {
+      return var1 == null ? var0 : PZMath.max(var0, var1.maxLevel);
    }
 
    public void loadInMainThread() {
@@ -2194,262 +2541,315 @@ public final class IsoChunk {
       IsoChunk var7 = var1.getChunk(this.wx + 1, this.wy - 1);
       IsoChunk var8 = var1.getChunk(this.wx + 1, this.wy + 1);
       IsoChunk var9 = var1.getChunk(this.wx - 1, this.wy + 1);
+      int var10 = getMinLevelOf(this.minLevel, var2);
+      var10 = getMinLevelOf(var10, var3);
+      var10 = getMinLevelOf(var10, var4);
+      var10 = getMinLevelOf(var10, var5);
+      var10 = getMinLevelOf(var10, var6);
+      var10 = getMinLevelOf(var10, var7);
+      var10 = getMinLevelOf(var10, var8);
+      var10 = getMinLevelOf(var10, var9);
+      int var11 = getMaxLevelOf(this.maxLevel, var2);
+      var11 = getMaxLevelOf(var11, var3);
+      var11 = getMaxLevelOf(var11, var4);
+      var11 = getMaxLevelOf(var11, var5);
+      var11 = getMaxLevelOf(var11, var6);
+      var11 = getMaxLevelOf(var11, var7);
+      var11 = getMaxLevelOf(var11, var8);
+      var11 = getMaxLevelOf(var11, var9);
+      newSquareList.clear();
 
-      IsoGridSquare var10;
-      int var11;
-      int var12;
-      for(var11 = 1; var11 < 8; ++var11) {
-         for(var12 = 0; var12 < 10; ++var12) {
+      IsoGridSquare var12;
+      int var13;
+      int var14;
+      for(var13 = var10; var13 <= var11; ++var13) {
+         for(var14 = 0; var14 < 8; ++var14) {
             if (var3 != null) {
-               var10 = var3.getGridSquare(var12, 9, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  this.EnsureSurroundNotNullX(var12, 0, var11);
+               var12 = var3.getGridSquare(var14, 7, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  this.EnsureSurroundNotNullX(var14, 0, var13);
                }
             }
 
             if (var5 != null) {
-               var10 = var5.getGridSquare(var12, 0, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  this.EnsureSurroundNotNullX(var12, 9, var11);
+               var12 = var5.getGridSquare(var14, 0, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  this.EnsureSurroundNotNullX(var14, 7, var13);
                }
             }
          }
 
-         for(var12 = 0; var12 < 10; ++var12) {
+         for(var14 = 0; var14 < 8; ++var14) {
             if (var2 != null) {
-               var10 = var2.getGridSquare(9, var12, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  this.EnsureSurroundNotNullY(0, var12, var11);
+               var12 = var2.getGridSquare(7, var14, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  this.EnsureSurroundNotNullY(0, var14, var13);
                }
             }
 
             if (var4 != null) {
-               var10 = var4.getGridSquare(0, var12, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  this.EnsureSurroundNotNullY(9, var12, var11);
+               var12 = var4.getGridSquare(0, var14, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  this.EnsureSurroundNotNullY(7, var14, var13);
                }
             }
          }
 
          if (var6 != null) {
-            var10 = var6.getGridSquare(9, 9, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               this.EnsureSurroundNotNull(0, 0, var11);
+            var12 = var6.getGridSquare(7, 7, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               this.EnsureSurroundNotNull(0, 0, var13);
             }
          }
 
          if (var7 != null) {
-            var10 = var7.getGridSquare(0, 9, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               this.EnsureSurroundNotNull(9, 0, var11);
+            var12 = var7.getGridSquare(0, 7, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               this.EnsureSurroundNotNull(7, 0, var13);
             }
          }
 
          if (var8 != null) {
-            var10 = var8.getGridSquare(0, 0, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               this.EnsureSurroundNotNull(9, 9, var11);
+            var12 = var8.getGridSquare(0, 0, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               this.EnsureSurroundNotNull(7, 7, var13);
             }
          }
 
          if (var9 != null) {
-            var10 = var9.getGridSquare(9, 0, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               this.EnsureSurroundNotNull(0, 9, var11);
+            var12 = var9.getGridSquare(7, 0, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               this.EnsureSurroundNotNull(0, 7, var13);
             }
          }
       }
 
-      for(var11 = 1; var11 < 8; ++var11) {
-         for(var12 = 0; var12 < 10; ++var12) {
+      for(var13 = var10; var13 <= var11; ++var13) {
+         for(var14 = 0; var14 < 8; ++var14) {
             if (var3 != null) {
-               var10 = this.getGridSquare(var12, 0, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  var3.EnsureSurroundNotNullX(var12, 9, var11);
+               var12 = this.getGridSquare(var14, 0, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  var3.EnsureSurroundNotNullX(var14, 7, var13);
                }
             }
 
             if (var5 != null) {
-               var10 = this.getGridSquare(var12, 9, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  var5.EnsureSurroundNotNullX(var12, 0, var11);
+               var12 = this.getGridSquare(var14, 7, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  var5.EnsureSurroundNotNullX(var14, 0, var13);
                }
             }
          }
 
-         for(var12 = 0; var12 < 10; ++var12) {
+         for(var14 = 0; var14 < 8; ++var14) {
             if (var2 != null) {
-               var10 = this.getGridSquare(0, var12, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  var2.EnsureSurroundNotNullY(9, var12, var11);
+               var12 = this.getGridSquare(0, var14, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  var2.EnsureSurroundNotNullY(7, var14, var13);
                }
             }
 
             if (var4 != null) {
-               var10 = this.getGridSquare(9, var12, var11);
-               if (var10 != null && !var10.getObjects().isEmpty()) {
-                  var4.EnsureSurroundNotNullY(0, var12, var11);
+               var12 = this.getGridSquare(7, var14, var13);
+               if (var12 != null && !var12.getObjects().isEmpty()) {
+                  var4.EnsureSurroundNotNullY(0, var14, var13);
                }
             }
          }
 
          if (var6 != null) {
-            var10 = this.getGridSquare(0, 0, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               var6.EnsureSurroundNotNull(9, 9, var11);
+            var12 = this.getGridSquare(0, 0, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               var6.EnsureSurroundNotNull(7, 7, var13);
             }
          }
 
          if (var7 != null) {
-            var10 = this.getGridSquare(9, 0, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               var7.EnsureSurroundNotNull(0, 9, var11);
+            var12 = this.getGridSquare(7, 0, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               var7.EnsureSurroundNotNull(0, 7, var13);
             }
          }
 
          if (var8 != null) {
-            var10 = this.getGridSquare(9, 9, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               var8.EnsureSurroundNotNull(0, 0, var11);
+            var12 = this.getGridSquare(7, 7, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               var8.EnsureSurroundNotNull(0, 0, var13);
             }
          }
 
          if (var9 != null) {
-            var10 = this.getGridSquare(0, 9, var11);
-            if (var10 != null && !var10.getObjects().isEmpty()) {
-               var9.EnsureSurroundNotNull(9, 0, var11);
+            var12 = this.getGridSquare(0, 7, var13);
+            if (var12 != null && !var12.getObjects().isEmpty()) {
+               var9.EnsureSurroundNotNull(7, 0, var13);
             }
          }
       }
 
-      for(var11 = 0; var11 <= this.maxLevel; ++var11) {
-         for(var12 = 0; var12 < 10; ++var12) {
-            for(int var13 = 0; var13 < 10; ++var13) {
-               var10 = this.getGridSquare(var13, var12, var11);
-               if (var10 != null) {
-                  if (var13 == 0 || var13 == 9 || var12 == 0 || var12 == 9) {
-                     IsoWorld.instance.CurrentCell.DoGridNav(var10, IsoGridSquare.cellGetSquare);
+      for(var13 = 0; var13 < newSquareList.size(); ++var13) {
+         var12 = (IsoGridSquare)newSquareList.get(var13);
+         var12.RecalcAllWithNeighbours(true);
+      }
 
-                     for(int var14 = -1; var14 <= 1; ++var14) {
-                        if (var13 == 0) {
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.W, var14);
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.NW, var14);
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.SW, var14);
-                        } else if (var13 == 9) {
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.E, var14);
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.NE, var14);
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.SE, var14);
+      newSquareList.clear();
+      GameProfiler.ProfileArea var21 = GameProfiler.getInstance().startIfEnabled("Recalc Nav");
+
+      int var15;
+      for(var14 = this.minLevel; var14 <= this.maxLevel; ++var14) {
+         IsoGridSquare var18;
+         IsoGridSquare var24;
+         for(var15 = 0; var15 < 8; ++var15) {
+            for(int var16 = 0; var16 < 8; ++var16) {
+               var12 = this.getGridSquare(var16, var15, var14);
+               if (var12 != null) {
+                  if (var16 == 0 || var16 == 7 || var15 == 0 || var15 == 7) {
+                     IsoWorld.instance.CurrentCell.DoGridNav(var12, IsoGridSquare.cellGetSquare);
+
+                     for(int var17 = -1; var17 <= 1; ++var17) {
+                        if (var16 == 0) {
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.W, var17);
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.NW, var17);
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.SW, var17);
+                        } else if (var16 == 7) {
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.E, var17);
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.NE, var17);
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.SE, var17);
                         }
 
-                        if (var12 == 0) {
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.N, var14);
-                           if (var13 != 0) {
-                              this.RecalcAllWithNeighbour(var10, IsoDirections.NW, var14);
+                        if (var15 == 0) {
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.N, var17);
+                           if (var16 != 0) {
+                              this.RecalcAllWithNeighbour(var12, IsoDirections.NW, var17);
                            }
 
-                           if (var13 != 9) {
-                              this.RecalcAllWithNeighbour(var10, IsoDirections.NE, var14);
+                           if (var16 != 7) {
+                              this.RecalcAllWithNeighbour(var12, IsoDirections.NE, var17);
                            }
-                        } else if (var12 == 9) {
-                           this.RecalcAllWithNeighbour(var10, IsoDirections.S, var14);
-                           if (var13 != 0) {
-                              this.RecalcAllWithNeighbour(var10, IsoDirections.SW, var14);
+                        } else if (var15 == 7) {
+                           this.RecalcAllWithNeighbour(var12, IsoDirections.S, var17);
+                           if (var16 != 0) {
+                              this.RecalcAllWithNeighbour(var12, IsoDirections.SW, var17);
                            }
 
-                           if (var13 != 9) {
-                              this.RecalcAllWithNeighbour(var10, IsoDirections.SE, var14);
+                           if (var16 != 7) {
+                              this.RecalcAllWithNeighbour(var12, IsoDirections.SE, var17);
                            }
                         }
                      }
 
-                     IsoGridSquare var18 = var10.nav[IsoDirections.N.index()];
-                     IsoGridSquare var15 = var10.nav[IsoDirections.S.index()];
-                     IsoGridSquare var16 = var10.nav[IsoDirections.W.index()];
-                     IsoGridSquare var17 = var10.nav[IsoDirections.E.index()];
-                     if (var18 != null && var16 != null && (var13 == 0 || var12 == 0)) {
+                     var24 = var12.nav[IsoDirections.N.index()];
+                     var18 = var12.nav[IsoDirections.S.index()];
+                     IsoGridSquare var19 = var12.nav[IsoDirections.W.index()];
+                     IsoGridSquare var20 = var12.nav[IsoDirections.E.index()];
+                     if (var24 != null && var19 != null && (var16 == 0 || var15 == 0)) {
+                        this.RecalcAllWithNeighbour(var24, IsoDirections.W, 0);
+                     }
+
+                     if (var24 != null && var20 != null && (var16 == 7 || var15 == 0)) {
+                        this.RecalcAllWithNeighbour(var24, IsoDirections.E, 0);
+                     }
+
+                     if (var18 != null && var19 != null && (var16 == 0 || var15 == 7)) {
                         this.RecalcAllWithNeighbour(var18, IsoDirections.W, 0);
                      }
 
-                     if (var18 != null && var17 != null && (var13 == 9 || var12 == 0)) {
+                     if (var18 != null && var20 != null && (var16 == 7 || var15 == 7)) {
                         this.RecalcAllWithNeighbour(var18, IsoDirections.E, 0);
-                     }
-
-                     if (var15 != null && var16 != null && (var13 == 0 || var12 == 9)) {
-                        this.RecalcAllWithNeighbour(var15, IsoDirections.W, 0);
-                     }
-
-                     if (var15 != null && var17 != null && (var13 == 9 || var12 == 9)) {
-                        this.RecalcAllWithNeighbour(var15, IsoDirections.E, 0);
                      }
                   }
 
-                  IsoRoom var19 = var10.getRoom();
-                  if (var19 != null) {
-                     var19.addSquare(var10);
+                  IsoRoom var25 = var12.getRoom();
+                  if (var25 != null) {
+                     var25.addSquare(var12);
                   }
                }
             }
          }
+
+         IsoGridSquare var22 = this.getGridSquare(0, 0, var14);
+         if (var22 != null) {
+            var22.RecalcAllWithNeighbours(true);
+         }
+
+         IsoGridSquare var23 = this.getGridSquare(7, 0, var14);
+         if (var23 != null) {
+            var23.RecalcAllWithNeighbours(true);
+         }
+
+         var24 = this.getGridSquare(0, 7, var14);
+         if (var24 != null) {
+            var24.RecalcAllWithNeighbours(true);
+         }
+
+         var18 = this.getGridSquare(7, 7, var14);
+         if (var18 != null) {
+            var18.RecalcAllWithNeighbours(true);
+         }
       }
 
+      GameProfiler.getInstance().end(var21);
       this.fixObjectAmbientEmittersOnAdjacentChunks(var4, var5);
-
-      for(var11 = 0; var11 < 4; ++var11) {
-         if (var2 != null) {
-            var2.lightCheck[var11] = true;
-         }
-
-         if (var3 != null) {
-            var3.lightCheck[var11] = true;
-         }
-
-         if (var4 != null) {
-            var4.lightCheck[var11] = true;
-         }
-
-         if (var5 != null) {
-            var5.lightCheck[var11] = true;
-         }
-
-         if (var6 != null) {
-            var6.lightCheck[var11] = true;
-         }
-
-         if (var7 != null) {
-            var7.lightCheck[var11] = true;
-         }
-
-         if (var8 != null) {
-            var8.lightCheck[var11] = true;
-         }
-
-         if (var9 != null) {
-            var9.lightCheck[var11] = true;
-         }
+      if (var2 != null) {
+         var2.checkLightingLater_AllPlayers_AllLevels();
       }
 
-      for(var11 = 0; var11 < IsoPlayer.numPlayers; ++var11) {
-         LosUtil.cachecleared[var11] = true;
+      if (var3 != null) {
+         var3.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      if (var4 != null) {
+         var4.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      if (var5 != null) {
+         var5.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      if (var6 != null) {
+         var6.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      if (var7 != null) {
+         var7.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      if (var8 != null) {
+         var8.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      if (var9 != null) {
+         var9.checkLightingLater_AllPlayers_AllLevels();
+      }
+
+      for(var14 = 0; var14 < IsoPlayer.numPlayers; ++var14) {
+         LosUtil.cachecleared[var14] = true;
       }
 
       IsoLightSwitch.chunkLoaded(this);
+      GameProfiler.ProfileArea var26 = GameProfiler.getInstance().startIfEnabled("Recreate Level Cutaway");
+
+      for(var15 = this.minLevel; var15 <= this.maxLevel; ++var15) {
+         this.getCutawayData().recreateLevel(var15);
+      }
+
+      GameProfiler.getInstance().end(var26);
    }
 
    private void fixObjectAmbientEmittersOnAdjacentChunks(IsoChunk var1, IsoChunk var2) {
       if (!GameServer.bServer) {
          if (var1 != null || var2 != null) {
-            for(int var3 = 0; var3 < 8; ++var3) {
+            for(int var3 = 0; var3 < 64; ++var3) {
                int var4;
                IsoGridSquare var5;
                if (var1 != null) {
-                  for(var4 = 0; var4 < 10; ++var4) {
+                  for(var4 = 0; var4 < 8; ++var4) {
                      var5 = var1.getGridSquare(0, var4, var3);
                      this.fixObjectAmbientEmittersOnSquare(var5, false);
                   }
                }
 
                if (var2 != null) {
-                  for(var4 = 0; var4 < 10; ++var4) {
+                  for(var4 = 0; var4 < 8; ++var4) {
                      var5 = var2.getGridSquare(var4, 0, var3);
                      this.fixObjectAmbientEmittersOnSquare(var5, true);
                   }
@@ -2461,17 +2861,19 @@ public final class IsoChunk {
    }
 
    private void fixObjectAmbientEmittersOnSquare(IsoGridSquare var1, boolean var2) {
-      if (var1 != null && !var1.getSpecialObjects().isEmpty()) {
-         IsoObject var3 = var1.getDoor(var2);
-         if (var3 instanceof IsoDoor && ((IsoDoor)var3).isExterior() && !var3.hasObjectAmbientEmitter()) {
-            var3.addObjectAmbientEmitter((new ObjectAmbientEmitters.DoorLogic()).init(var3));
-         }
+      if (!FMODAmbientWalls.ENABLE) {
+         if (var1 != null && !var1.getSpecialObjects().isEmpty()) {
+            IsoObject var3 = var1.getDoor(var2);
+            if (var3 instanceof IsoDoor && ((IsoDoor)var3).isExterior() && !var3.hasObjectAmbientEmitter()) {
+               var3.addObjectAmbientEmitter((new ObjectAmbientEmitters.DoorLogic()).init(var3));
+            }
 
-         IsoWindow var4 = var1.getWindow(var2);
-         if (var4 != null && var4.isExterior() && !var4.hasObjectAmbientEmitter()) {
-            var4.addObjectAmbientEmitter((new ObjectAmbientEmitters.WindowLogic()).init(var4));
-         }
+            IsoWindow var4 = var1.getWindow(var2);
+            if (var4 != null && var4.isExterior() && !var4.hasObjectAmbientEmitter()) {
+               var4.addObjectAmbientEmitter((new ObjectAmbientEmitters.WindowLogic()).init(var4));
+            }
 
+         }
       }
    }
 
@@ -2484,19 +2886,20 @@ public final class IsoChunk {
       int var3;
       int var4;
       IsoGridSquare var5;
-      for(var2 = 0; var2 < 10; ++var2) {
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 8; ++var4) {
+      for(var2 = 0; var2 < 8; ++var2) {
+         for(var3 = 0; var3 < 8; ++var3) {
+            for(var4 = this.minLevel; var4 <= this.maxLevel; ++var4) {
                var5 = this.getGridSquare(var2, var3, var4);
                if (var5 != null) {
                   if (var4 > 0 && !var5.getObjects().isEmpty()) {
                      var5.EnsureSurroundNotNull();
 
-                     for(int var6 = var4 - 1; var6 > 0; --var6) {
+                     for(int var6 = var4 - 1; var6 > this.minLevel; --var6) {
                         IsoGridSquare var7 = this.getGridSquare(var2, var3, var6);
                         if (var7 == null) {
-                           var7 = IsoGridSquare.getNew(var1, (SliceY)null, this.wx * 10 + var2, this.wy * 10 + var3, var6);
+                           var7 = IsoGridSquare.getNew(var1, (SliceY)null, this.wx * 8 + var2, this.wy * 8 + var3, var6);
                            var1.ConnectNewSquare(var7, false);
+                           this.assignRoom(var7);
                         }
                      }
                   }
@@ -2507,36 +2910,36 @@ public final class IsoChunk {
          }
       }
 
-      for(var2 = 1; var2 < 8; ++var2) {
+      for(var2 = this.minLevel; var2 <= this.maxLevel; ++var2) {
          IsoGridSquare var8;
-         for(var3 = -1; var3 < 11; ++var3) {
-            var8 = var1.getGridSquare(this.wx * 10 + var3, this.wy * 10 - 1, var2);
+         for(var3 = -1; var3 < 9; ++var3) {
+            var8 = var1.getGridSquare(this.wx * 8 + var3, this.wy * 8 - 1, var2);
             if (var8 != null && !var8.getObjects().isEmpty()) {
                var8.EnsureSurroundNotNull();
             }
 
-            var8 = var1.getGridSquare(this.wx * 10 + var3, this.wy * 10 + 10, var2);
+            var8 = var1.getGridSquare(this.wx * 8 + var3, this.wy * 8 + 8, var2);
             if (var8 != null && !var8.getObjects().isEmpty()) {
                var8.EnsureSurroundNotNull();
             }
          }
 
-         for(var3 = 0; var3 < 10; ++var3) {
-            var8 = var1.getGridSquare(this.wx * 10 - 1, this.wy * 10 + var3, var2);
+         for(var3 = 0; var3 < 8; ++var3) {
+            var8 = var1.getGridSquare(this.wx * 8 - 1, this.wy * 8 + var3, var2);
             if (var8 != null && !var8.getObjects().isEmpty()) {
                var8.EnsureSurroundNotNull();
             }
 
-            var8 = var1.getGridSquare(this.wx * 10 + 10, this.wy * 10 + var3, var2);
+            var8 = var1.getGridSquare(this.wx * 8 + 8, this.wy * 8 + var3, var2);
             if (var8 != null && !var8.getObjects().isEmpty()) {
                var8.EnsureSurroundNotNull();
             }
          }
       }
 
-      for(var2 = 0; var2 < 10; ++var2) {
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 8; ++var4) {
+      for(var2 = 0; var2 < 8; ++var2) {
+         for(var3 = 0; var3 < 8; ++var3) {
+            for(var4 = this.minLevel; var4 <= this.maxLevel; ++var4) {
                var5 = this.getGridSquare(var2, var3, var4);
                if (var5 != null) {
                   var5.RecalcAllWithNeighbours(true);
@@ -2549,9 +2952,9 @@ public final class IsoChunk {
          }
       }
 
-      for(var2 = 0; var2 < 10; ++var2) {
-         for(var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 8; ++var4) {
+      for(var2 = 0; var2 < 8; ++var2) {
+         for(var3 = 0; var3 < 8; ++var3) {
+            for(var4 = this.minLevel; var4 <= this.maxLevel; ++var4) {
                var5 = this.getGridSquare(var2, var3, var4);
                if (var5 != null) {
                   var5.propertiesDirty = true;
@@ -2572,27 +2975,36 @@ public final class IsoChunk {
    }
 
    public void update() {
-      if (!GameServer.bServer) {
-         this.checkPhysics();
+      if (!this.blendingDoneFull && !Arrays.equals(this.blendingModified, comparatorBool4)) {
+         IsoWorld.instance.getBlending().applyBlending(this);
       }
 
+      if (!this.attachmentsDoneFull && !Arrays.equals(this.attachmentsState, comparatorBool5)) {
+         IsoWorld.instance.getAttachmentsHandler().applyAttachments(this);
+      }
+
+      if (!GameServer.bServer && (this.minLevelPhysics != this.minLevel || this.maxLevelPhysics != this.maxLevel)) {
+         this.minLevelPhysics = this.minLevel;
+         this.maxLevelPhysics = this.maxLevel;
+         Bullet.setChunkMinMaxLevel(this.wx, this.wy, this.minLevel, this.maxLevel);
+      }
+
+      int var1;
       if (!this.loadedPhysics) {
          this.loadedPhysics = true;
 
-         for(int var1 = 0; var1 < this.vehicles.size(); ++var1) {
+         for(var1 = 0; var1 < this.vehicles.size(); ++var1) {
             ((BaseVehicle)this.vehicles.get(var1)).chunk = this;
          }
       }
 
-      if (this.vehiclesForAddToWorld != null) {
-         synchronized(this.vehiclesForAddToWorldLock) {
-            for(int var2 = 0; var2 < this.vehiclesForAddToWorld.size(); ++var2) {
-               ((BaseVehicle)this.vehiclesForAddToWorld.get(var2)).addToWorld();
-            }
-
-            this.vehiclesForAddToWorld.clear();
-            this.vehiclesForAddToWorld = null;
+      if (this.ragdollControllersForAddToWorld != null) {
+         for(var1 = 0; var1 < this.ragdollControllersForAddToWorld.size(); ++var1) {
+            ((IsoGameCharacter)this.ragdollControllersForAddToWorld.get(var1)).addToWorld();
          }
+
+         this.ragdollControllersForAddToWorld.clear();
+         this.ragdollControllersForAddToWorld = null;
       }
 
       this.updateVehicleStory();
@@ -2604,8 +3016,8 @@ public final class IsoChunk {
          if (var1 != null) {
             VehicleStorySpawnData var2 = this.m_vehicleStorySpawnData;
 
-            for(int var3 = 0; var3 < var1.numZones(); ++var3) {
-               IsoMetaGrid.Zone var4 = var1.getZone(var3);
+            for(int var3 = 0; var3 < var1.getZonesSize(); ++var3) {
+               Zone var4 = var1.getZone(var3);
                if (var2.isValid(var4, this)) {
                   var2.m_story.randomizeVehicleStory(var4, this);
                   ++var4.hourLastSeen;
@@ -2617,24 +3029,100 @@ public final class IsoChunk {
       }
    }
 
-   public void setSquare(int var1, int var2, int var3, IsoGridSquare var4) {
-      assert var4 == null || var4.x - this.wx * 10 == var1 && var4.y - this.wy * 10 == var2 && var4.z == var3;
+   public int squaresIndexOfLevel(int var1) {
+      return var1 - this.minLevel;
+   }
 
-      this.squares[var3][var2 * 10 + var1] = var4;
+   public IsoGridSquare[] getSquaresForLevel(int var1) {
+      return this.squares[this.squaresIndexOfLevel(var1)];
+   }
+
+   public void setSquare(int var1, int var2, int var3, IsoGridSquare var4) {
+      assert var4 == null || var4.x - this.wx * 8 == var1 && var4.y - this.wy * 8 == var2 && var4.z == var3;
+
+      boolean var5 = !this.isValidLevel(var3);
+      this.setMinMaxLevel(PZMath.min(this.getMinLevel(), var3), PZMath.max(this.getMaxLevel(), var3));
+      int var6 = this.squaresIndexOfLevel(var3);
+      this.squares[var6][var1 + var2 * 8] = var4;
       if (var4 != null) {
          var4.chunk = this;
-         if (var4.z > this.maxLevel) {
-            this.maxLevel = var4.z;
-         }
+         var4.associatedBuilding = IsoWorld.instance.getMetaGrid().getAssociatedBuildingAt(var4.x, var4.y);
       }
 
+      if (this.jobType != IsoChunk.JobType.SoftReset) {
+         if (var5 && Thread.currentThread() == GameWindow.GameThread || Thread.currentThread() == GameServer.MainThread) {
+            if (PathfindNative.USE_NATIVE_CODE) {
+               PathfindNative.instance.addChunkToWorld(this);
+            } else {
+               PolygonalMap2.instance.addChunkToWorld(this);
+            }
+         }
+
+      }
+   }
+
+   public int getMinLevel() {
+      return this.minLevel;
+   }
+
+   public int getMaxLevel() {
+      return this.maxLevel;
+   }
+
+   public boolean isValidLevel(int var1) {
+      return var1 >= this.getMinLevel() && var1 <= this.getMaxLevel();
+   }
+
+   public void setMinMaxLevel(int var1, int var2) {
+      if (var1 != this.minLevel || var2 != this.maxLevel) {
+         for(int var3 = this.minLevel; var3 <= this.maxLevel; ++var3) {
+            if (var3 < var1 || var3 > var2) {
+               IsoChunkLevel var4 = this.levels[var3 - this.minLevel];
+               if (var4 != null) {
+                  var4.clear();
+                  var4.release();
+                  this.levels[var3 - this.minLevel] = null;
+               }
+            }
+         }
+
+         IsoChunkLevel[] var5 = new IsoChunkLevel[var2 - var1 + 1];
+
+         int var6;
+         for(var6 = var1; var6 <= var2; ++var6) {
+            if (this.isValidLevel(var6)) {
+               var5[var6 - var1] = this.levels[var6 - this.minLevel];
+            } else {
+               var5[var6 - var1] = IsoChunkLevel.alloc().init(this, var6);
+            }
+         }
+
+         this.minLevel = var1;
+         this.maxLevel = var2;
+         this.levels = var5;
+         this.squares = new IsoGridSquare[var2 - var1 + 1][];
+
+         for(var6 = var1; var6 <= var2; ++var6) {
+            this.squares[var6 - var1] = this.levels[var6 - var1].squares;
+         }
+
+      }
+   }
+
+   public IsoChunkLevel getLevelData(int var1) {
+      return this.isValidLevel(var1) ? this.levels[var1 - this.minLevel] : null;
    }
 
    public IsoGridSquare getGridSquare(int var1, int var2, int var3) {
-      return var1 >= 0 && var1 < 10 && var2 >= 0 && var2 < 10 && var3 < 8 && var3 >= 0 ? this.squares[var3][var2 * 10 + var1] : null;
+      if (var1 >= 0 && var1 < 8 && var2 >= 0 && var2 < 8 && var3 <= this.maxLevel && var3 >= this.minLevel) {
+         int var4 = this.squaresIndexOfLevel(var3);
+         return var4 < this.squares.length && var4 >= 0 ? this.squares[var4][var2 * 8 + var1] : null;
+      } else {
+         return null;
+      }
    }
 
-   public IsoRoom getRoom(int var1) {
+   public IsoRoom getRoom(long var1) {
       return this.lotheader.getRoom(var1);
    }
 
@@ -2650,19 +3138,25 @@ public final class IsoChunk {
 
       try {
          MapCollisionData.instance.removeChunkFromWorld(this);
+         AnimalPopulationManager.getInstance().removeChunkFromWorld(this);
          ZombiePopulationManager.instance.removeChunkFromWorld(this);
-         PolygonalMap2.instance.removeChunkFromWorld(this);
+         if (PathfindNative.USE_NATIVE_CODE) {
+            PathfindNative.instance.removeChunkFromWorld(this);
+         } else {
+            PolygonalMap2.instance.removeChunkFromWorld(this);
+         }
+
          this.collision.clear();
       } catch (Exception var8) {
-         var8.printStackTrace();
+         ExceptionLogger.logException(var8);
       }
 
-      byte var1 = 100;
+      byte var1 = 64;
 
       int var2;
-      for(var2 = 0; var2 < 8; ++var2) {
+      for(var2 = this.minLevel; var2 <= this.maxLevel; ++var2) {
          for(int var3 = 0; var3 < var1; ++var3) {
-            IsoGridSquare var4 = this.squares[var2][var3];
+            IsoGridSquare var4 = this.squares[this.squaresIndexOfLevel(var2)][var3];
             if (var4 != null) {
                RainManager.RemoveAllOn(var4);
                var4.clearWater();
@@ -2686,6 +3180,16 @@ public final class IsoChunk {
                      var7.Despawn();
                   }
 
+                  if (var7 instanceof IsoAnimal) {
+                     if (GameClient.bClient) {
+                        AnimalInstanceManager.getInstance().remove((IsoAnimal)var7);
+                     }
+
+                     if (GameServer.bServer) {
+                        AnimalOwnershipManager.getInstance().setOwnershipServer(((IsoAnimal)var7).getNetworkCharacterAI(), (UdpConnection)null);
+                     }
+                  }
+
                   var7.removeFromWorld();
                   var7.current = var7.last = null;
                   if (!var5.contains(var7)) {
@@ -2697,7 +3201,7 @@ public final class IsoChunk {
 
                for(var6 = 0; var6 < var4.getObjects().size(); ++var6) {
                   IsoObject var11 = (IsoObject)var4.getObjects().get(var6);
-                  var11.removeFromWorld();
+                  var11.removeFromWorldToMeta();
                }
 
                for(var6 = 0; var6 < var4.getStaticMovingObjects().size(); ++var6) {
@@ -2720,12 +3224,19 @@ public final class IsoChunk {
          }
       }
 
+      if (!GameServer.bServer) {
+         FBORenderOcclusion.getInstance().removeChunkFromWorld(this);
+         FBORenderChunkManager.instance.freeChunk(this);
+         this.m_cutawayData.removeFromWorld();
+         this.getVispolyData().removeFromWorld();
+      }
+
    }
 
    private void disconnectFromAdjacentChunks(IsoGridSquare var1) {
-      int var2 = var1.x % 10;
-      int var3 = var1.y % 10;
-      if (var2 == 0 || var2 == 9 || var3 == 0 || var3 == 9) {
+      int var2 = PZMath.coordmodulo(var1.x, 8);
+      int var3 = PZMath.coordmodulo(var1.y, 8);
+      if (var2 == 0 || var2 == 7 || var3 == 0 || var3 == 7) {
          int var4 = IsoDirections.N.index();
          int var5 = IsoDirections.S.index();
          if (var1.nav[var4] != null && var1.nav[var4].chunk != var1.chunk) {
@@ -2786,9 +3297,9 @@ public final class IsoChunk {
    }
 
    public void doReuseGridsquares() {
-      byte var1 = 100;
+      byte var1 = 64;
 
-      for(int var2 = 0; var2 < 8; ++var2) {
+      for(int var2 = 0; var2 < this.squares.length; ++var2) {
          for(int var3 = 0; var3 < var1; ++var3) {
             IsoGridSquare var4 = this.squares[var2][var3];
             if (var4 != null) {
@@ -2843,6 +3354,29 @@ public final class IsoChunk {
       }
    }
 
+   private boolean[] readFlags(ByteBuffer var1, int var2) {
+      boolean[] var3 = new boolean[var2];
+      byte var4 = var1.get();
+      int var5 = 1;
+
+      for(byte var6 = 0; var6 < var2; ++var6) {
+         var3[var6] = (var4 & var5) == var5;
+         var5 *= 2;
+      }
+
+      return var3;
+   }
+
+   private void writeFlags(ByteBuffer var1, boolean[] var2) {
+      int var3 = 0;
+
+      for(byte var4 = 0; var4 < var2.length; ++var4) {
+         var3 += (var2[var4] ? 1 : 0) << var4;
+      }
+
+      var1.put((byte)var3);
+   }
+
    public void LoadFromDisk() throws IOException {
       this.LoadFromDiskOrBuffer((ByteBuffer)null);
    }
@@ -2859,10 +3393,10 @@ public final class IsoChunk {
             var2 = var1;
          }
 
-         int var3 = this.wx * 10;
-         int var4 = this.wy * 10;
-         var3 /= 300;
-         var4 /= 300;
+         int var3 = this.wx * 8;
+         int var4 = this.wy * 8;
+         var3 /= IsoCell.CellSizeInSquares;
+         var4 /= IsoCell.CellSizeInSquares;
          String var5 = ChunkMapFilenames.instance.getHeader(var3, var4);
          if (IsoLot.InfoHeaders.containsKey(var5)) {
             this.lotheader = (LotHeader)IsoLot.InfoHeaders.get(var5);
@@ -2876,178 +3410,200 @@ public final class IsoChunk {
             DebugLog.log("WorldVersion = " + var7 + ", debug = " + var6);
          }
 
-         if (var7 > 195) {
+         if (var7 > 219) {
             throw new RuntimeException("unknown world version " + var7 + " while reading chunk " + this.wx + "," + this.wy);
          }
 
-         this.bFixed2x = var7 >= 85;
-         int var8;
-         if (var7 >= 61) {
-            var8 = var2.getInt();
-            sanityCheck.checkLength((long)var8, (long)var2.limit());
-            long var9 = var2.getLong();
-            crcLoad.reset();
-            crcLoad.update(var2.array(), 17, var2.limit() - 1 - 4 - 4 - 8);
-            sanityCheck.checkCRC(var9, crcLoad.getValue());
+         this.bFixed2x = true;
+         int var8 = var2.getInt();
+         sanityCheck.checkLength((long)var8, (long)var2.limit());
+         long var9 = var2.getLong();
+         crcLoad.reset();
+         crcLoad.update(var2.array(), 17, var2.limit() - 1 - 4 - 4 - 8);
+         sanityCheck.checkCRC(var9, crcLoad.getValue());
+         if (var7 >= 209) {
+            this.blendingDoneFull = var2.get() == 1;
          }
 
-         var8 = 0;
-         if (GameClient.bClient || GameServer.bServer) {
-            var8 = ServerOptions.getInstance().BloodSplatLifespanDays.getValue();
-         }
-
-         float var26 = (float)GameTime.getInstance().getWorldAgeHours();
-         int var10 = var2.getInt();
-
-         for(int var11 = 0; var11 < var10; ++var11) {
-            IsoFloorBloodSplat var12 = new IsoFloorBloodSplat();
-            var12.load(var2, var7);
-            if (var12.worldAge > var26) {
-               var12.worldAge = var26;
-            }
-
-            if (var8 <= 0 || !(var26 - var12.worldAge >= (float)(var8 * 24))) {
-               if (var7 < 73 && var12.Type < 8) {
-                  var12.index = ++this.nextSplatIndex;
+         int var11;
+         if (var7 >= 210) {
+            this.blendingModified = this.readFlags(var2, this.blendingModified.length);
+            this.blendingDonePartial = var2.get() == 1;
+            if (!Arrays.equals(this.blendingModified, comparatorBool4) && this.blendingDonePartial) {
+               for(var11 = 0; var11 < 4; ++var11) {
+                  this.blendingDepth[var11] = var2.get();
                }
-
-               if (var12.Type < 8) {
-                  this.nextSplatIndex = var12.index % 10;
-               }
-
-               this.FloorBloodSplats.add(var12);
             }
          }
 
-         IsoMetaGrid var27 = IsoWorld.instance.getMetaGrid();
-         boolean var28 = false;
+         if (var7 >= 214) {
+            this.attachmentsDoneFull = var2.get() == 1;
+            this.attachmentsState = this.readFlags(var2, this.attachmentsState.length);
+         }
 
+         var11 = SandboxOptions.getInstance().BloodSplatLifespanDays.getValue();
+         float var12 = (float)GameTime.getInstance().getWorldAgeHours();
+         int var13;
          int var14;
-         int var15;
-         for(int var13 = 0; var13 < 10; ++var13) {
-            for(var14 = 0; var14 < 10; ++var14) {
-               byte var29 = var2.get();
+         if (206 <= var7) {
+            var14 = var2.getInt();
+            var13 = var2.getInt();
+         } else {
+            var14 = 7;
+            var13 = 0;
+         }
 
-               for(var15 = 0; var15 < 8; ++var15) {
-                  IsoGridSquare var16 = null;
-                  boolean var17 = false;
-                  if ((var29 & 1 << var15) != 0) {
-                     var17 = true;
+         this.setMinMaxLevel(var13, var14);
+         int var15 = var2.getInt();
+
+         for(int var16 = 0; var16 < var15; ++var16) {
+            IsoFloorBloodSplat var17 = new IsoFloorBloodSplat();
+            var17.load(var2, var7);
+            if (var17.worldAge > var12) {
+               var17.worldAge = var12;
+            }
+
+            if (var11 <= 0 || !(var12 - var17.worldAge >= (float)(var11 * 24))) {
+               if (var17.Type < 8) {
+                  this.nextSplatIndex = var17.index % 10;
+               }
+
+               this.FloorBloodSplats.add(var17);
+            }
+         }
+
+         IsoMetaGrid var33 = IsoWorld.instance.getMetaGrid();
+
+         int var18;
+         int var21;
+         for(int var34 = 0; var34 < 8; ++var34) {
+            for(var18 = 0; var18 < 8; ++var18) {
+               long var19;
+               if (var7 >= 206) {
+                  var19 = var2.getLong();
+               } else {
+                  var19 = (long)var2.get();
+                  var19 <<= 32;
+               }
+
+               for(var21 = var13; var21 <= var14; ++var21) {
+                  IsoGridSquare var22 = null;
+                  boolean var23 = false;
+                  if ((var19 & 1L << var21 + 32) != 0L) {
+                     var23 = true;
                   }
 
-                  if (var17) {
-                     if (var16 == null) {
+                  if (var23) {
+                     if (var22 == null) {
                         if (IsoGridSquare.loadGridSquareCache != null) {
-                           var16 = IsoGridSquare.getNew(IsoGridSquare.loadGridSquareCache, IsoWorld.instance.CurrentCell, (SliceY)null, var13 + this.wx * 10, var14 + this.wy * 10, var15);
+                           var22 = IsoGridSquare.getNew(IsoGridSquare.loadGridSquareCache, IsoWorld.instance.CurrentCell, (SliceY)null, var34 + this.wx * 8, var18 + this.wy * 8, var21);
                         } else {
-                           var16 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, var13 + this.wx * 10, var14 + this.wy * 10, var15);
+                           var22 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, var34 + this.wx * 8, var18 + this.wy * 8, var21);
                         }
                      }
 
-                     var16.chunk = this;
+                     var22.chunk = this;
                      if (this.lotheader != null) {
-                        RoomDef var18 = var27.getRoomAt(var16.x, var16.y, var16.z);
-                        int var19 = var18 != null ? var18.ID : -1;
-                        var16.setRoomID(var19);
-                        var18 = var27.getEmptyOutsideAt(var16.x, var16.y, var16.z);
-                        if (var18 != null) {
-                           IsoRoom var20 = this.getRoom(var18.ID);
-                           var16.roofHideBuilding = var20 == null ? null : var20.building;
+                        RoomDef var24 = var33.getRoomAt(var22.x, var22.y, var22.z);
+                        long var25 = var24 != null ? var24.ID : -1L;
+                        var22.setRoomID(var25);
+                        var24 = var33.getEmptyOutsideAt(var22.x, var22.y, var22.z);
+                        if (var24 != null) {
+                           IsoRoom var27 = this.getRoom(var24.ID);
+                           var22.roofHideBuilding = var27 == null ? null : var27.building;
                         }
                      }
 
-                     var16.ResetIsoWorldRegion();
-                     this.setSquare(var13, var14, var15, var16);
+                     var22.ResetIsoWorldRegion();
+                     this.setSquare(var34, var18, var21, var22);
                   }
 
-                  if (var17 && var16 != null) {
-                     var16.load(var2, var7, var6);
-                     var16.FixStackableObjects();
+                  if (var23 && var22 != null) {
+                     var22.load(var2, var7, var6);
+                     var22.FixStackableObjects();
                      if (this.jobType == IsoChunk.JobType.SoftReset) {
-                        if (!var16.getStaticMovingObjects().isEmpty()) {
-                           var16.getStaticMovingObjects().clear();
+                        if (!var22.getStaticMovingObjects().isEmpty()) {
+                           var22.getStaticMovingObjects().clear();
                         }
 
-                        for(int var36 = 0; var36 < var16.getObjects().size(); ++var36) {
-                           IsoObject var37 = (IsoObject)var16.getObjects().get(var36);
-                           var37.softReset();
-                           if (var37.getObjectIndex() == -1) {
-                              --var36;
+                        for(int var46 = 0; var46 < var22.getObjects().size(); ++var46) {
+                           IsoObject var47 = (IsoObject)var22.getObjects().get(var46);
+                           var47.softReset();
+                           if (var47.getObjectIndex() == -1) {
+                              --var46;
                            }
                         }
 
-                        var16.setOverlayDone(false);
+                        var22.setOverlayDone(false);
                      }
                   }
                }
             }
          }
 
-         if (var7 >= 45) {
-            this.getErosionData().load(var2, var7);
-            this.getErosionData().set(this);
+         this.getErosionData().load(var2, var7);
+         this.getErosionData().set(this);
+         short var35 = var2.getShort();
+         if (var35 > 0 && this.generatorsTouchingThisChunk == null) {
+            this.generatorsTouchingThisChunk = new ArrayList();
          }
 
-         short var30;
-         byte var34;
-         if (var7 >= 127) {
-            var30 = var2.getShort();
-            if (var30 > 0 && this.generatorsTouchingThisChunk == null) {
-               this.generatorsTouchingThisChunk = new ArrayList();
-            }
+         if (this.generatorsTouchingThisChunk != null) {
+            this.generatorsTouchingThisChunk.clear();
+         }
 
-            if (this.generatorsTouchingThisChunk != null) {
-               this.generatorsTouchingThisChunk.clear();
-            }
-
-            for(var14 = 0; var14 < var30; ++var14) {
-               var15 = var2.getInt();
-               int var33 = var2.getInt();
-               var34 = var2.get();
-               IsoGameCharacter.Location var39 = new IsoGameCharacter.Location(var15, var33, var34);
-               this.generatorsTouchingThisChunk.add(var39);
-            }
+         int var20;
+         int var37;
+         byte var40;
+         for(var18 = 0; var18 < var35; ++var18) {
+            var37 = var2.getInt();
+            var20 = var2.getInt();
+            var40 = var2.get();
+            IsoGameCharacter.Location var43 = new IsoGameCharacter.Location(var37, var20, var40);
+            this.generatorsTouchingThisChunk.add(var43);
          }
 
          this.vehicles.clear();
          if (!GameClient.bClient) {
-            if (var7 >= 91) {
-               var30 = var2.getShort();
+            short var36 = var2.getShort();
 
-               for(var14 = 0; var14 < var30; ++var14) {
-                  byte var32 = var2.get();
-                  byte var35 = var2.get();
-                  var34 = var2.get();
-                  IsoObject var40 = IsoObject.factoryFromFileInput(IsoWorld.instance.CurrentCell, var2);
-                  if (var40 != null && var40 instanceof BaseVehicle) {
-                     IsoGridSquare var38 = this.getGridSquare(var32, var35, var34);
-                     var40.square = var38;
-                     ((IsoMovingObject)var40).current = var38;
+            for(var37 = 0; var37 < var36; ++var37) {
+               byte var38 = var2.get();
+               var40 = var2.get();
+               byte var44 = var2.get();
+               IsoObject var45 = IsoObject.factoryFromFileInput(IsoWorld.instance.CurrentCell, var2);
+               if (var45 != null && var45 instanceof BaseVehicle) {
+                  IsoGridSquare var48 = this.getGridSquare(var38, var40, var44);
+                  var45.square = var48;
+                  ((IsoMovingObject)var45).current = var48;
 
-                     try {
-                        var40.load(var2, var7, var6);
-                        this.vehicles.add((BaseVehicle)var40);
-                        addFromCheckedVehicles((BaseVehicle)var40);
-                        if (this.jobType == IsoChunk.JobType.SoftReset) {
-                           var40.softReset();
-                        }
-                     } catch (Exception var24) {
-                        throw new RuntimeException(var24);
+                  try {
+                     var45.load(var2, var7, var6);
+                     this.vehicles.add((BaseVehicle)var45);
+                     addFromCheckedVehicles((BaseVehicle)var45);
+                     if (this.jobType == IsoChunk.JobType.SoftReset) {
+                        var45.softReset();
                      }
+                  } catch (Exception var31) {
+                     throw new RuntimeException(var31);
                   }
                }
             }
 
-            if (var7 >= 125) {
-               this.lootRespawnHour = var2.getInt();
-            }
+            this.lootRespawnHour = var2.getInt();
+            if (var7 >= 206) {
+               short var39 = var2.getShort();
 
-            if (var7 >= 160) {
-               byte var31 = var2.get();
+               for(var20 = 0; var20 < var39; ++var20) {
+                  long var42 = var2.getLong();
+                  this.addSpawnedRoom(var42);
+               }
+            } else {
+               byte var41 = var2.get();
 
-               for(var14 = 0; var14 < var31; ++var14) {
-                  var15 = var2.getInt();
-                  this.addSpawnedRoom(var15);
+               for(var20 = 0; var20 < var41; ++var20) {
+                  var21 = var2.getInt();
+                  this.addSpawnedRoom(RoomID.makeID(this.wx / 8, this.wy / 8, var21));
                }
             }
          }
@@ -3057,6 +3613,11 @@ public final class IsoChunk {
       }
 
       if (this.getGridSquare(0, 0, 0) == null && this.getGridSquare(9, 9, 0) == null) {
+         if (var1 != null) {
+            var1.rewind();
+         }
+
+         this.LoadFromDiskOrBuffer(var1);
          throw new RuntimeException("black chunk " + this.wx + "," + this.wy);
       }
    }
@@ -3070,73 +3631,93 @@ public final class IsoChunk {
          this.loadInMainThread();
       }
 
+      int var1 = PZMath.fastfloor((float)this.wx / (float)IsoCell.CellSizeInChunks);
+      int var2 = PZMath.fastfloor((float)this.wy / (float)IsoCell.CellSizeInChunks);
+      IsoMetaCell var3 = IsoWorld.instance.getMetaGrid().getCellData(var1, var2);
+      if (var3 != null) {
+         var3.checkAnimalZonesGenerated(this.wx, this.wy);
+      }
+
       if (this.addZombies && !VehiclesDB2.instance.isChunkSeen(this.wx, this.wy)) {
          try {
             this.AddVehicles();
-         } catch (Throwable var11) {
-            ExceptionLogger.logException(var11);
+         } catch (Throwable var15) {
+            ExceptionLogger.logException(var15);
          }
       }
 
-      this.AddZombieZoneStory();
+      if (!GameClient.bClient) {
+         this.AddZombieZoneStory();
+      }
+
+      this.AddRanchAnimals();
+      this.CheckGrassRegrowth();
       VehiclesDB2.instance.setChunkSeen(this.wx, this.wy);
+      int var5;
       if (this.addZombies) {
          if (IsoWorld.instance.getTimeSinceLastSurvivorInHorde() > 0) {
             IsoWorld.instance.setTimeSinceLastSurvivorInHorde(IsoWorld.instance.getTimeSinceLastSurvivorInHorde() - 1);
          }
 
          this.addSurvivorInHorde(false);
+         WGChunk var4 = IsoWorld.instance.getWgChunk();
+
+         for(var5 = 0; var5 < this.proceduralZombieSquares.size(); ++var5) {
+            IsoGridSquare var6 = (IsoGridSquare)this.proceduralZombieSquares.get(var5);
+            var4.addZombieToSquare(var6);
+         }
       }
 
+      this.proceduralZombieSquares.clear();
       this.update();
+      this.addRagdollControllers();
       if (!GameServer.bServer) {
          FliesSound.instance.chunkLoaded(this);
          NearestWalls.chunkLoaded(this);
       }
 
-      int var1;
+      int var17;
       if (this.addZombies) {
-         var1 = 5 + SandboxOptions.instance.TimeSinceApo.getValue();
-         var1 = Math.min(20, var1);
-         if (Rand.Next(var1) == 0) {
+         var17 = 5 + SandboxOptions.instance.TimeSinceApo.getValue();
+         var17 = Math.min(20, var17);
+         if (Rand.Next(var17) == 0) {
             this.AddCorpses(this.wx, this.wy);
          }
 
-         if (Rand.Next(var1 * 2) == 0) {
+         if (Rand.Next(var17 * 2) == 0) {
             this.AddBlood(this.wx, this.wy);
          }
       }
 
       LoadGridsquarePerformanceWorkaround.init(this.wx, this.wy);
-      tempBuildings.clear();
-      int var5;
+      int var8;
       if (!GameClient.bClient) {
-         for(var1 = 0; var1 < this.vehicles.size(); ++var1) {
-            BaseVehicle var2 = (BaseVehicle)this.vehicles.get(var1);
-            if (!var2.addedToWorld && VehiclesDB2.instance.isVehicleLoaded(var2)) {
-               var2.removeFromSquare();
-               this.vehicles.remove(var1);
-               --var1;
+         for(var17 = 0; var17 < this.vehicles.size(); ++var17) {
+            BaseVehicle var18 = (BaseVehicle)this.vehicles.get(var17);
+            if (!var18.addedToWorld && VehiclesDB2.instance.isVehicleLoaded(var18)) {
+               var18.removeFromSquare();
+               this.vehicles.remove(var17);
+               --var17;
             } else {
-               if (!var2.addedToWorld) {
-                  var2.addToWorld();
+               if (!var18.addedToWorld) {
+                  var18.addToWorld();
                }
 
-               if (var2.sqlID == -1) {
+               if (var18.sqlID == -1) {
                   assert false;
 
-                  if (var2.square == null) {
-                     float var3 = 5.0E-4F;
-                     int var4 = this.wx * 10;
-                     var5 = this.wy * 10;
-                     int var6 = var4 + 10;
-                     int var7 = var5 + 10;
-                     float var8 = PZMath.clamp(var2.x, (float)var4 + var3, (float)var6 - var3);
-                     float var9 = PZMath.clamp(var2.y, (float)var5 + var3, (float)var7 - var3);
-                     var2.square = this.getGridSquare((int)var8 - this.wx * 10, (int)var9 - this.wy * 10, 0);
+                  if (var18.square == null) {
+                     float var19 = 5.0E-4F;
+                     int var7 = this.wx * 8;
+                     var8 = this.wy * 8;
+                     int var9 = var7 + 8;
+                     int var10 = var8 + 8;
+                     float var11 = PZMath.clamp(var18.getX(), (float)var7 + var19, (float)var9 - var19);
+                     float var12 = PZMath.clamp(var18.getY(), (float)var8 + var19, (float)var10 - var19);
+                     var18.square = this.getGridSquare(PZMath.fastfloor(var11) - this.wx * 8, PZMath.fastfloor(var12) - this.wy * 8, 0);
                   }
 
-                  VehiclesDB2.instance.addVehicle(var2);
+                  VehiclesDB2.instance.addVehicle(var18);
                }
             }
          }
@@ -3146,47 +3727,52 @@ public final class IsoChunk {
       this.m_scavengeZone = null;
       this.m_numberOfWaterTiles = 0;
 
-      int var13;
-      int var14;
-      for(var1 = 0; var1 <= this.maxLevel; ++var1) {
-         for(var13 = 0; var13 < 10; ++var13) {
-            for(var14 = 0; var14 < 10; ++var14) {
-               IsoGridSquare var18 = this.getGridSquare(var13, var14, var1);
-               if (var18 != null && !var18.getObjects().isEmpty()) {
-                  for(var5 = 0; var5 < var18.getObjects().size(); ++var5) {
-                     IsoObject var21 = (IsoObject)var18.getObjects().get(var5);
-                     var21.addToWorld();
-                     if (var1 == 0 && var21.getSprite() != null && var21.getSprite().getProperties().Is(IsoFlagType.water)) {
+      int var20;
+      for(var17 = this.minLevel; var17 <= this.maxLevel; ++var17) {
+         for(var5 = 0; var5 < 8; ++var5) {
+            for(var20 = 0; var20 < 8; ++var20) {
+               IsoGridSquare var22 = this.getGridSquare(var5, var20, var17);
+               if (var22 != null && !var22.getObjects().isEmpty()) {
+                  for(var8 = 0; var8 < var22.getObjects().size(); ++var8) {
+                     IsoObject var30 = (IsoObject)var22.getObjects().get(var8);
+                     var30.addToWorld();
+                     if (var30.getSprite() != null && var30.getSprite().getProperties().Is("fuelAmount")) {
+                        var30.getPipedFuelAmount();
+                     }
+
+                     if (var17 == 0 && var30.getSprite() != null && var30.getSprite().getProperties().Is(IsoFlagType.water)) {
                         ++this.m_numberOfWaterTiles;
                      }
                   }
 
-                  if (var18.HasTree()) {
+                  if (var22.HasTree()) {
                      ++this.m_treeCount;
                   }
 
                   if (this.jobType != IsoChunk.JobType.SoftReset) {
-                     ErosionMain.LoadGridsquare(var18);
+                     ErosionMain.LoadGridsquare(var22);
                   }
 
                   if (this.addZombies) {
-                     MapObjects.newGridSquare(var18);
+                     MapObjects.newGridSquare(var22);
                   }
 
-                  MapObjects.loadGridSquare(var18);
-                  LuaEventManager.triggerEvent("LoadGridsquare", var18);
-                  LoadGridsquarePerformanceWorkaround.LoadGridsquare(var18);
-               }
+                  MapObjects.loadGridSquare(var22);
+                  this.addRatsAfterLoading(var22);
 
-               if (var18 != null && !var18.getStaticMovingObjects().isEmpty()) {
-                  for(var5 = 0; var5 < var18.getStaticMovingObjects().size(); ++var5) {
-                     IsoMovingObject var22 = (IsoMovingObject)var18.getStaticMovingObjects().get(var5);
-                     var22.addToWorld();
+                  try {
+                     LuaEventManager.triggerEvent("LoadGridsquare", var22);
+                     LoadGridsquarePerformanceWorkaround.LoadGridsquare(var22);
+                  } catch (Throwable var14) {
+                     ExceptionLogger.logException(var14);
                   }
                }
 
-               if (var18 != null && var18.getBuilding() != null && !tempBuildings.contains(var18.getBuilding())) {
-                  tempBuildings.add(var18.getBuilding());
+               if (var22 != null && !var22.getStaticMovingObjects().isEmpty()) {
+                  for(var8 = 0; var8 < var22.getStaticMovingObjects().size(); ++var8) {
+                     IsoMovingObject var31 = (IsoMovingObject)var22.getStaticMovingObjects().get(var8);
+                     var31.addToWorld();
+                  }
                }
             }
          }
@@ -3203,55 +3789,72 @@ public final class IsoChunk {
       ReanimatedPlayers.instance.addReanimatedPlayersToChunk(this);
       if (this.jobType != IsoChunk.JobType.SoftReset) {
          MapCollisionData.instance.addChunkToWorld(this);
+         AnimalPopulationManager.getInstance().addChunkToWorld(this);
          ZombiePopulationManager.instance.addChunkToWorld(this);
-         PolygonalMap2.instance.addChunkToWorld(this);
+         if (PathfindNative.USE_NATIVE_CODE) {
+            PathfindNative.instance.addChunkToWorld(this);
+         } else {
+            PolygonalMap2.instance.addChunkToWorld(this);
+         }
+
          IsoGenerator.chunkLoaded(this);
          LootRespawn.chunkLoaded(this);
       }
 
       if (!GameServer.bServer) {
-         ArrayList var15 = IsoWorld.instance.CurrentCell.roomLights;
+         ArrayList var21 = IsoWorld.instance.CurrentCell.roomLights;
 
-         for(var13 = 0; var13 < this.roomLights.size(); ++var13) {
-            IsoRoomLight var17 = (IsoRoomLight)this.roomLights.get(var13);
-            if (!var15.contains(var17)) {
-               var15.add(var17);
+         for(var5 = 0; var5 < this.roomLights.size(); ++var5) {
+            IsoRoomLight var23 = (IsoRoomLight)this.roomLights.get(var5);
+            if (!var21.contains(var23)) {
+               var21.add(var23);
             }
          }
       }
 
       this.roomLights.clear();
       if (this.jobType != IsoChunk.JobType.SoftReset) {
-         this.randomizeBuildingsEtc();
+         tempBuildingDefs.clear();
+         IsoWorld.instance.MetaGrid.getBuildingsIntersecting(this.wx * 8 - 1, this.wy * 8 - 1, 10, 10, tempBuildingDefs);
+         tempBuildings.clear();
+
+         for(var17 = 0; var17 < tempBuildingDefs.size(); ++var17) {
+            BuildingDef var24 = (BuildingDef)tempBuildingDefs.get(var17);
+            RoomDef var25 = (RoomDef)var24.rooms.get(0);
+            IsoBuilding var26 = var25.getIsoRoom().getBuilding();
+            tempBuildings.add(var26);
+         }
+
+         this.randomizeBuildingsEtc(tempBuildings);
       }
 
       this.checkAdjacentChunks();
 
       try {
          if (GameServer.bServer && this.jobType != IsoChunk.JobType.SoftReset) {
-            for(var1 = 0; var1 < GameServer.udpEngine.connections.size(); ++var1) {
-               UdpConnection var16 = (UdpConnection)GameServer.udpEngine.connections.get(var1);
-               if (!var16.chunkObjectState.isEmpty()) {
-                  for(var14 = 0; var14 < var16.chunkObjectState.size(); var14 += 2) {
-                     short var20 = var16.chunkObjectState.get(var14);
-                     short var23 = var16.chunkObjectState.get(var14 + 1);
-                     if (var20 == this.wx && var23 == this.wy) {
-                        var16.chunkObjectState.remove(var14, 2);
-                        var14 -= 2;
-                        ByteBufferWriter var24 = var16.startPacket();
-                        PacketTypes.PacketType.ChunkObjectState.doPacket(var24);
-                        var24.putShort((short)this.wx);
-                        var24.putShort((short)this.wy);
+            for(var17 = 0; var17 < GameServer.udpEngine.connections.size(); ++var17) {
+               UdpConnection var27 = (UdpConnection)GameServer.udpEngine.connections.get(var17);
+               if (!var27.chunkObjectState.isEmpty()) {
+                  for(var20 = 0; var20 < var27.chunkObjectState.size(); var20 += 2) {
+                     short var28 = var27.chunkObjectState.get(var20);
+                     short var32 = var27.chunkObjectState.get(var20 + 1);
+                     if (var28 == this.wx && var32 == this.wy) {
+                        var27.chunkObjectState.remove(var20, 2);
+                        var20 -= 2;
+                        ByteBufferWriter var33 = var27.startPacket();
+                        PacketTypes.PacketType.ChunkObjectState.doPacket(var33);
+                        var33.putShort((short)this.wx);
+                        var33.putShort((short)this.wy);
 
                         try {
-                           if (this.saveObjectState(var24.bb)) {
-                              PacketTypes.PacketType.ChunkObjectState.send(var16);
+                           if (this.saveObjectState(var33.bb)) {
+                              PacketTypes.PacketType.ChunkObjectState.send(var27);
                            } else {
-                              var16.cancelPacket();
+                              var27.cancelPacket();
                            }
-                        } catch (Throwable var10) {
-                           var10.printStackTrace();
-                           var16.cancelPacket();
+                        } catch (Throwable var13) {
+                           var13.printStackTrace();
+                           var27.cancelPacket();
                         }
                      }
                   }
@@ -3260,52 +3863,212 @@ public final class IsoChunk {
          }
 
          if (GameClient.bClient) {
-            ByteBufferWriter var19 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.ChunkObjectState.doPacket(var19);
-            var19.putShort((short)this.wx);
-            var19.putShort((short)this.wy);
+            ByteBufferWriter var29 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.ChunkObjectState.doPacket(var29);
+            var29.putShort((short)this.wx);
+            var29.putShort((short)this.wy);
             PacketTypes.PacketType.ChunkObjectState.send(GameClient.connection);
          }
-      } catch (Throwable var12) {
-         ExceptionLogger.logException(var12);
+      } catch (Throwable var16) {
+         ExceptionLogger.logException(var16);
       }
 
+      this.loadedFrame = (long)IsoWorld.instance.getFrameNo();
+      this.renderFrame = this.loadedFrame + (long)frameDelay;
+      frameDelay = (frameDelay + 1) % 5;
+      LuaEventManager.triggerEvent("LoadChunk", this);
    }
 
-   private void randomizeBuildingsEtc() {
-      tempRoomDefs.clear();
-      IsoWorld.instance.MetaGrid.getRoomsIntersecting(this.wx * 10 - 1, this.wy * 10 - 1, 11, 11, tempRoomDefs);
+   private void addRatsAfterLoading(IsoGridSquare var1) {
+      Zone var2 = var1.getZone();
+      boolean var3 = this.addZombies && var1.hasTrash() && SandboxOptions.instance.getCurrentRatIndex() > 0 && var1.canSpawnVermin();
+      int var4 = 300;
+      if (Objects.equals(var1.getSquareZombiesType(), "StreetPoor") || Objects.equals(var1.getZoneType(), "TrailerPark")) {
+         var4 /= 2;
+      }
 
-      int var1;
-      for(var1 = 0; var1 < tempRoomDefs.size(); ++var1) {
-         IsoRoom var2 = ((RoomDef)tempRoomDefs.get(var1)).getIsoRoom();
-         if (var2 != null) {
-            IsoBuilding var3 = var2.getBuilding();
-            if (!tempBuildings.contains(var3)) {
-               tempBuildings.add(var3);
+      if (Objects.equals(var1.getSquareZombiesType(), "Rich") || Objects.equals(var1.getLootZone(), "Rich")) {
+         var4 *= 2;
+      }
+
+      if (var1.getZ() < 0) {
+         var4 /= 2;
+      }
+
+      if (var3 && Rand.Next(var4) < SandboxOptions.instance.getCurrentRatIndex()) {
+         boolean var5 = !var1.isOutside() && Rand.NextBool(3);
+         int var6 = SandboxOptions.instance.getCurrentRatIndex() / 10;
+         if (Objects.equals(var1.getSquareZombiesType(), "StreetPoor") || Objects.equals(var1.getZoneType(), "TrailerPark")) {
+            var6 *= 2;
+         }
+
+         if (var6 < 1) {
+            var6 = 1;
+         }
+
+         if (var6 > 9) {
+            var6 = 9;
+         }
+
+         int var7 = Rand.Next(1, var6);
+         String var8 = "rat";
+         String var9 = "grey";
+         if (var5) {
+            var8 = "mouse";
+            var9 = "deer";
+         }
+
+         if (var1.getBuilding() != null && (var1.getBuilding().hasRoom("laboratory") || var1.getBuilding().hasRoom("classroom") || var1.getBuilding().hasRoom("secondaryclassroom") || Objects.equals(var1.getZombiesType(), "University")) && !Rand.NextBool(3)) {
+            var9 = "white";
+         }
+
+         IsoGridSquare var12;
+         if (var1.isFree(true)) {
+            String var10 = var8;
+            if (var8.equals("rat") && Rand.NextBool(2)) {
+               var10 = "ratfemale";
+            }
+
+            if (var8.equals("mouse") && Rand.NextBool(2)) {
+               var10 = "mousefemale";
+            }
+
+            IsoAnimal var11 = new IsoAnimal(IsoWorld.instance.getCell(), var1.getX(), var1.getY(), var1.getZ(), var10, var9);
+            var11.addToWorld();
+            var11.randomizeAge();
+            var12 = var1.getAdjacentSquare(IsoDirections.getRandom());
+            if (Rand.NextBool(3)) {
+               var11.setStateEventDelayTimer(0.0F);
+            } else if (var12 != null && var12.isFree(true) && var12.isSolidFloor() && var1.canReachTo(var12)) {
+               var11.fleeTo(var12);
+            }
+         }
+
+         ArrayList var15 = new ArrayList();
+
+         int var16;
+         for(var16 = 0; var16 < var7; ++var16) {
+            var12 = var1.getAdjacentSquare(IsoDirections.getRandom());
+            if (var12 != null && var12.isFree(true) && var12.isSolidFloor() && !var15.contains(var12)) {
+               IsoAnimal var13 = new IsoAnimal(IsoWorld.instance.getCell(), var12.getX(), var12.getY(), var12.getZ(), var8, var9);
+               var13.addToWorld();
+               var13.randomizeAge();
+               IsoGridSquare var14 = var1.getAdjacentSquare(IsoDirections.getRandom());
+               if (Rand.NextBool(3)) {
+                  var13.setStateEventDelayTimer(0.0F);
+               } else if (var14 != null && var14.isFree(true) && var14.isSolidFloor() && !var15.contains(var14) && var12.canReachTo(var14)) {
+                  var13.fleeTo(var14);
+               } else {
+                  var15.add(var12);
+               }
+            }
+         }
+
+         var16 = Rand.Next(0, var6);
+
+         for(int var17 = 0; var17 < var16; ++var17) {
+            IsoGridSquare var19 = var1.getAdjacentSquare(IsoDirections.getRandom());
+            if (var19 != null && var19.isFree(true) && var19.isSolidFloor()) {
+               if (var5) {
+                  this.addItemOnGround(var19, "Base.Dung_Mouse");
+               } else {
+                  this.addItemOnGround(var19, "Base.Dung_Rat");
+               }
+            }
+         }
+
+         IsoObject var18 = var1.getTrashReceptacle();
+         if (var18 != null) {
+            var16 = Rand.Next(0, var6);
+
+            for(int var20 = 0; var20 < var16; ++var20) {
+               InventoryItem var21 = InventoryItemFactory.CreateItem("Base.Dung_Rat");
+               if (var5) {
+                  var21 = InventoryItemFactory.CreateItem("Base.Dung_Mouse");
+               } else {
+                  var21 = InventoryItemFactory.CreateItem("Base.Dung_Rat");
+               }
+
+               var18.getContainer().addItem(var21);
             }
          }
       }
 
-      IsoBuilding var5;
-      for(var1 = 0; var1 < tempBuildings.size(); ++var1) {
-         var5 = (IsoBuilding)tempBuildings.get(var1);
-         if (!GameClient.bClient && var5.def != null && var5.def.isFullyStreamedIn()) {
-            StashSystem.doBuildingStash(var5.def);
+   }
+
+   private void CheckGrassRegrowth() {
+      IsoMetaChunk var1 = IsoWorld.instance.getMetaChunk(this.wx, this.wy);
+      if (var1 != null) {
+         for(int var2 = 0; var2 < var1.getZonesSize(); ++var2) {
+            Zone var3 = var1.getZone(var2);
+            if ("GrassRegrowth".equals(var3.name) && var3.getLastActionTimestamp() > 0) {
+               int var4 = Long.valueOf(GameTime.instance.getCalender().getTimeInMillis() / 1000L).intValue() - var3.getLastActionTimestamp();
+               var4 = var4 / 60 / 60;
+               if (var4 >= SandboxOptions.instance.AnimalGrassRegrowTime.getValue()) {
+                  IsoGridSquare var5 = IsoWorld.instance.getCell().getGridSquare(var3.x, var3.y, var3.z);
+                  IsoGridSquare var6 = IsoWorld.instance.getCell().getGridSquare(var3.x + var3.getWidth(), var3.y + var3.getHeight(), var3.z);
+                  if (var5 != null && var6 != null) {
+                     var3.setLastActionTimestamp(0);
+
+                     for(int var7 = var3.x; var7 < var3.x + var3.getWidth(); ++var7) {
+                        for(int var8 = var3.y; var8 < var3.y + var3.getHeight(); ++var8) {
+                           var5 = IsoWorld.instance.getCell().getGridSquare(var7, var8, var3.z);
+                           if (var5 != null && var5.getFloor() != null && var5.getFloor().getAttachedAnimSprite() != null) {
+                              for(int var9 = 0; var9 < var5.getFloor().getAttachedAnimSprite().size(); ++var9) {
+                                 IsoSprite var10 = ((IsoSpriteInstance)var5.getFloor().getAttachedAnimSprite().get(var9)).parentSprite;
+                                 if ("blends_natural_01_87".equals(var10.getName())) {
+                                    var5.getFloor().RemoveAttachedAnim(var9);
+                                    break;
+                                 }
+                              }
+                           }
+                        }
+                     }
+                  }
+               }
+            }
          }
 
-         RandomizedBuildingBase.ChunkLoaded(var5);
+      }
+   }
+
+   private void randomizeBuildingsEtc(ArrayList<IsoBuilding> var1) {
+      tempRoomDefs.clear();
+      IsoWorld.instance.MetaGrid.getRoomsIntersecting(this.wx * 8 - 1, this.wy * 8 - 1, 9, 9, tempRoomDefs);
+
+      int var2;
+      for(var2 = 0; var2 < tempRoomDefs.size(); ++var2) {
+         IsoRoom var3 = ((RoomDef)tempRoomDefs.get(var2)).getIsoRoom();
+         if (var3 != null) {
+            IsoBuilding var4 = var3.getBuilding();
+            if (!var1.contains(var4)) {
+               var1.add(var4);
+            }
+         }
       }
 
-      if (!GameClient.bClient && !tempBuildings.isEmpty()) {
-         for(var1 = 0; var1 < tempBuildings.size(); ++var1) {
-            var5 = (IsoBuilding)tempBuildings.get(var1);
+      IsoBuilding var6;
+      for(var2 = 0; var2 < var1.size(); ++var2) {
+         var6 = (IsoBuilding)var1.get(var2);
+         if (!GameClient.bClient && var6.def != null && var6.def.isFullyStreamedIn()) {
+            StashSystem.doBuildingStash(var6.def);
+            if (var6.def != null && StashSystem.isStashBuilding(var6.def)) {
+               StashSystem.visitedBuilding(var6.def);
+            }
+         }
 
-            for(int var6 = 0; var6 < var5.Rooms.size(); ++var6) {
-               IsoRoom var4 = (IsoRoom)var5.Rooms.get(var6);
-               if (var4.def.bDoneSpawn && !this.isSpawnedRoom(var4.def.ID) && var4.def.intersects(this.wx * 10, this.wy * 10, 10, 10)) {
-                  this.addSpawnedRoom(var4.def.ID);
-                  VirtualZombieManager.instance.addIndoorZombiesToChunk(this, var4);
+         RandomizedBuildingBase.ChunkLoaded(var6);
+      }
+
+      if (!GameClient.bClient && !var1.isEmpty()) {
+         for(var2 = 0; var2 < var1.size(); ++var2) {
+            var6 = (IsoBuilding)var1.get(var2);
+
+            for(int var7 = 0; var7 < var6.Rooms.size(); ++var7) {
+               IsoRoom var5 = (IsoRoom)var6.Rooms.get(var7);
+               if (var5.def.bDoneSpawn && !this.isSpawnedRoom(var5.def.ID) && VirtualZombieManager.instance.shouldSpawnZombiesOnLevel(var5.def.level) && var5.def.intersects(this.wx * 8, this.wy * 8, 8, 8)) {
+                  this.addSpawnedRoom(var5.def.ID);
+                  VirtualZombieManager.instance.addIndoorZombiesToChunk(this, var5);
                }
             }
          }
@@ -3332,9 +4095,20 @@ public final class IsoChunk {
    private void AddZombieZoneStory() {
       IsoMetaChunk var1 = IsoWorld.instance.getMetaChunk(this.wx, this.wy);
       if (var1 != null) {
-         for(int var2 = 0; var2 < var1.numZones(); ++var2) {
-            IsoMetaGrid.Zone var3 = var1.getZone(var2);
+         for(int var2 = 0; var2 < var1.getZonesSize(); ++var2) {
+            Zone var3 = var1.getZone(var2);
             RandomizedZoneStoryBase.isValidForStory(var3, false);
+         }
+
+      }
+   }
+
+   private void AddRanchAnimals() {
+      IsoMetaChunk var1 = IsoWorld.instance.getMetaChunk(this.wx, this.wy);
+      if (var1 != null) {
+         for(int var2 = 0; var2 < var1.getZonesSize(); ++var2) {
+            Zone var3 = var1.getZone(var2);
+            RandomizedRanchBase.checkRanchStory(var3, false);
          }
 
       }
@@ -3369,15 +4143,6 @@ public final class IsoChunk {
    }
 
    public void setCacheIncludingNull() {
-      for(int var1 = 0; var1 < 8; ++var1) {
-         for(int var2 = 0; var2 < 10; ++var2) {
-            for(int var3 = 0; var3 < 10; ++var3) {
-               IsoGridSquare var4 = this.getGridSquare(var2, var3, var1);
-               IsoWorld.instance.CurrentCell.setCacheGridSquare(this.wx * 10 + var2, this.wy * 10 + var3, var1, var4);
-            }
-         }
-      }
-
    }
 
    public void Save(boolean var1) throws IOException {
@@ -3514,56 +4279,83 @@ public final class IsoChunk {
       var1 = ensureCapacity(var1);
       var1.clear();
       var1.put((byte)(IsDebugSave() ? 1 : 0));
-      var1.putInt(195);
+      var1.putInt(219);
       var1.putInt(0);
       var1.putLong(0L);
-      int var3 = Math.min(1000, this.FloorBloodSplats.size());
-      int var4 = this.FloorBloodSplats.size() - var3;
-      var1.putInt(var3);
-
-      int var5;
-      for(var5 = var4; var5 < this.FloorBloodSplats.size(); ++var5) {
-         IsoFloorBloodSplat var6 = (IsoFloorBloodSplat)this.FloorBloodSplats.get(var5);
-         var6.save(var1);
+      var1.put((byte)(this.blendingDoneFull ? 1 : 0));
+      this.writeFlags(var1, this.blendingModified);
+      var1.put((byte)(this.blendingDonePartial ? 1 : 0));
+      int var3;
+      if (!Arrays.equals(this.blendingModified, comparatorBool4) && this.blendingDonePartial) {
+         for(var3 = 0; var3 < 4; ++var3) {
+            var1.put(this.blendingDepth[var3]);
+         }
       }
 
-      var5 = var1.position();
-      boolean var16 = false;
-      boolean var7 = false;
-      boolean var8 = false;
+      var1.put((byte)(this.attachmentsDoneFull ? 1 : 0));
+      this.writeFlags(var1, this.attachmentsState);
+      var3 = Math.min(1000, this.FloorBloodSplats.size());
+      int var4 = this.FloorBloodSplats.size() - var3;
+      int var5 = var1.position();
+      var1.putInt(this.maxLevel);
+      var1.putInt(this.minLevel);
+      var1.putInt(var3);
 
-      int var9;
-      for(var9 = 0; var9 < 10; ++var9) {
-         for(int var10 = 0; var10 < 10; ++var10) {
-            byte var17 = 0;
-            int var18 = var1.position();
-            var1.put(var17);
+      int var6;
+      for(var6 = var4; var6 < this.FloorBloodSplats.size(); ++var6) {
+         IsoFloorBloodSplat var7 = (IsoFloorBloodSplat)this.FloorBloodSplats.get(var6);
+         var7.save(var1);
+      }
 
-            for(int var11 = 0; var11 < 8; ++var11) {
-               IsoGridSquare var12 = this.getGridSquare(var9, var10, var11);
+      var6 = var1.position();
+      long var20 = 0L;
+      boolean var9 = false;
+      boolean var10 = false;
+      int var11 = 2147483647;
+      int var12 = -2147483648;
+
+      int var13;
+      for(var13 = 0; var13 < 8; ++var13) {
+         for(int var14 = 0; var14 < 8; ++var14) {
+            var20 = 0L;
+            int var21 = var1.position();
+            var1.putLong(var20);
+
+            for(int var15 = this.minLevel; var15 <= this.maxLevel; ++var15) {
+               IsoGridSquare var16 = this.getGridSquare(var13, var14, var15);
                var1 = ensureCapacity(var1);
-               if (var12 != null && var12.shouldSave()) {
-                  var17 = (byte)(var17 | 1 << var11);
-                  int var13 = var1.position();
+               if (var16 != null && var16.shouldSave()) {
+                  var20 |= 1L << var15 + 32;
+                  var11 = PZMath.min(var11, var15);
+                  var12 = PZMath.max(var12, var15);
+                  int var17 = var1.position();
 
                   while(true) {
                      try {
-                        var12.save(var1, (ObjectOutputStream)null, IsDebugSave());
+                        var16.save(var1, (ObjectOutputStream)null, IsDebugSave());
                         break;
-                     } catch (BufferOverflowException var15) {
+                     } catch (BufferOverflowException var19) {
                         DebugLog.log("IsoChunk.Save: BufferOverflowException, growing ByteBuffer");
                         var1 = ensureCapacity(var1);
-                        var1.position(var13);
+                        var1.position(var17);
                      }
                   }
                }
             }
 
-            int var19 = var1.position();
-            var1.position(var18);
-            var1.put(var17);
-            var1.position(var19);
+            int var22 = var1.position();
+            var1.position(var21);
+            var1.putLong(var20);
+            var1.position(var22);
          }
+      }
+
+      if (var11 <= var12) {
+         var13 = var1.position();
+         var1.position(var5);
+         var1.putInt(var12);
+         var1.putInt(var11);
+         var1.position(var13);
       }
 
       var1 = ensureCapacity(var1);
@@ -3573,11 +4365,11 @@ public final class IsoChunk {
       } else {
          var1.putShort((short)this.generatorsTouchingThisChunk.size());
 
-         for(var9 = 0; var9 < this.generatorsTouchingThisChunk.size(); ++var9) {
-            IsoGameCharacter.Location var20 = (IsoGameCharacter.Location)this.generatorsTouchingThisChunk.get(var9);
-            var1.putInt(var20.x);
-            var1.putInt(var20.y);
-            var1.put((byte)var20.z);
+         for(var13 = 0; var13 < this.generatorsTouchingThisChunk.size(); ++var13) {
+            IsoGameCharacter.Location var23 = (IsoGameCharacter.Location)this.generatorsTouchingThisChunk.get(var13);
+            var1.putInt(var23.x);
+            var1.putInt(var23.y);
+            var1.put((byte)var23.z);
          }
       }
 
@@ -3587,9 +4379,9 @@ public final class IsoChunk {
       }
 
       if (GameClient.bClient) {
-         var9 = ServerOptions.instance.HoursForLootRespawn.getValue();
-         if (var9 > 0 && !(GameTime.getInstance().getWorldAgeHours() < (double)var9)) {
-            this.lootRespawnHour = 7 + (int)(GameTime.getInstance().getWorldAgeHours() / (double)var9) * var9;
+         var13 = SandboxOptions.instance.HoursForLootRespawn.getValue();
+         if (var13 > 0 && !(GameTime.getInstance().getWorldAgeHours() < (double)var13)) {
+            this.lootRespawnHour = 7 + (int)(GameTime.getInstance().getWorldAgeHours() / (double)var13) * var13;
          } else {
             this.lootRespawnHour = -1;
          }
@@ -3597,30 +4389,30 @@ public final class IsoChunk {
 
       var1.putInt(this.lootRespawnHour);
 
-      assert this.m_spawnedRooms.size() <= 127;
+      assert this.m_spawnedRooms.size() <= 32767;
 
-      var1.put((byte)this.m_spawnedRooms.size());
+      var1.putShort((short)PZMath.min(this.m_spawnedRooms.size(), 32767));
 
-      for(var9 = 0; var9 < this.m_spawnedRooms.size(); ++var9) {
-         var1.putInt(this.m_spawnedRooms.get(var9));
+      for(var13 = 0; var13 < this.m_spawnedRooms.size(); ++var13) {
+         var1.putLong(this.m_spawnedRooms.get(var13));
       }
 
-      var9 = var1.position();
+      var13 = var1.position();
       var2.reset();
-      var2.update(var1.array(), 17, var9 - 1 - 4 - 4 - 8);
+      var2.update(var1.array(), 17, var13 - 1 - 4 - 4 - 8);
       var1.position(5);
-      var1.putInt(var9);
+      var1.putInt(var13);
       var1.putLong(var2.getValue());
-      var1.position(var9);
+      var1.position(var13);
       return var1;
    }
 
    public boolean saveObjectState(ByteBuffer var1) throws IOException {
       boolean var2 = true;
 
-      for(int var3 = 0; var3 < 8; ++var3) {
-         for(int var4 = 0; var4 < 10; ++var4) {
-            for(int var5 = 0; var5 < 10; ++var5) {
+      for(int var3 = 0; var3 < this.maxLevel; ++var3) {
+         for(int var4 = 0; var4 < 8; ++var4) {
+            for(int var5 = 0; var5 < 8; ++var5) {
                IsoGridSquare var6 = this.getGridSquare(var5, var4, var3);
                if (var6 != null) {
                   int var7 = var6.getObjects().size();
@@ -3635,7 +4427,7 @@ public final class IsoChunk {
                      int var13 = var1.position();
                      if (var13 > var12) {
                         var1.position(var11);
-                        var1.putShort((short)(var5 + var4 * 10 + var3 * 10 * 10));
+                        var1.putShort((short)(var5 + var4 * 8 + var3 * 8 * 8));
                         var1.putShort((short)var9);
                         var1.putInt(var10.getObjectName().hashCode());
                         var1.putShort((short)(var13 - var12));
@@ -3660,9 +4452,9 @@ public final class IsoChunk {
 
    public void loadObjectState(ByteBuffer var1) throws IOException {
       for(short var2 = var1.getShort(); var2 != -1; var2 = var1.getShort()) {
-         int var3 = var2 % 10;
-         int var4 = var2 / 100;
-         int var5 = (var2 - var4 * 10 * 10) / 10;
+         int var3 = var2 % 8;
+         int var4 = var2 / 64;
+         int var5 = (var2 - var4 * 8 * 8) / 8;
          short var6 = var1.getShort();
          int var7 = var1.getInt();
          short var8 = var1.getShort();
@@ -3685,9 +4477,9 @@ public final class IsoChunk {
    }
 
    public void Blam(int var1, int var2) {
-      for(int var3 = 0; var3 < 8; ++var3) {
-         for(int var4 = 0; var4 < 10; ++var4) {
-            for(int var5 = 0; var5 < 10; ++var5) {
+      for(int var3 = 0; var3 < this.maxLevel; ++var3) {
+         for(int var4 = 0; var4 < 8; ++var4) {
+            for(int var5 = 0; var5 < 8; ++var5) {
                this.setSquare(var4, var5, var3, (IsoGridSquare)null);
             }
          }
@@ -3711,7 +4503,7 @@ public final class IsoChunk {
          var9.printStackTrace();
       }
 
-      var5 = ZomboidFileSystem.instance.getFileInCurrentSave("map_" + var1 + "_" + var2 + ".bin");
+      var5 = ZomboidFileSystem.instance.getFileInCurrentSave("map", "map_" + var1 + "_" + var2 + ".bin");
       if (var5.exists()) {
          File var10 = new File(var4.getPath() + File.separator + "map_" + var1 + "_" + var2 + ".bin");
 
@@ -4242,25 +5034,25 @@ public final class IsoChunk {
       return this.addZombies;
    }
 
-   public void addSpawnedRoom(int var1) {
+   public void addSpawnedRoom(long var1) {
       if (!this.m_spawnedRooms.contains(var1)) {
          this.m_spawnedRooms.add(var1);
       }
 
    }
 
-   public boolean isSpawnedRoom(int var1) {
+   public boolean isSpawnedRoom(long var1) {
       return this.m_spawnedRooms.contains(var1);
    }
 
-   public IsoMetaGrid.Zone getScavengeZone() {
+   public Zone getScavengeZone() {
       if (this.m_scavengeZone != null) {
          return this.m_scavengeZone;
       } else {
          IsoMetaChunk var1 = IsoWorld.instance.getMetaGrid().getChunkData(this.wx, this.wy);
-         if (var1 != null && var1.numZones() > 0) {
-            for(int var2 = 0; var2 < var1.numZones(); ++var2) {
-               IsoMetaGrid.Zone var3 = var1.getZone(var2);
+         if (var1 != null && var1.getZonesSize() > 0) {
+            for(int var2 = 0; var2 < var1.getZonesSize(); ++var2) {
+               Zone var3 = var1.getZone(var2);
                if ("DeepForest".equals(var3.type) || "Forest".equals(var3.type)) {
                   this.m_scavengeZone = var3;
                   return var3;
@@ -4285,8 +5077,8 @@ public final class IsoChunk {
                      if (var6 != null && var6.m_treeCount >= var8) {
                         ++var9;
                         if (var9 == 8) {
-                           byte var7 = 10;
-                           this.m_scavengeZone = new IsoMetaGrid.Zone("", "Forest", this.wx * var7, this.wy * var7, 0, var7, var7);
+                           byte var7 = 8;
+                           this.m_scavengeZone = new Zone("", "Forest", this.wx * var7, this.wy * var7, 0, var7, var7);
                            return this.m_scavengeZone;
                         }
                      }
@@ -4306,7 +5098,18 @@ public final class IsoChunk {
       this.FloorBloodSplats.clear();
       this.FloorBloodSplatsFade.clear();
       this.jobType = IsoChunk.JobType.None;
-      this.maxLevel = -1;
+
+      int var1;
+      for(var1 = this.minLevel; var1 <= this.maxLevel; ++var1) {
+         this.levels[var1 - this.minLevel].clear();
+         this.levels[var1 - this.minLevel].release();
+         this.levels[var1 - this.minLevel] = null;
+      }
+
+      this.maxLevel = 0;
+      this.minLevel = 0;
+      this.minLevelPhysics = this.maxLevelPhysics = 1000;
+      this.levels[0] = IsoChunkLevel.alloc().init(this, this.minLevel);
       this.bFixed2x = false;
       this.vehicles.clear();
       this.roomLights.clear();
@@ -4314,7 +5117,7 @@ public final class IsoChunk {
       this.lotheader = null;
       this.bLoaded = false;
       this.addZombies = false;
-      this.physicsCheck = false;
+      this.proceduralZombieSquares.clear();
       this.loadedPhysics = false;
       this.wx = 0;
       this.wy = 0;
@@ -4329,13 +5132,10 @@ public final class IsoChunk {
       this.m_numberOfWaterTiles = 0;
       this.m_spawnedRooms.resetQuick();
       this.m_adjacentChunkLoadedCounter = 0;
-
-      int var1;
-      for(var1 = 0; var1 < this.squares.length; ++var1) {
-         for(int var2 = 0; var2 < this.squares[0].length; ++var2) {
-            this.squares[var1][var2] = null;
-         }
-      }
+      this.loadedBits = 0;
+      this.loadID = -1;
+      this.squares = new IsoGridSquare[1][];
+      this.squares[0] = this.levels[0].squares;
 
       for(var1 = 0; var1 < 4; ++var1) {
          this.lightCheck[var1] = true;
@@ -4347,6 +5147,13 @@ public final class IsoChunk {
       this.m_loadVehiclesObject = null;
       this.m_objectEmitterData.reset();
       MPStatistics.increaseStoredChunk();
+      this.blendingDoneFull = false;
+      this.blendingDonePartial = false;
+      Arrays.fill(this.blendingModified, false);
+      this.blendingDepth = new byte[]{BlendDirection.NORTH.defaultDepth, BlendDirection.SOUTH.defaultDepth, BlendDirection.WEST.defaultDepth, BlendDirection.EAST.defaultDepth};
+      this.attachmentsDoneFull = true;
+      Arrays.fill(this.attachmentsState, true);
+      this.chunkGenerationStatus = EnumSet.noneOf(ChunkGenerationStatus.class);
    }
 
    public int getNumberOfWaterTiles() {
@@ -4369,6 +5176,114 @@ public final class IsoChunk {
       this.m_objectEmitterData.removeObject(var1);
    }
 
+   private void addItemOnGround(IsoGridSquare var1, String var2) {
+      if (!SandboxOptions.instance.RemoveStoryLoot.getValue() || ItemPickerJava.getLootModifier(var2) != 0.0F) {
+         if (var1 != null && !StringUtils.isNullOrWhitespace(var2)) {
+            InventoryItem var3 = ItemSpawner.spawnItem(var2, var1, Rand.Next(0.2F, 0.8F), Rand.Next(0.2F, 0.8F), 0.0F);
+            if (var3 instanceof InventoryContainer && ItemPickerJava.containers.containsKey(var3.getType())) {
+               ItemPickerJava.rollContainerItem((InventoryContainer)var3, (IsoGameCharacter)null, (ItemPickerJava.ItemPickerContainer)ItemPickerJava.getItemPickerContainers().get(var3.getType()));
+               LuaEventManager.triggerEvent("OnFillContainer", "Container", var3.getType(), ((InventoryContainer)var3).getItemContainer());
+            }
+
+         }
+      }
+   }
+
+   public void assignLoadID() {
+      if (this.loadID != -1) {
+         throw new IllegalStateException("IsoChunk was already assigned a valid loadID");
+      } else {
+         this.loadID = nextLoadID++;
+         if (nextLoadID == 32767) {
+            nextLoadID = 0;
+         }
+
+      }
+   }
+
+   public short getLoadID() {
+      if (this.loadID == -1) {
+         throw new IllegalStateException("IsoChunk.loadID is invalid");
+      } else {
+         return this.loadID;
+      }
+   }
+
+   public boolean containsPoint(float var1, float var2) {
+      byte var3 = 8;
+      return Float.compare(var1, (float)(this.wx * var3)) >= 0 && Float.compare(var1, (float)((this.wx + 1) * var3)) < 0 && Float.compare(var2, (float)(this.wy * var3)) >= 0 && Float.compare(var2, (float)((this.wy + 1) * var3)) < 0;
+   }
+
+   public FBORenderLevels getRenderLevels(int var1) {
+      if (this.m_renderLevels[var1] == null) {
+         this.m_renderLevels[var1] = new FBORenderLevels(var1, this);
+      }
+
+      return this.m_renderLevels[var1];
+   }
+
+   public void invalidateRenderChunks(long var1) {
+      if (!GameServer.bServer) {
+         for(int var3 = 0; var3 < 4; ++var3) {
+            this.getRenderLevels(var3).invalidateAll(var1);
+         }
+
+      }
+   }
+
+   public void invalidateRenderChunkLevel(int var1, long var2) {
+      if (PerformanceSettings.FBORenderChunk) {
+         if (!GameServer.bServer) {
+            for(int var4 = 0; var4 < 4; ++var4) {
+               this.getRenderLevels(var4).invalidateLevel(var1, var2);
+            }
+
+         }
+      }
+   }
+
+   public FBORenderCutaways.ChunkLevelsData getCutawayData() {
+      return this.m_cutawayData;
+   }
+
+   public FBORenderCutaways.ChunkLevelData getCutawayDataForLevel(int var1) {
+      return this.getCutawayData().getDataForLevel(var1);
+   }
+
+   public void invalidateVispolyChunkLevel(int var1) {
+      if (!GameServer.bServer) {
+         this.getVispolyDataForLevel(var1).invalidate();
+      }
+   }
+
+   public VisibilityPolygon2.ChunkData getVispolyData() {
+      return this.m_vispolyData;
+   }
+
+   public VisibilityPolygon2.ChunkLevelData getVispolyDataForLevel(int var1) {
+      return this.getVispolyData().getDataForLevel(var1);
+   }
+
+   public boolean hasWaterSquare() {
+      for(int var1 = 0; var1 < 8; ++var1) {
+         for(int var2 = 0; var2 < 8; ++var2) {
+            IsoGridSquare var3 = this.getGridSquare(var2, var1, 0);
+            if (var3 == null || var3.isWaterSquare()) {
+               return true;
+            }
+         }
+      }
+
+      return false;
+   }
+
+   private void addRagdollControllers() {
+      if (!RagdollBuilder.instance.isInitialized()) {
+         RagdollBuilder.instance.Initialize();
+      }
+
+   }
+
    public static enum JobType {
       None,
       Convert,
@@ -4385,7 +5300,11 @@ public final class IsoChunk {
       WallS,
       WallE,
       Tree,
-      Floor;
+      Floor,
+      StairsMiddleNorth,
+      StairsMiddleWest,
+      SolidStairs,
+      FIRST_MESH;
 
       private PhysicsShapes() {
       }
@@ -4398,9 +5317,9 @@ public final class IsoChunk {
       }
 
       public IsoGridSquare getGridSquare(int var1, int var2, int var3) {
-         var1 -= this.chunk.wx * 10;
-         var2 -= this.chunk.wy * 10;
-         return var1 >= 0 && var1 < 10 && var2 >= 0 && var2 < 10 && var3 >= 0 && var3 < 8 ? this.chunk.getGridSquare(var1, var2, var3) : null;
+         var1 -= this.chunk.wx * 8;
+         var2 -= this.chunk.wy * 8;
+         return var1 >= 0 && var1 < 8 && var2 >= 0 && var2 < 8 && var3 >= -32 && var3 <= 31 ? this.chunk.getGridSquare(var1, var2, var3) : null;
       }
    }
 

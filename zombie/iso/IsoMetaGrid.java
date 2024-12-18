@@ -4,61 +4,82 @@ import gnu.trove.list.array.TIntArrayList;
 import java.awt.Rectangle;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.EOFException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
-import org.joml.Vector2f;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import se.krka.kahlua.vm.KahluaTable;
+import zombie.ChunkMapFilenames;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.MapGroups;
 import zombie.SandboxOptions;
 import zombie.ZomboidFileSystem;
-import zombie.Lua.LuaManager;
 import zombie.characters.Faction;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.animals.AnimalZone;
+import zombie.characters.animals.AnimalZoneJunction;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
-import zombie.core.network.ByteBufferWriter;
+import zombie.core.random.Rand;
 import zombie.core.stash.StashSystem;
 import zombie.debug.DebugLog;
 import zombie.gameStates.ChooseGameInfo;
+import zombie.iso.areas.DesignationZone;
+import zombie.iso.areas.IsoRoom;
 import zombie.iso.areas.NonPvpZone;
 import zombie.iso.areas.SafeHouse;
+import zombie.iso.enums.MetaCellPresence;
 import zombie.iso.objects.IsoMannequin;
+import zombie.iso.worldgen.WGChunk;
+import zombie.iso.worldgen.WGParams;
+import zombie.iso.worldgen.attachments.AttachmentsHandler;
+import zombie.iso.worldgen.blending.Blending;
+import zombie.iso.worldgen.maps.BiomeMap;
+import zombie.iso.worldgen.zones.WorldGenZone;
+import zombie.iso.worldgen.zones.ZoneGenerator;
+import zombie.iso.zones.RoomTone;
+import zombie.iso.zones.VehicleZone;
+import zombie.iso.zones.Zone;
+import zombie.iso.zones.ZoneGeometryType;
+import zombie.iso.zones.ZoneHandler;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
+import zombie.network.ServerMap;
 import zombie.randomizedWorld.randomizedBuilding.RBBasic;
-import zombie.randomizedWorld.randomizedZoneStory.RandomizedZoneStoryBase;
 import zombie.util.BufferedRandomAccessFile;
 import zombie.util.SharedStrings;
 import zombie.util.StringUtils;
 import zombie.util.Type;
-import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.Clipper;
+import zombie.util.io.RegExFilenameFilter;
+import zombie.util.lambda.QuadConsumer;
 import zombie.vehicles.ClipperOffset;
-import zombie.vehicles.PolygonalMap2;
 
 public final class IsoMetaGrid {
    private static final int NUM_LOADER_THREADS = 8;
-   private static ArrayList<String> s_PreferredZoneTypes = new ArrayList();
-   private static Clipper s_clipper = null;
-   private static ClipperOffset s_clipperOffset = null;
-   private static ByteBuffer s_clipperBuffer = null;
-   private static final ThreadLocal<IsoGameCharacter.Location> TL_Location = ThreadLocal.withInitial(IsoGameCharacter.Location::new);
+   public static ClipperOffset s_clipperOffset = null;
+   public static ByteBuffer s_clipperBuffer = null;
    private static final ThreadLocal<ArrayList<Zone>> TL_ZoneList = ThreadLocal.withInitial(ArrayList::new);
+   public static final ThreadLocal<IsoGameCharacter.Location> TL_Location = ThreadLocal.withInitial(IsoGameCharacter.Location::new);
    static Rectangle a = new Rectangle();
    static Rectangle b = new Rectangle();
    static ArrayList<RoomDef> roomChoices = new ArrayList(50);
@@ -70,18 +91,58 @@ public final class IsoMetaGrid {
    public int minY = 10000000;
    public int maxX = -10000000;
    public int maxY = -10000000;
+   public int minNonProceduralX;
+   public int minNonProceduralY;
+   public int maxNonProceduralX;
+   public int maxNonProceduralY;
    public final ArrayList<Zone> Zones = new ArrayList();
    public final ArrayList<BuildingDef> Buildings = new ArrayList();
    public final ArrayList<VehicleZone> VehiclesZones = new ArrayList();
-   public IsoMetaCell[][] Grid;
+   public final ZoneHandler<AnimalZone> animalZoneHandler = new ZoneHandler();
+   private IsoMetaCell[][] Grid;
+   private Set<IsoMetaCell> cellsToSave = new HashSet();
    public final ArrayList<IsoGameCharacter> MetaCharacters = new ArrayList();
    final ArrayList<Vector2> HighZombieList = new ArrayList();
    private int width;
    private int height;
    private final SharedStrings sharedStrings = new SharedStrings();
    private long createStartTime;
+   private boolean bLoaded = false;
 
    public IsoMetaGrid() {
+   }
+
+   public IsoMetaCell getCell(int var1, int var2) {
+      return this.Grid[var1][var2];
+   }
+
+   public IsoMetaCell getCellOrCreate(int var1, int var2) {
+      if (!this.hasCell(var1, var2)) {
+         IsoMetaCell var3 = new IsoMetaCell(this.minX + var1, this.minY + var2);
+         this.setCell(var1, var2, var3);
+      }
+
+      return this.getCell(var1, var2);
+   }
+
+   public void setCell(int var1, int var2, IsoMetaCell var3) {
+      if (!Core.bDebug || var3 == null || var3.getX() == this.minX + var1 && var3.getY() == this.minY + var2) {
+         this.Grid[var1][var2] = var3;
+      } else {
+         throw new IllegalArgumentException("invalid IsoMetaCell coordinates");
+      }
+   }
+
+   public boolean hasCell(int var1, int var2) {
+      return this.Grid[var1][var2] != null;
+   }
+
+   public int gridX() {
+      return this.Grid.length;
+   }
+
+   public int gridY() {
+      return this.Grid[0].length;
    }
 
    public void AddToMeta(IsoGameCharacter var1) {
@@ -136,10 +197,10 @@ public final class IsoMetaGrid {
    }
 
    public ArrayList<Zone> getZonesIntersecting(int var1, int var2, int var3, int var4, int var5, ArrayList<Zone> var6) {
-      for(int var7 = var2 / 300; var7 <= (var2 + var5) / 300; ++var7) {
-         for(int var8 = var1 / 300; var8 <= (var1 + var4) / 300; ++var8) {
-            if (var8 >= this.minX && var8 <= this.maxX && var7 >= this.minY && var7 <= this.maxY && this.Grid[var8 - this.minX][var7 - this.minY] != null) {
-               this.Grid[var8 - this.minX][var7 - this.minY].getZonesIntersecting(var1, var2, var3, var4, var5, var6);
+      for(int var7 = var2 / IsoCell.CellSizeInSquares; var7 <= (var2 + var5) / IsoCell.CellSizeInSquares; ++var7) {
+         for(int var8 = var1 / IsoCell.CellSizeInSquares; var8 <= (var1 + var4) / IsoCell.CellSizeInSquares; ++var8) {
+            if (var8 >= this.minX && var8 <= this.maxX && var7 >= this.minY && var7 <= this.maxY && this.hasCell(var8 - this.minX, var7 - this.minY)) {
+               this.getCell(var8 - this.minX, var7 - this.minY).getZonesIntersecting(var1, var2, var3, var4, var5, var6);
             }
          }
       }
@@ -189,6 +250,80 @@ public final class IsoMetaGrid {
       return null;
    }
 
+   public ArrayList<BuildingDef> getBuildings() {
+      return this.Buildings;
+   }
+
+   public BuildingDef getAssociatedBuildingAt(int var1, int var2) {
+      IsoMetaChunk var3 = this.getChunkDataFromTile(var1, var2);
+      BuildingDef var4 = null;
+      if (var3 != null) {
+         var4 = var3.getAssociatedBuildingAt(var1, var2);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      byte var5 = 8;
+      int var6 = PZMath.coordmodulo(var1, var5);
+      int var7 = PZMath.coordmodulo(var2, var5);
+      if (var6 == var5 - 1) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.E);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      if (var6 == 0) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.W);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      if (var7 == 0) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.N);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      if (var6 == 0 || var7 == 0) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.NW);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      if (var6 == var5 - 1 || var7 == var5 - 1) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.SE);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      if (var6 == 0 || var7 == var5 - 1) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.SW);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      if (var6 == var5 - 1 || var7 == 0) {
+         var4 = this.getAssociatedBuildingAt(var1, var2, IsoDirections.NE);
+         if (var4 != null) {
+            return var4;
+         }
+      }
+
+      return null;
+   }
+
+   private BuildingDef getAssociatedBuildingAt(int var1, int var2, IsoDirections var3) {
+      IsoMetaChunk var4 = this.getChunkDataFromTile(var1 + var3.dx(), var2 + var3.dy());
+      return var4 == null ? null : var4.getAssociatedBuildingAt(var1, var2);
+   }
+
    public BuildingDef getBuildingAtRelax(int var1, int var2) {
       for(int var3 = 0; var3 < this.Buildings.size(); ++var3) {
          BuildingDef var4 = (BuildingDef)this.Buildings.get(var3);
@@ -210,11 +345,33 @@ public final class IsoMetaGrid {
       return var4 != null ? var4.getEmptyOutsideAt(var1, var2, var3) : null;
    }
 
-   public void getRoomsIntersecting(int var1, int var2, int var3, int var4, ArrayList<RoomDef> var5) {
-      for(int var6 = var2 / 300; var6 <= (var2 + this.height) / 300; ++var6) {
-         for(int var7 = var1 / 300; var7 <= (var1 + this.width) / 300; ++var7) {
+   public IsoRoom getRoomByID(long var1) {
+      int var3 = RoomID.getCellX(var1);
+      int var4 = RoomID.getCellY(var1);
+      String var5 = ChunkMapFilenames.instance.getHeader(var3, var4);
+      LotHeader var6 = (LotHeader)IsoLot.InfoHeaders.get(var5);
+      return var6 == null ? null : var6.getRoom(var1);
+   }
+
+   public void getBuildingsIntersecting(int var1, int var2, int var3, int var4, ArrayList<BuildingDef> var5) {
+      for(int var6 = var2 / IsoCell.CellSizeInSquares; var6 <= (var2 + this.height) / IsoCell.CellSizeInSquares; ++var6) {
+         for(int var7 = var1 / IsoCell.CellSizeInSquares; var7 <= (var1 + this.width) / IsoCell.CellSizeInSquares; ++var7) {
             if (var7 >= this.minX && var7 <= this.maxX && var6 >= this.minY && var6 <= this.maxY) {
-               IsoMetaCell var8 = this.Grid[var7 - this.minX][var6 - this.minY];
+               IsoMetaCell var8 = this.getCell(var7 - this.minX, var6 - this.minY);
+               if (var8 != null) {
+                  var8.getBuildingsIntersecting(var1, var2, var3, var4, var5);
+               }
+            }
+         }
+      }
+
+   }
+
+   public void getRoomsIntersecting(int var1, int var2, int var3, int var4, ArrayList<RoomDef> var5) {
+      for(int var6 = var2 / IsoCell.CellSizeInSquares; var6 <= (var2 + this.height) / IsoCell.CellSizeInSquares; ++var6) {
+         for(int var7 = var1 / IsoCell.CellSizeInSquares; var7 <= (var1 + this.width) / IsoCell.CellSizeInSquares; ++var7) {
+            if (var7 >= this.minX && var7 <= this.maxX && var6 >= this.minY && var6 <= this.maxY) {
+               IsoMetaCell var8 = this.getCell(var7 - this.minX, var6 - this.minY);
                if (var8 != null) {
                   var8.getRoomsIntersecting(var1, var2, var3, var4, var5);
                }
@@ -227,10 +384,10 @@ public final class IsoMetaGrid {
    public int countRoomsIntersecting(int var1, int var2, int var3, int var4) {
       this.tempRooms.clear();
 
-      for(int var5 = var2 / 300; var5 <= (var2 + this.height) / 300; ++var5) {
-         for(int var6 = var1 / 300; var6 <= (var1 + this.width) / 300; ++var6) {
+      for(int var5 = var2 / IsoCell.CellSizeInSquares; var5 <= (var2 + this.height) / IsoCell.CellSizeInSquares; ++var5) {
+         for(int var6 = var1 / IsoCell.CellSizeInSquares; var6 <= (var1 + this.width) / IsoCell.CellSizeInSquares; ++var6) {
             if (var6 >= this.minX && var6 <= this.maxX && var5 >= this.minY && var5 <= this.maxY) {
-               IsoMetaCell var7 = this.Grid[var6 - this.minX][var5 - this.minY];
+               IsoMetaCell var7 = this.getCell(var6 - this.minX, var5 - this.minY);
                if (var7 != null) {
                   var7.getRoomsIntersecting(var1, var2, var3, var4, this.tempRooms);
                }
@@ -242,8 +399,8 @@ public final class IsoMetaGrid {
    }
 
    public int countNearbyBuildingsRooms(IsoPlayer var1) {
-      int var2 = (int)var1.getX() - 20;
-      int var3 = (int)var1.getY() - 20;
+      int var2 = PZMath.fastfloor(var1.getX()) - 20;
+      int var3 = PZMath.fastfloor(var1.getY()) - 20;
       byte var4 = 40;
       byte var5 = 40;
       int var6 = this.countRoomsIntersecting(var2, var3, var4, var5);
@@ -291,7 +448,7 @@ public final class IsoMetaGrid {
    }
 
    public Zone registerZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
-      return this.registerZone(var1, var2, var3, var4, var5, var6, var7, IsoMetaGrid.ZoneGeometryType.INVALID, (TIntArrayList)null, 0);
+      return this.registerZone(var1, var2, var3, var4, var5, var6, var7, ZoneGeometryType.INVALID, (TIntArrayList)null, 0);
    }
 
    public Zone registerZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, ZoneGeometryType var8, TIntArrayList var9, int var10) {
@@ -304,12 +461,23 @@ public final class IsoMetaGrid {
          var11.polylineWidth = var10;
       }
 
-      var11.isPreferredZoneForSquare = isPreferredZoneForSquare(var2);
-      if (var3 >= this.minX * 300 - 100 && var4 >= this.minY * 300 - 100 && var3 + var6 <= (this.maxX + 1) * 300 + 100 && var4 + var7 <= (this.maxY + 1) * 300 + 100 && var5 >= 0 && var5 < 8 && var6 <= 600 && var7 <= 600) {
+      var11.isPreferredZoneForSquare = Zone.isPreferredZoneForSquare(var2);
+      if (var3 >= this.minX * IsoCell.CellSizeInSquares - 100 && var4 >= this.minY * IsoCell.CellSizeInSquares - 100 && var3 + var6 <= (this.maxX + 1) * IsoCell.CellSizeInSquares + 100 && var4 + var7 <= (this.maxY + 1) * IsoCell.CellSizeInSquares + 100 && var5 >= -32 && var5 <= 31 && var6 <= 1202 && var7 <= 1202) {
          this.addZone(var11);
          return var11;
       } else {
+         DebugLog.log("111ERROR: not adding suspicious zone \"" + var1 + "\" \"" + var2 + "\" " + var3 + "," + var4 + "," + var5 + " " + var6 + "x" + var7);
          return var11;
+      }
+   }
+
+   public Zone registerZone(Zone var1) {
+      if (var1.x >= this.minX * IsoCell.CellSizeInSquares - 100 && var1.y >= this.minY * IsoCell.CellSizeInSquares - 100 && var1.x + this.width <= (this.maxX + 1) * IsoCell.CellSizeInSquares + 100 && var1.y + this.height <= (this.maxY + 1) * IsoCell.CellSizeInSquares + 100 && var1.z >= -32 && var1.z <= 31 && var1.w <= 1202 && var1.h <= 1202) {
+         this.addZone(var1);
+         return var1;
+      } else {
+         DebugLog.log("111ERROR: not adding suspicious zone \"" + var1.name + "\" \"" + var1.type + "\" " + var1.x + "," + var1.y + "," + var1.z + " " + var1.w + "x" + var1.h);
+         return var1;
       }
    }
 
@@ -336,20 +504,20 @@ public final class IsoMetaGrid {
       ZoneGeometryType var10000;
       switch (var4) {
          case "point":
-            var10000 = IsoMetaGrid.ZoneGeometryType.Point;
+            var10000 = ZoneGeometryType.Point;
             break;
          case "polygon":
-            var10000 = IsoMetaGrid.ZoneGeometryType.Polygon;
+            var10000 = ZoneGeometryType.Polygon;
             break;
          case "polyline":
-            var10000 = IsoMetaGrid.ZoneGeometryType.Polyline;
+            var10000 = ZoneGeometryType.Polyline;
             break;
          default:
             throw new IllegalArgumentException("unknown zone geometry type");
       }
 
       ZoneGeometryType var17 = var10000;
-      Double var18 = var17 == IsoMetaGrid.ZoneGeometryType.Polyline && var6 != null ? (Double)Type.tryCastTo(var6.rawget("LineWidth"), Double.class) : null;
+      Double var18 = var17 == ZoneGeometryType.Polyline && var6 != null ? (Double)Type.tryCastTo(var6.rawget("LineWidth"), Double.class) : null;
       if (var18 != null) {
          int[] var20 = new int[4];
          this.calculatePolylineOutlineBounds(var11, var18.intValue(), var20);
@@ -360,10 +528,30 @@ public final class IsoMetaGrid {
       }
 
       Zone var21;
-      if (!var2.equals("Vehicle") && !var2.equals("ParkingStall")) {
-         var21 = this.registerZone(var1, var2, var7, var8, var3, var9 - var7 + 1, var10 - var8 + 1, var17, var11, var18 == null ? 0 : var18.intValue());
-         var11.clear();
+      if (var2.equals("Animal")) {
+         var21 = this.registerAnimalZone(var1, var2, var7, var8, var3, var9 - var7 + 1, var10 - var8 + 1, var6);
+         if (var21 != null) {
+            var21.geometryType = var17;
+            var21.points.addAll(var11);
+            var21.polylineWidth = var18 == null ? 0 : var18.intValue();
+         }
+
          return var21;
+      } else if (!var2.equals("Vehicle") && !var2.equals("ParkingStall")) {
+         if (var2.equals("WorldGen")) {
+            var21 = this.registerWorldGenZone(var1, var2, var7, var8, var3, var9 - var7 + 1, var10 - var8 + 1, var6);
+            if (var21 != null) {
+               var21.geometryType = var17;
+               var21.points.addAll(var11);
+               var21.polylineWidth = var18 == null ? 0 : var18.intValue();
+            }
+
+            return var21;
+         } else {
+            var21 = this.registerZone(var1, var2, var7, var8, var3, var9 - var7 + 1, var10 - var8 + 1, var17, var11, var18 == null ? 0 : var18.intValue());
+            var11.clear();
+            return var21;
+         }
       } else {
          var21 = this.registerVehiclesZone(var1, var2, var7, var8, var3, var9 - var7 + 1, var10 - var8 + 1, var6);
          if (var21 != null) {
@@ -428,16 +616,21 @@ public final class IsoMetaGrid {
    /** @deprecated */
    @Deprecated
    public Zone registerZoneNoOverlap(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
-      return var3 >= this.minX * 300 - 100 && var4 >= this.minY * 300 - 100 && var3 + var6 <= (this.maxX + 1) * 300 + 100 && var4 + var7 <= (this.maxY + 1) * 300 + 100 && var5 >= 0 && var5 < 8 && var6 <= 600 && var7 <= 600 ? this.registerZone(var1, var2, var3, var4, var5, var6, var7) : null;
+      if (var3 >= this.minX * IsoCell.CellSizeInSquares - 100 && var4 >= this.minY * IsoCell.CellSizeInSquares - 100 && var3 + var6 <= (this.maxX + 1) * IsoCell.CellSizeInSquares + 100 && var4 + var7 <= (this.maxY + 1) * IsoCell.CellSizeInSquares + 100 && var5 >= 0 && var5 < 8 && var6 <= 601 && var7 <= 601) {
+         return this.registerZone(var1, var2, var3, var4, var5, var6, var7);
+      } else {
+         DebugLog.log("YYYYERROR: not adding suspicious zone \"" + var1 + "\" \"" + var2 + "\" " + var3 + "," + var4 + "," + var5 + " " + var6 + "x" + var7);
+         return null;
+      }
    }
 
-   private void addZone(Zone var1) {
+   public void addZone(Zone var1) {
       this.Zones.add(var1);
 
-      for(int var2 = var1.y / 300; var2 <= (var1.y + var1.h) / 300; ++var2) {
-         for(int var3 = var1.x / 300; var3 <= (var1.x + var1.w) / 300; ++var3) {
-            if (var3 >= this.minX && var3 <= this.maxX && var2 >= this.minY && var2 <= this.maxY && this.Grid[var3 - this.minX][var2 - this.minY] != null) {
-               this.Grid[var3 - this.minX][var2 - this.minY].addZone(var1, var3 * 300, var2 * 300);
+      for(int var2 = var1.y / IsoCell.CellSizeInSquares; var2 <= (var1.y + var1.h) / IsoCell.CellSizeInSquares; ++var2) {
+         for(int var3 = var1.x / IsoCell.CellSizeInSquares; var3 <= (var1.x + var1.w) / IsoCell.CellSizeInSquares; ++var3) {
+            if (var3 >= this.minX && var3 <= this.maxX && var2 >= this.minY && var2 <= this.maxY) {
+               this.getCellOrCreate(var3 - this.minX, var2 - this.minY).addZone(var1, var3 * IsoCell.CellSizeInSquares, var2 * IsoCell.CellSizeInSquares);
             }
          }
       }
@@ -447,10 +640,10 @@ public final class IsoMetaGrid {
    public void removeZone(Zone var1) {
       this.Zones.remove(var1);
 
-      for(int var2 = var1.y / 300; var2 <= (var1.y + var1.h) / 300; ++var2) {
-         for(int var3 = var1.x / 300; var3 <= (var1.x + var1.w) / 300; ++var3) {
-            if (var3 >= this.minX && var3 <= this.maxX && var2 >= this.minY && var2 <= this.maxY && this.Grid[var3 - this.minX][var2 - this.minY] != null) {
-               this.Grid[var3 - this.minX][var2 - this.minY].removeZone(var1);
+      for(int var2 = var1.y / IsoCell.CellSizeInSquares; var2 <= (var1.y + var1.h) / IsoCell.CellSizeInSquares; ++var2) {
+         for(int var3 = var1.x / IsoCell.CellSizeInSquares; var3 <= (var1.x + var1.w) / IsoCell.CellSizeInSquares; ++var3) {
+            if (var3 >= this.minX && var3 <= this.maxX && var2 >= this.minY && var2 <= this.maxY && this.hasCell(var3 - this.minX, var2 - this.minY)) {
+               this.getCell(var3 - this.minX, var2 - this.minY).removeZone(var1);
             }
          }
       }
@@ -464,14 +657,16 @@ public final class IsoMetaGrid {
          var4.clear();
 
          int var5;
-         for(var5 = 0; var5 < 900; ++var5) {
-            var3.ChunkMap[var5].getZonesIntersecting(var1 * 300, var2 * 300, 0, 300, 300, var4);
+         for(var5 = 0; var5 < IsoCell.CellSizeInChunks * IsoCell.CellSizeInChunks; ++var5) {
+            if (var3.hasChunk(var5)) {
+               var3.getChunk(var5).getZonesIntersecting(var1 * IsoCell.CellSizeInSquares, var2 * IsoCell.CellSizeInSquares, 0, IsoCell.CellSizeInSquares, IsoCell.CellSizeInSquares, var4);
+            }
          }
 
          for(var5 = 0; var5 < var4.size(); ++var5) {
             Zone var6 = (Zone)var4.get(var5);
             ArrayList var7 = this.tempZones2;
-            if (var6.difference(var1 * 300, var2 * 300, 0, 300, 300, var7)) {
+            if (var6.difference(var1 * IsoCell.CellSizeInSquares, var2 * IsoCell.CellSizeInSquares, 0, IsoCell.CellSizeInSquares, IsoCell.CellSizeInSquares, var7)) {
                this.removeZone(var6);
 
                for(int var8 = 0; var8 < var7.size(); ++var8) {
@@ -488,12 +683,16 @@ public final class IsoMetaGrid {
             var3.mannequinZones.clear();
          }
 
+         if (var3.worldGenZones != null && !var3.worldGenZones.isEmpty()) {
+            var3.worldGenZones.clear();
+         }
+
       }
    }
 
    public void removeZonesForLotDirectory(String var1) {
       if (!this.Zones.isEmpty()) {
-         File var2 = new File(ZomboidFileSystem.instance.getString("media/maps/" + var1 + "/"));
+         File var2 = new File(ZomboidFileSystem.instance.getDirectoryString("media/maps/" + var1 + "/"));
          if (var2.isDirectory()) {
             ChooseGameInfo.Map var3 = ChooseGameInfo.getMapDetails(var1);
             if (var3 != null) {
@@ -521,10 +720,14 @@ public final class IsoMetaGrid {
 
       for(int var2 = this.minX; var2 <= this.maxX; ++var2) {
          for(int var3 = this.minY; var3 <= this.maxY; ++var3) {
-            if (this.Grid[var2 - this.minX][var3 - this.minY] != null) {
-               for(int var4 = 0; var4 < 30; ++var4) {
-                  for(int var5 = 0; var5 < 30; ++var5) {
-                     var1 = Math.max(var1, this.Grid[var2 - this.minX][var3 - this.minY].getChunk(var5, var4).numZones());
+            if (this.hasCell(var2 - this.minX, var3 - this.minY)) {
+               IsoMetaCell var4 = this.getCell(var2 - this.minX, var3 - this.minY);
+
+               for(int var5 = 0; var5 < IsoCell.CellSizeInChunks; ++var5) {
+                  for(int var6 = 0; var6 < IsoCell.CellSizeInChunks; ++var6) {
+                     if (var4.hasChunk(var6, var5)) {
+                        var1 = Math.max(var1, var4.getChunk(var6, var5).getZonesSize());
+                     }
                   }
                }
             }
@@ -542,13 +745,40 @@ public final class IsoMetaGrid {
          var2 = this.sharedStrings.get(var2);
          VehicleZone var9 = new VehicleZone(var1, var2, var3, var4, var5, var6, var7, var8);
          this.VehiclesZones.add(var9);
-         int var10 = (int)Math.ceil((double)((float)(var9.x + var9.w) / 300.0F));
-         int var11 = (int)Math.ceil((double)((float)(var9.y + var9.h) / 300.0F));
+         int var10 = (int)Math.ceil((double)((float)(var9.x + var9.w) / (float)IsoCell.CellSizeInSquares));
+         int var11 = (int)Math.ceil((double)((float)(var9.y + var9.h) / (float)IsoCell.CellSizeInSquares));
 
-         for(int var12 = var9.y / 300; var12 < var11; ++var12) {
-            for(int var13 = var9.x / 300; var13 < var10; ++var13) {
-               if (var13 >= this.minX && var13 <= this.maxX && var12 >= this.minY && var12 <= this.maxY && this.Grid[var13 - this.minX][var12 - this.minY] != null) {
-                  this.Grid[var13 - this.minX][var12 - this.minY].vehicleZones.add(var9);
+         for(int var12 = var9.y / IsoCell.CellSizeInSquares; var12 < var11; ++var12) {
+            for(int var13 = var9.x / IsoCell.CellSizeInSquares; var13 < var10; ++var13) {
+               if (var13 >= this.minX && var13 <= this.maxX && var12 >= this.minY && var12 <= this.maxY) {
+                  this.getCellOrCreate(var13 - this.minX, var12 - this.minY).vehicleZones.add(var9);
+               }
+            }
+         }
+
+         return var9;
+      }
+   }
+
+   public Zone registerWorldGenZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
+      if (!var2.equals("WorldGen")) {
+         return null;
+      } else {
+         var1 = this.sharedStrings.get(var1);
+         var2 = this.sharedStrings.get(var2);
+         WorldGenZone var9 = new WorldGenZone(var1, var2, var3, var4, var5, var6, var7, var8);
+         int var10 = (int)Math.ceil((double)((float)(var9.x + var9.w) / (float)IsoCell.CellSizeInSquares));
+         int var11 = (int)Math.ceil((double)((float)(var9.y + var9.h) / (float)IsoCell.CellSizeInSquares));
+
+         for(int var12 = var9.y / IsoCell.CellSizeInSquares; var12 < var11; ++var12) {
+            for(int var13 = var9.x / IsoCell.CellSizeInSquares; var13 < var10; ++var13) {
+               if (var13 >= this.minX && var13 <= this.maxX && var12 >= this.minY && var12 <= this.maxY) {
+                  IsoMetaCell var14 = this.getCellOrCreate(var13 - this.minX, var12 - this.minY);
+                  if (var14.worldGenZones == null) {
+                     var14.worldGenZones = new ArrayList();
+                  }
+
+                  var14.worldGenZones.add(var9);
                }
             }
          }
@@ -568,7 +798,7 @@ public final class IsoMetaGrid {
             Zone var3 = (Zone)this.VehiclesZones.get(var5);
             if (var2.getX() == var3.getX() && var2.getY() == var3.getY() && var2.h == var3.h && var2.w == var3.w) {
                var1 = false;
-               DebugLog.log("checkVehiclesZones: ERROR! Zone '" + var2.name + "':'" + var2.type + "' (" + var2.x + ", " + var2.y + ") duplicate with Zone '" + var3.name + "':'" + var3.type + "' (" + var3.x + ", " + var3.y + ")");
+               DebugLog.Vehicle.debugln("checkVehiclesZones: ERROR! Zone '" + var2.name + "':'" + var2.type + "' (" + var2.x + ", " + var2.y + ") duplicate with Zone '" + var3.name + "':'" + var3.type + "' (" + var3.x + ", " + var3.y + ")");
                break;
             }
          }
@@ -582,6 +812,34 @@ public final class IsoMetaGrid {
 
    }
 
+   public Zone registerAnimalZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
+      if (!"Animal".equals(var2)) {
+         return null;
+      } else {
+         var1 = this.sharedStrings.get(var1);
+         var2 = this.sharedStrings.get(var2);
+         return this.registerAnimalZone(new AnimalZone(var1, var2, var3, var4, var5, var6, var7, var8));
+      }
+   }
+
+   public Zone registerAnimalZone(AnimalZone var1) {
+      this.animalZoneHandler.addZone(var1);
+      int var2 = (int)Math.ceil((double)((float)(var1.x + var1.w) / (float)IsoCell.CellSizeInSquares));
+      int var3 = (int)Math.ceil((double)((float)(var1.y + var1.h) / (float)IsoCell.CellSizeInSquares));
+
+      for(int var4 = var1.y / IsoCell.CellSizeInSquares; var4 < var3; ++var4) {
+         for(int var5 = var1.x / IsoCell.CellSizeInSquares; var5 < var2; ++var5) {
+            if (var5 >= this.minX && var5 <= this.maxX && var4 >= this.minY && var4 <= this.maxY) {
+               IsoMetaCell var6 = this.getCellOrCreate(var5 - this.minX, var4 - this.minY);
+               this.addCellToSave(var6);
+               var6.addAnimalZone(var1);
+            }
+         }
+      }
+
+      return var1;
+   }
+
    public Zone registerMannequinZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
       if (!"Mannequin".equals(var2)) {
          return null;
@@ -589,13 +847,13 @@ public final class IsoMetaGrid {
          var1 = this.sharedStrings.get(var1);
          var2 = this.sharedStrings.get(var2);
          IsoMannequin.MannequinZone var9 = new IsoMannequin.MannequinZone(var1, var2, var3, var4, var5, var6, var7, var8);
-         int var10 = (int)Math.ceil((double)((float)(var9.x + var9.w) / 300.0F));
-         int var11 = (int)Math.ceil((double)((float)(var9.y + var9.h) / 300.0F));
+         int var10 = (int)Math.ceil((double)((float)(var9.x + var9.w) / (float)IsoCell.CellSizeInSquares));
+         int var11 = (int)Math.ceil((double)((float)(var9.y + var9.h) / (float)IsoCell.CellSizeInSquares));
 
-         for(int var12 = var9.y / 300; var12 < var11; ++var12) {
-            for(int var13 = var9.x / 300; var13 < var10; ++var13) {
-               if (var13 >= this.minX && var13 <= this.maxX && var12 >= this.minY && var12 <= this.maxY && this.Grid[var13 - this.minX][var12 - this.minY] != null) {
-                  this.Grid[var13 - this.minX][var12 - this.minY].mannequinZones.add(var9);
+         for(int var12 = var9.y / IsoCell.CellSizeInSquares; var12 < var11; ++var12) {
+            for(int var13 = var9.x / IsoCell.CellSizeInSquares; var13 < var10; ++var13) {
+               if (var13 >= this.minX && var13 <= this.maxX && var12 >= this.minY && var12 <= this.maxY) {
+                  this.getCellOrCreate(var13 - this.minX, var12 - this.minY).mannequinZones.add(var9);
                }
             }
          }
@@ -606,16 +864,14 @@ public final class IsoMetaGrid {
 
    public void registerRoomTone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
       if ("RoomTone".equals(var2)) {
-         IsoMetaCell var9 = this.getCellData(var3 / 300, var4 / 300);
-         if (var9 != null) {
-            RoomTone var10 = new RoomTone();
-            var10.x = var3;
-            var10.y = var4;
-            var10.z = var5;
-            var10.enumValue = var8.getString("RoomTone");
-            var10.entireBuilding = Boolean.TRUE.equals(var8.rawget("EntireBuilding"));
-            var9.roomTones.add(var10);
-         }
+         IsoMetaCell var9 = this.getCellData(var3 / IsoCell.CellSizeInSquares, var4 / IsoCell.CellSizeInSquares);
+         RoomTone var10 = new RoomTone();
+         var10.x = var3;
+         var10.y = var4;
+         var10.z = var5;
+         var10.enumValue = var8.getString("RoomTone");
+         var10.entireBuilding = Boolean.TRUE.equals(var8.rawget("EntireBuilding"));
+         var9.roomTones.add(var10);
       }
    }
 
@@ -642,24 +898,24 @@ public final class IsoMetaGrid {
          var1.put((byte)69);
          var1.put((byte)84);
          var1.put((byte)65);
-         var1.putInt(195);
+         var1.putInt(219);
          var1.putInt(this.minX);
          var1.putInt(this.minY);
          var1.putInt(this.maxX);
          var1.putInt(this.maxY);
 
-         for(var4 = 0; var4 < this.Grid.length; ++var4) {
-            for(int var5 = 0; var5 < this.Grid[0].length; ++var5) {
+         for(var4 = 0; var4 < this.gridX(); ++var4) {
+            for(int var5 = 0; var5 < this.gridY(); ++var5) {
                IsoMetaCell var6 = this.Grid[var4][var5];
                int var7 = 0;
-               if (var6.info != null) {
+               if (var6 != null && var6.info != null) {
                   var7 = var6.info.Rooms.values().size();
                }
 
                var1.putInt(var7);
                Iterator var8;
                short var11;
-               if (var6.info != null) {
+               if (var6 != null && var6.info != null) {
                   for(var8 = var6.info.Rooms.entrySet().iterator(); var8.hasNext(); var1.putShort(var11)) {
                      Map.Entry var9 = (Map.Entry)var8.next();
                      RoomDef var10 = (RoomDef)var9.getValue();
@@ -683,13 +939,13 @@ public final class IsoMetaGrid {
                   }
                }
 
-               if (var6.info != null) {
+               if (var6 != null && var6.info != null) {
                   var1.putInt(var6.info.Buildings.size());
                } else {
                   var1.putInt(0);
                }
 
-               if (var6.info != null) {
+               if (var6 != null && var6.info != null) {
                   var8 = var6.info.Buildings.iterator();
 
                   while(var8.hasNext()) {
@@ -700,6 +956,7 @@ public final class IsoMetaGrid {
                      var1.put((byte)(var12.seen ? 1 : 0));
                      var1.put((byte)(var12.isHasBeenVisited() ? 1 : 0));
                      var1.putInt(var12.lootRespawnHour);
+                     var1.putInt(var12.bAlarmDecay);
                   }
                }
             }
@@ -722,6 +979,12 @@ public final class IsoMetaGrid {
 
          for(var4 = 0; var4 < Faction.getFactions().size(); ++var4) {
             ((Faction)Faction.getFactions().get(var4)).save(var1);
+         }
+
+         var1.putInt(DesignationZone.allZones.size());
+
+         for(var4 = 0; var4 < DesignationZone.allZones.size(); ++var4) {
+            ((DesignationZone)DesignationZone.allZones.get(var4)).save(var1);
          }
 
          if (GameServer.bServer) {
@@ -752,11 +1015,24 @@ public final class IsoMetaGrid {
             BufferedInputStream var3 = new BufferedInputStream(var2);
 
             try {
+               int var5;
                synchronized(SliceY.SliceBufferLock) {
                   SliceY.SliceBuffer.clear();
-                  int var5 = var3.read(SliceY.SliceBuffer.array());
+                  var5 = var3.read(SliceY.SliceBuffer.array());
                   SliceY.SliceBuffer.limit(var5);
                   this.load(SliceY.SliceBuffer);
+               }
+
+               this.bLoaded = true;
+
+               for(int var4 = 0; var4 < this.height; ++var4) {
+                  for(var5 = 0; var5 < this.width; ++var5) {
+                     IsoMetaCell var6 = this.getCellDataAbs(var5, var4);
+                     if (var6 != null && var6.info != null) {
+                        var6.info.BuildingByMetaID.compact();
+                        var6.info.RoomByMetaID.compact();
+                     }
+                  }
                }
             } catch (Throwable var10) {
                try {
@@ -793,41 +1069,19 @@ public final class IsoMetaGrid {
       byte var4 = var1.get();
       byte var5 = var1.get();
       byte var6 = var1.get();
-      int var2;
-      if (var3 == 77 && var4 == 69 && var5 == 84 && var6 == 65) {
-         var2 = var1.getInt();
-      } else {
-         var2 = 33;
-         var1.reset();
-      }
-
+      int var2 = var1.getInt();
       int var7 = this.minX;
       int var8 = this.minY;
       int var9 = this.maxX;
       int var10 = this.maxY;
-      int var11;
-      int var12;
-      if (var2 >= 194) {
-         var7 = var1.getInt();
-         var8 = var1.getInt();
-         var9 = var1.getInt();
-         var10 = var1.getInt();
-         var11 = var9 - var7 + 1;
-         var12 = var10 - var8 + 1;
-      } else {
-         var11 = var1.getInt();
-         var12 = var1.getInt();
-         if (var11 == 40 && var12 == 42 && this.width == 66 && this.height == 53 && this.getLotDirectories().contains("Muldraugh, KY")) {
-            var7 = 10;
-            var8 = 3;
-         }
-
-         var9 = var7 + var11 - 1;
-         var10 = var8 + var12 - 1;
-      }
-
-      if (var11 != this.Grid.length || var12 != this.Grid[0].length) {
-         DebugLog.log("map_meta.bin world size (" + var11 + "x" + var12 + ") does not match the current map size (" + this.Grid.length + "x" + this.Grid[0].length + ")");
+      var7 = var1.getInt();
+      var8 = var1.getInt();
+      var9 = var1.getInt();
+      var10 = var1.getInt();
+      int var11 = var9 - var7 + 1;
+      int var12 = var10 - var8 + 1;
+      if (var11 != this.gridX() || var12 != this.gridY()) {
+         DebugLog.log("map_meta.bin world size (" + var11 + "x" + var12 + ") does not match the current map size (" + this.gridX() + "x" + this.gridY() + ")");
       }
 
       int var13 = 0;
@@ -835,52 +1089,36 @@ public final class IsoMetaGrid {
 
       int var15;
       int var16;
-      IsoMetaCell var17;
       int var18;
       int var19;
-      int var20;
+      int var33;
       for(var15 = var7; var15 <= var9; ++var15) {
          for(var16 = var8; var16 <= var10; ++var16) {
-            var17 = this.getCellData(var15, var16);
+            IsoMetaCell var17 = this.getCellData(var15, var16);
             var18 = var1.getInt();
 
-            long var21;
             boolean var23;
             boolean var25;
-            boolean var26;
             for(var19 = 0; var19 < var18; ++var19) {
-               var20 = var2 < 194 ? var1.getInt() : 0;
-               var21 = var2 >= 194 ? var1.getLong() : 0L;
+               long var20 = var1.getLong();
+               boolean var22 = false;
                var23 = false;
                boolean var24 = false;
                var25 = false;
-               var26 = false;
-               if (var2 >= 160) {
-                  short var27 = var1.getShort();
-                  var23 = (var27 & 1) != 0;
-                  var24 = (var27 & 2) != 0;
-                  var25 = (var27 & 4) != 0;
-                  var26 = (var27 & 8) != 0;
-               } else {
-                  var23 = var1.get() == 1;
-                  if (var2 >= 34) {
-                     var24 = var1.get() == 1;
-                  } else {
-                     var24 = Rand.Next(2) == 0;
-                  }
-               }
-
+               short var26 = var1.getShort();
+               var22 = (var26 & 1) != 0;
+               var23 = (var26 & 2) != 0;
+               var24 = (var26 & 4) != 0;
+               var25 = (var26 & 8) != 0;
                if (var17 != null && var17.info != null) {
-                  RoomDef var35 = var2 < 194 ? (RoomDef)var17.info.Rooms.get(var20) : (RoomDef)var17.info.RoomByMetaID.get(var21);
-                  if (var35 != null) {
-                     var35.setExplored(var23);
-                     var35.bLightsActive = var24;
-                     var35.bDoneSpawn = var25;
-                     var35.setRoofFixed(var26);
-                  } else if (var2 < 194) {
-                     DebugLog.General.error("invalid room ID #" + var20 + " in cell " + var15 + "," + var16 + " while reading map_meta.bin");
+                  RoomDef var27 = (RoomDef)var17.info.RoomByMetaID.get(var20);
+                  if (var27 != null) {
+                     var27.setExplored(var22);
+                     var27.bLightsActive = var23;
+                     var27.bDoneSpawn = var24;
+                     var27.setRoofFixed(var25);
                   } else {
-                     DebugLog.General.error("invalid room metaID #" + var21 + " in cell " + var15 + "," + var16 + " while reading map_meta.bin");
+                     DebugLog.General.error("invalid room metaID #" + var20 + " in cell " + var15 + "," + var16 + " while reading map_meta.bin");
                   }
                }
             }
@@ -888,65 +1126,33 @@ public final class IsoMetaGrid {
             var19 = var1.getInt();
             var13 += var19;
 
-            for(var20 = 0; var20 < var19; ++var20) {
-               var21 = var2 >= 194 ? var1.getLong() : 0L;
+            for(var33 = 0; var33 < var19; ++var33) {
+               long var21 = var1.getLong();
                var23 = var1.get() == 1;
-               int var34 = var2 >= 57 ? var1.getInt() : -1;
-               var25 = var2 >= 74 ? var1.get() == 1 : false;
-               var26 = var2 >= 107 ? var1.get() == 1 : false;
-               if (var2 >= 111 && var2 < 121) {
-                  var1.getInt();
-               } else {
-                  boolean var10000 = false;
-               }
-
-               int var28 = var2 >= 125 ? var1.getInt() : 0;
+               int var36 = var1.getInt();
+               var25 = var1.get() == 1;
+               boolean var37 = var1.get() == 1;
+               int var38 = var1.getInt();
+               int var28 = var2 >= 201 ? var1.getInt() : 0;
                if (var17 != null && var17.info != null) {
-                  BuildingDef var29 = null;
-                  if (var2 >= 194) {
-                     var29 = (BuildingDef)var17.info.BuildingByMetaID.get(var21);
-                  } else if (var20 < var17.info.Buildings.size()) {
-                     var29 = (BuildingDef)var17.info.Buildings.get(var20);
-                  }
-
+                  BuildingDef var29 = (BuildingDef)var17.info.BuildingByMetaID.get(var21);
                   if (var29 != null) {
                      if (var23) {
                         ++var14;
                      }
 
                      var29.bAlarmed = var23;
-                     var29.setKeyId(var34);
-                     if (var2 >= 74) {
-                        var29.seen = var25;
-                     }
-
-                     var29.hasBeenVisited = var26;
-                     var29.lootRespawnHour = var28;
-                  } else if (var2 >= 194) {
+                     var29.setKeyId(var36);
+                     var29.seen = var25;
+                     var29.hasBeenVisited = var37;
+                     var29.lootRespawnHour = var38;
+                     var29.bAlarmDecay = var28;
+                  } else {
                      DebugLog.General.error("invalid building metaID #" + var21 + " in cell " + var15 + "," + var16 + " while reading map_meta.bin");
                   }
                }
             }
          }
-      }
-
-      if (var2 <= 112) {
-         this.Zones.clear();
-
-         for(var15 = 0; var15 < this.height; ++var15) {
-            for(var16 = 0; var16 < this.width; ++var16) {
-               var17 = this.Grid[var16][var15];
-               if (var17 != null) {
-                  for(var18 = 0; var18 < 30; ++var18) {
-                     for(var19 = 0; var19 < 30; ++var19) {
-                        var17.ChunkMap[var19 + var18 * 30].clearZones();
-                     }
-                  }
-               }
-            }
-         }
-
-         this.loadZone(var1, var2);
       }
 
       SafeHouse.clearSafehouseList();
@@ -975,22 +1181,28 @@ public final class IsoMetaGrid {
          Faction.getFactions().add(var32);
       }
 
+      var18 = var1.getInt();
+
+      for(var19 = 0; var19 < var18; ++var19) {
+         DesignationZone.load(var1, var2);
+      }
+
       if (GameServer.bServer) {
-         var18 = var1.getInt();
+         var19 = var1.getInt();
          StashSystem.load(var1, var2);
       } else if (GameClient.bClient) {
-         var18 = var1.getInt();
-         var1.position(var18);
+         var19 = var1.getInt();
+         var1.position(var19);
       } else {
          StashSystem.load(var1, var2);
       }
 
-      ArrayList var33 = RBBasic.getUniqueRDSSpawned();
-      var33.clear();
-      var19 = var1.getInt();
+      ArrayList var35 = RBBasic.getUniqueRDSSpawned();
+      var35.clear();
+      var33 = var1.getInt();
 
-      for(var20 = 0; var20 < var19; ++var20) {
-         var33.add(GameWindow.ReadString(var1));
+      for(int var34 = 0; var34 < var33; ++var34) {
+         var35.add(GameWindow.ReadString(var1));
       }
 
    }
@@ -1003,12 +1215,30 @@ public final class IsoMetaGrid {
       return this.height;
    }
 
+   public boolean wasLoaded() {
+      return this.bLoaded;
+   }
+
    public IsoMetaCell getCellData(int var1, int var2) {
-      return var1 - this.minX >= 0 && var2 - this.minY >= 0 && var1 - this.minX < this.width && var2 - this.minY < this.height ? this.Grid[var1 - this.minX][var2 - this.minY] : null;
+      return var1 - this.minX >= 0 && var2 - this.minY >= 0 && var1 - this.minX < this.width && var2 - this.minY < this.height ? this.getCell(var1 - this.minX, var2 - this.minY) : null;
+   }
+
+   public MetaCellPresence hasCellData(int var1, int var2) {
+      if (var1 - this.minX >= 0 && var2 - this.minY >= 0 && var1 - this.minX < this.width && var2 - this.minY < this.height) {
+         return this.hasCell(var1 - this.minX, var2 - this.minY) ? MetaCellPresence.LOADED : MetaCellPresence.NOT_LOADED;
+      } else {
+         return MetaCellPresence.OUT_OF_BOUNDS;
+      }
+   }
+
+   public void setCellData(int var1, int var2, IsoMetaCell var3) {
+      if (var1 - this.minX >= 0 && var2 - this.minY >= 0 && var1 - this.minX < this.width && var2 - this.minY < this.height) {
+         this.setCell(var1 - this.minX, var2 - this.minY, var3);
+      }
    }
 
    public IsoMetaCell getCellDataAbs(int var1, int var2) {
-      return this.Grid[var1][var2];
+      return this.getCell(var1, var2);
    }
 
    public IsoMetaCell getCurrentCellData() {
@@ -1016,24 +1246,24 @@ public final class IsoMetaGrid {
       int var2 = IsoWorld.instance.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY;
       float var3 = (float)var1;
       float var4 = (float)var2;
-      var3 /= 30.0F;
-      var4 /= 30.0F;
+      var3 /= (float)IsoCell.CellSizeInSquares / 8.0F;
+      var4 /= (float)IsoCell.CellSizeInSquares / 8.0F;
       if (var3 < 0.0F) {
-         var3 = (float)((int)var3 - 1);
+         var3 = (float)PZMath.fastfloor(var3 - 1.0F);
       }
 
       if (var4 < 0.0F) {
-         var4 = (float)((int)var4 - 1);
+         var4 = (float)PZMath.fastfloor(var4 - 1.0F);
       }
 
-      var1 = (int)var3;
-      var2 = (int)var4;
+      var1 = PZMath.fastfloor(var3);
+      var2 = PZMath.fastfloor(var4);
       return this.getCellData(var1, var2);
    }
 
    public IsoMetaCell getMetaGridFromTile(int var1, int var2) {
-      int var3 = var1 / 300;
-      int var4 = var2 / 300;
+      int var3 = var1 / IsoCell.CellSizeInSquares;
+      int var4 = var2 / IsoCell.CellSizeInSquares;
       return this.getCellData(var3, var4);
    }
 
@@ -1042,80 +1272,57 @@ public final class IsoMetaGrid {
       int var2 = IsoWorld.instance.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY;
       float var3 = (float)var1;
       float var4 = (float)var2;
-      var3 /= 30.0F;
-      var4 /= 30.0F;
+      var3 /= (float)IsoCell.CellSizeInSquares / 8.0F;
+      var4 /= (float)IsoCell.CellSizeInSquares / 8.0F;
       if (var3 < 0.0F) {
-         var3 = (float)((int)var3 - 1);
+         var3 = (float)(PZMath.fastfloor(var3) - 1);
       }
 
       if (var4 < 0.0F) {
-         var4 = (float)((int)var4 - 1);
+         var4 = (float)(PZMath.fastfloor(var4) - 1);
       }
 
-      var1 = (int)var3;
-      var2 = (int)var4;
-      return this.getCellData(var1, var2).getChunk(IsoWorld.instance.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldX - var1 * 30, IsoWorld.instance.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY - var2 * 30);
+      var1 = PZMath.fastfloor(var3);
+      var2 = PZMath.fastfloor(var4);
+      return this.getCellData(var1, var2).getChunk(IsoWorld.instance.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldX - var1 * IsoCell.CellSizeInChunks, IsoWorld.instance.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY - var2 * IsoCell.CellSizeInChunks);
    }
 
    public IsoMetaChunk getChunkData(int var1, int var2) {
-      float var5 = (float)var1;
-      float var6 = (float)var2;
-      var5 /= 30.0F;
-      var6 /= 30.0F;
-      if (var5 < 0.0F) {
-         var5 = (float)((int)var5 - 1);
-      }
-
-      if (var6 < 0.0F) {
-         var6 = (float)((int)var6 - 1);
-      }
-
-      int var3 = (int)var5;
-      int var4 = (int)var6;
-      IsoMetaCell var7 = this.getCellData(var3, var4);
-      return var7 == null ? null : var7.getChunk(var1 - var3 * 30, var2 - var4 * 30);
+      int var3 = PZMath.fastfloor((float)var1 / (float)IsoCell.CellSizeInChunks);
+      int var4 = PZMath.fastfloor((float)var2 / (float)IsoCell.CellSizeInChunks);
+      IsoMetaCell var5 = this.getCellData(var3, var4);
+      return var5 == null ? null : var5.getChunk(var1 - var3 * IsoCell.CellSizeInChunks, var2 - var4 * IsoCell.CellSizeInChunks);
    }
 
    public IsoMetaChunk getChunkDataFromTile(int var1, int var2) {
-      int var3 = var1 / 10;
-      int var4 = var2 / 10;
-      var3 -= this.minX * 30;
-      var4 -= this.minY * 30;
-      int var5 = var3 / 30;
-      int var6 = var4 / 30;
-      var3 += this.minX * 30;
-      var4 += this.minY * 30;
-      var5 += this.minX;
-      var6 += this.minY;
-      IsoMetaCell var7 = this.getCellData(var5, var6);
-      return var7 == null ? null : var7.getChunk(var3 - var5 * 30, var4 - var6 * 30);
+      int var3 = PZMath.fastfloor((float)var1 / 8.0F);
+      int var4 = PZMath.fastfloor((float)var2 / 8.0F);
+      return this.getChunkData(var3, var4);
    }
 
    public boolean isValidSquare(int var1, int var2) {
-      if (var1 < this.minX * 300) {
+      if (var1 < this.minX * IsoCell.CellSizeInSquares) {
          return false;
-      } else if (var1 >= (this.maxX + 1) * 300) {
+      } else if (var1 >= (this.maxX + 1) * IsoCell.CellSizeInSquares) {
          return false;
-      } else if (var2 < this.minY * 300) {
+      } else if (var2 < this.minY * IsoCell.CellSizeInSquares) {
          return false;
       } else {
-         return var2 < (this.maxY + 1) * 300;
+         return var2 < (this.maxY + 1) * IsoCell.CellSizeInSquares;
       }
    }
 
    public boolean isValidChunk(int var1, int var2) {
-      var1 *= 10;
-      var2 *= 10;
-      if (var1 < this.minX * 300) {
+      var1 *= 8;
+      var2 *= 8;
+      if (var1 < this.minX * IsoCell.CellSizeInSquares) {
          return false;
-      } else if (var1 >= (this.maxX + 1) * 300) {
+      } else if (var1 >= (this.maxX + 1) * IsoCell.CellSizeInSquares) {
          return false;
-      } else if (var2 < this.minY * 300) {
-         return false;
-      } else if (var2 >= (this.maxY + 1) * 300) {
+      } else if (var2 < this.minY * IsoCell.CellSizeInSquares) {
          return false;
       } else {
-         return this.Grid[var1 / 300 - this.minX][var2 / 300 - this.minY].info != null;
+         return var2 < (this.maxY + 1) * IsoCell.CellSizeInSquares;
       }
    }
 
@@ -1132,42 +1339,83 @@ public final class IsoMetaGrid {
       IsoLot.InfoHeaders.clear();
       IsoLot.InfoHeaderNames.clear();
       IsoLot.InfoFileNames.clear();
+      IsoLot.MapFiles.clear();
       long var1 = System.currentTimeMillis();
       DebugLog.log("IsoMetaGrid.Create: begin scanning directories");
-      ArrayList var4 = this.getLotDirectories();
+      ArrayList var3 = this.getLotDirectories();
       DebugLog.log("Looking in these map folders:");
-      Iterator var5 = var4.iterator();
 
-      String var6;
-      while(var5.hasNext()) {
-         var6 = (String)var5.next();
-         var6 = ZomboidFileSystem.instance.getString("media/maps/" + var6 + "/");
-         File var10000 = new File(var6);
-         DebugLog.log("    " + var10000.getAbsolutePath());
+      int var4;
+      for(var4 = 0; var4 < var3.size(); ++var4) {
+         String var5 = (String)var3.get(var4);
+         String var6 = ZomboidFileSystem.instance.getDirectoryString("media/maps/" + var5 + "/");
+         File var7 = new File(var6);
+         if (!var7.isDirectory()) {
+            DebugLog.log("    skipping non-existent map folder " + var6);
+         } else {
+            MapFiles var8 = new MapFiles(var5, var6, (new File(var6)).getAbsolutePath(), var4);
+            IsoLot.MapFiles.add(var8);
+            DebugLog.DetailedInfo.trace("    " + var8.mapDirectoryAbsolutePath);
+         }
       }
 
       DebugLog.log("<End of map-folders list>");
-      var5 = var4.iterator();
+      Iterator var13 = IsoLot.MapFiles.iterator();
 
       while(true) {
-         File var3;
+         MapFiles var14;
+         File var16;
          do {
-            if (!var5.hasNext()) {
+            if (!var13.hasNext()) {
+               for(var4 = IsoLot.MapFiles.size() - 1; var4 >= 0; --var4) {
+                  var14 = (MapFiles)IsoLot.MapFiles.get(var4);
+                  IsoLot.InfoFileNames.putAll(var14.InfoFileNames);
+                  IsoLot.InfoFileModded.putAll(var14.InfoFileModded);
+                  IsoLot.InfoHeaders.putAll(var14.InfoHeaders);
+                  IsoLot.InfoHeaderNames.removeAll(var14.InfoHeaderNames);
+                  IsoLot.InfoHeaderNames.addAll(var14.InfoHeaderNames);
+                  this.minX = PZMath.min(this.minX, var14.minX);
+                  this.minY = PZMath.min(this.minY, var14.minY);
+                  this.maxX = PZMath.max(this.maxX, var14.maxX);
+                  this.maxY = PZMath.max(this.maxY, var14.maxY);
+               }
+
+               if (this.minX > this.maxX) {
+                  this.minX = this.minY = 0;
+                  this.maxX = this.maxY = 1;
+               }
+
+               this.minNonProceduralX = this.minX;
+               this.minNonProceduralY = this.minY;
+               this.maxNonProceduralX = this.maxX;
+               this.maxNonProceduralY = this.maxY;
+               this.minX = Math.min(this.minX, WGParams.instance.getMinXCell());
+               this.minY = Math.min(this.minY, WGParams.instance.getMinYCell());
+               this.maxX = Math.max(this.maxX, WGParams.instance.getMaxXCell());
+               this.maxY = Math.max(this.maxY, WGParams.instance.getMaxYCell());
+               DebugLog.log("IsoMetaGrid.Create: X: [ " + this.minX + " " + this.maxX + " ], Y: [ " + this.minY + " " + this.maxY + " ]");
+               String var10000 = WGParams.instance.getSeedString();
+               DebugLog.log("World seed: " + var10000 + " " + WGParams.instance.getSeed());
                if (this.maxX >= this.minX && this.maxY >= this.minY) {
                   this.Grid = new IsoMetaCell[this.maxX - this.minX + 1][this.maxY - this.minY + 1];
                   this.width = this.maxX - this.minX + 1;
                   this.height = this.maxY - this.minY + 1;
-                  long var14 = System.currentTimeMillis() - var1;
-                  DebugLog.log("IsoMetaGrid.Create: finished scanning directories in " + (float)var14 / 1000.0F + " seconds");
+                  long var15 = System.currentTimeMillis() - var1;
+                  DebugLog.log("IsoMetaGrid.Create: finished scanning directories in " + (float)var15 / 1000.0F + " seconds");
+                  IsoWorld.instance.setWgChunk(new WGChunk(WGParams.instance.getSeed()));
+                  IsoWorld.instance.setBlending(new Blending());
+                  IsoWorld.instance.setAttachmentsHandler(new AttachmentsHandler());
+                  IsoWorld.instance.setBiomeMap(new BiomeMap());
+                  IsoWorld.instance.setZoneGenerator(new ZoneGenerator(IsoWorld.instance.getBiomeMap()));
                   DebugLog.log("IsoMetaGrid.Create: begin loading");
                   this.createStartTime = System.currentTimeMillis();
 
-                  for(int var15 = 0; var15 < 8; ++var15) {
-                     MetaGridLoaderThread var16 = new MetaGridLoaderThread(this.minY + var15);
-                     var16.setDaemon(true);
-                     var16.setName("MetaGridLoaderThread" + var15);
-                     var16.start();
-                     this.threads[var15] = var16;
+                  for(int var17 = 0; var17 < 8; ++var17) {
+                     MetaGridLoaderThread var19 = new MetaGridLoaderThread(this.minY + var17);
+                     var19.setDaemon(true);
+                     var19.setName("MetaGridLoaderThread" + var17);
+                     var19.start();
+                     this.threads[var17] = var19;
                   }
 
                   return;
@@ -1176,63 +1424,50 @@ public final class IsoMetaGrid {
                throw new IllegalStateException("Failed to find any .lotheader files");
             }
 
-            var6 = (String)var5.next();
-            var3 = new File(ZomboidFileSystem.instance.getString("media/maps/" + var6 + "/"));
-         } while(!var3.isDirectory());
+            var14 = (MapFiles)var13.next();
+            var16 = new File(var14.mapDirectoryAbsolutePath);
+         } while(!var16.isDirectory());
 
-         ChooseGameInfo.Map var7 = ChooseGameInfo.getMapDetails(var6);
-         String[] var8 = var3.list();
+         String var18 = var14.mapDirectoryAbsolutePath;
+         ChooseGameInfo.Map var20 = ChooseGameInfo.getMapDetails(var14.mapDirectoryName);
+         String[] var9 = var16.list();
 
-         for(int var9 = 0; var9 < var8.length; ++var9) {
-            if (!IsoLot.InfoFileNames.containsKey(var8[var9])) {
-               HashMap var17;
-               String var10001;
-               String var10002;
-               if (var8[var9].endsWith(".lotheader")) {
-                  String[] var10 = var8[var9].split("_");
-                  var10[1] = var10[1].replace(".lotheader", "");
-                  int var11 = Integer.parseInt(var10[0].trim());
-                  int var12 = Integer.parseInt(var10[1].trim());
-                  if (var11 < this.minX) {
-                     this.minX = var11;
-                  }
-
-                  if (var12 < this.minY) {
-                     this.minY = var12;
-                  }
-
-                  if (var11 > this.maxX) {
-                     this.maxX = var11;
-                  }
-
-                  if (var12 > this.maxY) {
-                     this.maxY = var12;
-                  }
-
-                  var17 = IsoLot.InfoFileNames;
-                  var10001 = var8[var9];
-                  var10002 = var3.getAbsolutePath();
-                  var17.put(var10001, var10002 + File.separator + var8[var9]);
-                  LotHeader var13 = new LotHeader();
-                  var13.cellX = var11;
-                  var13.cellY = var12;
-                  var13.bFixed2x = var7.isFixed2x();
-                  IsoLot.InfoHeaders.put(var8[var9], var13);
-                  IsoLot.InfoHeaderNames.add(var8[var9]);
-               } else if (var8[var9].endsWith(".lotpack")) {
-                  var17 = IsoLot.InfoFileNames;
-                  var10001 = var8[var9];
-                  var10002 = var3.getAbsolutePath();
-                  var17.put(var10001, var10002 + File.separator + var8[var9]);
-               } else if (var8[var9].startsWith("chunkdata_")) {
-                  var17 = IsoLot.InfoFileNames;
-                  var10001 = var8[var9];
-                  var10002 = var3.getAbsolutePath();
-                  var17.put(var10001, var10002 + File.separator + var8[var9]);
-               }
+         for(int var10 = 0; var10 < var9.length; ++var10) {
+            String var11 = var9[var10];
+            if (var11.endsWith(".lotheader")) {
+               LotHeader var12 = this.createLotHeader(var14, var20, var11);
+               var14.InfoFileNames.put(var11, var12.absoluteFilePath);
+               var14.InfoFileModded.put(var11, ZomboidFileSystem.instance.isModded(var14.mapDirectoryAbsolutePath));
+               var14.InfoHeaders.put(var11, var12);
+               var14.InfoHeaderNames.add(var11);
+            } else if (var11.endsWith(".lotpack")) {
+               var14.InfoFileNames.put(var11, var18 + File.separator + var11);
+               var14.InfoFileModded.put(var11, ZomboidFileSystem.instance.isModded(var14.mapDirectoryAbsolutePath));
+            } else if (var11.startsWith("chunkdata_")) {
+               var14.InfoFileNames.put(var11, var18 + File.separator + var11);
+               var14.InfoFileModded.put(var11, ZomboidFileSystem.instance.isModded(var14.mapDirectoryAbsolutePath));
             }
          }
+
+         var14.postLoad();
       }
+   }
+
+   private LotHeader createLotHeader(MapFiles var1, ChooseGameInfo.Map var2, String var3) {
+      String[] var4 = var3.split("_");
+      var4[1] = var4[1].replace(".lotheader", "");
+      int var5 = Integer.parseInt(var4[0].trim());
+      int var6 = Integer.parseInt(var4[1].trim());
+      var1.minX = PZMath.min(var1.minX, var5);
+      var1.minY = PZMath.min(var1.minY, var6);
+      var1.maxX = PZMath.max(var1.maxX, var5);
+      var1.maxY = PZMath.max(var1.maxY, var6);
+      LotHeader var7 = new LotHeader(var5, var6);
+      var7.bFixed2x = var2.isFixed2x();
+      var7.mapFiles = var1;
+      var7.fileName = var3;
+      var7.absoluteFilePath = var1.mapDirectoryAbsolutePath + File.separator + var3;
+      return var7;
    }
 
    public void CreateStep2() {
@@ -1256,16 +1491,21 @@ public final class IsoMetaGrid {
             }
          }
 
+         this.consolidateBuildings();
+
          for(var2 = 0; var2 < 8; ++var2) {
             this.threads[var2].postLoad();
             this.threads[var2] = null;
          }
 
+         this.initIncompleteCells();
+
          for(var2 = 0; var2 < this.Buildings.size(); ++var2) {
             BuildingDef var3 = (BuildingDef)this.Buildings.get(var2);
+            this.addRoomsToAdjacentCells(var3);
             if (!Core.GameMode.equals("LastStand") && var3.rooms.size() > 2) {
                int var4 = 11;
-               if (SandboxOptions.instance.getElecShutModifier() > -1 && GameTime.instance.NightsSurvived < SandboxOptions.instance.getElecShutModifier()) {
+               if (SandboxOptions.instance.getElecShutModifier() > -1 && (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) < (float)SandboxOptions.instance.getElecShutModifier()) {
                   var4 = 9;
                }
 
@@ -1284,6 +1524,10 @@ public final class IsoMetaGrid {
                if (var4 > -1) {
                   var3.bAlarmed = Rand.Next(var4) == 0;
                }
+
+               if (var3.bAlarmed) {
+                  var3.bAlarmDecay = SandboxOptions.getInstance().randomAlarmDecay(SandboxOptions.getInstance().AlarmDecay.getValue());
+               }
             }
          }
 
@@ -1293,9 +1537,51 @@ public final class IsoMetaGrid {
       }
    }
 
+   private void initIncompleteCells() {
+      Iterator var1 = IsoLot.MapFiles.iterator();
+
+      while(var1.hasNext()) {
+         MapFiles var2 = (MapFiles)var1.next();
+         this.initIncompleteCells(var2);
+      }
+
+   }
+
+   private void initIncompleteCells(MapFiles var1) {
+      for(int var2 = var1.minY; var2 <= var1.maxY; ++var2) {
+         for(int var3 = var1.minX; var3 <= var1.maxX; ++var3) {
+            LotHeader var4 = var1.getLotHeader(var3, var2);
+            if (var4 != null) {
+               if (PZMath.coordmodulo(var3 * 256, 300) > 0) {
+                  var4.bAdjacentCells[IsoDirections.W.index()] = var1.hasCell(var3 - 1, var2);
+                  var4.bAdjacentCells[IsoDirections.E.index()] = var1.hasCell(var3 + 1, var2);
+               }
+
+               if (PZMath.coordmodulo(var2 * 256, 300) > 0) {
+                  var4.bAdjacentCells[IsoDirections.N.index()] = var1.hasCell(var3, var2 - 1);
+                  var4.bAdjacentCells[IsoDirections.S.index()] = var1.hasCell(var3, var2 + 1);
+               }
+
+               if (PZMath.coordmodulo(var3 * 256, 300) > 0 && PZMath.coordmodulo(var2 * 256, 300) > 0) {
+                  var4.bAdjacentCells[IsoDirections.NW.index()] = var1.hasCell(var3 - 1, var2 - 1);
+                  var4.bAdjacentCells[IsoDirections.NE.index()] = var1.hasCell(var3 + 1, var2 - 1);
+                  var4.bAdjacentCells[IsoDirections.SE.index()] = var1.hasCell(var3 + 1, var2 + 1);
+                  var4.bAdjacentCells[IsoDirections.SW.index()] = var1.hasCell(var3 - 1, var2 + 1);
+               }
+            }
+         }
+      }
+
+   }
+
+   public boolean isChunkLoaded(int var1, int var2) {
+      IsoChunk var3 = GameServer.bServer ? ServerMap.instance.getChunk(var1, var2) : IsoWorld.instance.CurrentCell.getChunk(var1, var2);
+      return var3 != null && var3.bLoaded;
+   }
+
    public void Dispose() {
       if (this.Grid != null) {
-         for(int var1 = 0; var1 < this.Grid.length; ++var1) {
+         for(int var1 = 0; var1 < this.gridX(); ++var1) {
             IsoMetaCell[] var2 = this.Grid[var1];
 
             for(int var3 = 0; var3 < var2.length; ++var3) {
@@ -1327,6 +1613,7 @@ public final class IsoMetaGrid {
          }
 
          this.Zones.clear();
+         this.animalZoneHandler.Dispose();
          this.sharedStrings.clear();
       }
    }
@@ -1379,123 +1666,208 @@ public final class IsoMetaGrid {
 
    public void save() {
       try {
-         File var1 = ZomboidFileSystem.instance.getFileInCurrentSave("map_meta.bin");
-         FileOutputStream var2 = new FileOutputStream(var1);
-
-         try {
-            BufferedOutputStream var3 = new BufferedOutputStream(var2);
-
-            try {
-               synchronized(SliceY.SliceBufferLock) {
-                  SliceY.SliceBuffer.clear();
-                  this.save(SliceY.SliceBuffer);
-                  var3.write(SliceY.SliceBuffer.array(), 0, SliceY.SliceBuffer.position());
-               }
-            } catch (Throwable var15) {
-               try {
-                  var3.close();
-               } catch (Throwable var10) {
-                  var15.addSuppressed(var10);
-               }
-
-               throw var15;
-            }
-
-            var3.close();
-         } catch (Throwable var16) {
-            try {
-               var2.close();
-            } catch (Throwable var9) {
-               var16.addSuppressed(var9);
-            }
-
-            throw var16;
-         }
-
-         var2.close();
-         File var18 = ZomboidFileSystem.instance.getFileInCurrentSave("map_zone.bin");
-         FileOutputStream var19 = new FileOutputStream(var18);
-
-         try {
-            BufferedOutputStream var4 = new BufferedOutputStream(var19);
-
-            try {
-               synchronized(SliceY.SliceBufferLock) {
-                  SliceY.SliceBuffer.clear();
-                  this.saveZone(SliceY.SliceBuffer);
-                  var4.write(SliceY.SliceBuffer.array(), 0, SliceY.SliceBuffer.position());
-               }
-            } catch (Throwable var12) {
-               try {
-                  var4.close();
-               } catch (Throwable var8) {
-                  var12.addSuppressed(var8);
-               }
-
-               throw var12;
-            }
-
-            var4.close();
-         } catch (Throwable var13) {
-            try {
-               var19.close();
-            } catch (Throwable var7) {
-               var13.addSuppressed(var7);
-            }
-
-            throw var13;
-         }
-
-         var19.close();
-      } catch (Exception var17) {
-         ExceptionLogger.logException(var17);
+         this.save("map_meta.bin", this::save);
+         this.save("map_zone.bin", this::saveZone);
+         this.save("map_animals.bin", this::saveAnimalZones);
+         this.saveCells("metagrid", "metacell_%d_%d.bin", IsoMetaCell::save);
+      } catch (Exception var2) {
+         ExceptionLogger.logException(var2);
       }
 
    }
 
-   public void loadZones() {
-      File var1 = ZomboidFileSystem.instance.getFileInCurrentSave("map_zone.bin");
+   public void addCellToSave(IsoMetaCell var1) {
+      this.cellsToSave.add(var1);
+   }
+
+   private void save(String var1, Consumer<ByteBuffer> var2) throws IOException {
+      File var3 = ZomboidFileSystem.instance.getFileInCurrentSave(var1);
+      FileOutputStream var4 = new FileOutputStream(var3);
 
       try {
-         FileInputStream var2 = new FileInputStream(var1);
+         BufferedOutputStream var5 = new BufferedOutputStream(var4);
 
          try {
-            BufferedInputStream var3 = new BufferedInputStream(var2);
-
-            try {
-               synchronized(SliceY.SliceBufferLock) {
-                  SliceY.SliceBuffer.clear();
-                  int var5 = var3.read(SliceY.SliceBuffer.array());
-                  SliceY.SliceBuffer.limit(var5);
-                  this.loadZone(SliceY.SliceBuffer, -1);
-               }
-            } catch (Throwable var10) {
-               try {
-                  var3.close();
-               } catch (Throwable var8) {
-                  var10.addSuppressed(var8);
-               }
-
-               throw var10;
+            synchronized(SliceY.SliceBufferLock) {
+               SliceY.SliceBuffer.clear();
+               var2.accept(SliceY.SliceBuffer);
+               var5.write(SliceY.SliceBuffer.array(), 0, SliceY.SliceBuffer.position());
             }
-
-            var3.close();
          } catch (Throwable var11) {
             try {
-               var2.close();
-            } catch (Throwable var7) {
-               var11.addSuppressed(var7);
+               var5.close();
+            } catch (Throwable var9) {
+               var11.addSuppressed(var9);
             }
 
             throw var11;
          }
 
-         var2.close();
-      } catch (FileNotFoundException var12) {
-      } catch (Exception var13) {
-         ExceptionLogger.logException(var13);
+         var5.close();
+      } catch (Throwable var12) {
+         try {
+            var4.close();
+         } catch (Throwable var8) {
+            var12.addSuppressed(var8);
+         }
+
+         throw var12;
       }
 
+      var4.close();
+   }
+
+   private void saveCells(String var1, String var2, BiConsumer<IsoMetaCell, ByteBuffer> var3) throws IOException {
+      ArrayList var4 = new ArrayList(this.cellsToSave);
+      Iterator var5 = var4.iterator();
+
+      while(var5.hasNext()) {
+         IsoMetaCell var6 = (IsoMetaCell)var5.next();
+         String var7 = String.format(var2, var6.getX(), var6.getY());
+         File var8 = ZomboidFileSystem.instance.getFileInCurrentSave(var1, var7);
+         FileOutputStream var9 = new FileOutputStream(var8);
+
+         try {
+            BufferedOutputStream var10 = new BufferedOutputStream(var9);
+
+            try {
+               synchronized(SliceY.SliceBufferLock) {
+                  SliceY.SliceBuffer.clear();
+                  var3.accept(var6, SliceY.SliceBuffer);
+                  var10.write(SliceY.SliceBuffer.array(), 0, SliceY.SliceBuffer.position());
+               }
+            } catch (Throwable var16) {
+               try {
+                  var10.close();
+               } catch (Throwable var14) {
+                  var16.addSuppressed(var14);
+               }
+
+               throw var16;
+            }
+
+            var10.close();
+         } catch (Throwable var17) {
+            try {
+               var9.close();
+            } catch (Throwable var13) {
+               var17.addSuppressed(var13);
+            }
+
+            throw var17;
+         }
+
+         var9.close();
+         this.cellsToSave.remove(var6);
+      }
+
+   }
+
+   public void load(String var1, BiConsumer<ByteBuffer, Integer> var2) {
+      File var3 = ZomboidFileSystem.instance.getFileInCurrentSave(var1);
+
+      try {
+         FileInputStream var4 = new FileInputStream(var3);
+
+         try {
+            BufferedInputStream var5 = new BufferedInputStream(var4);
+
+            try {
+               synchronized(SliceY.SliceBufferLock) {
+                  SliceY.SliceBuffer.clear();
+                  int var7 = var5.read(SliceY.SliceBuffer.array());
+                  SliceY.SliceBuffer.limit(var7);
+                  var2.accept(SliceY.SliceBuffer, -1);
+               }
+            } catch (Throwable var12) {
+               try {
+                  var5.close();
+               } catch (Throwable var10) {
+                  var12.addSuppressed(var10);
+               }
+
+               throw var12;
+            }
+
+            var5.close();
+         } catch (Throwable var13) {
+            try {
+               var4.close();
+            } catch (Throwable var9) {
+               var13.addSuppressed(var9);
+            }
+
+            throw var13;
+         }
+
+         var4.close();
+      } catch (FileNotFoundException var14) {
+      } catch (Exception var15) {
+         ExceptionLogger.logException(var15);
+      }
+
+   }
+
+   public void loadCells(String var1, String var2, QuadConsumer<IsoMetaCell, IsoMetaGrid, ByteBuffer, Integer> var3) {
+      File var4 = ZomboidFileSystem.instance.getFileInCurrentSave(var1);
+      Pattern var5 = Pattern.compile(var2);
+      RegExFilenameFilter var6 = new RegExFilenameFilter(var5);
+      String[] var7 = var4.list(var6);
+      if (var7 != null) {
+         String[] var8 = var7;
+         int var9 = var7.length;
+
+         for(int var10 = 0; var10 < var9; ++var10) {
+            String var11 = var8[var10];
+            File var12 = ZomboidFileSystem.instance.getFileInCurrentSave(var1, var11);
+            Matcher var13 = var5.matcher(var11);
+            var13.matches();
+            int var14 = Integer.parseInt(var13.group(1));
+            int var15 = Integer.parseInt(var13.group(2));
+            IsoMetaCell var16 = this.getCellOrCreate(var14 - this.minX, var15 - this.minY);
+
+            try {
+               FileInputStream var17 = new FileInputStream(var12);
+
+               try {
+                  BufferedInputStream var18 = new BufferedInputStream(var17);
+
+                  try {
+                     synchronized(SliceY.SliceBufferLock) {
+                        SliceY.SliceBuffer.clear();
+                        int var20 = var18.read(SliceY.SliceBuffer.array());
+                        SliceY.SliceBuffer.limit(var20);
+                        var3.accept(var16, this, SliceY.SliceBuffer, -1);
+                     }
+                  } catch (Throwable var25) {
+                     try {
+                        var18.close();
+                     } catch (Throwable var23) {
+                        var25.addSuppressed(var23);
+                     }
+
+                     throw var25;
+                  }
+
+                  var18.close();
+               } catch (Throwable var26) {
+                  try {
+                     var17.close();
+                  } catch (Throwable var22) {
+                     var26.addSuppressed(var22);
+                  }
+
+                  throw var26;
+               }
+
+               var17.close();
+            } catch (FileNotFoundException var27) {
+            } catch (Exception var28) {
+               ExceptionLogger.logException(var28);
+            }
+         }
+
+      }
    }
 
    public void loadZone(ByteBuffer var1, int var2) {
@@ -1517,157 +1889,126 @@ public final class IsoMetaGrid {
       }
 
       var3 = this.Zones.size();
-      if (!GameServer.bServer && var2 >= 34 || GameServer.bServer && var2 >= 36) {
-         Iterator var22 = this.Zones.iterator();
+      Iterator var12 = this.Zones.iterator();
 
-         while(var22.hasNext()) {
-            Zone var23 = (Zone)var22.next();
-            var23.Dispose();
-         }
+      while(var12.hasNext()) {
+         Zone var13 = (Zone)var12.next();
+         var13.Dispose();
+      }
 
-         this.Zones.clear();
+      this.Zones.clear();
 
-         int var7;
-         int var8;
-         for(var4 = 0; var4 < this.height; ++var4) {
-            for(var5 = 0; var5 < this.width; ++var5) {
-               IsoMetaCell var26 = this.Grid[var5][var4];
-               if (var26 != null) {
-                  for(var7 = 0; var7 < 30; ++var7) {
-                     for(var8 = 0; var8 < 30; ++var8) {
-                        var26.ChunkMap[var8 + var7 * 30].clearZones();
+      int var7;
+      for(var4 = 0; var4 < this.height; ++var4) {
+         for(var5 = 0; var5 < this.width; ++var5) {
+            if (this.hasCell(var5, var4)) {
+               IsoMetaCell var15 = this.getCell(var5, var4);
+
+               for(var7 = 0; var7 < IsoCell.CellSizeInChunks; ++var7) {
+                  for(int var8 = 0; var8 < IsoCell.CellSizeInChunks; ++var8) {
+                     if (var15.hasChunk(var8 + var7 * IsoCell.CellSizeInChunks)) {
+                        var15.getChunk(var8 + var7 * IsoCell.CellSizeInChunks).clearZones();
+                        var15.clearChunk(var8 + var7 * IsoCell.CellSizeInChunks);
                      }
                   }
                }
             }
-         }
-
-         ZoneGeometryType[] var24 = IsoMetaGrid.ZoneGeometryType.values();
-         TIntArrayList var25 = new TIntArrayList();
-         String var9;
-         int var10;
-         int var12;
-         int var13;
-         int var14;
-         int var16;
-         int var35;
-         if (var2 >= 141) {
-            var6 = var1.getInt();
-            HashMap var27 = new HashMap();
-
-            for(var8 = 0; var8 < var6; ++var8) {
-               var9 = GameWindow.ReadStringUTF(var1);
-               var27.put(var8, var9);
-            }
-
-            var8 = var1.getInt();
-            DebugLog.log("loading " + var8 + " zones from map_zone.bin");
-
-            int var29;
-            String var31;
-            for(var29 = 0; var29 < var8; ++var29) {
-               String var30 = (String)var27.get(Integer.valueOf(var1.getShort()));
-               var31 = (String)var27.get(Integer.valueOf(var1.getShort()));
-               var12 = var1.getInt();
-               var13 = var1.getInt();
-               byte var33 = var1.get();
-               int var15 = var1.getInt();
-               var16 = var1.getInt();
-               ZoneGeometryType var34 = IsoMetaGrid.ZoneGeometryType.INVALID;
-               var25.clear();
-               var35 = 0;
-               int var19;
-               if (var2 >= 185) {
-                  var19 = var1.get();
-                  if (var19 < 0 || var19 >= var24.length) {
-                     var19 = 0;
-                  }
-
-                  var34 = var24[var19];
-                  if (var34 != IsoMetaGrid.ZoneGeometryType.INVALID) {
-                     if (var2 >= 186 && var34 == IsoMetaGrid.ZoneGeometryType.Polyline) {
-                        var35 = PZMath.clamp(var1.get(), 0, 255);
-                     }
-
-                     short var20 = var1.getShort();
-
-                     for(int var21 = 0; var21 < var20; ++var21) {
-                        var25.add(var1.getInt());
-                     }
-                  }
-               }
-
-               var19 = var1.getInt();
-               Zone var36 = this.registerZone(var30, var31, var12, var13, var33, var15, var16, var34, var34 == IsoMetaGrid.ZoneGeometryType.INVALID ? null : var25, var35);
-               var36.hourLastSeen = var19;
-               var36.haveConstruction = var1.get() == 1;
-               var36.lastActionTimestamp = var1.getInt();
-               var36.setOriginalName((String)var27.get(Integer.valueOf(var1.getShort())));
-               var36.id = var1.getDouble();
-            }
-
-            var29 = var1.getInt();
-
-            for(var10 = 0; var10 < var29; ++var10) {
-               var31 = GameWindow.ReadString(var1);
-               ArrayList var32 = new ArrayList();
-               var13 = var1.getInt();
-
-               for(var14 = 0; var14 < var13; ++var14) {
-                  var32.add(var1.getDouble());
-               }
-
-               IsoWorld.instance.getSpawnedZombieZone().put(var31, var32);
-            }
-
-            return;
-         }
-
-         var6 = var1.getInt();
-         DebugLog.log("loading " + var6 + " zones from map_zone.bin");
-         if (var2 <= 112 && var6 > var3 * 2) {
-            DebugLog.log("ERROR: seems like too many zones in map_zone.bin");
-            return;
-         }
-
-         for(var7 = 0; var7 < var6; ++var7) {
-            String var28 = GameWindow.ReadString(var1);
-            var9 = GameWindow.ReadString(var1);
-            var10 = var1.getInt();
-            int var11 = var1.getInt();
-            var12 = var1.getInt();
-            var13 = var1.getInt();
-            var14 = var1.getInt();
-            if (var2 < 121) {
-               var1.getInt();
-            } else {
-               boolean var10000 = false;
-            }
-
-            var16 = var2 < 68 ? var1.getShort() : var1.getInt();
-            Zone var17 = this.registerZone(var28, var9, var10, var11, var12, var13, var14);
-            var17.hourLastSeen = var16;
-            if (var2 >= 35) {
-               boolean var18 = var1.get() == 1;
-               var17.haveConstruction = var18;
-            }
-
-            if (var2 >= 41) {
-               var17.lastActionTimestamp = var1.getInt();
-            }
-
-            if (var2 >= 98) {
-               var17.setOriginalName(GameWindow.ReadString(var1));
-            }
-
-            if (var2 >= 110 && var2 < 121) {
-               var35 = var1.getInt();
-            }
-
-            var17.id = var1.getDouble();
          }
       }
 
+      HashMap var14 = this.loadStringMap(var1);
+      var5 = var1.getInt();
+      DebugLog.log("loading " + var5 + " zones from map_zone.bin");
+
+      for(var6 = 0; var6 < var5; ++var6) {
+         Zone var16 = (new Zone()).load(var1, var2, var14, this.sharedStrings);
+         if (!"WorldGen".equalsIgnoreCase(var16.type)) {
+            this.registerZone(var16);
+         }
+      }
+
+      var6 = var1.getInt();
+
+      for(var7 = 0; var7 < var6; ++var7) {
+         String var17 = GameWindow.ReadString(var1);
+         ArrayList var9 = new ArrayList();
+         int var10 = var1.getInt();
+
+         for(int var11 = 0; var11 < var10; ++var11) {
+            if (var2 >= 215) {
+               var9.add(GameWindow.ReadUUID(var1));
+            } else {
+               var9.add(UUID.randomUUID());
+            }
+         }
+
+         IsoWorld.instance.getSpawnedZombieZone().put(var17, var9);
+      }
+
+   }
+
+   public void loadAnimalZones(ByteBuffer var1, int var2) {
+      int var4;
+      int var5;
+      int var6;
+      if (var2 == -1) {
+         byte var3 = var1.get();
+         var4 = var1.get();
+         var5 = var1.get();
+         var6 = var1.get();
+         if (var3 != 90 || var4 != 79 || var5 != 78 || var6 != 69) {
+            DebugLog.log("ERROR: expected 'ZONE' at start of map_animals.bin");
+            return;
+         }
+
+         var2 = var1.getInt();
+      }
+
+      Collection var9 = this.animalZoneHandler.getZones();
+      Iterator var10 = var9.iterator();
+
+      while(var10.hasNext()) {
+         AnimalZone var11 = (AnimalZone)var10.next();
+         var11.Dispose();
+      }
+
+      this.animalZoneHandler.Dispose();
+
+      for(var4 = 0; var4 < this.height; ++var4) {
+         for(var5 = 0; var5 < this.width; ++var5) {
+            if (this.hasCell(var5, var4)) {
+               this.getCell(var5, var4).clearAnimalZones();
+            }
+         }
+      }
+
+      HashMap var12 = this.loadStringMap(var1);
+      var5 = var1.getInt();
+      DebugLog.log("loading " + var5 + " zones from map_animals.bin");
+
+      for(var6 = 0; var6 < var5; ++var6) {
+         this.registerAnimalZone((new AnimalZone()).load(var1, var2, var12, this.sharedStrings));
+      }
+
+      var6 = var1.getInt();
+
+      for(int var7 = 0; var7 < var6; ++var7) {
+         AnimalZoneJunction var8 = AnimalZoneJunction.load(var1, var2);
+         var8.m_zoneSelf.addJunction(var8);
+      }
+
+   }
+
+   private HashMap<Integer, String> loadStringMap(ByteBuffer var1) {
+      int var2 = var1.getInt();
+      HashMap var3 = new HashMap();
+
+      for(int var4 = 0; var4 < var2; ++var4) {
+         String var5 = GameWindow.ReadStringUTF(var1);
+         var3.put(var4, var5);
+      }
+
+      return var3;
    }
 
    public void saveZone(ByteBuffer var1) {
@@ -1675,81 +2016,85 @@ public final class IsoMetaGrid {
       var1.put((byte)79);
       var1.put((byte)78);
       var1.put((byte)69);
-      var1.putInt(195);
-      HashSet var2 = new HashSet();
+      var1.putInt(219);
+      HashMap var2 = this.saveStringMap(var1, this.Zones);
+      var1.putInt(this.Zones.size());
+      this.Zones.forEach((var2x) -> {
+         var2x.save(var1, var2);
+      });
+      var2.clear();
+      var1.putInt(IsoWorld.instance.getSpawnedZombieZone().size());
+      Iterator var3 = IsoWorld.instance.getSpawnedZombieZone().keySet().iterator();
 
-      for(int var3 = 0; var3 < this.Zones.size(); ++var3) {
-         Zone var4 = (Zone)this.Zones.get(var3);
-         var2.add(var4.getName());
-         var2.add(var4.getOriginalName());
-         var2.add(var4.getType());
+      while(var3.hasNext()) {
+         String var4 = (String)var3.next();
+         ArrayList var5 = (ArrayList)IsoWorld.instance.getSpawnedZombieZone().get(var4);
+         GameWindow.WriteString(var1, var4);
+         var1.putInt(var5.size());
+
+         for(int var6 = 0; var6 < var5.size(); ++var6) {
+            GameWindow.WriteUUID(var1, (UUID)var5.get(var6));
+         }
       }
 
-      ArrayList var9 = new ArrayList(var2);
-      HashMap var10 = new HashMap();
+   }
 
-      int var5;
-      for(var5 = 0; var5 < var9.size(); ++var5) {
-         var10.put((String)var9.get(var5), var5);
+   public void saveAnimalZones(ByteBuffer var1) {
+      var1.put((byte)90);
+      var1.put((byte)79);
+      var1.put((byte)78);
+      var1.put((byte)69);
+      var1.putInt(219);
+      ArrayList var2 = new ArrayList(this.animalZoneHandler.getZones());
+      HashMap var3 = this.saveStringMap(var1, var2);
+      var1.putInt(var2.size());
+      var2.forEach((var2x) -> {
+         var2x.save(var1, var3);
+      });
+      HashSet var4 = new HashSet();
+      Iterator var5 = var2.iterator();
+
+      while(var5.hasNext()) {
+         AnimalZone var6 = (AnimalZone)var5.next();
+         if (var6.m_junctions != null) {
+            var4.addAll(var6.m_junctions);
+         }
       }
 
-      if (var9.size() > 32767) {
+      var1.putInt(var4.size());
+      var4.forEach((var1x) -> {
+         var1x.save(var1);
+      });
+   }
+
+   private HashMap<String, Integer> saveStringMap(ByteBuffer var1, List<? extends Zone> var2) {
+      HashSet var3 = new HashSet();
+
+      for(int var4 = 0; var4 < var2.size(); ++var4) {
+         Zone var5 = (Zone)var2.get(var4);
+         var3.add(var5.getName());
+         var3.add(var5.getOriginalName());
+         var3.add(var5.getType());
+      }
+
+      ArrayList var7 = new ArrayList(var3);
+      HashMap var8 = new HashMap();
+
+      int var6;
+      for(var6 = 0; var6 < var7.size(); ++var6) {
+         var8.put((String)var7.get(var6), var6);
+      }
+
+      if (var7.size() > 32767) {
          throw new IllegalStateException("IsoMetaGrid.saveZone() string table is too large");
       } else {
-         var1.putInt(var9.size());
+         var1.putInt(var7.size());
 
-         for(var5 = 0; var5 < var9.size(); ++var5) {
-            GameWindow.WriteString(var1, (String)var9.get(var5));
+         for(var6 = 0; var6 < var7.size(); ++var6) {
+            GameWindow.WriteString(var1, (String)var7.get(var6));
          }
 
-         var1.putInt(this.Zones.size());
-
-         for(var5 = 0; var5 < this.Zones.size(); ++var5) {
-            Zone var6 = (Zone)this.Zones.get(var5);
-            var1.putShort(((Integer)var10.get(var6.getName())).shortValue());
-            var1.putShort(((Integer)var10.get(var6.getType())).shortValue());
-            var1.putInt(var6.x);
-            var1.putInt(var6.y);
-            var1.put((byte)var6.z);
-            var1.putInt(var6.w);
-            var1.putInt(var6.h);
-            var1.put((byte)var6.geometryType.ordinal());
-            if (!var6.isRectangle()) {
-               if (var6.isPolyline()) {
-                  var1.put((byte)var6.polylineWidth);
-               }
-
-               var1.putShort((short)var6.points.size());
-
-               for(int var7 = 0; var7 < var6.points.size(); ++var7) {
-                  var1.putInt(var6.points.get(var7));
-               }
-            }
-
-            var1.putInt(var6.hourLastSeen);
-            var1.put((byte)(var6.haveConstruction ? 1 : 0));
-            var1.putInt(var6.lastActionTimestamp);
-            var1.putShort(((Integer)var10.get(var6.getOriginalName())).shortValue());
-            var1.putDouble(var6.id);
-         }
-
-         var2.clear();
-         var9.clear();
-         var10.clear();
-         var1.putInt(IsoWorld.instance.getSpawnedZombieZone().size());
-         Iterator var12 = IsoWorld.instance.getSpawnedZombieZone().keySet().iterator();
-
-         while(var12.hasNext()) {
-            String var11 = (String)var12.next();
-            ArrayList var13 = (ArrayList)IsoWorld.instance.getSpawnedZombieZone().get(var11);
-            GameWindow.WriteString(var1, var11);
-            var1.putInt(var13.size());
-
-            for(int var8 = 0; var8 < var13.size(); ++var8) {
-               var1.putDouble((Double)var13.get(var8));
-            }
-         }
-
+         return var8;
       }
    }
 
@@ -1805,19 +2150,121 @@ public final class IsoMetaGrid {
       return var5;
    }
 
-   public static boolean isPreferredZoneForSquare(String var0) {
-      return s_PreferredZoneTypes.contains(var0);
+   public void addRoomsToAdjacentCells(BuildingDef var1) {
+      int var2 = var1.x / IsoCell.CellSizeInSquares;
+      int var3 = var1.y / IsoCell.CellSizeInSquares;
+      int var4 = (var1.x2 - 1) / IsoCell.CellSizeInSquares;
+      int var5 = (var1.y2 - 1) / IsoCell.CellSizeInSquares;
+      if (var4 != var2 || var5 != var3) {
+         for(int var6 = 0; var6 <= 1; ++var6) {
+            for(int var7 = 0; var7 <= 1; ++var7) {
+               if (var7 != 0 || var6 != 0) {
+                  IsoMetaCell var8 = this.getCellData(var2 + var7, var3 + var6);
+                  if (var8 != null) {
+                     var8.addRooms(var1.rooms, (var2 + var7) * IsoCell.CellSizeInSquares, (var3 + var6) * IsoCell.CellSizeInSquares);
+                     var8.addRooms(var1.emptyoutside, (var2 + var7) * IsoCell.CellSizeInSquares, (var3 + var6) * IsoCell.CellSizeInSquares);
+                  }
+               }
+            }
+         }
+
+      }
    }
 
-   static {
-      s_PreferredZoneTypes.add("DeepForest");
-      s_PreferredZoneTypes.add("Farm");
-      s_PreferredZoneTypes.add("FarmLand");
-      s_PreferredZoneTypes.add("Forest");
-      s_PreferredZoneTypes.add("Vegitation");
-      s_PreferredZoneTypes.add("Nav");
-      s_PreferredZoneTypes.add("TownZone");
-      s_PreferredZoneTypes.add("TrailerPark");
+   public void addRoomsToAdjacentCells(BuildingDef var1, ArrayList<RoomDef> var2) {
+      int var3 = var1.x / IsoCell.CellSizeInSquares;
+      int var4 = var1.y / IsoCell.CellSizeInSquares;
+      int var5 = (var1.x2 - 1) / IsoCell.CellSizeInSquares;
+      int var6 = (var1.y2 - 1) / IsoCell.CellSizeInSquares;
+      if (var5 != var3 || var6 != var4) {
+         for(int var7 = 0; var7 <= 1; ++var7) {
+            for(int var8 = 0; var8 <= 1; ++var8) {
+               if (var8 != 0 || var7 != 0) {
+                  IsoMetaCell var9 = this.getCellData(var3 + var8, var4 + var7);
+                  if (var9 != null) {
+                     var9.addRooms(var2, (var3 + var8) * IsoCell.CellSizeInSquares, (var4 + var7) * IsoCell.CellSizeInSquares);
+                  }
+               }
+            }
+         }
+
+      }
+   }
+
+   private void consolidateBuildings() {
+      for(int var1 = 0; var1 < IsoLot.MapFiles.size(); ++var1) {
+         MapFiles var2 = (MapFiles)IsoLot.MapFiles.get(var1);
+         Iterator var3 = var2.InfoHeaders.values().iterator();
+
+         while(var3.hasNext()) {
+            LotHeader var4 = (LotHeader)var3.next();
+            LotHeader var5 = (LotHeader)IsoLot.InfoHeaders.get(var4.fileName);
+            IsoMetaCell var6 = this.getCellData(var4.cellX, var4.cellY);
+
+            for(int var7 = var4.Buildings.size() - 1; var7 >= 0; --var7) {
+               BuildingDef var8 = (BuildingDef)var4.Buildings.get(var7);
+               int var9 = var8.x / 300;
+               int var10 = var8.y / 300;
+               Iterator var11;
+               RoomDef var12;
+               if (this.higherPriority300x300CellExists(var2.priority, var9, var10)) {
+                  var11 = var8.rooms.iterator();
+
+                  while(var11.hasNext()) {
+                     var12 = (RoomDef)var11.next();
+                     var4.Rooms.remove(var12.ID);
+                     var4.RoomList.remove(var12);
+                     var4.RoomByMetaID.remove(var12.metaID);
+                  }
+
+                  var4.Buildings.remove(var8);
+                  var4.BuildingByMetaID.remove(var8.metaID);
+               } else {
+                  if (var4 != var5) {
+                     var11 = var8.rooms.iterator();
+
+                     while(var11.hasNext()) {
+                        var12 = (RoomDef)var11.next();
+                        var12.ID = RoomID.makeID(var4.cellX, var4.cellY, var5.RoomList.size());
+                        var5.RoomList.add(var12);
+                        var5.Rooms.put(var12.ID, var12);
+                     }
+
+                     var8.ID = BuildingID.makeID(var4.cellX, var4.cellY, var5.Buildings.size());
+                     var5.Buildings.add(var8);
+                     var5.BuildingByMetaID.put(var8.metaID, var8);
+                  }
+
+                  this.Buildings.add(var8);
+                  var11 = var8.rooms.iterator();
+
+                  while(var11.hasNext()) {
+                     var12 = (RoomDef)var11.next();
+                     var6.addRoom(var12, var6.getX() * IsoCell.CellSizeInSquares, var6.getY() * IsoCell.CellSizeInSquares);
+                  }
+
+                  var11 = var8.emptyoutside.iterator();
+
+                  while(var11.hasNext()) {
+                     var12 = (RoomDef)var11.next();
+                     var6.addRoom(var12, var6.getX() * IsoCell.CellSizeInSquares, var6.getY() * IsoCell.CellSizeInSquares);
+                  }
+               }
+            }
+         }
+      }
+
+   }
+
+   private boolean higherPriority300x300CellExists(int var1, int var2, int var3) {
+      for(int var4 = 0; var4 < var1; ++var4) {
+         MapFiles var5 = (MapFiles)IsoLot.MapFiles.get(var4);
+         if (var5.bgHasCell300.getValue(var2 - var5.minCell300X, var3 - var5.minCell300Y)) {
+            return true;
+         }
+      }
+
+      return false;
    }
 
    private final class MetaGridLoaderThread extends Thread {
@@ -1825,8 +2272,10 @@ public final class IsoMetaGrid {
       final ArrayList<BuildingDef> Buildings = new ArrayList();
       final ArrayList<RoomDef> tempRooms = new ArrayList();
       int wY;
+      final byte[] zombieIntensity;
 
       MetaGridLoaderThread(int var2) {
+         this.zombieIntensity = new byte[IsoCell.CellSizeInChunks * IsoCell.CellSizeInChunks];
          this.wY = var2;
       }
 
@@ -1849,129 +2298,180 @@ public final class IsoMetaGrid {
       }
 
       void loadCell(int var1, int var2) {
-         IsoMetaCell var3 = new IsoMetaCell(var1, var2);
-         IsoMetaGrid.this.Grid[var1 - IsoMetaGrid.this.minX][var2 - IsoMetaGrid.this.minY] = var3;
-         String var4 = "" + var1 + "_" + var2 + ".lotheader";
-         if (IsoLot.InfoFileNames.containsKey(var4)) {
-            LotHeader var5 = (LotHeader)IsoLot.InfoHeaders.get(var4);
-            if (var5 != null) {
-               File var6 = new File((String)IsoLot.InfoFileNames.get(var4));
-               if (var6.exists()) {
-                  var3.info = var5;
+         for(int var3 = 0; var3 < IsoLot.MapFiles.size(); ++var3) {
+            MapFiles var4 = (MapFiles)IsoLot.MapFiles.get(var3);
+            this.loadCell(var4, var1, var2);
+         }
+
+      }
+
+      void loadCell(MapFiles var1, int var2, int var3) {
+         boolean var4 = false;
+         String var5 = "" + var2 + "_" + var3 + ".lotheader";
+         if (var1.InfoFileNames.containsKey(var5)) {
+            LotHeader var6 = (LotHeader)var1.InfoHeaders.get(var5);
+            if (var6 != null) {
+               File var7 = new File((String)var1.InfoFileNames.get(var5));
+               if (var7.exists()) {
+                  IsoMetaCell var8 = IsoMetaGrid.this.getCell(var2 - IsoMetaGrid.this.minX, var3 - IsoMetaGrid.this.minY);
+                  boolean var9 = var8 == null;
+                  if (var8 == null) {
+                     var8 = new IsoMetaCell(var2, var3);
+                     var8.info = var6;
+                     IsoMetaGrid.this.setCell(var2 - IsoMetaGrid.this.minX, var3 - IsoMetaGrid.this.minY, var8);
+                  }
 
                   try {
-                     BufferedRandomAccessFile var7 = new BufferedRandomAccessFile(var6.getAbsolutePath(), "r", 4096);
+                     BufferedRandomAccessFile var10 = new BufferedRandomAccessFile(var7.getAbsolutePath(), "r", 4096);
 
                      try {
-                        var5.version = IsoLot.readInt(var7);
-                        int var8 = IsoLot.readInt(var7);
-
-                        int var9;
-                        for(var9 = 0; var9 < var8; ++var9) {
-                           String var10 = IsoLot.readString(var7);
-                           var5.tilesUsed.add(this.sharedStrings.get(var10.trim()));
+                        byte[] var11 = new byte[4];
+                        var10.read(var11, 0, 4);
+                        boolean var12 = Arrays.equals(var11, LotHeader.LOTHEADER_MAGIC);
+                        if (!var12) {
+                           var10.seek(0L);
                         }
 
-                        var7.read();
-                        var5.width = IsoLot.readInt(var7);
-                        var5.height = IsoLot.readInt(var7);
-                        var5.levels = IsoLot.readInt(var7);
-                        var9 = IsoLot.readInt(var7);
+                        var6.version = IsoLot.readInt(var10);
+                        if (var6.version < 0 || var6.version > 1) {
+                           throw new IOException("Unsupported version " + var6.version);
+                        }
 
-                        int var13;
+                        int var13 = IsoLot.readInt(var10);
+
                         int var14;
-                        int var22;
-                        for(var22 = 0; var22 < var9; ++var22) {
-                           String var11 = IsoLot.readString(var7);
-                           RoomDef var12 = new RoomDef(var22, this.sharedStrings.get(var11));
-                           var12.level = IsoLot.readInt(var7);
-                           var13 = IsoLot.readInt(var7);
-
-                           for(var14 = 0; var14 < var13; ++var14) {
-                              RoomDef.RoomRect var15 = new RoomDef.RoomRect(IsoLot.readInt(var7) + var1 * 300, IsoLot.readInt(var7) + var2 * 300, IsoLot.readInt(var7), IsoLot.readInt(var7));
-                              var12.rects.add(var15);
-                           }
-
-                           var12.CalculateBounds();
-                           var12.metaID = var12.calculateMetaID(var1, var2);
-                           var5.Rooms.put(var12.ID, var12);
-                           if (var5.RoomByMetaID.contains(var12.metaID)) {
-                              DebugLog.General.error("duplicate RoomDef.metaID for room at %d,%d,%d", var12.x, var12.y, var12.level);
-                           }
-
-                           var5.RoomByMetaID.put(var12.metaID, var12);
-                           var5.RoomList.add(var12);
-                           var3.addRoom(var12, var1 * 300, var2 * 300);
-                           var14 = IsoLot.readInt(var7);
-
-                           for(int var26 = 0; var26 < var14; ++var26) {
-                              int var16 = IsoLot.readInt(var7);
-                              int var17 = IsoLot.readInt(var7);
-                              int var18 = IsoLot.readInt(var7);
-                              var12.objects.add(new MetaObject(var16, var17 + var1 * 300 - var12.x, var18 + var2 * 300 - var12.y, var12));
-                           }
-
-                           var12.bLightsActive = Rand.Next(2) == 0;
+                        for(var14 = 0; var14 < var13; ++var14) {
+                           String var15 = IsoLot.readString(var10);
+                           var6.tilesUsed.add(this.sharedStrings.get(var15.trim()));
                         }
 
-                        var22 = IsoLot.readInt(var7);
-                        int var23 = 0;
+                        if (var6.version == 0) {
+                           var10.read();
+                        }
 
-                        label87:
+                        var6.width = IsoLot.readInt(var10);
+                        var6.height = IsoLot.readInt(var10);
+                        if (var6.version == 0) {
+                           var6.minLevel = 0;
+                           var6.maxLevel = IsoLot.readInt(var10) - 1;
+                        } else {
+                           var6.minLevel = IsoLot.readInt(var10);
+                           var6.maxLevel = IsoLot.readInt(var10);
+                        }
+
+                        var14 = IsoLot.readInt(var10);
+
+                        int var18;
+                        int var19;
+                        int var20;
+                        int var28;
+                        for(var28 = 0; var28 < var14; ++var28) {
+                           String var16 = IsoLot.readString(var10);
+                           RoomDef var17 = new RoomDef(RoomID.makeID(var2, var3, var28), this.sharedStrings.get(var16));
+                           var17.level = IsoLot.readInt(var10);
+                           var18 = IsoLot.readInt(var10);
+
+                           int var21;
+                           int var22;
+                           int var23;
+                           for(var19 = 0; var19 < var18; ++var19) {
+                              var20 = IsoLot.readInt(var10);
+                              var21 = IsoLot.readInt(var10);
+                              var22 = IsoLot.readInt(var10);
+                              var23 = IsoLot.readInt(var10);
+                              RoomDef.RoomRect var24 = new RoomDef.RoomRect(var20 + var2 * IsoCell.CellSizeInSquares, var21 + var3 * IsoCell.CellSizeInSquares, var22, var23);
+                              var17.rects.add(var24);
+                           }
+
+                           var17.CalculateBounds();
+                           var17.metaID = var17.calculateMetaID(var2, var3);
+                           var6.Rooms.put(var17.ID, var17);
+                           if (var6.RoomByMetaID.contains(var17.metaID) && !var4) {
+                              DebugLog.General.error("duplicate RoomDef.metaID for room at x=%d, y=%d, level=%d, filename=%s", var17.x, var17.y, var17.level, var7.getName());
+                              var4 = true;
+                           }
+
+                           var6.RoomByMetaID.put(var17.metaID, var17);
+                           var6.RoomList.add(var17);
+                           var19 = IsoLot.readInt(var10);
+
+                           for(var20 = 0; var20 < var19; ++var20) {
+                              var21 = IsoLot.readInt(var10);
+                              var22 = IsoLot.readInt(var10);
+                              var23 = IsoLot.readInt(var10);
+                              var17.objects.add(new MetaObject(var21, var22 + var2 * IsoCell.CellSizeInSquares - var17.x, var23 + var3 * IsoCell.CellSizeInSquares - var17.y, var17));
+                           }
+
+                           var17.bLightsActive = Rand.Next(4) == 0;
+                        }
+
+                        var28 = IsoLot.readInt(var10);
+                        int var29 = 0;
+
+                        label119:
                         while(true) {
-                           if (var23 >= var22) {
-                              var23 = 0;
+                           if (var29 >= var28) {
+                              var29 = var10.read(this.zombieIntensity);
+                              if (var29 != this.zombieIntensity.length) {
+                                 throw new EOFException(String.format("wx=%d, wy=%d, nBytes=%d, this.zombieIntensity.length=%d", var2, var3, var29, this.zombieIntensity.length));
+                              }
+
+                              int var31 = 0;
 
                               while(true) {
-                                 if (var23 >= 30) {
-                                    break label87;
+                                 if (var31 >= IsoCell.CellSizeInChunks) {
+                                    break label119;
                                  }
 
-                                 for(int var25 = 0; var25 < 30; ++var25) {
-                                    var13 = var7.read();
-                                    IsoMetaChunk var27 = var3.getChunk(var23, var25);
-                                    var27.setZombieIntensity(var13);
+                                 for(var18 = 0; var18 < IsoCell.CellSizeInChunks; ++var18) {
+                                    var19 = this.zombieIntensity[var31 * IsoCell.CellSizeInChunks + var18] & 255;
+                                    var19 = PZMath.clamp(var19, 0, 255);
+                                    var6.ZombieIntensity[var31 + var18 * IsoCell.CellSizeInChunks] = (byte)var19;
+                                    if (var8.hasChunk(var31, var18) && !IsoMetaGrid.this.higherPriority300x300CellExists(var1.priority, (var8.getX() * 256 + var31 * 8) / 300, (var8.getY() * 256 + var18 * 8) / 300)) {
+                                       var8.getChunk(var31, var18).setZombieIntensity((byte)var19);
+                                    }
                                  }
 
-                                 ++var23;
+                                 ++var31;
                               }
                            }
 
-                           BuildingDef var24 = new BuildingDef();
-                           var13 = IsoLot.readInt(var7);
-                           var24.ID = var23;
+                           BuildingDef var30 = new BuildingDef();
+                           var18 = IsoLot.readInt(var10);
+                           var30.ID = BuildingID.makeID(var2, var3, var29);
 
-                           for(var14 = 0; var14 < var13; ++var14) {
-                              RoomDef var28 = (RoomDef)var5.Rooms.get(IsoLot.readInt(var7));
-                              var28.building = var24;
-                              if (var28.isEmptyOutside()) {
-                                 var24.emptyoutside.add(var28);
+                           for(var19 = 0; var19 < var18; ++var19) {
+                              var20 = IsoLot.readInt(var10);
+                              long var32 = RoomID.makeID(var2, var3, var20);
+                              RoomDef var33 = (RoomDef)var6.Rooms.get(var32);
+                              var33.building = var30;
+                              if (var33.isEmptyOutside()) {
+                                 var30.emptyoutside.add(var33);
                               } else {
-                                 var24.rooms.add(var28);
+                                 var30.rooms.add(var33);
                               }
                            }
 
-                           var24.CalculateBounds(this.tempRooms);
-                           var24.metaID = var24.calculateMetaID(var1, var2);
-                           var5.Buildings.add(var24);
-                           var5.BuildingByMetaID.put(var24.metaID, var24);
-                           this.Buildings.add(var24);
-                           ++var23;
+                           var30.CalculateBounds(this.tempRooms);
+                           var30.metaID = var30.calculateMetaID(var2, var3);
+                           var6.Buildings.add(var30);
+                           var6.BuildingByMetaID.put(var30.metaID, var30);
+                           ++var29;
                         }
-                     } catch (Throwable var20) {
+                     } catch (Throwable var26) {
                         try {
-                           var7.close();
-                        } catch (Throwable var19) {
-                           var20.addSuppressed(var19);
+                           var10.close();
+                        } catch (Throwable var25) {
+                           var26.addSuppressed(var25);
                         }
 
-                        throw var20;
+                        throw var26;
                      }
 
-                     var7.close();
-                  } catch (Exception var21) {
-                     DebugLog.log("ERROR loading " + var6.getAbsolutePath());
-                     ExceptionLogger.logException(var21);
+                     var10.close();
+                  } catch (Exception var27) {
+                     DebugLog.log("ERROR loading " + var7.getAbsolutePath());
+                     ExceptionLogger.logException(var27);
                   }
 
                }
@@ -1980,885 +2480,9 @@ public final class IsoMetaGrid {
       }
 
       void postLoad() {
-         IsoMetaGrid.this.Buildings.addAll(this.Buildings);
          this.Buildings.clear();
          this.sharedStrings.clear();
          this.tempRooms.clear();
-      }
-   }
-
-   public static class Zone {
-      public Double id = 0.0;
-      public int hourLastSeen = 0;
-      public int lastActionTimestamp = 0;
-      public boolean haveConstruction = false;
-      public final HashMap<String, Integer> spawnedZombies = new HashMap();
-      public String zombiesTypeToSpawn = null;
-      public Boolean spawnSpecialZombies = null;
-      public String name;
-      public String type;
-      public int x;
-      public int y;
-      public int z;
-      public int w;
-      public int h;
-      public ZoneGeometryType geometryType;
-      public final TIntArrayList points;
-      private boolean bTriangulateFailed;
-      public int polylineWidth;
-      public float[] polylineOutlinePoints;
-      public float[] triangles;
-      public float[] triangleAreas;
-      public float totalArea;
-      public int pickedXForZoneStory;
-      public int pickedYForZoneStory;
-      public RandomizedZoneStoryBase pickedRZStory;
-      private String originalName;
-      public boolean isPreferredZoneForSquare;
-      static final PolygonalMap2.LiangBarsky LIANG_BARSKY = new PolygonalMap2.LiangBarsky();
-      static final Vector2 L_lineSegmentIntersects = new Vector2();
-
-      public Zone(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
-         this.geometryType = IsoMetaGrid.ZoneGeometryType.INVALID;
-         this.points = new TIntArrayList();
-         this.bTriangulateFailed = false;
-         this.polylineWidth = 0;
-         this.totalArea = 0.0F;
-         this.isPreferredZoneForSquare = false;
-         this.id = (double)Rand.Next(9999999) + 100000.0;
-         this.originalName = var1;
-         this.name = var1;
-         this.type = var2;
-         this.x = var3;
-         this.y = var4;
-         this.z = var5;
-         this.w = var6;
-         this.h = var7;
-      }
-
-      public void setX(int var1) {
-         this.x = var1;
-      }
-
-      public void setY(int var1) {
-         this.y = var1;
-      }
-
-      public void setW(int var1) {
-         this.w = var1;
-      }
-
-      public void setH(int var1) {
-         this.h = var1;
-      }
-
-      public boolean isPoint() {
-         return this.geometryType == IsoMetaGrid.ZoneGeometryType.Point;
-      }
-
-      public boolean isPolygon() {
-         return this.geometryType == IsoMetaGrid.ZoneGeometryType.Polygon;
-      }
-
-      public boolean isPolyline() {
-         return this.geometryType == IsoMetaGrid.ZoneGeometryType.Polyline;
-      }
-
-      public boolean isRectangle() {
-         return this.geometryType == IsoMetaGrid.ZoneGeometryType.INVALID;
-      }
-
-      public void setPickedXForZoneStory(int var1) {
-         this.pickedXForZoneStory = var1;
-      }
-
-      public void setPickedYForZoneStory(int var1) {
-         this.pickedYForZoneStory = var1;
-      }
-
-      public float getHoursSinceLastSeen() {
-         return (float)GameTime.instance.getWorldAgeHours() - (float)this.hourLastSeen;
-      }
-
-      public void setHourSeenToCurrent() {
-         this.hourLastSeen = (int)GameTime.instance.getWorldAgeHours();
-      }
-
-      public void setHaveConstruction(boolean var1) {
-         this.haveConstruction = var1;
-         if (GameClient.bClient) {
-            ByteBufferWriter var2 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.ConstructedZone.doPacket(var2);
-            var2.putInt(this.x);
-            var2.putInt(this.y);
-            var2.putInt(this.z);
-            PacketTypes.PacketType.ConstructedZone.send(GameClient.connection);
-         }
-
-      }
-
-      public boolean haveCons() {
-         return this.haveConstruction;
-      }
-
-      public int getZombieDensity() {
-         IsoMetaChunk var1 = IsoWorld.instance.MetaGrid.getChunkDataFromTile(this.x, this.y);
-         return var1 != null ? var1.getUnadjustedZombieIntensity() : 0;
-      }
-
-      public boolean contains(int var1, int var2, int var3) {
-         if (var3 != this.z) {
-            return false;
-         } else if (var1 >= this.x && var1 < this.x + this.w) {
-            if (var2 >= this.y && var2 < this.y + this.h) {
-               if (this.isPoint()) {
-                  return false;
-               } else if (this.isPolyline()) {
-                  if (this.polylineWidth > 0) {
-                     this.checkPolylineOutline();
-                     return this.isPointInPolyline_WindingNumber((float)var1 + 0.5F, (float)var2 + 0.5F, 0) == IsoMetaGrid.Zone.PolygonHit.Inside;
-                  } else {
-                     return false;
-                  }
-               } else if (this.isPolygon()) {
-                  return this.isPointInPolygon_WindingNumber((float)var1 + 0.5F, (float)var2 + 0.5F, 0) == IsoMetaGrid.Zone.PolygonHit.Inside;
-               } else {
-                  return true;
-               }
-            } else {
-               return false;
-            }
-         } else {
-            return false;
-         }
-      }
-
-      public boolean intersects(int var1, int var2, int var3, int var4, int var5) {
-         if (this.z != var3) {
-            return false;
-         } else if (var1 + var4 > this.x && var1 < this.x + this.w) {
-            if (var2 + var5 > this.y && var2 < this.y + this.h) {
-               if (this.isPolygon()) {
-                  return this.polygonRectIntersect(var1, var2, var4, var5);
-               } else if (this.isPolyline()) {
-                  if (this.polylineWidth > 0) {
-                     this.checkPolylineOutline();
-                     return this.polylineOutlineRectIntersect(var1, var2, var4, var5);
-                  } else {
-                     for(int var6 = 0; var6 < this.points.size() - 2; var6 += 2) {
-                        int var7 = this.points.getQuick(var6);
-                        int var8 = this.points.getQuick(var6 + 1);
-                        int var9 = this.points.getQuick(var6 + 2);
-                        int var10 = this.points.getQuick(var6 + 3);
-                        if (LIANG_BARSKY.lineRectIntersect((float)var7, (float)var8, (float)(var9 - var7), (float)(var10 - var8), (float)var1, (float)var2, (float)(var1 + var4), (float)(var2 + var5))) {
-                           return true;
-                        }
-                     }
-
-                     return false;
-                  }
-               } else {
-                  return true;
-               }
-            } else {
-               return false;
-            }
-         } else {
-            return false;
-         }
-      }
-
-      public boolean difference(int var1, int var2, int var3, int var4, int var5, ArrayList<Zone> var6) {
-         var6.clear();
-         if (!this.intersects(var1, var2, var3, var4, var5)) {
-            return false;
-         } else if (this.isRectangle()) {
-            int var14;
-            int var15;
-            if (this.x < var1) {
-               var14 = Math.max(var2, this.y);
-               var15 = Math.min(var2 + var5, this.y + this.h);
-               var6.add(new Zone(this.name, this.type, this.x, var14, var3, var1 - this.x, var15 - var14));
-            }
-
-            if (var1 + var4 < this.x + this.w) {
-               var14 = Math.max(var2, this.y);
-               var15 = Math.min(var2 + var5, this.y + this.h);
-               var6.add(new Zone(this.name, this.type, var1 + var4, var14, var3, this.x + this.w - (var1 + var4), var15 - var14));
-            }
-
-            if (this.y < var2) {
-               var6.add(new Zone(this.name, this.type, this.x, this.y, var3, this.w, var2 - this.y));
-            }
-
-            if (var2 + var5 < this.y + this.h) {
-               var6.add(new Zone(this.name, this.type, this.x, var2 + var5, var3, this.w, this.y + this.h - (var2 + var5)));
-            }
-
-            return true;
-         } else {
-            if (this.isPolygon()) {
-               if (IsoMetaGrid.s_clipper == null) {
-                  IsoMetaGrid.s_clipper = new Clipper();
-                  IsoMetaGrid.s_clipperBuffer = ByteBuffer.allocateDirect(3072);
-               }
-
-               Clipper var7 = IsoMetaGrid.s_clipper;
-               ByteBuffer var8 = IsoMetaGrid.s_clipperBuffer;
-               var8.clear();
-
-               int var9;
-               for(var9 = 0; var9 < this.points.size(); var9 += 2) {
-                  var8.putFloat((float)this.points.getQuick(var9));
-                  var8.putFloat((float)this.points.getQuick(var9 + 1));
-               }
-
-               var7.clear();
-               var7.addPath(this.points.size() / 2, var8, false);
-               var7.clipAABB((float)var1, (float)var2, (float)(var1 + var4), (float)(var2 + var5));
-               var9 = var7.generatePolygons();
-
-               for(int var10 = 0; var10 < var9; ++var10) {
-                  var8.clear();
-                  var7.getPolygon(var10, var8);
-                  short var11 = var8.getShort();
-                  if (var11 < 3) {
-                     var8.position(var8.position() + var11 * 4 * 2);
-                  } else {
-                     Zone var12 = new Zone(this.name, this.type, this.x, this.y, this.z, this.w, this.h);
-                     var12.geometryType = IsoMetaGrid.ZoneGeometryType.Polygon;
-
-                     for(int var13 = 0; var13 < var11; ++var13) {
-                        var12.points.add((int)var8.getFloat());
-                        var12.points.add((int)var8.getFloat());
-                     }
-
-                     var6.add(var12);
-                  }
-               }
-            }
-
-            if (this.isPolyline()) {
-            }
-
-            return true;
-         }
-      }
-
-      private int pickRandomTriangle() {
-         float[] var1 = this.isPolygon() ? this.getPolygonTriangles() : (this.isPolyline() ? this.getPolylineOutlineTriangles() : null);
-         if (var1 == null) {
-            return -1;
-         } else {
-            int var2 = var1.length / 6;
-            float var3 = Rand.Next(0.0F, this.totalArea);
-            float var4 = 0.0F;
-
-            for(int var5 = 0; var5 < this.triangleAreas.length; ++var5) {
-               var4 += this.triangleAreas[var5];
-               if (var4 >= var3) {
-                  return var5;
-               }
-            }
-
-            return Rand.Next(var2);
-         }
-      }
-
-      private Vector2 pickRandomPointInTriangle(int var1, Vector2 var2) {
-         float var3 = this.triangles[var1 * 3 * 2];
-         float var4 = this.triangles[var1 * 3 * 2 + 1];
-         float var5 = this.triangles[var1 * 3 * 2 + 2];
-         float var6 = this.triangles[var1 * 3 * 2 + 3];
-         float var7 = this.triangles[var1 * 3 * 2 + 4];
-         float var8 = this.triangles[var1 * 3 * 2 + 5];
-         float var9 = Rand.Next(0.0F, 1.0F);
-         float var10 = Rand.Next(0.0F, 1.0F);
-         boolean var13 = var9 + var10 <= 1.0F;
-         float var11;
-         float var12;
-         if (var13) {
-            var11 = var9 * (var5 - var3) + var10 * (var7 - var3);
-            var12 = var9 * (var6 - var4) + var10 * (var8 - var4);
-         } else {
-            var11 = (1.0F - var9) * (var5 - var3) + (1.0F - var10) * (var7 - var3);
-            var12 = (1.0F - var9) * (var6 - var4) + (1.0F - var10) * (var8 - var4);
-         }
-
-         var11 += var3;
-         var12 += var4;
-         return var2.set(var11, var12);
-      }
-
-      public IsoGameCharacter.Location pickRandomLocation(IsoGameCharacter.Location var1) {
-         if (this.isPolygon() || this.isPolyline() && this.polylineWidth > 0) {
-            int var2 = this.pickRandomTriangle();
-            if (var2 == -1) {
-               return null;
-            } else {
-               for(int var3 = 0; var3 < 20; ++var3) {
-                  Vector2 var4 = this.pickRandomPointInTriangle(var2, BaseVehicle.allocVector2());
-                  if (this.contains((int)var4.x, (int)var4.y, this.z)) {
-                     var1.set((int)var4.x, (int)var4.y, this.z);
-                     BaseVehicle.releaseVector2(var4);
-                     return var1;
-                  }
-               }
-
-               return null;
-            }
-         } else {
-            return !this.isPoint() && !this.isPolyline() ? var1.set(Rand.Next(this.x, this.x + this.w), Rand.Next(this.y, this.y + this.h), this.z) : null;
-         }
-      }
-
-      public IsoGridSquare getRandomSquareInZone() {
-         IsoGameCharacter.Location var1 = this.pickRandomLocation((IsoGameCharacter.Location)IsoMetaGrid.TL_Location.get());
-         return var1 == null ? null : IsoWorld.instance.CurrentCell.getGridSquare(var1.x, var1.y, var1.z);
-      }
-
-      public IsoGridSquare getRandomUnseenSquareInZone() {
-         return null;
-      }
-
-      public void addSquare(IsoGridSquare var1) {
-      }
-
-      public ArrayList<IsoGridSquare> getSquares() {
-         return null;
-      }
-
-      public void removeSquare(IsoGridSquare var1) {
-      }
-
-      public String getName() {
-         return this.name;
-      }
-
-      public void setName(String var1) {
-         this.name = var1;
-      }
-
-      public String getType() {
-         return this.type;
-      }
-
-      public void setType(String var1) {
-         this.type = var1;
-      }
-
-      public int getLastActionTimestamp() {
-         return this.lastActionTimestamp;
-      }
-
-      public void setLastActionTimestamp(int var1) {
-         this.lastActionTimestamp = var1;
-      }
-
-      public int getX() {
-         return this.x;
-      }
-
-      public int getY() {
-         return this.y;
-      }
-
-      public int getZ() {
-         return this.z;
-      }
-
-      public int getHeight() {
-         return this.h;
-      }
-
-      public int getWidth() {
-         return this.w;
-      }
-
-      public float getTotalArea() {
-         if (!this.isRectangle() && !this.isPoint() && (!this.isPolyline() || this.polylineWidth > 0)) {
-            this.getPolygonTriangles();
-            this.getPolylineOutlineTriangles();
-            return this.totalArea;
-         } else {
-            return (float)(this.getWidth() * this.getHeight());
-         }
-      }
-
-      public void sendToServer() {
-         if (GameClient.bClient) {
-            GameClient.registerZone(this, true);
-         }
-
-      }
-
-      public String getOriginalName() {
-         return this.originalName;
-      }
-
-      public void setOriginalName(String var1) {
-         this.originalName = var1;
-      }
-
-      public int getClippedSegmentOfPolyline(int var1, int var2, int var3, int var4, double[] var5) {
-         if (!this.isPolyline()) {
-            return -1;
-         } else {
-            float var6 = this.polylineWidth % 2 == 0 ? 0.0F : 0.5F;
-
-            for(int var7 = 0; var7 < this.points.size() - 2; var7 += 2) {
-               int var8 = this.points.getQuick(var7);
-               int var9 = this.points.getQuick(var7 + 1);
-               int var10 = this.points.getQuick(var7 + 2);
-               int var11 = this.points.getQuick(var7 + 3);
-               if (LIANG_BARSKY.lineRectIntersect((float)var8 + var6, (float)var9 + var6, (float)(var10 - var8), (float)(var11 - var9), (float)var1, (float)var2, (float)var3, (float)var4, var5)) {
-                  return var7 / 2;
-               }
-            }
-
-            return -1;
-         }
-      }
-
-      private void checkPolylineOutline() {
-         if (this.polylineOutlinePoints == null) {
-            if (this.isPolyline()) {
-               if (this.polylineWidth > 0) {
-                  if (IsoMetaGrid.s_clipperOffset == null) {
-                     IsoMetaGrid.s_clipperOffset = new ClipperOffset();
-                     IsoMetaGrid.s_clipperBuffer = ByteBuffer.allocateDirect(3072);
-                  }
-
-                  ClipperOffset var1 = IsoMetaGrid.s_clipperOffset;
-                  ByteBuffer var2 = IsoMetaGrid.s_clipperBuffer;
-                  var1.clear();
-                  var2.clear();
-                  float var3 = this.polylineWidth % 2 == 0 ? 0.0F : 0.5F;
-
-                  int var4;
-                  int var6;
-                  for(var4 = 0; var4 < this.points.size(); var4 += 2) {
-                     int var5 = this.points.get(var4);
-                     var6 = this.points.get(var4 + 1);
-                     var2.putFloat((float)var5 + var3);
-                     var2.putFloat((float)var6 + var3);
-                  }
-
-                  var2.flip();
-                  var1.addPath(this.points.size() / 2, var2, ClipperOffset.JoinType.jtMiter.ordinal(), ClipperOffset.EndType.etOpenButt.ordinal());
-                  var1.execute((double)((float)this.polylineWidth / 2.0F));
-                  var4 = var1.getPolygonCount();
-                  if (var4 < 1) {
-                     DebugLog.General.warn("Failed to generate polyline outline");
-                  } else {
-                     var2.clear();
-                     var1.getPolygon(0, var2);
-                     short var7 = var2.getShort();
-                     this.polylineOutlinePoints = new float[var7 * 2];
-
-                     for(var6 = 0; var6 < var7; ++var6) {
-                        this.polylineOutlinePoints[var6 * 2] = var2.getFloat();
-                        this.polylineOutlinePoints[var6 * 2 + 1] = var2.getFloat();
-                     }
-
-                  }
-               }
-            }
-         }
-      }
-
-      float isLeft(float var1, float var2, float var3, float var4, float var5, float var6) {
-         return (var3 - var1) * (var6 - var2) - (var5 - var1) * (var4 - var2);
-      }
-
-      PolygonHit isPointInPolygon_WindingNumber(float var1, float var2, int var3) {
-         int var4 = 0;
-
-         for(int var5 = 0; var5 < this.points.size(); var5 += 2) {
-            int var6 = this.points.getQuick(var5);
-            int var7 = this.points.getQuick(var5 + 1);
-            int var8 = this.points.getQuick((var5 + 2) % this.points.size());
-            int var9 = this.points.getQuick((var5 + 3) % this.points.size());
-            if ((float)var7 <= var2) {
-               if ((float)var9 > var2 && this.isLeft((float)var6, (float)var7, (float)var8, (float)var9, var1, var2) > 0.0F) {
-                  ++var4;
-               }
-            } else if ((float)var9 <= var2 && this.isLeft((float)var6, (float)var7, (float)var8, (float)var9, var1, var2) < 0.0F) {
-               --var4;
-            }
-         }
-
-         return var4 == 0 ? IsoMetaGrid.Zone.PolygonHit.Outside : IsoMetaGrid.Zone.PolygonHit.Inside;
-      }
-
-      PolygonHit isPointInPolyline_WindingNumber(float var1, float var2, int var3) {
-         int var4 = 0;
-         float[] var5 = this.polylineOutlinePoints;
-         if (var5 == null) {
-            return IsoMetaGrid.Zone.PolygonHit.Outside;
-         } else {
-            for(int var6 = 0; var6 < var5.length; var6 += 2) {
-               float var7 = var5[var6];
-               float var8 = var5[var6 + 1];
-               float var9 = var5[(var6 + 2) % var5.length];
-               float var10 = var5[(var6 + 3) % var5.length];
-               if (var8 <= var2) {
-                  if (var10 > var2 && this.isLeft(var7, var8, var9, var10, var1, var2) > 0.0F) {
-                     ++var4;
-                  }
-               } else if (var10 <= var2 && this.isLeft(var7, var8, var9, var10, var1, var2) < 0.0F) {
-                  --var4;
-               }
-            }
-
-            return var4 == 0 ? IsoMetaGrid.Zone.PolygonHit.Outside : IsoMetaGrid.Zone.PolygonHit.Inside;
-         }
-      }
-
-      boolean polygonRectIntersect(int var1, int var2, int var3, int var4) {
-         if (this.x >= var1 && this.x + this.w <= var1 + var3 && this.y >= var2 && this.y + this.h <= var2 + var4) {
-            return true;
-         } else {
-            return this.lineSegmentIntersects((float)var1, (float)var2, (float)(var1 + var3), (float)var2) || this.lineSegmentIntersects((float)(var1 + var3), (float)var2, (float)(var1 + var3), (float)(var2 + var4)) || this.lineSegmentIntersects((float)(var1 + var3), (float)(var2 + var4), (float)var1, (float)(var2 + var4)) || this.lineSegmentIntersects((float)var1, (float)(var2 + var4), (float)var1, (float)var2);
-         }
-      }
-
-      boolean lineSegmentIntersects(float var1, float var2, float var3, float var4) {
-         L_lineSegmentIntersects.set(var3 - var1, var4 - var2);
-         float var5 = L_lineSegmentIntersects.getLength();
-         L_lineSegmentIntersects.normalize();
-         float var6 = L_lineSegmentIntersects.x;
-         float var7 = L_lineSegmentIntersects.y;
-
-         for(int var8 = 0; var8 < this.points.size(); var8 += 2) {
-            float var9 = (float)this.points.getQuick(var8);
-            float var10 = (float)this.points.getQuick(var8 + 1);
-            float var11 = (float)this.points.getQuick((var8 + 2) % this.points.size());
-            float var12 = (float)this.points.getQuick((var8 + 3) % this.points.size());
-            float var17 = var1 - var9;
-            float var18 = var2 - var10;
-            float var19 = var11 - var9;
-            float var20 = var12 - var10;
-            float var21 = 1.0F / (var20 * var6 - var19 * var7);
-            float var22 = (var19 * var18 - var20 * var17) * var21;
-            if (var22 >= 0.0F && var22 <= var5) {
-               float var23 = (var18 * var6 - var17 * var7) * var21;
-               if (var23 >= 0.0F && var23 <= 1.0F) {
-                  return true;
-               }
-            }
-         }
-
-         if (this.isPointInPolygon_WindingNumber((var1 + var3) / 2.0F, (var2 + var4) / 2.0F, 0) != IsoMetaGrid.Zone.PolygonHit.Outside) {
-            return true;
-         } else {
-            return false;
-         }
-      }
-
-      boolean polylineOutlineRectIntersect(int var1, int var2, int var3, int var4) {
-         if (this.polylineOutlinePoints == null) {
-            return false;
-         } else if (this.x >= var1 && this.x + this.w <= var1 + var3 && this.y >= var2 && this.y + this.h <= var2 + var4) {
-            return true;
-         } else {
-            return this.polylineOutlineSegmentIntersects((float)var1, (float)var2, (float)(var1 + var3), (float)var2) || this.polylineOutlineSegmentIntersects((float)(var1 + var3), (float)var2, (float)(var1 + var3), (float)(var2 + var4)) || this.polylineOutlineSegmentIntersects((float)(var1 + var3), (float)(var2 + var4), (float)var1, (float)(var2 + var4)) || this.polylineOutlineSegmentIntersects((float)var1, (float)(var2 + var4), (float)var1, (float)var2);
-         }
-      }
-
-      boolean polylineOutlineSegmentIntersects(float var1, float var2, float var3, float var4) {
-         L_lineSegmentIntersects.set(var3 - var1, var4 - var2);
-         float var5 = L_lineSegmentIntersects.getLength();
-         L_lineSegmentIntersects.normalize();
-         float var6 = L_lineSegmentIntersects.x;
-         float var7 = L_lineSegmentIntersects.y;
-         float[] var8 = this.polylineOutlinePoints;
-
-         for(int var9 = 0; var9 < var8.length; var9 += 2) {
-            float var10 = var8[var9];
-            float var11 = var8[var9 + 1];
-            float var12 = var8[(var9 + 2) % var8.length];
-            float var13 = var8[(var9 + 3) % var8.length];
-            float var18 = var1 - var10;
-            float var19 = var2 - var11;
-            float var20 = var12 - var10;
-            float var21 = var13 - var11;
-            float var22 = 1.0F / (var21 * var6 - var20 * var7);
-            float var23 = (var20 * var19 - var21 * var18) * var22;
-            if (var23 >= 0.0F && var23 <= var5) {
-               float var24 = (var19 * var6 - var18 * var7) * var22;
-               if (var24 >= 0.0F && var24 <= 1.0F) {
-                  return true;
-               }
-            }
-         }
-
-         if (this.isPointInPolyline_WindingNumber((var1 + var3) / 2.0F, (var2 + var4) / 2.0F, 0) != IsoMetaGrid.Zone.PolygonHit.Outside) {
-            return true;
-         } else {
-            return false;
-         }
-      }
-
-      private boolean isClockwise() {
-         if (!this.isPolygon()) {
-            return false;
-         } else {
-            float var1 = 0.0F;
-
-            for(int var2 = 0; var2 < this.points.size(); var2 += 2) {
-               int var3 = this.points.getQuick(var2);
-               int var4 = this.points.getQuick(var2 + 1);
-               int var5 = this.points.getQuick((var2 + 2) % this.points.size());
-               int var6 = this.points.getQuick((var2 + 3) % this.points.size());
-               var1 += (float)((var5 - var3) * (var6 + var4));
-            }
-
-            return (double)var1 > 0.0;
-         }
-      }
-
-      public float[] getPolygonTriangles() {
-         if (this.triangles != null) {
-            return this.triangles;
-         } else if (this.bTriangulateFailed) {
-            return null;
-         } else if (!this.isPolygon()) {
-            return null;
-         } else {
-            if (IsoMetaGrid.s_clipper == null) {
-               IsoMetaGrid.s_clipper = new Clipper();
-               IsoMetaGrid.s_clipperBuffer = ByteBuffer.allocateDirect(3072);
-            }
-
-            Clipper var1 = IsoMetaGrid.s_clipper;
-            ByteBuffer var2 = IsoMetaGrid.s_clipperBuffer;
-            var2.clear();
-            int var3;
-            if (this.isClockwise()) {
-               for(var3 = this.points.size() - 1; var3 > 0; var3 -= 2) {
-                  var2.putFloat((float)this.points.getQuick(var3 - 1));
-                  var2.putFloat((float)this.points.getQuick(var3));
-               }
-            } else {
-               for(var3 = 0; var3 < this.points.size(); var3 += 2) {
-                  var2.putFloat((float)this.points.getQuick(var3));
-                  var2.putFloat((float)this.points.getQuick(var3 + 1));
-               }
-            }
-
-            var1.clear();
-            var1.addPath(this.points.size() / 2, var2, false);
-            var3 = var1.generatePolygons();
-            if (var3 < 1) {
-               this.bTriangulateFailed = true;
-               return null;
-            } else {
-               var2.clear();
-               int var4 = var1.triangulate(0, var2);
-               this.triangles = new float[var4 * 2];
-
-               for(int var5 = 0; var5 < var4; ++var5) {
-                  this.triangles[var5 * 2] = var2.getFloat();
-                  this.triangles[var5 * 2 + 1] = var2.getFloat();
-               }
-
-               this.initTriangleAreas();
-               return this.triangles;
-            }
-         }
-      }
-
-      private float triangleArea(float var1, float var2, float var3, float var4, float var5, float var6) {
-         float var7 = Vector2f.length(var3 - var1, var4 - var2);
-         float var8 = Vector2f.length(var5 - var3, var6 - var4);
-         float var9 = Vector2f.length(var1 - var5, var2 - var6);
-         float var10 = (var7 + var8 + var9) / 2.0F;
-         return (float)Math.sqrt((double)(var10 * (var10 - var7) * (var10 - var8) * (var10 - var9)));
-      }
-
-      private void initTriangleAreas() {
-         int var1 = this.triangles.length / 6;
-         this.triangleAreas = new float[var1];
-         this.totalArea = 0.0F;
-
-         for(int var2 = 0; var2 < this.triangles.length; var2 += 6) {
-            float var3 = this.triangles[var2];
-            float var4 = this.triangles[var2 + 1];
-            float var5 = this.triangles[var2 + 2];
-            float var6 = this.triangles[var2 + 3];
-            float var7 = this.triangles[var2 + 4];
-            float var8 = this.triangles[var2 + 5];
-            float var9 = this.triangleArea(var3, var4, var5, var6, var7, var8);
-            this.triangleAreas[var2 / 6] = var9;
-            this.totalArea += var9;
-         }
-
-      }
-
-      public float[] getPolylineOutlineTriangles() {
-         if (this.triangles != null) {
-            return this.triangles;
-         } else if (this.isPolyline() && this.polylineWidth > 0) {
-            if (this.bTriangulateFailed) {
-               return null;
-            } else {
-               this.checkPolylineOutline();
-               float[] var1 = this.polylineOutlinePoints;
-               if (var1 == null) {
-                  this.bTriangulateFailed = true;
-                  return null;
-               } else {
-                  if (IsoMetaGrid.s_clipper == null) {
-                     IsoMetaGrid.s_clipper = new Clipper();
-                     IsoMetaGrid.s_clipperBuffer = ByteBuffer.allocateDirect(3072);
-                  }
-
-                  Clipper var2 = IsoMetaGrid.s_clipper;
-                  ByteBuffer var3 = IsoMetaGrid.s_clipperBuffer;
-                  var3.clear();
-                  int var4;
-                  if (this.isClockwise()) {
-                     for(var4 = var1.length - 1; var4 > 0; var4 -= 2) {
-                        var3.putFloat(var1[var4 - 1]);
-                        var3.putFloat(var1[var4]);
-                     }
-                  } else {
-                     for(var4 = 0; var4 < var1.length; var4 += 2) {
-                        var3.putFloat(var1[var4]);
-                        var3.putFloat(var1[var4 + 1]);
-                     }
-                  }
-
-                  var2.clear();
-                  var2.addPath(var1.length / 2, var3, false);
-                  var4 = var2.generatePolygons();
-                  if (var4 < 1) {
-                     this.bTriangulateFailed = true;
-                     return null;
-                  } else {
-                     var3.clear();
-                     int var5 = var2.triangulate(0, var3);
-                     this.triangles = new float[var5 * 2];
-
-                     for(int var6 = 0; var6 < var5; ++var6) {
-                        this.triangles[var6 * 2] = var3.getFloat();
-                        this.triangles[var6 * 2 + 1] = var3.getFloat();
-                     }
-
-                     this.initTriangleAreas();
-                     return this.triangles;
-                  }
-               }
-            }
-         } else {
-            return null;
-         }
-      }
-
-      public float getPolylineLength() {
-         if (this.isPolyline() && !this.points.isEmpty()) {
-            float var1 = 0.0F;
-
-            for(int var2 = 0; var2 < this.points.size() - 2; var2 += 2) {
-               int var3 = this.points.get(var2);
-               int var4 = this.points.get(var2 + 1);
-               int var5 = this.points.get(var2 + 2);
-               int var6 = this.points.get(var2 + 3);
-               var1 += Vector2f.length((float)(var5 - var3), (float)(var6 - var4));
-            }
-
-            return var1;
-         } else {
-            return 0.0F;
-         }
-      }
-
-      public void Dispose() {
-         this.pickedRZStory = null;
-         this.points.clear();
-         this.polylineOutlinePoints = null;
-         this.spawnedZombies.clear();
-         this.triangles = null;
-      }
-
-      private static enum PolygonHit {
-         OnEdge,
-         Inside,
-         Outside;
-
-         private PolygonHit() {
-         }
-      }
-   }
-
-   public static final class VehicleZone extends Zone {
-      public static final short VZF_FaceDirection = 1;
-      public IsoDirections dir;
-      public short flags;
-
-      public VehicleZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
-         super(var1, var2, var3, var4, var5, var6, var7);
-         this.dir = IsoDirections.Max;
-         this.flags = 0;
-         if (var8 != null) {
-            Object var9 = var8.rawget("Direction");
-            if (var9 instanceof String) {
-               this.dir = IsoDirections.valueOf((String)var9);
-            }
-
-            var9 = var8.rawget("FaceDirection");
-            if (var9 == Boolean.TRUE) {
-               this.flags = (short)(this.flags | 1);
-            }
-         }
-
-      }
-
-      public boolean isFaceDirection() {
-         return (this.flags & 1) != 0;
-      }
-   }
-
-   public static enum ZoneGeometryType {
-      INVALID,
-      Point,
-      Polyline,
-      Polygon;
-
-      private ZoneGeometryType() {
-      }
-   }
-
-   public static final class RoomTone {
-      public int x;
-      public int y;
-      public int z;
-      public String enumValue;
-      public boolean entireBuilding;
-
-      public RoomTone() {
-      }
-   }
-
-   public static final class Trigger {
-      public BuildingDef def;
-      public int triggerRange;
-      public int zombieExclusionRange;
-      public String type;
-      public boolean triggered = false;
-      public KahluaTable data;
-
-      public Trigger(BuildingDef var1, int var2, int var3, String var4) {
-         this.def = var1;
-         this.triggerRange = var2;
-         this.zombieExclusionRange = var3;
-         this.type = var4;
-         this.data = LuaManager.platform.newTable();
-      }
-
-      public KahluaTable getModData() {
-         return this.data;
       }
    }
 }

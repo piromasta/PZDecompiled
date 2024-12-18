@@ -8,7 +8,7 @@ public final class WorldMapFeature {
    public final ArrayList<WorldMapGeometry> m_geometries = new ArrayList();
    public WorldMapProperties m_properties = null;
 
-   WorldMapFeature(WorldMapCell var1) {
+   public WorldMapFeature(WorldMapCell var1) {
       this.m_cell = var1;
    }
 

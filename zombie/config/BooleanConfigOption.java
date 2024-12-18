@@ -28,7 +28,8 @@ public class BooleanConfigOption extends ConfigOption {
       if (this.isValidString(var1)) {
          this.setValue(var1.equalsIgnoreCase("true") || var1.equalsIgnoreCase("1"));
       } else {
-         DebugLog.log("ERROR BooleanConfigOption.parse() \"" + this.name + "\" string=" + var1 + "\"");
+         String var10000 = this.getName();
+         DebugLog.log("ERROR BooleanConfigOption.parse() \"" + var10000 + "\" string=" + var1 + "\"");
       }
 
    }
@@ -70,5 +71,11 @@ public class BooleanConfigOption extends ConfigOption {
 
    public String getTooltip() {
       return String.valueOf(this.value);
+   }
+
+   public ConfigOption makeCopy() {
+      BooleanConfigOption var1 = new BooleanConfigOption(this.name, this.defaultValue);
+      var1.value = this.value;
+      return var1;
    }
 }

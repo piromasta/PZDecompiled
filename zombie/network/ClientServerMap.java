@@ -1,28 +1,28 @@
 package zombie.network;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.function.Consumer;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
-import zombie.core.network.ByteBufferWriter;
+import zombie.core.math.PZMath;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.textures.Texture;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
+import zombie.network.packets.INetworkPacket;
 
 public final class ClientServerMap {
-   private static final int ChunksPerServerCell = 5;
-   private static final int SquaresPerServerCell = 50;
-   int playerIndex;
-   int centerX;
-   int centerY;
+   private static final int ChunksPerServerCell = 8;
+   private static final int SquaresPerServerCell = 64;
+   public int playerIndex;
+   public int centerX;
+   public int centerY;
    int chunkGridWidth;
-   int width;
-   boolean[] loaded;
+   public int width;
+   public boolean[] loaded;
    private static boolean[] isLoaded;
    private static Texture trafficCone;
 
@@ -31,8 +31,8 @@ public final class ClientServerMap {
       this.centerX = var2;
       this.centerY = var3;
       this.chunkGridWidth = var4;
-      this.width = (var4 - 1) * 10 / 50;
-      if ((var4 - 1) * 10 % 50 != 0) {
+      this.width = (var4 - 1) * 8 / 64;
+      if ((var4 - 1) * 8 % 64 != 0) {
          ++this.width;
       }
 
@@ -41,11 +41,11 @@ public final class ClientServerMap {
    }
 
    public int getMinX() {
-      return (this.centerX / 10 - this.chunkGridWidth / 2) / 5;
+      return (this.centerX / 8 - this.chunkGridWidth / 2) / 8;
    }
 
    public int getMinY() {
-      return (this.centerY / 10 - this.chunkGridWidth / 2) / 5;
+      return (this.centerY / 8 - this.chunkGridWidth / 2) / 8;
    }
 
    public int getMaxX() {
@@ -102,8 +102,8 @@ public final class ClientServerMap {
          for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
             ClientServerMap var3 = GameClient.loadedCells[var2];
             if (var3 != null) {
-               int var4 = var0 / 5 - var3.getMinX();
-               int var5 = var1 / 5 - var3.getMinY();
+               int var4 = var0 / 8 - var3.getMinX();
+               int var5 = var1 / 8 - var3.getMinY();
                if (var3.isValidCell(var4, var5) && var3.loaded[var4 + var5 * var3.width]) {
                   return true;
                }
@@ -122,7 +122,7 @@ public final class ClientServerMap {
          if (var2 != null) {
             IsoPlayer var3 = var0.players[var1];
             if (var3 != null) {
-               if (var2.setPlayerPosition((int)var3.x, (int)var3.y)) {
+               if (var2.setPlayerPosition(PZMath.fastfloor(var3.getX()), PZMath.fastfloor(var3.getY()))) {
                   var2.sendPacket(var0);
                }
 
@@ -133,41 +133,7 @@ public final class ClientServerMap {
 
    public void sendPacket(UdpConnection var1) {
       if (GameServer.bServer) {
-         ByteBufferWriter var2 = var1.startPacket();
-         PacketTypes.PacketType.ServerMap.doPacket(var2);
-         var2.putByte((byte)this.playerIndex);
-         var2.putInt(this.centerX);
-         var2.putInt(this.centerY);
-
-         for(int var3 = 0; var3 < this.width; ++var3) {
-            for(int var4 = 0; var4 < this.width; ++var4) {
-               var2.putBoolean(this.loaded[var4 + var3 * this.width]);
-            }
-         }
-
-         PacketTypes.PacketType.ServerMap.send(var1);
-      }
-   }
-
-   public static void receivePacket(ByteBuffer var0) {
-      if (GameClient.bClient) {
-         byte var1 = var0.get();
-         int var2 = var0.getInt();
-         int var3 = var0.getInt();
-         ClientServerMap var4 = GameClient.loadedCells[var1];
-         if (var4 == null) {
-            var4 = GameClient.loadedCells[var1] = new ClientServerMap(var1, var2, var3, IsoChunkMap.ChunkGridWidth);
-         }
-
-         var4.centerX = var2;
-         var4.centerY = var3;
-
-         for(int var5 = 0; var5 < var4.width; ++var5) {
-            for(int var6 = 0; var6 < var4.width; ++var6) {
-               var4.loaded[var6 + var5 * var4.width] = var0.get() == 1;
-            }
-         }
-
+         INetworkPacket.send(var1, PacketTypes.PacketType.ServerMap, this);
       }
    }
 
@@ -176,7 +142,7 @@ public final class ClientServerMap {
          IsoChunkMap var1 = IsoWorld.instance.CurrentCell.getChunkMap(var0);
          if (var1 != null && !var1.ignore) {
             int var2 = Core.TileScale;
-            byte var3 = 10;
+            byte var3 = 8;
             float var4 = 0.1F;
             float var5 = 0.1F;
             float var6 = 0.1F;

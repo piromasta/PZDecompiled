@@ -1,20 +1,152 @@
 package zombie.iso.objects;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.inventory.InventoryItem;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.objects.interfaces.BarricadeAble;
+import zombie.iso.objects.interfaces.Thumpable;
+import zombie.iso.sprite.IsoSprite;
+import zombie.network.GameClient;
 import zombie.network.GameServer;
 
-public class IsoWindowFrame {
-   public IsoWindowFrame() {
+public class IsoWindowFrame extends IsoObject implements BarricadeAble {
+   private boolean north = false;
+
+   public IsoWindowFrame(IsoCell var1) {
+      super(var1);
+   }
+
+   public IsoWindowFrame(IsoCell var1, IsoGridSquare var2, IsoSprite var3, boolean var4) {
+      super(var1, var2, var3);
+      this.north = var4;
+   }
+
+   public String getObjectName() {
+      return "IsoWindowFrame";
+   }
+
+   public boolean haveSheetRope() {
+      return IsoWindow.isTopOfSheetRopeHere(this.getSquare(), this.getNorth());
+   }
+
+   public int countAddSheetRope() {
+      return countAddSheetRope(this);
+   }
+
+   public boolean canAddSheetRope() {
+      return !this.canClimbThrough((IsoGameCharacter)null) ? false : canAddSheetRope(this);
+   }
+
+   public boolean addSheetRope(IsoPlayer var1, String var2) {
+      return addSheetRope(this, var1, var2);
+   }
+
+   public boolean removeSheetRope(IsoPlayer var1) {
+      return removeSheetRope(this, var1);
+   }
+
+   public Thumpable getThumpableFor(IsoGameCharacter var1) {
+      IsoWindow var2 = this.getWindow();
+      if (var2 != null) {
+         return var2.getThumpableFor(var1);
+      } else {
+         IsoBarricade var3 = this.getBarricadeForCharacter(var1);
+         if (var3 != null) {
+            return var3;
+         } else {
+            var3 = this.getBarricadeOppositeCharacter(var1);
+            return var3 != null ? var3 : null;
+         }
+      }
+   }
+
+   public boolean isBarricaded() {
+      IsoBarricade var1 = this.getBarricadeOnSameSquare();
+      if (var1 == null) {
+         var1 = this.getBarricadeOnOppositeSquare();
+      }
+
+      return var1 != null;
+   }
+
+   public boolean isBarricadeAllowed() {
+      return this.getWindow() == null;
+   }
+
+   public IsoBarricade getBarricadeOnSameSquare() {
+      return this.hasWindow() ? null : IsoBarricade.GetBarricadeOnSquare(this.square, this.getNorth() ? IsoDirections.N : IsoDirections.W);
+   }
+
+   public IsoBarricade getBarricadeOnOppositeSquare() {
+      return this.hasWindow() ? null : IsoBarricade.GetBarricadeOnSquare(this.getOppositeSquare(), this.getNorth() ? IsoDirections.S : IsoDirections.E);
+   }
+
+   public IsoBarricade getBarricadeForCharacter(IsoGameCharacter var1) {
+      return this.hasWindow() ? null : IsoBarricade.GetBarricadeForCharacter(this, var1);
+   }
+
+   public IsoBarricade getBarricadeOppositeCharacter(IsoGameCharacter var1) {
+      return this.hasWindow() ? null : IsoBarricade.GetBarricadeOppositeCharacter(this, var1);
+   }
+
+   public IsoGridSquare getOppositeSquare() {
+      return this.getSquare() == null ? null : this.getSquare().getAdjacentSquare(this.getNorth() ? IsoDirections.N : IsoDirections.W);
+   }
+
+   public boolean getNorth() {
+      return this.north;
+   }
+
+   public void save(ByteBuffer var1, boolean var2) throws IOException {
+      super.save(var1, var2);
+      var1.put((byte)(this.north ? 1 : 0));
+   }
+
+   public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
+      super.load(var1, var2, var3);
+      this.north = var1.get() == 1;
+   }
+
+   public IsoWindow getWindow() {
+      return this.getSquare() == null ? null : this.getSquare().getWindow(this.getNorth());
+   }
+
+   public boolean hasWindow() {
+      return this.getWindow() != null;
+   }
+
+   public boolean canClimbThrough(IsoGameCharacter var1) {
+      return canClimbThrough(this, var1);
+   }
+
+   public IsoCurtain getCurtain() {
+      return getCurtain(this);
+   }
+
+   public IsoCurtain HasCurtains() {
+      return this.getCurtain();
+   }
+
+   public IsoGridSquare getAddSheetSquare(IsoGameCharacter var1) {
+      return getAddSheetSquare(this, var1);
+   }
+
+   public void addSheet(IsoGameCharacter var1) {
+      addSheet(this, var1);
    }
 
    private static Direction getDirection(IsoObject var0) {
-      if (!(var0 instanceof IsoWindow) && !(var0 instanceof IsoThumpable)) {
+      if (var0 instanceof IsoWindowFrame var1) {
+         return var1.getNorth() ? IsoWindowFrame.Direction.NORTH : IsoWindowFrame.Direction.WEST;
+      } else if (!(var0 instanceof IsoWindow) && !(var0 instanceof IsoThumpable)) {
          if (var0 != null && var0.getProperties() != null && var0.getObjectIndex() != -1) {
             if (var0.getProperties().Is(IsoFlagType.WindowN)) {
                return IsoWindowFrame.Direction.NORTH;
@@ -164,13 +296,16 @@ public class IsoWindowFrame {
                var6 += 4;
                IsoCurtain var7 = new IsoCurtain(var0.getCell(), var4, "fixtures_windows_curtains_01_" + var6, var3);
                var4.AddSpecialTileObject(var7);
+               if (!GameClient.bClient) {
+                  InventoryItem var8 = var1.getInventory().FindAndReturn("Sheet");
+                  var1.getInventory().Remove(var8);
+                  if (GameServer.bServer) {
+                     GameServer.sendRemoveItemFromContainer(var1.getInventory(), var8);
+                  }
+               }
+
                if (GameServer.bServer) {
                   var7.transmitCompleteItemToClients();
-                  if (var1 != null) {
-                     var1.sendObjectChange("removeOneOf", new Object[]{"type", "Sheet"});
-                  }
-               } else if (var1 != null) {
-                  var1.getInventory().RemoveOneOf("Sheet");
                }
 
             }
@@ -189,9 +324,16 @@ public class IsoWindowFrame {
          if (var3 != null && var3.isBarricaded()) {
             return false;
          } else {
+            if (var0 instanceof IsoWindowFrame) {
+               IsoWindowFrame var4 = (IsoWindowFrame)var0;
+               if (var4.isBarricaded()) {
+                  return false;
+               }
+            }
+
             if (var1 != null) {
-               IsoGridSquare var4 = var2 == IsoWindowFrame.Direction.NORTH ? var0.getSquare().nav[IsoDirections.N.index()] : var0.getSquare().nav[IsoDirections.W.index()];
-               if (!IsoWindow.canClimbThroughHelper(var1, var0.getSquare(), var4, var2 == IsoWindowFrame.Direction.NORTH)) {
+               IsoGridSquare var5 = var2 == IsoWindowFrame.Direction.NORTH ? var0.getSquare().nav[IsoDirections.N.index()] : var0.getSquare().nav[IsoDirections.W.index()];
+               if (!IsoWindow.canClimbThroughHelper(var1, var0.getSquare(), var5, var2 == IsoWindowFrame.Direction.NORTH)) {
                   return false;
                }
             }

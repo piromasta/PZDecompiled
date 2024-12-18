@@ -1,7 +1,9 @@
 package zombie.ui;
 
+import zombie.SoundManager;
 import zombie.core.textures.Texture;
 import zombie.network.GameServer;
+import zombie.util.StringUtils;
 
 public class HUDButton extends UIElement {
    boolean clicked = false;
@@ -14,6 +16,7 @@ public class HUDButton extends UIElement {
    UIEventHandler handler;
    public float notclickedAlpha = 0.85F;
    public float clickedalpha = 1.0F;
+   String activateSoundName = "UIActivateButton";
 
    public HUDButton(String var1, double var2, double var4, String var6, String var7, UIElement var8) {
       if (!GameServer.bServer) {
@@ -99,16 +102,15 @@ public class HUDButton extends UIElement {
 
    public void onMouseMoveOutside(double var1, double var3) {
       this.clicked = false;
-      if (this.display != null) {
-         if (!this.name.equals(this.display.getClickedValue())) {
-            this.mouseOver = false;
-         }
-
-      }
+      this.mouseOver = false;
    }
 
    public Boolean onMouseUp(double var1, double var3) {
       if (this.clicked) {
+         if (!StringUtils.isNullOrWhitespace(this.activateSoundName)) {
+            SoundManager.instance.playUISound(this.activateSoundName);
+         }
+
          if (this.display != null) {
             this.display.ButtonClicked(this.name);
          } else if (this.handler != null) {

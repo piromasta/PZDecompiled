@@ -6,4 +6,6 @@ public interface IDebugOption {
    IDebugOptionGroup getParent();
 
    void setParent(IDebugOptionGroup var1);
+
+   void onFullPathChanged();
 }

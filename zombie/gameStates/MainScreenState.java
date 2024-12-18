@@ -1,9 +1,8 @@
 package zombie.gameStates;
 
+import com.sun.management.OperatingSystemMXBean;
 import fmod.fmod.Audio;
-import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
-import java.awt.image.ImageObserver;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -11,12 +10,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
+import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
 import javax.imageio.ImageIO;
 import org.lwjgl.glfw.GLFWImage;
@@ -27,6 +29,7 @@ import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.IndieGL;
 import zombie.SoundManager;
+import zombie.SystemDisabler;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.asset.AssetManagers;
@@ -35,14 +38,18 @@ import zombie.core.BoxedStaticValues;
 import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.ProxyPrintStream;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZipLogs;
 import zombie.core.opengl.RenderThread;
+import zombie.core.physics.PhysicsShape;
+import zombie.core.physics.PhysicsShapeAssetManager;
 import zombie.core.raknet.VoiceManager;
+import zombie.core.random.Rand;
+import zombie.core.random.RandLua;
+import zombie.core.random.RandStandard;
 import zombie.core.skinnedmodel.advancedanimation.AnimNodeAsset;
 import zombie.core.skinnedmodel.advancedanimation.AnimNodeAssetManager;
 import zombie.core.skinnedmodel.model.AiSceneAsset;
@@ -56,14 +63,25 @@ import zombie.core.skinnedmodel.model.ModelMesh;
 import zombie.core.skinnedmodel.model.jassimp.JAssImpImporter;
 import zombie.core.skinnedmodel.population.ClothingItem;
 import zombie.core.skinnedmodel.population.ClothingItemAssetManager;
+import zombie.core.textures.AnimatedTexture;
+import zombie.core.textures.AnimatedTextureID;
+import zombie.core.textures.AnimatedTextureIDAssetManager;
+import zombie.core.textures.AnimatedTextures;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureAssetManager;
 import zombie.core.textures.TextureID;
 import zombie.core.textures.TextureIDAssetManager;
+import zombie.core.textures.VideoTexture;
+import zombie.core.znet.ServerBrowser;
+import zombie.core.znet.SteamUtils;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
+import zombie.entity.components.attributes.Attribute;
 import zombie.input.JoypadManager;
 import zombie.modding.ActiveMods;
+import zombie.network.CustomizationManager;
+import zombie.network.GameClient;
+import zombie.ui.ScreenFader;
 import zombie.ui.TextManager;
 import zombie.ui.UIFont;
 import zombie.ui.UIManager;
@@ -83,6 +101,10 @@ public final class MainScreenState extends GameState {
    int lastH;
    int lastW;
    ScreenElement Logo;
+   private ScreenFader screenFader = null;
+   private VideoTexture videoTex = null;
+   private VideoTexture videoTex2 = null;
+   private static final long MIN_MEM_VIDEO_EFFECTS = 8589934592L;
    public static MainScreenState instance;
    public boolean showLogo = false;
    private float FadeAlpha = 0.0F;
@@ -94,6 +116,8 @@ public final class MainScreenState extends GameState {
    public float lightningFullTimer = 0.0F;
    public float lightningCount = 0.0F;
    public float lightOffCount = 0.0F;
+   private AnimatedTexture animatedTexture;
+   static final int[] customBackgroundBounds = new int[4];
    private ConnectToServerState connectToServerState;
    private static GLFWImage windowIcon1;
    private static GLFWImage windowIcon2;
@@ -114,110 +138,155 @@ public final class MainScreenState extends GameState {
 
       try {
          String var10000 = ZomboidFileSystem.instance.getCacheDir();
-         String var12 = var10000 + File.separator + "console.txt";
-         FileOutputStream var2 = new FileOutputStream(var12);
+         String var13 = var10000 + File.separator + "console.txt";
+         FileOutputStream var2 = new FileOutputStream(var13);
          PrintStream var3 = new PrintStream(var2, true);
          System.setOut(new ProxyPrintStream(System.out, var3));
          System.setErr(new ProxyPrintStream(System.err, var3));
-      } catch (FileNotFoundException var10) {
-         var10.printStackTrace();
+      } catch (FileNotFoundException var11) {
+         var11.printStackTrace();
       }
 
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       DebugLog.init();
       LoggerManager.init();
-      DebugLog.log("cachedir set to \"" + ZomboidFileSystem.instance.getCacheDir() + "\"");
       JAssImpImporter.Init();
-      SimpleDateFormat var13 = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
-      System.out.println(var13.format(Calendar.getInstance().getTime()));
-      System.out.println("cachedir is \"" + ZomboidFileSystem.instance.getCacheDir() + "\"");
-      System.out.println("LogFileDir is \"" + LoggerManager.getLogsDir() + "\"");
+      SimpleDateFormat var14 = new SimpleDateFormat("dd-MM-yyyy HH:mm:ss");
+      System.out.println(var14.format(Calendar.getInstance().getTime()));
+      DebugLog.DetailedInfo.trace("cachedir is \"" + ZomboidFileSystem.instance.getCacheDir() + "\"");
+      DebugLog.DetailedInfo.trace("LogFileDir is \"" + LoggerManager.getLogsDir() + "\"");
       printSpecs();
-      System.getProperties().list(System.out);
+      DebugLog.General.debugln("-- listing properties --");
+      Iterator var15 = System.getProperties().entrySet().iterator();
+
+      while(var15.hasNext()) {
+         Map.Entry var17 = (Map.Entry)var15.next();
+         String var4 = (String)var17.getKey();
+         String var5 = (String)var17.getValue();
+         if (var5.length() > 40) {
+            var5 = var5.substring(0, 37) + "...";
+         }
+
+         if (!var4.contains("user") && !var4.contains("path") && !var4.contains("dir")) {
+            DebugLog.General.println(var4 + "=" + var5);
+         } else {
+            DebugLog.DetailedInfo.trace(var4 + "=" + var5);
+         }
+      }
+
       System.out.println("-----");
       System.out.println("version=" + Core.getInstance().getVersion() + " demo=false");
-      Display.setIcon(loadIcons());
+      if (!"25057".isEmpty()) {
+         DebugLog.General.println("revision=%s date=%s time=%s (%s)", "25057", "2024-12-17", "17:38:44", "ZB");
+      }
 
-      for(int var14 = 0; var14 < var0.length; ++var14) {
-         if (var0[var14] != null) {
-            if (var0[var14].contains("safemode")) {
+      Display.setIcon(loadIcons());
+      String var16 = null;
+
+      for(int var18 = 0; var18 < var0.length; ++var18) {
+         if (var0[var18] != null) {
+            if (var0[var18].contains("safemode")) {
                Core.SafeMode = true;
                Core.SafeModeForced = true;
-            } else if (var0[var14].equals("-nosound")) {
+            } else if (var0[var18].equals("-nosound")) {
                Core.SoundDisabled = true;
-            } else if (var0[var14].equals("-aitest")) {
+            } else if (var0[var18].equals("-aitest")) {
                IsoPlayer.isTestAIMode = true;
-            } else if (var0[var14].equals("-novoip")) {
+            } else if (var0[var18].equals("-novoip")) {
                VoiceManager.VoipDisabled = true;
-            } else if (var0[var14].equals("-debug")) {
+            } else if (var0[var18].equals("-debug")) {
                Core.bDebug = true;
-            } else if (!var0[var14].startsWith("-debuglog=")) {
-               if (!var0[var14].startsWith("-cachedir=")) {
-                  if (var0[var14].equals("+connect")) {
-                     if (var14 + 1 < var0.length) {
-                        System.setProperty("args.server.connect", var0[var14 + 1]);
+            } else if (var0[var18].equals("-imguidebugviewports")) {
+               Core.bUseViewports = true;
+               Core.bDebug = true;
+               Core.bImGui = true;
+            } else if (var0[var18].equals("-imgui")) {
+               Core.bImGui = true;
+               Core.bDebug = true;
+            } else if (!var0[var18].startsWith("-debuglog=")) {
+               if (!var0[var18].startsWith("-cachedir=")) {
+                  if (var0[var18].equals("+connect")) {
+                     if (var18 + 1 < var0.length) {
+                        System.setProperty("args.server.connect", var0[var18 + 1]);
                      }
 
-                     ++var14;
-                  } else if (var0[var14].equals("+password")) {
-                     if (var14 + 1 < var0.length) {
-                        System.setProperty("args.server.password", var0[var14 + 1]);
+                     ++var18;
+                  } else if (var0[var18].equals("+password")) {
+                     if (var18 + 1 < var0.length) {
+                        System.setProperty("args.server.password", var0[var18 + 1]);
                      }
 
-                     ++var14;
-                  } else if (var0[var14].contains("-debugtranslation")) {
+                     ++var18;
+                  } else if (var0[var18].contains("-debugtranslation")) {
                      Translator.debug = true;
-                  } else if ("-modfolders".equals(var0[var14])) {
-                     if (var14 + 1 < var0.length) {
-                        ZomboidFileSystem.instance.setModFoldersOrder(var0[var14 + 1]);
+                  } else if ("-modfolders".equals(var0[var18])) {
+                     if (var18 + 1 < var0.length) {
+                        ZomboidFileSystem.instance.setModFoldersOrder(var0[var18 + 1]);
                      }
 
-                     ++var14;
-                  } else if (var0[var14].equals("-nosteam")) {
+                     ++var18;
+                  } else if (var0[var18].equals("-nosteam")) {
                      System.setProperty("zomboid.steam", "0");
+                  } else if (var0[var18].equals("-stream")) {
+                     System.setProperty("zomboid.stream", "1");
+                  } else if (var0[var18].startsWith("-debugcfg=")) {
+                     var16 = var0[var18].replace("-debugcfg=", "");
                   } else {
-                     DebugLog.log("unknown option \"" + var0[var14] + "\"");
+                     DebugLog.log("unknown option \"" + var0[var18] + "\"");
                   }
                }
             } else {
-               String[] var15 = var0[var14].replace("-debuglog=", "").split(",");
-               int var4 = var15.length;
+               String[] var19 = var0[var18].replace("-debuglog=", "").split(",");
+               int var22 = var19.length;
 
-               for(int var5 = 0; var5 < var4; ++var5) {
-                  String var6 = var15[var5];
+               for(int var6 = 0; var6 < var22; ++var6) {
+                  String var7 = var19[var6];
 
                   try {
-                     char var7 = var6.charAt(0);
-                     var6 = var7 != '+' && var7 != '-' ? var6 : var6.substring(1);
-                     DebugLog.setLogEnabled(DebugType.valueOf(var6), var7 != '-');
-                  } catch (IllegalArgumentException var11) {
+                     char var8 = var7.charAt(0);
+                     var7 = var8 != '+' && var8 != '-' ? var7 : var7.substring(1);
+                     DebugLog.setLogEnabled(DebugType.valueOf(var7), var8 != '-');
+                  } catch (IllegalArgumentException var12) {
                   }
                }
             }
          }
       }
 
+      if (Core.bDebug || System.getProperty("debug") != null) {
+         DebugLog.loadDebugConfig(var16);
+         DebugLog.enableDebugLogs();
+      }
+
+      DebugLog.printLogLevels();
+      if (Core.bDebug || System.getProperty("debug") != null) {
+         Attribute.init();
+      }
+
       try {
          RenderThread.init();
-         AssetManagers var17 = GameWindow.assetManagers;
-         AiSceneAssetManager.instance.create(AiSceneAsset.ASSET_TYPE, var17);
-         AnimationAssetManager.instance.create(AnimationAsset.ASSET_TYPE, var17);
-         AnimNodeAssetManager.instance.create(AnimNodeAsset.ASSET_TYPE, var17);
-         ClothingItemAssetManager.instance.create(ClothingItem.ASSET_TYPE, var17);
-         MeshAssetManager.instance.create(ModelMesh.ASSET_TYPE, var17);
-         ModelAssetManager.instance.create(Model.ASSET_TYPE, var17);
-         TextureIDAssetManager.instance.create(TextureID.ASSET_TYPE, var17);
-         TextureAssetManager.instance.create(Texture.ASSET_TYPE, var17);
-         WorldMapDataAssetManager.instance.create(WorldMapData.ASSET_TYPE, var17);
+         AssetManagers var21 = GameWindow.assetManagers;
+         AiSceneAssetManager.instance.create(AiSceneAsset.ASSET_TYPE, var21);
+         AnimatedTextureIDAssetManager.instance.create(AnimatedTextureID.ASSET_TYPE, var21);
+         AnimationAssetManager.instance.create(AnimationAsset.ASSET_TYPE, var21);
+         AnimNodeAssetManager.instance.create(AnimNodeAsset.ASSET_TYPE, var21);
+         ClothingItemAssetManager.instance.create(ClothingItem.ASSET_TYPE, var21);
+         MeshAssetManager.instance.create(ModelMesh.ASSET_TYPE, var21);
+         ModelAssetManager.instance.create(Model.ASSET_TYPE, var21);
+         PhysicsShapeAssetManager.instance.create(PhysicsShape.ASSET_TYPE, var21);
+         TextureIDAssetManager.instance.create(TextureID.ASSET_TYPE, var21);
+         TextureAssetManager.instance.create(Texture.ASSET_TYPE, var21);
+         WorldMapDataAssetManager.instance.create(WorldMapData.ASSET_TYPE, var21);
          GameWindow.InitGameThread();
          RenderThread.renderLoop();
-      } catch (OpenGLException var8) {
+      } catch (OpenGLException var9) {
          String var10002 = ZomboidFileSystem.instance.getCacheDir();
-         File var16 = new File(var10002 + File.separator + "options2.bin");
-         var16.delete();
-         var8.printStackTrace();
-      } catch (Exception var9) {
+         File var20 = new File(var10002 + File.separator + "options2.bin");
+         var20.delete();
          var9.printStackTrace();
+      } catch (Exception var10) {
+         var10.printStackTrace();
       }
 
    }
@@ -231,7 +300,18 @@ public final class MainScreenState extends GameState {
    }
 
    public void enter() {
-      DebugLog.log("EXITDEBUG: MainScreenState.enter 1");
+      DebugType.ExitDebug.debugln("MainScreenState.enter 1");
+
+      try {
+         OperatingSystemMXBean var1 = (OperatingSystemMXBean)ManagementFactory.getOperatingSystemMXBean();
+         long var2 = var1.getTotalMemorySize();
+         if (var2 < 8589934592L) {
+            Core.getInstance().setOptionDoVideoEffects(false);
+         }
+      } catch (Throwable var5) {
+      }
+
+      GameClient.bClient = false;
       this.Elements.clear();
       this.targetAlpha = 1.0F;
       TextureID.UseFiltering = true;
@@ -242,18 +322,30 @@ public final class MainScreenState extends GameState {
       this.alpha = 1.0F;
       this.showLogo = false;
       SoundManager.instance.setMusicState("MainMenu");
-      int var1 = (int)((float)Core.getInstance().getOffscreenHeight(0) * 0.7F);
-      ScreenElement var2 = new ScreenElement(Texture.getSharedTexture("media/ui/PZ_Logo.png"), Core.getInstance().getOffscreenWidth(0) / 2 - (int)((float)Texture.getSharedTexture("media/ui/PZ_Logo.png").getWidth() * totalScale) / 2, var1 - (int)(350.0F * totalScale), 0.0F, 0.0F, 1);
-      var2.targetAlpha = 1.0F;
-      var2.alphaStep *= 0.9F;
-      this.Logo = var2;
-      this.Elements.add(var2);
+      int var6 = (int)((float)Core.getInstance().getOffscreenHeight(0) * 0.7F);
+      ScreenElement var7 = new ScreenElement(Texture.getSharedTexture("media/ui/PZ_Logo.png"), Core.getInstance().getOffscreenWidth(0) / 2 - (int)((float)Texture.getSharedTexture("media/ui/PZ_Logo.png").getWidth() * totalScale) / 2, var6 - (int)(350.0F * totalScale), 0.0F, 0.0F, 1);
+      var7.targetAlpha = 1.0F;
+      var7.alphaStep *= 0.9F;
+      this.Logo = var7;
+      this.Elements.add(var7);
       TextureID.UseFiltering = false;
       LuaEventManager.triggerEvent("OnMainMenuEnter");
       instance = this;
       float var3 = TextureID.totalMemUsed / 1024.0F;
       float var4 = var3 / 1024.0F;
-      DebugLog.log("EXITDEBUG: MainScreenState.enter 2");
+      if (Core.getInstance().getOptionDoVideoEffects()) {
+         this.videoTex = new VideoTexture("pztitletest.bk2", 2560, 1440);
+         if (!this.videoTex.LoadVideoFile()) {
+            DebugLog.log("Unable to load video texture.");
+         }
+
+         this.videoTex2 = new VideoTexture("pztitletest_light.bk2", 2560, 1440);
+         if (!this.videoTex2.LoadVideoFile()) {
+            DebugLog.log("Unable to load video texture.");
+         }
+      }
+
+      DebugType.ExitDebug.debugln("MainScreenState.enter 2");
    }
 
    public static MainScreenState getInstance() {
@@ -265,8 +357,12 @@ public final class MainScreenState extends GameState {
    }
 
    public void exit() {
-      DebugLog.log("EXITDEBUG: MainScreenState.exit 1");
+      DebugType.ExitDebug.debugln("MainScreenState.exit 1");
       DebugLog.log("LOADED UP A TOTAL OF " + Texture.totalTextureID + " TEXTURES");
+      if (SteamUtils.isSteamModeEnabled()) {
+         ServerBrowser.Release();
+      }
+
       float var1 = (float)Core.getInstance().getOptionMusicVolume() / 10.0F;
       long var2 = Calendar.getInstance().getTimeInMillis();
 
@@ -274,9 +370,26 @@ public final class MainScreenState extends GameState {
          this.FadeAlpha = Math.min(1.0F, (float)(Calendar.getInstance().getTimeInMillis() - var2) / 250.0F);
          this.render();
          if (this.FadeAlpha >= 1.0F) {
+            VideoTexture var10000;
+            if (this.videoTex != null) {
+               this.videoTex.Close();
+               var10000 = this.videoTex;
+               Objects.requireNonNull(var10000);
+               RenderThread.queueInvokeOnRenderContext(var10000::destroy);
+               this.videoTex = null;
+            }
+
+            if (this.videoTex2 != null) {
+               this.videoTex2.Close();
+               var10000 = this.videoTex2;
+               Objects.requireNonNull(var10000);
+               RenderThread.queueInvokeOnRenderContext(var10000::destroy);
+               this.videoTex2 = null;
+            }
+
             SoundManager.instance.stopMusic("");
             SoundManager.instance.setMusicVolume(var1);
-            DebugLog.log("EXITDEBUG: MainScreenState.exit 2");
+            DebugType.ExitDebug.debugln("MainScreenState.exit 2");
             return;
          }
 
@@ -315,8 +428,32 @@ public final class MainScreenState extends GameState {
 
       ActiveMods.renderUI();
       JoypadManager.instance.renderUI();
+      if (this.screenFader == null) {
+         this.screenFader = new ScreenFader();
+         this.screenFader.startFadeFromBlack();
+      }
+
+      if (this.screenFader.isFading()) {
+         this.screenFader.update();
+         this.screenFader.render();
+      }
+
       Core.getInstance().EndFrameUI();
       UIManager.useUIFBO = var1;
+   }
+
+   public static void preloadBackgroundTextures() {
+      int var0 = 3;
+      var0 |= TextureID.bUseCompression ? 4 : 0;
+      Texture.getSharedTexture("media/ui/Title.png", var0);
+      Texture.getSharedTexture("media/ui/Title2.png", var0);
+      Texture.getSharedTexture("media/ui/Title3.png", var0);
+      Texture.getSharedTexture("media/ui/Title4.png", var0);
+      Texture.getSharedTexture("media/ui/Title_lightning.png", var0);
+      Texture.getSharedTexture("media/ui/Title_lightning2.png", var0);
+      Texture.getSharedTexture("media/ui/Title_lightning3.png", var0);
+      Texture.getSharedTexture("media/ui/Title_lightning4.png", var0);
+      AnimatedTextures.getTexture("media/ui/Progress/ZombieWalkLogo.png");
    }
 
    public void renderBackground() {
@@ -363,38 +500,133 @@ public final class MainScreenState extends GameState {
          }
       }
 
-      Texture var1 = Texture.getSharedTexture("media/ui/Title.png");
-      Texture var2 = Texture.getSharedTexture("media/ui/Title2.png");
-      Texture var3 = Texture.getSharedTexture("media/ui/Title3.png");
-      Texture var4 = Texture.getSharedTexture("media/ui/Title4.png");
       if (Rand.Next(150) == 0) {
          this.lightOffCount = 10.0F;
       }
 
-      Texture var5 = Texture.getSharedTexture("media/ui/Title_lightning.png");
-      Texture var6 = Texture.getSharedTexture("media/ui/Title_lightning2.png");
-      Texture var7 = Texture.getSharedTexture("media/ui/Title_lightning3.png");
-      Texture var8 = Texture.getSharedTexture("media/ui/Title_lightning4.png");
-      float var9 = (float)Core.getInstance().getScreenHeight() / 1080.0F;
-      float var10 = (float)var1.getWidth() * var9;
-      float var11 = (float)var2.getWidth() * var9;
-      float var12 = (float)Core.getInstance().getScreenWidth() - (var10 + var11);
-      if (var12 >= 0.0F) {
-         var12 = 0.0F;
+      float var1 = 1.0F - this.lightningDelta * 0.6F;
+      if (!Core.getInstance().getOptionDoVideoEffects() || !this.renderVideo(var1)) {
+         if (this.videoTex != null) {
+            this.videoTex.Close();
+            this.videoTex = null;
+         }
+
+         if (this.videoTex2 != null) {
+            this.videoTex2.Close();
+            this.videoTex2 = null;
+         }
+
+         this.renderOriginalBackground(var1);
+      }
+   }
+
+   private boolean renderVideo(float var1) {
+      if (this.videoTex == null) {
+         this.videoTex = new VideoTexture("pztitletest.bk2", 2560, 1440);
+         if (!this.videoTex.LoadVideoFile()) {
+            DebugLog.log("Unable to load video texture.");
+            return false;
+         }
       }
 
-      float var13 = 1.0F - this.lightningDelta * 0.6F;
-      float var14 = 1024.0F * var9;
-      float var15 = 56.0F * var9;
-      DrawTexture(var1, (int)var12, 0, (int)var10, (int)var14, var13);
-      DrawTexture(var2, (int)var12 + (int)var10, 0, (int)var10, (int)var14, var13);
-      DrawTexture(var3, (int)var12, (int)var14, (int)var10, (int)((float)var3.getHeight() * var9), var13);
-      DrawTexture(var4, (int)var12 + (int)var10, (int)var14, (int)var10, (int)((float)var3.getHeight() * var9), var13);
+      if (this.videoTex2 == null) {
+         this.videoTex2 = new VideoTexture("pztitletest_light.bk2", 2560, 1440);
+         if (!this.videoTex2.LoadVideoFile()) {
+            DebugLog.log("Unable to load video texture.");
+            return false;
+         }
+      }
+
+      if (this.videoTex.isValid() && this.videoTex2.isValid()) {
+         this.videoTex.RenderFrame();
+         this.videoTex2.RenderFrame();
+         int var2 = Core.getInstance().getScreenHeight();
+         int var3 = (int)((double)var2 * 16.0 / 9.0);
+         int var4 = Core.getInstance().getScreenWidth();
+         int var5 = var4 - var3;
+         DrawTexture(this.videoTex, var5, 0, var3, var2, var1);
+         IndieGL.glBlendFunc(770, 1);
+         DrawTexture(this.videoTex2, var5, 0, var3, var2, this.lightningDelta);
+         IndieGL.glBlendFunc(770, 771);
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   public static Texture getCustomBackgroundImage() {
+      return CustomizationManager.getInstance().getClientCustomBackground(CustomizationManager.getInstance().getRandomCustomBackground());
+   }
+
+   public static void getCustomBackgroundImageBounds(Texture var0, int[] var1) {
+      int var2 = Core.getInstance().getScreenWidth();
+      int var3 = Core.getInstance().getScreenHeight();
+      float var4 = (float)var0.getWidth() / (float)var0.getHeight();
+      float var5 = (float)var2 / (float)var3;
+      int var6 = var2;
+      int var7 = var3;
+      if (var5 > var4) {
+         var6 = (int)((float)var3 * var4);
+      } else if (var5 < var4) {
+         var7 = (int)((float)var2 / var4);
+      }
+
+      int var8 = (var2 - var6) / 2;
+      int var9 = (var3 - var7) / 2;
+      var1[0] = var8;
+      var1[1] = var9;
+      var1[2] = var6;
+      var1[3] = var7;
+   }
+
+   public static boolean renderCustomBackground() {
+      Texture var0 = getCustomBackgroundImage();
+      if (!var0.isReady()) {
+         return true;
+      } else {
+         int[] var1 = customBackgroundBounds;
+         getCustomBackgroundImageBounds(var0, var1);
+         if (var1[2] != Core.getInstance().getScreenWidth() || var1[3] != Core.getInstance().getScreenHeight()) {
+            int var2 = (int)((float)var1[2] * 2.0F);
+            int var3 = (int)((float)var1[3] * 2.0F);
+            int var4 = (var2 - var1[2]) / 2;
+            int var5 = (var3 - var1[3]) / 2;
+            SpriteRenderer.instance.renderi(var0, var1[0] - var4, var1[1] - var5, var2, var3, 0.25F, 0.25F, 0.25F, 1.0F, (Consumer)null);
+         }
+
+         DrawTexture(var0, var1[0], var1[1], var1[2], var1[3], 1.0F);
+         return true;
+      }
+   }
+
+   private void renderOriginalBackground(float var1) {
+      Texture var2 = Texture.getSharedTexture("media/ui/Title.png");
+      Texture var3 = Texture.getSharedTexture("media/ui/Title2.png");
+      Texture var4 = Texture.getSharedTexture("media/ui/Title3.png");
+      Texture var5 = Texture.getSharedTexture("media/ui/Title4.png");
+      Texture var6 = Texture.getSharedTexture("media/ui/Title_lightning.png");
+      Texture var7 = Texture.getSharedTexture("media/ui/Title_lightning2.png");
+      Texture var8 = Texture.getSharedTexture("media/ui/Title_lightning3.png");
+      Texture var9 = Texture.getSharedTexture("media/ui/Title_lightning4.png");
+      float var10 = (float)Core.getInstance().getScreenHeight() / 1080.0F;
+      float var11 = (float)var2.getWidth() * var10;
+      float var12 = (float)var3.getWidth() * var10;
+      float var13 = (float)Core.getInstance().getScreenWidth() - (var11 + var12);
+      if (var13 >= 0.0F) {
+         var13 = 0.0F;
+      }
+
+      float var14 = 1024.0F * var10;
+      float var15 = 56.0F * var10;
+      DrawTexture(var2, (int)var13, 0, (int)var11, (int)var14, var1);
+      DrawTexture(var3, (int)var13 + (int)var11, 0, (int)var11, (int)var14, var1);
+      DrawTexture(var4, (int)var13, (int)var14, (int)var11, (int)((float)var4.getHeight() * var10), var1);
+      DrawTexture(var5, (int)var13 + (int)var11, (int)var14, (int)var11, (int)((float)var4.getHeight() * var10), var1);
       IndieGL.glBlendFunc(770, 1);
-      DrawTexture(var5, (int)var12, 0, (int)var10, (int)var14, this.lightningDelta);
-      DrawTexture(var6, (int)var12 + (int)var10, 0, (int)var10, (int)var14, this.lightningDelta);
-      DrawTexture(var7, (int)var12, (int)var14, (int)var10, (int)var14, this.lightningDelta);
-      DrawTexture(var8, (int)var12 + (int)var10, (int)var14, (int)var10, (int)var14, this.lightningDelta);
+      DrawTexture(var6, (int)var13, 0, (int)var11, (int)var14, this.lightningDelta);
+      DrawTexture(var7, (int)var13 + (int)var11, 0, (int)var11, (int)var14, this.lightningDelta);
+      DrawTexture(var8, (int)var13, (int)var14, (int)var11, (int)var14, this.lightningDelta);
+      DrawTexture(var9, (int)var13 + (int)var11, (int)var14, (int)var11, (int)var14, this.lightningDelta);
       IndieGL.glBlendFunc(770, 771);
    }
 
@@ -486,59 +718,7 @@ public final class MainScreenState extends GameState {
    }
 
    private static ByteBuffer loadInstance(BufferedImage var0, int var1) {
-      BufferedImage var2 = new BufferedImage(var1, var1, 3);
-      Graphics2D var3 = var2.createGraphics();
-      double var4 = getIconRatio(var0, var2);
-      double var6 = (double)var0.getWidth() * var4;
-      double var8 = (double)var0.getHeight() * var4;
-      var3.drawImage(var0, (int)(((double)var2.getWidth() - var6) / 2.0), (int)(((double)var2.getHeight() - var8) / 2.0), (int)var6, (int)var8, (ImageObserver)null);
-      var3.dispose();
-      return convertToByteBuffer(var2);
-   }
-
-   private static double getIconRatio(BufferedImage var0, BufferedImage var1) {
-      double var2 = 1.0;
-      if (var0.getWidth() > var1.getWidth()) {
-         var2 = (double)var1.getWidth() / (double)var0.getWidth();
-      } else {
-         var2 = (double)(var1.getWidth() / var0.getWidth());
-      }
-
-      double var4;
-      if (var0.getHeight() > var1.getHeight()) {
-         var4 = (double)var1.getHeight() / (double)var0.getHeight();
-         if (var4 < var2) {
-            var2 = var4;
-         }
-      } else {
-         var4 = (double)(var1.getHeight() / var0.getHeight());
-         if (var4 < var2) {
-            var2 = var4;
-         }
-      }
-
-      return var2;
-   }
-
-   public static ByteBuffer convertToByteBuffer(BufferedImage var0) {
-      byte[] var1 = new byte[var0.getWidth() * var0.getHeight() * 4];
-      int var2 = 0;
-
-      for(int var3 = 0; var3 < var0.getHeight(); ++var3) {
-         for(int var4 = 0; var4 < var0.getWidth(); ++var4) {
-            int var5 = var0.getRGB(var4, var3);
-            var1[var2 + 0] = (byte)(var5 << 8 >> 24);
-            var1[var2 + 1] = (byte)(var5 << 16 >> 24);
-            var1[var2 + 2] = (byte)(var5 << 24 >> 24);
-            var1[var2 + 3] = (byte)(var5 >> 24);
-            var2 += 4;
-         }
-      }
-
-      ByteBuffer var6 = ByteBuffer.allocateDirect(var1.length);
-      var6.put(var1);
-      var6.flip();
-      return var6;
+      return CustomizationManager.loadAndResizeInstance(var0, var1, var1);
    }
 
    private static void printSpecs() {
@@ -565,15 +745,17 @@ public final class MainScreenState extends GameState {
          Object var15 = var7 == 9223372036854775807L ? "no limit" : (float)var7 / (float)var2;
          System.out.println("Memory max: " + var15 + " MB");
          System.out.println("Memory  total available to JVM: " + (float)Runtime.getRuntime().totalMemory() / (float)var2 + " MB");
-         File[] var9 = File.listRoots();
-         File[] var10 = var9;
-         int var11 = var9.length;
+         if (SystemDisabler.printDetailedInfo()) {
+            File[] var9 = File.listRoots();
+            File[] var10 = var9;
+            int var11 = var9.length;
 
-         for(int var12 = 0; var12 < var11; ++var12) {
-            File var13 = var10[var12];
-            var10000 = System.out;
-            var10001 = var13.getAbsolutePath();
-            var10000.println(var10001 + ", Total: " + (float)var13.getTotalSpace() / (float)var4 + " GB, Free: " + (float)var13.getFreeSpace() / (float)var4 + " GB");
+            for(int var12 = 0; var12 < var11; ++var12) {
+               File var13 = var10[var12];
+               var10000 = System.out;
+               var10001 = var13.getAbsolutePath();
+               var10000.println(var10001 + ", Total: " + (float)var13.getTotalSpace() / (float)var4 + " GB, Free: " + (float)var13.getFreeSpace() / (float)var4 + " GB");
+            }
          }
 
          if (System.getProperty("os.name").toLowerCase().contains("windows")) {

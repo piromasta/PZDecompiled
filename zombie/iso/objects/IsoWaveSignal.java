@@ -13,8 +13,8 @@ import zombie.characters.Talker;
 import zombie.chat.ChatElement;
 import zombie.chat.ChatElementOwner;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.types.Radio;
@@ -139,6 +139,10 @@ public class IsoWaveSignal extends IsoObject implements WaveSignalDevice, ChatEl
          var1 = new DeviceData(this);
       }
 
+      if (this.deviceData != null) {
+         this.deviceData.cleanSoundsAndEmitter();
+      }
+
       this.deviceData = var1;
       this.deviceData.setParent(this);
    }
@@ -199,15 +203,28 @@ public class IsoWaveSignal extends IsoObject implements WaveSignalDevice, ChatEl
             return;
          }
 
-         float var1 = IsoUtils.XToScreen(this.getX(), this.getY(), this.getZ(), 0);
-         float var2 = IsoUtils.YToScreen(this.getX(), this.getY(), this.getZ(), 0);
-         var1 = var1 - IsoCamera.getOffX() - this.offsetX;
-         var2 = var2 - IsoCamera.getOffY() - this.offsetY;
-         var1 += (float)(32 * Core.TileScale);
-         var2 += (float)(50 * Core.TileScale);
-         var1 /= Core.getInstance().getZoom(IsoPlayer.getPlayerIndex());
+         IsoPlayer var1 = IsoPlayer.getInstance();
+         if (this instanceof IsoRadio && var1.HasTrait("Deaf")) {
+            this.chatElement.clear(IsoCamera.frameState.playerIndex);
+            return;
+         }
+
+         if (this instanceof IsoTelevision && var1.HasTrait("Deaf") && this.square != null && !this.square.isSeen(IsoPlayer.getPlayerIndex())) {
+            this.chatElement.clear(IsoCamera.frameState.playerIndex);
+            return;
+         }
+
+         float var2 = IsoUtils.XToScreen(this.getX(), this.getY(), this.getZ(), 0);
+         float var3 = IsoUtils.YToScreen(this.getX(), this.getY(), this.getZ(), 0);
+         var2 = var2 - IsoCamera.getOffX() - this.offsetX;
+         var3 = var3 - IsoCamera.getOffY() - this.offsetY;
+         var2 += (float)(32 * Core.TileScale);
+         var3 += (float)(50 * Core.TileScale);
          var2 /= Core.getInstance().getZoom(IsoPlayer.getPlayerIndex());
-         this.chatElement.renderBatched(IsoPlayer.getPlayerIndex(), (int)var1, (int)var2);
+         var3 /= Core.getInstance().getZoom(IsoPlayer.getPlayerIndex());
+         var2 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsX;
+         var3 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsY;
+         this.chatElement.renderBatched(IsoPlayer.getPlayerIndex(), (int)var2, (int)var3);
       }
 
    }

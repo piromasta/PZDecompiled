@@ -1,20 +1,31 @@
 package zombie.radio.devices;
 
+import fmod.fmod.FMODSoundEmitter;
+import fmod.fmod.FMOD_STUDIO_PARAMETER_DESCRIPTION;
+import fmod.fmod.IFMODParameterUpdater;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Iterator;
 import java.util.Map;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.WorldSoundManager;
 import zombie.audio.BaseSoundEmitter;
+import zombie.audio.FMODParameter;
+import zombie.audio.FMODParameterList;
+import zombie.audio.GameSoundClip;
+import zombie.audio.parameters.ParameterDeviceVolume;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Color;
-import zombie.core.Rand;
+import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.raknet.VoiceManager;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
@@ -23,6 +34,7 @@ import zombie.inventory.types.DrainableComboItem;
 import zombie.inventory.types.Radio;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
+import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoGenerator;
 import zombie.iso.objects.IsoWaveSignal;
@@ -34,9 +46,9 @@ import zombie.radio.ZomboidRadio;
 import zombie.radio.media.MediaData;
 import zombie.vehicles.VehiclePart;
 
-public final class DeviceData implements Cloneable {
-   private static final float deviceSpeakerSoundMod = 0.4F;
-   private static final float deviceButtonSoundVol = 0.05F;
+public final class DeviceData implements Cloneable, IFMODParameterUpdater {
+   private static final float deviceSpeakerSoundMod = 1.0F;
+   private static final float deviceButtonSoundVol = 1.0F;
    protected String deviceName;
    protected boolean twoWay;
    protected int transmitRange;
@@ -62,7 +74,8 @@ public final class DeviceData implements Cloneable {
    protected GameTime gameTime;
    protected boolean channelChangedRecently;
    protected BaseSoundEmitter emitter;
-   protected ArrayList<Long> soundIDs;
+   protected FMODParameterList parameterList;
+   protected ParameterDeviceVolume parameterDeviceVolume;
    protected short mediaIndex;
    protected byte mediaType;
    protected String mediaItem;
@@ -117,7 +130,8 @@ public final class DeviceData implements Cloneable {
       this.gameTime = null;
       this.channelChangedRecently = false;
       this.emitter = null;
-      this.soundIDs = new ArrayList();
+      this.parameterList = new FMODParameterList();
+      this.parameterDeviceVolume = new ParameterDeviceVolume(this);
       this.mediaIndex = -1;
       this.mediaType = -1;
       this.mediaItem = null;
@@ -144,6 +158,7 @@ public final class DeviceData implements Cloneable {
       this.parent = var1;
       this.presets = new DevicePresets();
       this.gameTime = GameTime.getInstance();
+      this.parameterList.add(this.parameterDeviceVolume);
    }
 
    public void generatePresets() {
@@ -233,6 +248,10 @@ public final class DeviceData implements Cloneable {
       DeviceData var1 = (DeviceData)super.clone();
       var1.setDevicePresets((DevicePresets)this.presets.clone());
       var1.setParent((WaveSignalDevice)null);
+      var1.emitter = null;
+      var1.parameterDeviceVolume = new ParameterDeviceVolume(var1);
+      var1.parameterList = new FMODParameterList();
+      var1.parameterList.add(var1.parameterDeviceVolume);
       return var1;
    }
 
@@ -241,7 +260,7 @@ public final class DeviceData implements Cloneable {
       try {
          var1 = (DeviceData)this.clone();
       } catch (Exception var3) {
-         System.out.println(var3.getMessage());
+         ExceptionLogger.logException(var3);
          var1 = new DeviceData();
       }
 
@@ -331,7 +350,7 @@ public final class DeviceData implements Cloneable {
                var1.setWorldItem((IsoWorldInventoryObject)null);
             }
 
-            this.powerDelta = var1.getDelta();
+            this.powerDelta = var1.getCurrentUsesFloat();
             var2.DoRemoveItem(var1);
             this.hasBattery = true;
             this.transmitDeviceDataState((short)2);
@@ -343,7 +362,7 @@ public final class DeviceData implements Cloneable {
    public InventoryItem getBattery(ItemContainer var1) {
       if (this.hasBattery) {
          DrainableComboItem var2 = (DrainableComboItem)InventoryItemFactory.CreateItem("Base.Battery");
-         var2.setDelta(this.powerDelta);
+         var2.setCurrentUses((int)((float)var2.getMaxUses() * this.powerDelta));
          this.powerDelta = 0.0F;
          var1.AddItem((InventoryItem)var2);
          this.hasBattery = false;
@@ -501,11 +520,9 @@ public final class DeviceData implements Cloneable {
             this.isTurnedOn = var1;
          }
 
-         this.playSoundSend("RadioButton", false);
          this.transmitDeviceDataState((short)0);
       } else if (this.isTurnedOn) {
          this.isTurnedOn = false;
-         this.playSoundSend("RadioButton", false);
          this.transmitDeviceDataState((short)0);
       }
 
@@ -574,9 +591,10 @@ public final class DeviceData implements Cloneable {
    public void setChannel(int var1, boolean var2) {
       if (var1 >= this.minChannelRange && var1 <= this.maxChannelRange) {
          this.channel = var1;
-         this.playSoundSend("RadioButton", false);
          if (this.isTelevision) {
             this.playSoundSend("TelevisionZap", true);
+         } else if (this.isVehicleDevice()) {
+            this.playSoundSend("VehicleRadioZap", true);
          } else {
             this.playSoundSend("RadioZap", true);
          }
@@ -635,11 +653,11 @@ public final class DeviceData implements Cloneable {
    }
 
    public void playSoundSend(String var1, boolean var2) {
-      this.playSound(var1, var2 ? this.deviceVolume * 0.4F : 0.05F, true);
+      this.playSound(var1, var2 ? this.deviceVolume * 1.0F : 1.0F, true);
    }
 
    public void playSoundLocal(String var1, boolean var2) {
-      this.playSound(var1, var2 ? this.deviceVolume * 0.4F : 0.05F, false);
+      this.playSound(var1, var2 ? this.deviceVolume * 1.0F : 1.0F, false);
    }
 
    public void playSound(String var1, float var2, boolean var3) {
@@ -647,15 +665,33 @@ public final class DeviceData implements Cloneable {
          this.setEmitterAndPos();
          if (this.emitter != null) {
             long var4 = var3 ? this.emitter.playSound(var1) : this.emitter.playSoundImpl(var1, (IsoObject)null);
-            this.emitter.setVolume(var4, var2);
+            this.setSoundVolume(var4, var2);
          }
 
+      }
+   }
+
+   private void setSoundVolume(long var1, float var3) {
+      if (!this.emitter.isUsingParameter(var1, "DeviceVolume")) {
+         this.emitter.setVolume(var1, var3);
+      }
+   }
+
+   public void stopOrTriggerSoundByName(String var1) {
+      if (this.emitter != null) {
+         this.emitter.stopOrTriggerSoundByName(var1);
       }
    }
 
    public void cleanSoundsAndEmitter() {
       if (this.emitter != null) {
          this.emitter.stopAll();
+         BaseSoundEmitter var2 = this.emitter;
+         if (var2 instanceof FMODSoundEmitter) {
+            FMODSoundEmitter var1 = (FMODSoundEmitter)var2;
+            var1.parameterUpdater = null;
+         }
+
          IsoWorld.instance.returnOwnershipOfEmitter(this.emitter);
          this.emitter = null;
          this.radioLoopSound = 0L;
@@ -663,72 +699,136 @@ public final class DeviceData implements Cloneable {
 
    }
 
-   protected void setEmitterAndPos() {
-      Object var1 = null;
-      if (this.parent != null && this.parent instanceof IsoObject) {
-         var1 = (IsoObject)this.parent;
-      } else if (this.parent != null && this.parent instanceof Radio) {
-         var1 = IsoPlayer.getInstance();
-      }
-
-      if (var1 != null) {
-         if (this.emitter == null) {
-            this.emitter = IsoWorld.instance.getFreeEmitter(((IsoObject)var1).getX() + 0.5F, ((IsoObject)var1).getY() + 0.5F, (float)((int)((IsoObject)var1).getZ()));
-            IsoWorld.instance.takeOwnershipOfEmitter(this.emitter);
+   public IsoObject getIsoObject() {
+      if (this.parent == null) {
+         return null;
+      } else {
+         WaveSignalDevice var2 = this.parent;
+         if (var2 instanceof IsoObject) {
+            IsoObject var4 = (IsoObject)var2;
+            return var4;
          } else {
-            this.emitter.setPos(((IsoObject)var1).getX() + 0.5F, ((IsoObject)var1).getY() + 0.5F, (float)((int)((IsoObject)var1).getZ()));
+            var2 = this.parent;
+            if (var2 instanceof Radio) {
+               Radio var3 = (Radio)var2;
+               ItemContainer var5 = var3.getOutermostContainer();
+               return var5 == null ? null : var5.getParent();
+            } else {
+               var2 = this.parent;
+               if (var2 instanceof VehiclePart) {
+                  VehiclePart var1 = (VehiclePart)var2;
+                  return var1.getVehicle();
+               } else {
+                  return null;
+               }
+            }
+         }
+      }
+   }
+
+   protected void setEmitterAndPos() {
+      IsoObject var1 = this.getIsoObject();
+      if (var1 != null) {
+         float var2 = var1.getX() + (!this.isVehicleDevice() && !(var1 instanceof IsoGameCharacter) ? 0.5F : 0.0F);
+         float var3 = var1.getY() + (!this.isVehicleDevice() && !(var1 instanceof IsoGameCharacter) ? 0.5F : 0.0F);
+         if (this.emitter == null) {
+            this.emitter = IsoWorld.instance.getFreeEmitter(var2, var3, (float)PZMath.fastfloor(var1.getZ()));
+            IsoWorld.instance.takeOwnershipOfEmitter(this.emitter);
+            BaseSoundEmitter var5 = this.emitter;
+            if (var5 instanceof FMODSoundEmitter) {
+               FMODSoundEmitter var4 = (FMODSoundEmitter)var5;
+               var4.parameterUpdater = this;
+            }
+         } else {
+            this.emitter.setPos(var2, var3, (float)PZMath.fastfloor(var1.getZ()));
          }
 
          if (this.radioLoopSound != 0L) {
-            this.emitter.setVolume(this.radioLoopSound, this.deviceVolume * 0.4F);
+            this.setSoundVolume(this.radioLoopSound, this.deviceVolume * 1.0F);
          }
       }
 
    }
 
+   private float getClosestListener(float var1, float var2, float var3) {
+      float var4 = 3.4028235E38F;
+
+      for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
+         IsoPlayer var6 = IsoPlayer.players[var5];
+         if (var6 != null && !var6.isDeaf() && var6.getCurrentSquare() != null) {
+            float var7 = var6.getX();
+            float var8 = var6.getY();
+            float var9 = var6.getZ();
+            float var10 = IsoUtils.DistanceToSquared(var7, var8, var9 * 3.0F, var1, var2, var3 * 3.0F);
+            var10 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
+            if (var10 < var4) {
+               var4 = var10;
+            }
+         }
+      }
+
+      return var4;
+   }
+
    protected void updateEmitter() {
       if (!GameServer.bServer) {
-         if (!this.isTurnedOn) {
-            if (this.emitter != null && this.emitter.isPlaying("RadioButton")) {
-               if (this.radioLoopSound > 0L) {
-                  this.emitter.stopSound(this.radioLoopSound);
-               }
-
-               this.setEmitterAndPos();
-               this.emitter.tick();
-            } else {
-               this.cleanSoundsAndEmitter();
-            }
-         } else {
+         this.parameterList.update();
+         IsoObject var1 = this.getIsoObject();
+         float var2 = var1 == null ? 3.4028235E38F : this.getClosestListener(var1.getX(), var1.getY(), var1.getZ());
+         if (this.isTurnedOn && !(var2 > 256.0F)) {
             this.setEmitterAndPos();
             if (this.emitter != null) {
-               if (this.signalCounter > 0.0F && !this.emitter.isPlaying("RadioTalk")) {
+               String var3 = "RadioTalk";
+               if (this.isVehicleDevice()) {
+                  var3 = "VehicleRadioProgram";
+               }
+
+               if (this.isEmergencyBroadcast()) {
+                  var3 = "BroadcastEmergency";
+               }
+
+               if (this.signalCounter > 0.0F && !this.emitter.isPlaying(var3)) {
                   if (this.radioLoopSound > 0L) {
                      this.emitter.stopSound(this.radioLoopSound);
                   }
 
-                  this.radioLoopSound = this.emitter.playSoundImpl("RadioTalk", (IsoObject)null);
-                  this.emitter.setVolume(this.radioLoopSound, this.deviceVolume * 0.4F);
+                  this.radioLoopSound = this.emitter.playSoundImpl(var3, (IsoObject)null);
+                  this.setSoundVolume(this.radioLoopSound, this.deviceVolume * 1.0F);
                }
 
-               String var1 = !this.isTelevision ? "RadioStatic" : "TelevisionTestBeep";
-               if (this.radioLoopSound == 0L || this.signalCounter <= 0.0F && !this.emitter.isPlaying(var1)) {
+               String var4 = !this.isTelevision ? "RadioStatic" : "TelevisionTestBeep";
+               if (this.isVehicleDevice()) {
+                  var4 = "VehicleRadioStatic";
+               }
+
+               if (this.radioLoopSound == 0L || this.signalCounter <= 0.0F && !this.emitter.isPlaying(var4)) {
                   if (this.radioLoopSound > 0L) {
-                     this.emitter.stopSound(this.radioLoopSound);
-                     if (this.isTelevision) {
-                        this.playSoundLocal("TelevisionZap", true);
-                     } else {
-                        this.playSoundLocal("RadioZap", true);
+                     this.emitter.stopOrTriggerSound(this.radioLoopSound);
+                     if (!this.isTelevision) {
+                        if (this.isVehicleDevice()) {
+                           this.playSoundSend("VehicleRadioZap", true);
+                        } else {
+                           this.playSoundLocal("RadioZap", true);
+                        }
                      }
                   }
 
-                  this.radioLoopSound = this.emitter.playSoundImpl(var1, (IsoObject)null);
-                  this.emitter.setVolume(this.radioLoopSound, this.deviceVolume * 0.4F);
+                  this.radioLoopSound = this.emitter.playSoundImpl(var4, (IsoObject)null);
+                  this.setSoundVolume(this.radioLoopSound, this.deviceVolume * 1.0F);
                }
 
                this.emitter.tick();
             }
 
+         } else if (this.emitter == null || !this.emitter.isPlaying("RadioButton") && !this.emitter.isPlaying("TelevisionOff") && !this.emitter.isPlaying("VehicleRadioButton")) {
+            this.cleanSoundsAndEmitter();
+         } else {
+            if (this.radioLoopSound > 0L) {
+               this.emitter.stopSound(this.radioLoopSound);
+            }
+
+            this.setEmitterAndPos();
+            this.emitter.tick();
          }
       }
    }
@@ -817,7 +917,7 @@ public final class DeviceData implements Cloneable {
             if (var1 != null) {
                int var2 = (int)(100.0F * this.deviceVolume);
                int var3 = this.getDeviceSoundVolumeRange();
-               WorldSoundManager.instance.addSoundRepeating(var1, (int)((IsoObject)var1).getX(), (int)((IsoObject)var1).getY(), (int)((IsoObject)var1).getZ(), var3, var2, var2 > 50);
+               WorldSoundManager.instance.addSoundRepeating(var1, PZMath.fastfloor(((IsoObject)var1).getX()), PZMath.fastfloor(((IsoObject)var1).getY()), PZMath.fastfloor(((IsoObject)var1).getZ()), var3, var2, var2 > 50);
             }
          }
 
@@ -1180,6 +1280,10 @@ public final class DeviceData implements Cloneable {
                   }
 
                   this.isPlayingMedia = true;
+                  if (this.isInventoryDevice()) {
+                     this.playingMedia = ZomboidRadio.getInstance().getRecordedMedia().getMediaDataFromIndex(this.mediaIndex);
+                  }
+
                   this.televisionMediaSwitch();
                }
                break;
@@ -1252,41 +1356,36 @@ public final class DeviceData implements Cloneable {
          this.presets = new DevicePresets();
       }
 
-      if (var2 >= 69) {
-         this.deviceName = GameWindow.ReadString(var1);
-         this.twoWay = var1.get() == 1;
-         this.transmitRange = var1.getInt();
-         this.micRange = var1.getInt();
-         this.micIsMuted = var1.get() == 1;
-         this.baseVolumeRange = var1.getFloat();
-         this.deviceVolume = var1.getFloat();
-         this.isPortable = var1.get() == 1;
-         this.isTelevision = var1.get() == 1;
-         this.isHighTier = var1.get() == 1;
-         this.isTurnedOn = var1.get() == 1;
-         this.channel = var1.getInt();
-         this.minChannelRange = var1.getInt();
-         this.maxChannelRange = var1.getInt();
-         this.isBatteryPowered = var1.get() == 1;
-         this.hasBattery = var1.get() == 1;
-         this.powerDelta = var1.getFloat();
-         this.useDelta = var1.getFloat();
-         this.headphoneType = var1.getInt();
-         if (var1.get() == 1) {
-            this.presets.load(var1, var2, var3);
-         }
+      this.deviceName = GameWindow.ReadString(var1);
+      this.twoWay = var1.get() == 1;
+      this.transmitRange = var1.getInt();
+      this.micRange = var1.getInt();
+      this.micIsMuted = var1.get() == 1;
+      this.baseVolumeRange = var1.getFloat();
+      this.deviceVolume = var1.getFloat();
+      this.isPortable = var1.get() == 1;
+      this.isTelevision = var1.get() == 1;
+      this.isHighTier = var1.get() == 1;
+      this.isTurnedOn = var1.get() == 1;
+      this.channel = var1.getInt();
+      this.minChannelRange = var1.getInt();
+      this.maxChannelRange = var1.getInt();
+      this.isBatteryPowered = var1.get() == 1;
+      this.hasBattery = var1.get() == 1;
+      this.powerDelta = var1.getFloat();
+      this.useDelta = var1.getFloat();
+      this.headphoneType = var1.getInt();
+      if (var1.get() == 1) {
+         this.presets.load(var1, var2, var3);
       }
 
-      if (var2 >= 181) {
-         this.mediaIndex = var1.getShort();
-         this.mediaType = var1.get();
-         if (var1.get() == 1) {
-            this.mediaItem = GameWindow.ReadString(var1);
-         }
-
-         this.noTransmit = var1.get() == 1;
+      this.mediaIndex = var1.getShort();
+      this.mediaType = var1.get();
+      if (var1.get() == 1) {
+         this.mediaItem = GameWindow.ReadString(var1);
       }
 
+      this.noTransmit = var1.get() == 1;
    }
 
    public boolean hasMedia() {
@@ -1385,6 +1484,10 @@ public final class DeviceData implements Cloneable {
       if (GameClient.bClient) {
          this.transmitDeviceDataState((short)9);
       } else {
+         if (GameServer.bServer) {
+            this.isPlayingMedia = false;
+         }
+
          this.playingMedia = null;
          this.postPlayingMedia();
          if (GameServer.bServer) {
@@ -1395,7 +1498,7 @@ public final class DeviceData implements Cloneable {
    }
 
    public void updateMediaPlaying() {
-      if (!GameClient.bClient) {
+      if (!GameClient.bClient || this.isTurnedOn && this.deviceVolume > 0.0F && this.isInventoryDevice() && this.headphoneType >= 0) {
          if (this.isStoppingMedia) {
             this.stopMediaCounter -= 1.25F * GameTime.getInstance().getMultiplier();
             if (this.stopMediaCounter <= 0.0F) {
@@ -1456,5 +1559,69 @@ public final class DeviceData implements Cloneable {
 
    public void setNoTransmit(boolean var1) {
       this.noTransmit = var1;
+   }
+
+   public boolean isEmergencyBroadcast() {
+      if (this.isTelevision) {
+         return false;
+      } else {
+         int var1 = this.getChannel();
+         Map var2 = ZomboidRadio.getInstance().GetChannelList("Emergency");
+         if (var2 == null) {
+            return false;
+         } else {
+            Iterator var3 = var2.entrySet().iterator();
+
+            Map.Entry var4;
+            do {
+               if (!var3.hasNext()) {
+                  return false;
+               }
+
+               var4 = (Map.Entry)var3.next();
+            } while((Integer)var4.getKey() != var1);
+
+            return true;
+         }
+      }
+   }
+
+   public FMODParameterList getFMODParameters() {
+      return this.parameterList;
+   }
+
+   public void startEvent(long var1, GameSoundClip var3, BitSet var4) {
+      FMODParameterList var5 = this.getFMODParameters();
+      ArrayList var6 = var3.eventDescription.parameters;
+
+      for(int var7 = 0; var7 < var6.size(); ++var7) {
+         FMOD_STUDIO_PARAMETER_DESCRIPTION var8 = (FMOD_STUDIO_PARAMETER_DESCRIPTION)var6.get(var7);
+         if (!var4.get(var8.globalIndex)) {
+            FMODParameter var9 = var5.get(var8);
+            if (var9 != null) {
+               var9.startEventInstance(var1);
+            }
+         }
+      }
+
+   }
+
+   public void updateEvent(long var1, GameSoundClip var3) {
+   }
+
+   public void stopEvent(long var1, GameSoundClip var3, BitSet var4) {
+      FMODParameterList var5 = this.getFMODParameters();
+      ArrayList var6 = var3.eventDescription.parameters;
+
+      for(int var7 = 0; var7 < var6.size(); ++var7) {
+         FMOD_STUDIO_PARAMETER_DESCRIPTION var8 = (FMOD_STUDIO_PARAMETER_DESCRIPTION)var6.get(var7);
+         if (!var4.get(var8.globalIndex)) {
+            FMODParameter var9 = var5.get(var8);
+            if (var9 != null) {
+               var9.stopEventInstance(var1);
+            }
+         }
+      }
+
    }
 }

@@ -4,8 +4,11 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.function.Consumer;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.core.SpriteRenderer;
+import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.ui.TextManager;
 import zombie.worldMap.UIWorldMap;
 
 public final class WorldMapTextureSymbol extends WorldMapBaseSymbol {
@@ -69,12 +72,19 @@ public final class WorldMapTextureSymbol extends WorldMapBaseSymbol {
          this.checkTexture();
          float var4 = var2 + this.m_layoutX;
          float var5 = var3 + this.m_layoutY;
+         ColorInfo var6 = this.getColor(var1, s_tempColorInfo);
+         TextManager.sdfShader.updateThreshold(0.1F);
+         TextManager.sdfShader.updateShadow(0.0F);
+         TextManager.sdfShader.updateOutline(0.0F, 0.0F, 0.0F, 0.0F, 0.0F);
+         IndieGL.StartShader(TextManager.sdfShader);
          if (this.m_scale > 0.0F) {
-            float var6 = this.getDisplayScale(var1);
-            SpriteRenderer.instance.m_states.getPopulatingActiveState().render(this.m_texture, (float)var1.getAbsoluteX().intValue() + var4, (float)var1.getAbsoluteY().intValue() + var5, (float)this.m_texture.getWidth() * var6, (float)this.m_texture.getHeight() * var6, this.m_r, this.m_g, this.m_b, this.m_a, (Consumer)null);
+            float var7 = this.getDisplayScale(var1);
+            SpriteRenderer.instance.m_states.getPopulatingActiveState().render(this.m_texture, (float)var1.getAbsoluteX().intValue() + var4, (float)var1.getAbsoluteY().intValue() + var5, 20.0F * var7, 20.0F * var7, var6.r, var6.g, var6.b, var6.a, (Consumer)null);
          } else {
-            var1.DrawTextureColor(this.m_texture, (double)var4, (double)var5, (double)this.m_r, (double)this.m_g, (double)this.m_b, (double)this.m_a);
+            var1.DrawTextureColor(this.m_texture, (double)var4, (double)var5, (double)var6.r, (double)var6.g, (double)var6.b, (double)var6.a);
          }
+
+         IndieGL.EndShader();
       }
 
    }

@@ -2,12 +2,13 @@ package zombie.scripting.objects;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Iterator;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Translator;
-import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
-import zombie.inventory.InventoryItem;
-import zombie.util.StringUtils;
+import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 
 public class Recipe extends BaseScriptObject {
    private boolean canBeDoneFromFloor = false;
@@ -18,20 +19,17 @@ public class Recipe extends BaseScriptObject {
    protected String Prop2;
    public final ArrayList<Source> Source = new ArrayList();
    public Result Result = null;
+   public final ArrayList<Result> Results = new ArrayList();
    public boolean AllowDestroyedItem = false;
    public boolean AllowFrozenItem = false;
    public boolean AllowRottenItem = false;
+   public boolean AllowOnlyOne = false;
    public boolean InSameInventory = false;
-   public String LuaTest = null;
-   public String LuaCreate = null;
-   public String LuaGrab = null;
    public String name = "recipe";
    private String originalname;
-   private String nearItem;
-   private String LuaCanPerform;
+   private String requiredNearObject;
    private String tooltip = null;
    public ArrayList<RequiredSkill> skillRequired = null;
-   public String LuaGiveXP;
    private boolean needToBeLearn = false;
    protected String category = null;
    protected boolean removeResultItem = false;
@@ -39,205 +37,53 @@ public class Recipe extends BaseScriptObject {
    protected boolean stopOnWalk = true;
    protected boolean stopOnRun = true;
    public boolean hidden = false;
+   private String recipeFileText;
+   private boolean obsolete = false;
+   private boolean requiresWorkstation = false;
+   private float stationMultiplier = 0.25F;
+   private final HashMap<LuaCall, String> luaCalls = new HashMap();
 
-   public boolean isCanBeDoneFromFloor() {
-      return this.canBeDoneFromFloor;
+   public boolean isRequiresWorkstation() {
+      return this.requiresWorkstation;
    }
 
-   public void setCanBeDoneFromFloor(boolean var1) {
-      this.canBeDoneFromFloor = var1;
+   public float getStationMultiplier() {
+      return this.stationMultiplier;
    }
 
    public Recipe() {
+      super(ScriptType.Recipe);
       this.setOriginalname("recipe");
    }
 
-   public int FindIndexOf(InventoryItem var1) {
-      return -1;
-   }
-
-   public ArrayList<Source> getSource() {
-      return this.Source;
-   }
-
-   public int getNumberOfNeededItem() {
-      int var1 = 0;
-
-      for(int var2 = 0; var2 < this.getSource().size(); ++var2) {
-         Source var3 = (Source)this.getSource().get(var2);
-         if (!var3.getItems().isEmpty()) {
-            var1 = (int)((float)var1 + var3.getCount());
-         }
-      }
-
-      return var1;
-   }
-
-   public float getTimeToMake() {
-      return this.TimeToMake;
-   }
-
-   public String getName() {
-      return this.name;
-   }
-
-   public String getFullType() {
-      return this.module + "." + this.originalname;
-   }
-
-   public void Load(String var1, String[] var2) {
+   public void Load(String var1, String var2) throws Exception {
       this.name = Translator.getRecipeName(var1);
       this.originalname = var1;
+      this.recipeFileText = var2;
       boolean var3 = false;
+      ScriptParser.Block var4 = ScriptParser.parse(var2);
+      var4 = (ScriptParser.Block)var4.children.get(0);
+      super.LoadCommonBlock(var4);
+      Iterator var5 = var4.elements.iterator();
 
-      for(int var4 = 0; var4 < var2.length; ++var4) {
-         if (!var2[var4].trim().isEmpty()) {
-            if (var2[var4].contains(":")) {
-               String[] var5 = var2[var4].split(":");
-               String var6 = var5[0].trim();
-               String var7 = var5[1].trim();
-               if (var6.equals("Override")) {
-                  var3 = var7.trim().equalsIgnoreCase("true");
-               }
-
-               if (var6.equals("AnimNode")) {
-                  this.AnimNode = var7.trim();
-               }
-
-               if (var6.equals("Prop1")) {
-                  this.Prop1 = var7.trim();
-               }
-
-               if (var6.equals("Prop2")) {
-                  this.Prop2 = var7.trim();
-               }
-
-               if (var6.equals("Time")) {
-                  this.TimeToMake = Float.parseFloat(var7);
-               }
-
-               if (var6.equals("Sound")) {
-                  this.Sound = var7.trim();
-               }
-
-               if (var6.equals("InSameInventory")) {
-                  this.InSameInventory = Boolean.parseBoolean(var7);
-               }
-
-               if (var6.equals("Result")) {
-                  this.DoResult(var7);
-               }
-
-               if (var6.equals("OnCanPerform")) {
-                  this.LuaCanPerform = StringUtils.discardNullOrWhitespace(var7);
-               }
-
-               if (var6.equals("OnTest")) {
-                  this.LuaTest = var7;
-               }
-
-               if (var6.equals("OnCreate")) {
-                  this.LuaCreate = var7;
-               }
-
-               if (var6.equals("AllowDestroyedItem")) {
-                  this.AllowDestroyedItem = Boolean.parseBoolean(var7);
-               }
-
-               if (var6.equals("AllowFrozenItem")) {
-                  this.AllowFrozenItem = Boolean.parseBoolean(var7);
-               }
-
-               if (var6.equals("AllowRottenItem")) {
-                  this.AllowRottenItem = Boolean.parseBoolean(var7);
-               }
-
-               if (var6.equals("OnGrab")) {
-                  this.LuaGrab = var7;
-               }
-
-               if (var6.toLowerCase().equals("needtobelearn")) {
-                  this.setNeedToBeLearn(var7.trim().equalsIgnoreCase("true"));
-               }
-
-               if (var6.toLowerCase().equals("category")) {
-                  this.setCategory(var7.trim());
-               }
-
-               if (var6.equals("RemoveResultItem")) {
-                  this.removeResultItem = var7.trim().equalsIgnoreCase("true");
-               }
-
-               if (var6.equals("CanBeDoneFromFloor")) {
-                  this.setCanBeDoneFromFloor(var7.trim().equalsIgnoreCase("true"));
-               }
-
-               if (var6.equals("NearItem")) {
-                  this.setNearItem(var7.trim());
-               }
-
-               if (var6.equals("SkillRequired")) {
-                  this.skillRequired = new ArrayList();
-                  String[] var8 = var7.split(";");
-
-                  for(int var9 = 0; var9 < var8.length; ++var9) {
-                     String[] var10 = var8[var9].split("=");
-                     PerkFactory.Perk var11 = PerkFactory.Perks.FromString(var10[0]);
-                     if (var11 == PerkFactory.Perks.MAX) {
-                        DebugLog.Recipe.warn("Unknown skill \"%s\" in recipe \"%s\"", var10, this.name);
-                     } else {
-                        int var12 = PZMath.tryParseInt(var10[1], 1);
-                        RequiredSkill var13 = new RequiredSkill(var11, var12);
-                        this.skillRequired.add(var13);
-                     }
+      while(var5.hasNext()) {
+         ScriptParser.BlockElement var6 = (ScriptParser.BlockElement)var5.next();
+         if (var6.asValue() != null) {
+            String var7 = var6.asValue().string;
+            if (!var7.trim().isEmpty()) {
+               if (var7.contains(":")) {
+                  String[] var8 = var7.split(":");
+                  String var9 = var8[0].trim();
+                  String var10 = var8[1].trim();
+                  if (var9.equalsIgnoreCase("Override")) {
+                     var3 = var10.trim().equalsIgnoreCase("true");
+                  } else {
+                     DebugLog.General.error("Could not assign [key]: '" + var9 + "' : '" + var10 + "'.");
                   }
+               } else {
+                  this.DoSource(var7.trim());
                }
-
-               if (var6.equals("OnGiveXP")) {
-                  this.LuaGiveXP = var7;
-               }
-
-               if (var6.equalsIgnoreCase("Tooltip")) {
-                  this.tooltip = StringUtils.discardNullOrWhitespace(var7);
-               }
-
-               if (var6.equals("Obsolete") && var7.trim().toLowerCase().equals("true")) {
-                  this.module.RecipeMap.remove(this);
-                  this.module.RecipeByName.remove(this.getOriginalname());
-                  this.module.RecipesWithDotInName.remove(this);
-                  return;
-               }
-
-               if (var6.equals("Heat")) {
-                  this.heat = Float.parseFloat(var7);
-               }
-
-               if (var6.equals("NoBrokenItems")) {
-                  this.AllowDestroyedItem = !StringUtils.tryParseBoolean(var7);
-               }
-
-               if (var6.equals("StopOnWalk")) {
-                  this.stopOnWalk = var7.trim().equalsIgnoreCase("true");
-               }
-
-               if (var6.equals("StopOnRun")) {
-                  this.stopOnRun = var7.trim().equalsIgnoreCase("true");
-               }
-
-               if (var6.equals("IsHidden")) {
-                  this.hidden = var7.trim().equalsIgnoreCase("true");
-               }
-            } else {
-               this.DoSource(var2[var4].trim());
             }
-         }
-      }
-
-      if (var3) {
-         Recipe var14 = this.module.getRecipe(var1);
-         if (var14 != null && var14 != this) {
-            this.module.RecipeMap.remove(var14);
-            this.module.RecipeByName.put(var1, this);
          }
       }
 
@@ -246,7 +92,7 @@ public class Recipe extends BaseScriptObject {
    public void DoSource(String var1) {
       Source var2 = new Source();
       if (var1.contains("=")) {
-         var2.count = new Float(var1.split("=")[1].trim());
+         var2.count = Float.parseFloat(var1.split("=")[1].trim());
          var1 = var1.split("=")[0].trim();
       }
 
@@ -268,11 +114,14 @@ public class Recipe extends BaseScriptObject {
 
       if (var1.equals("null")) {
          var2.getItems().clear();
+         var2.originalItems.clear();
       } else if (var1.contains("/")) {
          var1 = var1.replaceFirst("keep ", "").trim();
          var2.getItems().addAll(Arrays.asList(var1.split("/")));
+         var2.originalItems.addAll(Arrays.asList(var1.split("/")));
       } else {
          var2.getItems().add(var1);
+         var2.originalItems.add(var1);
       }
 
       if (!var1.isEmpty()) {
@@ -303,43 +152,24 @@ public class Recipe extends BaseScriptObject {
          var2.type = var1;
       }
 
-      this.Result = var2;
+      if (this.Result == null) {
+         this.Result = var2;
+      }
+
+      this.Results.add(var2);
    }
 
-   public Result getResult() {
-      return this.Result;
-   }
+   public int getNumberOfNeededItem() {
+      int var1 = 0;
 
-   public String getSound() {
-      return this.Sound;
-   }
+      for(int var2 = 0; var2 < this.getSource().size(); ++var2) {
+         Source var3 = (Source)this.getSource().get(var2);
+         if (!var3.getItems().isEmpty()) {
+            var1 = (int)((float)var1 + var3.getCount());
+         }
+      }
 
-   public void setSound(String var1) {
-      this.Sound = var1;
-   }
-
-   public String getOriginalname() {
-      return this.originalname;
-   }
-
-   public void setOriginalname(String var1) {
-      this.originalname = var1;
-   }
-
-   public boolean needToBeLearn() {
-      return this.needToBeLearn;
-   }
-
-   public void setNeedToBeLearn(boolean var1) {
-      this.needToBeLearn = var1;
-   }
-
-   public String getCategory() {
-      return this.category;
-   }
-
-   public void setCategory(String var1) {
-      this.category = var1;
+      return var1;
    }
 
    public ArrayList<String> getRequiredSkills() {
@@ -398,173 +228,48 @@ public class Recipe extends BaseScriptObject {
       return null;
    }
 
-   public boolean isDestroy(String var1) {
-      Source var2 = this.findSource(var1);
-      if (var2 != null) {
-         return var2.isDestroy();
-      } else {
-         String var10002 = this.getOriginalname();
-         throw new RuntimeException("recipe " + var10002 + " doesn't use item " + var1);
-      }
+   public ArrayList<Source> getSource() {
+      return this.Source;
    }
 
-   public boolean isKeep(String var1) {
-      Source var2 = this.findSource(var1);
-      if (var2 != null) {
-         return var2.isKeep();
-      } else {
-         String var10002 = this.getOriginalname();
-         throw new RuntimeException("recipe " + var10002 + " doesn't use item " + var1);
-      }
+   public String getOriginalname() {
+      return this.originalname;
+   }
+
+   public void setOriginalname(String var1) {
+      this.originalname = var1;
+   }
+
+   public String getFullType() {
+      return this.getModule().name + "." + this.originalname;
+   }
+
+   public String getName() {
+      return this.name;
    }
 
    public float getHeat() {
       return this.heat;
    }
 
-   public boolean noBrokenItems() {
-      return !this.AllowDestroyedItem;
+   public Result getResult() {
+      return this.Result;
    }
 
-   public boolean isAllowDestroyedItem() {
-      return this.AllowDestroyedItem;
-   }
-
-   public void setAllowDestroyedItem(boolean var1) {
-      this.AllowDestroyedItem = var1;
-   }
-
-   public boolean isAllowFrozenItem() {
-      return this.AllowFrozenItem;
-   }
-
-   public void setAllowFrozenItem(boolean var1) {
-      this.AllowFrozenItem = var1;
-   }
-
-   public boolean isAllowRottenItem() {
-      return this.AllowRottenItem;
-   }
-
-   public void setAllowRottenItem(boolean var1) {
-      this.AllowRottenItem = var1;
-   }
-
-   public int getWaterAmountNeeded() {
-      Source var1 = this.findSource("Water");
-      return var1 != null ? (int)var1.getCount() : 0;
-   }
-
+   /** @deprecated */
+   @Deprecated
    public String getNearItem() {
-      return this.nearItem;
+      return this.requiredNearObject;
    }
 
+   /** @deprecated */
+   @Deprecated
    public void setNearItem(String var1) {
-      this.nearItem = var1;
+      this.requiredNearObject = var1;
    }
 
-   public String getCanPerform() {
-      return this.LuaCanPerform;
-   }
-
-   public void setCanPerform(String var1) {
-      this.LuaCanPerform = var1;
-   }
-
-   public String getLuaTest() {
-      return this.LuaTest;
-   }
-
-   public void setLuaTest(String var1) {
-      this.LuaTest = var1;
-   }
-
-   public String getLuaCreate() {
-      return this.LuaCreate;
-   }
-
-   public void setLuaCreate(String var1) {
-      this.LuaCreate = var1;
-   }
-
-   public String getLuaGrab() {
-      return this.LuaGrab;
-   }
-
-   public void setLuaGrab(String var1) {
-      this.LuaGrab = var1;
-   }
-
-   public String getLuaGiveXP() {
-      return this.LuaGiveXP;
-   }
-
-   public void setLuaGiveXP(String var1) {
-      this.LuaGiveXP = var1;
-   }
-
-   public boolean isRemoveResultItem() {
-      return this.removeResultItem;
-   }
-
-   public void setRemoveResultItem(boolean var1) {
-      this.removeResultItem = var1;
-   }
-
-   public String getAnimNode() {
-      return this.AnimNode;
-   }
-
-   public void setAnimNode(String var1) {
-      this.AnimNode = var1;
-   }
-
-   public String getProp1() {
-      return this.Prop1;
-   }
-
-   public void setProp1(String var1) {
-      this.Prop1 = var1;
-   }
-
-   public String getProp2() {
-      return this.Prop2;
-   }
-
-   public void setProp2(String var1) {
-      this.Prop2 = var1;
-   }
-
-   public String getTooltip() {
-      return this.tooltip;
-   }
-
-   public void setStopOnWalk(boolean var1) {
-      this.stopOnWalk = var1;
-   }
-
-   public boolean isStopOnWalk() {
-      return this.stopOnWalk;
-   }
-
-   public void setStopOnRun(boolean var1) {
-      this.stopOnRun = var1;
-   }
-
-   public boolean isStopOnRun() {
-      return this.stopOnRun;
-   }
-
-   public void setIsHidden(boolean var1) {
-      this.hidden = var1;
-   }
-
-   public boolean isHidden() {
-      return this.hidden;
-   }
-
-   public boolean isInSameInventory() {
-      return this.InSameInventory;
+   public ArrayList<Result> getResults() {
+      return this.Results;
    }
 
    public static final class Result {
@@ -616,6 +321,7 @@ public class Recipe extends BaseScriptObject {
    public static final class Source {
       public boolean keep = false;
       private final ArrayList<String> items = new ArrayList();
+      private final ArrayList<String> originalItems = new ArrayList();
       public boolean destroy = false;
       public float count = 1.0F;
       public float use = 0.0F;
@@ -659,6 +365,10 @@ public class Recipe extends BaseScriptObject {
          return this.items;
       }
 
+      public ArrayList<String> getOriginalItems() {
+         return this.originalItems;
+      }
+
       public String getOnlyItem() {
          if (this.items.size() != 1) {
             throw new RuntimeException("items.size() == " + this.items.size());
@@ -683,6 +393,18 @@ public class Recipe extends BaseScriptObject {
 
       public int getLevel() {
          return this.level;
+      }
+   }
+
+   public static enum LuaCall {
+      LuaAttributes,
+      LuaTest,
+      LuaCreate,
+      LuaGrab,
+      LuaCanPerform,
+      LuaGiveXP;
+
+      private LuaCall() {
       }
    }
 }

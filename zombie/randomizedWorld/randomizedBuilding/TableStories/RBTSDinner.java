@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 
 public final class RBTSDinner extends RBTableStoryBase {
@@ -88,7 +88,7 @@ public final class RBTSDinner extends RBTableStoryBase {
                   this.addWorldItem("Base.Wine2", this.table2.getSquare(), 0.228F, 0.593F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                   break;
                case 2:
-                  this.addWorldItem("Base.WaterBottleFull", this.table2.getSquare(), 0.228F, 0.593F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
+                  this.addWorldItem("Base.WaterBottle", this.table2.getSquare(), 0.228F, 0.593F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                   break;
                case 3:
                   this.addWorldItem("Base.BeerBottle", this.table2.getSquare(), 0.228F, 0.593F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
@@ -101,7 +101,7 @@ public final class RBTSDinner extends RBTableStoryBase {
                      this.addWorldItem("Base.WineEmpty", this.table1.getSquare(), 0.96F, 0.6F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                      break;
                   case 1:
-                     this.addWorldItem("Base.WineEmpty2", this.table1.getSquare(), 0.96F, 0.6F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
+                     this.addWorldItem("Base.Wine2Empty", this.table1.getSquare(), 0.96F, 0.6F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                      break;
                   case 2:
                      this.addWorldItem("Base.WaterBottleEmpty", this.table1.getSquare(), 0.96F, 0.6F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
@@ -181,7 +181,7 @@ public final class RBTSDinner extends RBTableStoryBase {
                   this.addWorldItem("Base.Wine2", this.table2.getSquare(), 0.468F, 0.09F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                   break;
                case 2:
-                  this.addWorldItem("Base.WaterBottleFull", this.table2.getSquare(), 0.468F, 0.09F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
+                  this.addWorldItem("Base.WaterBottle", this.table2.getSquare(), 0.468F, 0.09F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                   break;
                case 3:
                   this.addWorldItem("Base.BeerBottle", this.table2.getSquare(), 0.468F, 0.09F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
@@ -194,7 +194,7 @@ public final class RBTSDinner extends RBTableStoryBase {
                      this.addWorldItem("Base.WineEmpty", this.table2.getSquare(), 0.851F, 0.15F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                      break;
                   case 1:
-                     this.addWorldItem("Base.WineEmpty2", this.table2.getSquare(), 0.851F, 0.15F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
+                     this.addWorldItem("Base.Wine2Empty", this.table2.getSquare(), 0.851F, 0.15F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
                      break;
                   case 2:
                      this.addWorldItem("Base.WaterBottleEmpty", this.table2.getSquare(), 0.851F, 0.15F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 360));
@@ -219,25 +219,11 @@ public final class RBTSDinner extends RBTableStoryBase {
          this.hasPlate = false;
       } else {
          this.hasPlate = true;
-         int var1;
          if (this.plate == null) {
-            var1 = Rand.Next(0, 4);
-            switch (var1) {
-               case 0:
-                  this.plate = "Base.Plate";
-                  break;
-               case 1:
-                  this.plate = "Base.PlateBlue";
-                  break;
-               case 2:
-                  this.plate = "Base.PlateOrange";
-                  break;
-               case 3:
-                  this.plate = "Base.PlateFancy";
-            }
+            this.plate = "Base.Plate";
          }
 
-         var1 = Rand.Next(0, 4);
+         int var1 = Rand.Next(7);
          switch (var1) {
             case 0:
                this.foodType = "Base.Chicken";
@@ -250,6 +236,15 @@ public final class RBTSDinner extends RBTableStoryBase {
                break;
             case 3:
                this.foodType = "Base.Salmon";
+               break;
+            case 4:
+               this.foodType = "Base.Pizza";
+               break;
+            case 5:
+               this.foodType = "Base.MuttonChop";
+               break;
+            case 6:
+               this.foodType = "Base.FishFillet";
          }
       }
 

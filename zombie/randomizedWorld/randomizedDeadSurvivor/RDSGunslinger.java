@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoDirections;
@@ -10,7 +10,7 @@ import zombie.iso.objects.IsoDeadBody;
 public final class RDSGunslinger extends RandomizedDeadSurvivorBase {
    public void randomizeDeadSurvivor(BuildingDef var1) {
       IsoGridSquare var2 = var1.getFreeSquareInRoom();
-      if (var2 != null) {
+      if (var2 != null && (var2.getRoom() == null || var2.getRoom().getRoomDef() == null || var2.getRoom().getRoomDef().isKidsRoom())) {
          IsoDeadBody var3 = RandomizedDeadSurvivorBase.createRandomDeadBody(var2.getX(), var2.getY(), var2.getZ(), (IsoDirections)null, 0);
          if (var3 != null) {
             var3.setPrimaryHandItem(super.addRandomRangedWeapon(var3.getContainer(), true, false, false));

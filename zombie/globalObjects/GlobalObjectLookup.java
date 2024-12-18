@@ -3,17 +3,18 @@ package zombie.globalObjects;
 import java.util.ArrayList;
 import java.util.Arrays;
 import zombie.debug.DebugLog;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoMetaGrid;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
 public final class GlobalObjectLookup {
-   private static final int SQUARES_PER_CHUNK = 10;
-   private static final int SQUARES_PER_CELL = 300;
-   private static final int CHUNKS_PER_CELL = 30;
+   private static final int SQUARES_PER_CHUNK = 8;
+   private static final int SQUARES_PER_CELL;
+   private static final int CHUNKS_PER_CELL;
    private static IsoMetaGrid metaGrid;
-   private static final Shared sharedServer = new Shared();
-   private static final Shared sharedClient = new Shared();
+   private static final Shared sharedServer;
+   private static final Shared sharedClient;
    private final GlobalObjectSystem system;
    private final Shared shared;
    private final Cell[] cells;
@@ -25,11 +26,11 @@ public final class GlobalObjectLookup {
    }
 
    private Cell getCellAt(int var1, int var2, boolean var3) {
-      int var4 = var1 - metaGrid.minX * 300;
-      int var5 = var2 - metaGrid.minY * 300;
-      if (var4 >= 0 && var5 >= 0 && var4 < metaGrid.getWidth() * 300 && var5 < metaGrid.getHeight() * 300) {
-         int var6 = var4 / 300;
-         int var7 = var5 / 300;
+      int var4 = var1 - metaGrid.minX * SQUARES_PER_CELL;
+      int var5 = var2 - metaGrid.minY * SQUARES_PER_CELL;
+      if (var4 >= 0 && var5 >= 0 && var4 < metaGrid.getWidth() * SQUARES_PER_CELL && var5 < metaGrid.getHeight() * SQUARES_PER_CELL) {
+         int var6 = var4 / SQUARES_PER_CELL;
+         int var7 = var5 / SQUARES_PER_CELL;
          int var8 = var6 + var7 * metaGrid.getWidth();
          if (this.cells[var8] == null && var3) {
             this.cells[var8] = new Cell(metaGrid.minX + var6, metaGrid.minY + var7);
@@ -47,8 +48,8 @@ public final class GlobalObjectLookup {
    }
 
    private Chunk getChunkForChunkPos(int var1, int var2, boolean var3) {
-      Cell var4 = this.getCellAt(var1 * 10, var2 * 10, var3);
-      return var4 == null ? null : var4.getChunkAt(var1 * 10, var2 * 10, var3);
+      Cell var4 = this.getCellAt(var1 * 8, var2 * 8, var3);
+      return var4 == null ? null : var4.getChunkAt(var1 * 8, var2 * 8, var3);
    }
 
    public void addObject(GlobalObject var1) {
@@ -153,6 +154,13 @@ public final class GlobalObjectLookup {
       sharedClient.reset();
    }
 
+   static {
+      SQUARES_PER_CELL = IsoCell.CellSizeInSquares;
+      CHUNKS_PER_CELL = IsoCell.CellSizeInChunks;
+      sharedServer = new Shared();
+      sharedClient = new Shared();
+   }
+
    private static final class Shared {
       Cell[] cells;
 
@@ -180,17 +188,18 @@ public final class GlobalObjectLookup {
    private static final class Cell {
       final int cx;
       final int cy;
-      final Chunk[] chunks = new Chunk[900];
+      final Chunk[] chunks;
 
       Cell(int var1, int var2) {
+         this.chunks = new Chunk[GlobalObjectLookup.CHUNKS_PER_CELL * GlobalObjectLookup.CHUNKS_PER_CELL];
          this.cx = var1;
          this.cy = var2;
       }
 
       Chunk getChunkAt(int var1, int var2, boolean var3) {
-         int var4 = (var1 - this.cx * 300) / 10;
-         int var5 = (var2 - this.cy * 300) / 10;
-         int var6 = var4 + var5 * 30;
+         int var4 = (var1 - this.cx * GlobalObjectLookup.SQUARES_PER_CELL) / 8;
+         int var5 = (var2 - this.cy * GlobalObjectLookup.SQUARES_PER_CELL) / 8;
+         int var6 = var4 + var5 * GlobalObjectLookup.CHUNKS_PER_CELL;
          if (this.chunks[var6] == null && var3) {
             this.chunks[var6] = new Chunk();
          }

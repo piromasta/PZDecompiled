@@ -8,6 +8,7 @@ import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoDirections;
 import zombie.iso.objects.IsoWindow;
+import zombie.network.GameClient;
 import zombie.util.StringUtils;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
@@ -85,14 +86,19 @@ public final class SmashWindowState extends State {
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
       HashMap var3 = var1.getStateMachineParams(this);
+      IsoPlayer var5;
       if (var3.get(0) instanceof IsoWindow) {
          IsoWindow var4 = (IsoWindow)var3.get(0);
          if (var2.m_EventName.equalsIgnoreCase("AttackCollisionCheck")) {
             var1.setVariable("OwnerSmashedIt", true);
             IsoPlayer.getInstance().ContextPanic = 0.0F;
-            var4.WeaponHit(var1, (HandWeapon)null);
-            if (!(var1.getPrimaryHandItem() instanceof HandWeapon) && !(var1.getSecondaryHandItem() instanceof HandWeapon)) {
-               var1.getBodyDamage().setScratchedWindow();
+            if (!GameClient.bClient && ((IsoPlayer)var1).isLocalPlayer()) {
+               var4.WeaponHit(var1, (HandWeapon)null);
+               if (!(var1.getPrimaryHandItem() instanceof HandWeapon) && !(var1.getSecondaryHandItem() instanceof HandWeapon)) {
+                  var1.getBodyDamage().setScratchedWindow();
+                  var5 = (IsoPlayer)var1;
+                  var5.playerVoiceSound("PainFromGlassCut");
+               }
             }
          } else if (var2.m_EventName.equalsIgnoreCase("ActiveAnimFinishing")) {
             var1.setVariable("bSmashWindow", false);
@@ -101,13 +107,19 @@ public final class SmashWindowState extends State {
             }
          }
       } else if (var3.get(0) instanceof VehicleWindow) {
-         VehicleWindow var5 = (VehicleWindow)var3.get(0);
+         VehicleWindow var6 = (VehicleWindow)var3.get(0);
          if (var2.m_EventName.equalsIgnoreCase("AttackCollisionCheck")) {
             var1.setVariable("OwnerSmashedIt", true);
             IsoPlayer.getInstance().ContextPanic = 0.0F;
-            var5.hit(var1);
-            if (!(var1.getPrimaryHandItem() instanceof HandWeapon) && !(var1.getSecondaryHandItem() instanceof HandWeapon)) {
-               var1.getBodyDamage().setScratchedWindow();
+            if (((IsoPlayer)var1).isLocalPlayer() && !GameClient.bClient) {
+               var6.hit(var1);
+               if (!(var1.getPrimaryHandItem() instanceof HandWeapon) && !(var1.getSecondaryHandItem() instanceof HandWeapon)) {
+                  var1.getBodyDamage().setScratchedWindow();
+                  if (var1 instanceof IsoPlayer) {
+                     var5 = (IsoPlayer)var1;
+                     var5.playerVoiceSound("PainFromGlassCut");
+                  }
+               }
             }
          } else if (var2.m_EventName.equalsIgnoreCase("ActiveAnimFinishing")) {
             var1.setVariable("bSmashWindow", false);

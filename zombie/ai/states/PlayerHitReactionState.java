@@ -2,13 +2,14 @@ package zombie.ai.states;
 
 import zombie.ai.State;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.debug.DebugLog;
-import zombie.inventory.types.HandWeapon;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.util.Type;
 
 public final class PlayerHitReactionState extends State {
    private static final PlayerHitReactionState _instance = new PlayerHitReactionState();
@@ -38,6 +39,7 @@ public final class PlayerHitReactionState extends State {
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (var1.getAttackedBy() != null && var1.getAttackedBy() instanceof IsoZombie) {
          if (var2.m_EventName.equalsIgnoreCase("PushAwayZombie")) {
             var1.getAttackedBy().setHitForce(0.03F);
@@ -48,7 +50,7 @@ public final class PlayerHitReactionState extends State {
          if (var2.m_EventName.equalsIgnoreCase("Defend")) {
             var1.getAttackedBy().setHitReaction("BiteDefended");
             if (GameClient.bClient) {
-               GameClient.sendHitCharacter(var1.getAttackedBy(), var1, (HandWeapon)null, 0.0F, false, 1.0F, false, false, false);
+               GameClient.sendZombieHit((IsoZombie)var1.getAttackedBy(), var3);
             }
          }
 
@@ -58,13 +60,17 @@ public final class PlayerHitReactionState extends State {
             }
 
             var1.setPlayingDeathSound(true);
-            String var3 = "Male";
-            if (var1.isFemale()) {
-               var3 = "Female";
-            }
+            if (var3 == null) {
+               String var4 = "Male";
+               if (var1.isFemale()) {
+                  var4 = "Female";
+               }
 
-            var3 = var3 + "BeingEatenDeath";
-            var1.playSound(var3);
+               var4 = var4 + "BeingEatenDeath";
+               var1.playSound(var4);
+            } else {
+               var3.playerVoiceSound("DeathEaten");
+            }
          }
 
          if (var2.m_EventName.equalsIgnoreCase("Death")) {

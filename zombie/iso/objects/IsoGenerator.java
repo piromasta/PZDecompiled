@@ -1,20 +1,21 @@
 package zombie.iso.objects;
 
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import zombie.GameTime;
 import zombie.SandboxOptions;
 import zombie.WorldSoundManager;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.Food;
@@ -28,8 +29,9 @@ import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
 import zombie.network.ServerMap;
+import zombie.scripting.ScriptManager;
+import zombie.scripting.objects.Item;
 
 public class IsoGenerator extends IsoObject {
    public float fuel = 0.0F;
@@ -49,27 +51,29 @@ public class IsoGenerator extends IsoObject {
    }
 
    public IsoGenerator(InventoryItem var1, IsoCell var2, IsoGridSquare var3) {
-      super(var2, var3, IsoSpriteManager.instance.getSprite("appliances_misc_01_0"));
+      super(var2, var3, IsoSpriteManager.instance.getSprite(var1.getScriptItem().getWorldObjectSprite()));
+      String var4 = var1.getScriptItem().getWorldObjectSprite();
       if (var1 != null) {
          this.setInfoFromItem(var1);
       }
 
-      this.sprite = IsoSpriteManager.instance.getSprite("appliances_misc_01_0");
+      this.sprite = IsoSpriteManager.instance.getSprite(var4);
       this.square = var3;
       var3.AddSpecialObject(this);
-      if (GameClient.bClient) {
-         this.transmitCompleteItemToServer();
+      if (GameServer.bServer) {
+         this.transmitCompleteItemToClients();
       }
 
    }
 
    public IsoGenerator(InventoryItem var1, IsoCell var2, IsoGridSquare var3, boolean var4) {
-      super(var2, var3, IsoSpriteManager.instance.getSprite("appliances_misc_01_0"));
+      super(var2, var3, IsoSpriteManager.instance.getSprite(var1.getScriptItem().getWorldObjectSprite()));
+      String var5 = var1.getScriptItem().getWorldObjectSprite();
       if (var1 != null) {
          this.setInfoFromItem(var1);
       }
 
-      this.sprite = IsoSpriteManager.instance.getSprite("appliances_misc_01_0");
+      this.sprite = IsoSpriteManager.instance.getSprite(var5);
       this.square = var3;
       var3.AddSpecialObject(this);
       if (GameClient.bClient && !var4) {
@@ -84,6 +88,7 @@ public class IsoGenerator extends IsoObject {
          this.fuel = ((Double)var1.getModData().rawget("fuel")).floatValue();
       }
 
+      this.getModData().rawset("generatorFullType", String.valueOf(var1.getFullType()));
    }
 
    public void update() {
@@ -107,7 +112,7 @@ public class IsoGenerator extends IsoObject {
             return;
          }
 
-         WorldSoundManager.instance.addSoundRepeating(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 20, 1, false);
+         WorldSoundManager.instance.addSoundRepeating(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), 20, 1, false);
          if ((int)GameTime.getInstance().getWorldAgeHours() != this.lastHour) {
             if (!this.getSquare().getProperties().Is(IsoFlagType.exterior) && this.getSquare().getBuilding() != null) {
                this.getSquare().getBuilding().setToxic(false);
@@ -117,12 +122,20 @@ public class IsoGenerator extends IsoObject {
             int var1 = (int)GameTime.getInstance().getWorldAgeHours() - this.lastHour;
             float var2 = 0.0F;
             int var3 = 0;
+            int var4 = 30;
+            if (this.getModData().rawget("generatorFullType") != null && this.getModData().rawget("generatorFullType") instanceof String) {
+               String var5 = (String)this.getModData().rawget("generatorFullType");
+               if (var5 != null && ScriptManager.instance.getItem(var5) != null) {
+                  Item var6 = ScriptManager.instance.getItem(var5);
+                  var4 = var6.getConditionLowerChance();
+               }
+            }
 
-            for(int var4 = 0; var4 < var1; ++var4) {
-               float var5 = this.totalPowerUsing;
-               var5 = (float)((double)var5 * SandboxOptions.instance.GeneratorFuelConsumption.getValue());
-               var2 += var5;
-               if (Rand.Next(30) == 0) {
+            for(int var7 = 0; var7 < var1; ++var7) {
+               float var9 = this.totalPowerUsing;
+               var9 = (float)((double)var9 * SandboxOptions.instance.GeneratorFuelConsumption.getValue());
+               var2 += var9;
+               if (Rand.Next(var4) == 0) {
                   var3 += Rand.Next(2) + 1;
                }
 
@@ -141,6 +154,20 @@ public class IsoGenerator extends IsoObject {
             if (this.condition <= 0) {
                this.setActivated(false);
                this.condition = 0;
+            }
+
+            boolean var8 = false;
+            if (this.condition <= 20) {
+               var8 = Rand.Next(5) == 0;
+            } else if (this.condition <= 30) {
+               var8 = Rand.Next(10) == 0;
+            } else if (this.condition <= 40) {
+               var8 = Rand.Next(15) == 0;
+            }
+
+            if (var8) {
+               this.emitter.playSound("GeneratorBackfire");
+               WorldSoundManager.instance.addSound(this, this.square.getX(), this.square.getY(), this.square.getZ(), 40, 60, false, 0.0F, 15.0F);
             }
 
             if (this.condition <= 20) {
@@ -209,8 +236,6 @@ public class IsoGenerator extends IsoObject {
                            var14 = false;
                         }
 
-                        var13.setHaveElectricity(var14);
-
                         for(int var15 = 0; var15 < var13.getObjects().size(); ++var15) {
                            IsoObject var16 = (IsoObject)var13.getObjects().get(var15);
                            if (var16 != null && !(var16 instanceof IsoWorldInventoryObject)) {
@@ -262,8 +287,12 @@ public class IsoGenerator extends IsoObject {
                                  this.addPoweredItem(var16, 0.08F);
                               }
 
-                              if (var16 instanceof IsoLightSwitch && ((IsoLightSwitch)var16).Activated) {
+                              if (var16 instanceof IsoLightSwitch && ((IsoLightSwitch)var16).Activated && !((IsoLightSwitch)var16).bStreetLight) {
                                  this.addPoweredItem(var16, 0.002F);
+                              }
+
+                              if (var16.getPipedFuelAmount() > 0) {
+                                 this.addPoweredItem(var16, 0.03F);
                               }
 
                               var16.checkHaveElectricity();
@@ -280,6 +309,10 @@ public class IsoGenerator extends IsoObject {
 
    private void addPoweredItem(IsoObject var1, float var2) {
       String var3 = Translator.getText("IGUI_VehiclePartCatOther");
+      if (var1.getPipedFuelAmount() > 0) {
+         var3 = Translator.getText("IGUI_GasPump");
+      }
+
       PropertyContainer var4 = var1.getProperties();
       if (var4 != null && var4.Is("CustomName")) {
          String var5 = "Moveable Object";
@@ -299,7 +332,6 @@ public class IsoGenerator extends IsoObject {
          var3 = Translator.getText("IGUI_Lights");
       }
 
-      this.totalPowerUsing -= var2;
       int var8 = 1;
       Iterator var6 = this.itemsPowered.keySet().iterator();
 
@@ -307,19 +339,15 @@ public class IsoGenerator extends IsoObject {
          String var7 = (String)var6.next();
          if (var7.startsWith(var3)) {
             var8 = Integer.parseInt(var7.replaceAll("[\\D]", ""));
+            this.totalPowerUsing -= var2 * (float)var8;
             ++var8;
             this.itemsPowered.remove(var7);
             break;
          }
       }
 
-      this.itemsPowered.put(var3 + " x" + var8, String.format(" (%.2f L/h)", var2 * (float)var8));
-      if (var8 == 1) {
-         this.totalPowerUsing += var2 * (float)(var8 + 1);
-      } else {
-         this.totalPowerUsing += var2 * (float)var8;
-      }
-
+      this.itemsPowered.put(var3 + " x" + var8, (new DecimalFormat(" (#.### L/h)")).format((double)(var2 * (float)var8)));
+      this.totalPowerUsing += var2 * (float)var8;
    }
 
    private void updateFridgeFreezerItems(IsoObject var1) {
@@ -379,12 +407,7 @@ public class IsoGenerator extends IsoObject {
       super.load(var1, var2, var3);
       this.connected = var1.get() == 1;
       this.activated = var1.get() == 1;
-      if (var2 < 138) {
-         this.fuel = (float)var1.getInt();
-      } else {
-         this.fuel = var1.getFloat();
-      }
-
+      this.fuel = var1.getFloat();
       this.condition = var1.getInt();
       this.lastHour = var1.getInt();
       this.numberOfElectricalItems = var1.getInt();
@@ -411,10 +434,6 @@ public class IsoGenerator extends IsoObject {
       this.getCell().addToProcessIsoObject(this);
       if (!AllGenerators.contains(this)) {
          AllGenerators.add(this);
-      }
-
-      if (GameClient.bClient) {
-         GameClient.instance.objectSyncReq.putRequest(this.square, this);
       }
 
    }
@@ -551,6 +570,10 @@ public class IsoGenerator extends IsoObject {
          this.syncIsoObject(false, (byte)0, (UdpConnection)null, (ByteBuffer)null);
       }
 
+      if (GameServer.bServer) {
+         this.syncIsoObject(false, (byte)0, (UdpConnection)null, (ByteBuffer)null);
+      }
+
    }
 
    public void syncIsoObjectSend(ByteBufferWriter var1) {
@@ -567,62 +590,19 @@ public class IsoGenerator extends IsoObject {
       var1.putByte((byte)(this.connected ? 1 : 0));
    }
 
-   public void syncIsoObject(boolean var1, byte var2, UdpConnection var3, ByteBuffer var4) {
-      if (this.square == null) {
-         System.out.println("ERROR: " + this.getClass().getSimpleName() + " square is null");
-      } else if (this.getObjectIndex() == -1) {
-         PrintStream var10000 = System.out;
-         String var10001 = this.getClass().getSimpleName();
-         var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
-      } else {
-         if (GameClient.bClient && !var1) {
-            ByteBufferWriter var13 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.SyncIsoObject.doPacket(var13);
-            this.syncIsoObjectSend(var13);
-            PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
-         } else if (GameServer.bServer && !var1) {
-            Iterator var12 = GameServer.udpEngine.connections.iterator();
-
-            while(var12.hasNext()) {
-               UdpConnection var14 = (UdpConnection)var12.next();
-               ByteBufferWriter var15 = var14.startPacket();
-               PacketTypes.PacketType.SyncIsoObject.doPacket(var15);
-               this.syncIsoObjectSend(var15);
-               PacketTypes.PacketType.SyncIsoObject.send(var14);
-            }
-         } else if (var1) {
-            float var5 = var4.getFloat();
-            int var6 = var4.getInt();
-            boolean var7 = var4.get() == 1;
-            boolean var8 = var4.get() == 1;
-            this.sync(var5, var6, var8, var7);
-            if (GameServer.bServer) {
-               Iterator var9 = GameServer.udpEngine.connections.iterator();
-
-               while(var9.hasNext()) {
-                  UdpConnection var10 = (UdpConnection)var9.next();
-                  if (var3 != null && var10.getConnectedGUID() != var3.getConnectedGUID()) {
-                     ByteBufferWriter var11 = var10.startPacket();
-                     PacketTypes.PacketType.SyncIsoObject.doPacket(var11);
-                     this.syncIsoObjectSend(var11);
-                     PacketTypes.PacketType.SyncIsoObject.send(var10);
-                  }
-               }
-            }
-         }
-
-      }
-   }
-
-   public void sync(float var1, int var2, boolean var3, boolean var4) {
-      this.fuel = var1;
-      this.condition = var2;
-      this.connected = var3;
+   public void syncIsoObjectReceive(ByteBuffer var1) {
+      float var2 = var1.getFloat();
+      int var3 = var1.getInt();
+      boolean var4 = var1.get() == 1;
+      boolean var5 = var1.get() == 1;
+      this.fuel = var2;
+      this.condition = var3;
+      this.connected = var5;
       if (this.activated != var4) {
          try {
             this.updateFridgeFreezerItems();
-         } catch (Throwable var6) {
-            ExceptionLogger.logException(var6);
+         } catch (Throwable var7) {
+            ExceptionLogger.logException(var7);
          }
 
          this.activated = var4;
@@ -645,10 +625,10 @@ public class IsoGenerator extends IsoObject {
       if (var2 == null) {
          return false;
       } else {
-         int var3 = var1.wx * 10;
-         int var4 = var1.wy * 10;
-         int var5 = var3 + 10 - 1;
-         int var6 = var4 + 10 - 1;
+         int var3 = var1.wx * 8;
+         int var4 = var1.wy * 8;
+         int var5 = var3 + 8 - 1;
+         int var6 = var4 + 8 - 1;
          if (var2.x - 20 > var5) {
             return false;
          } else if (var2.x + 20 < var3) {

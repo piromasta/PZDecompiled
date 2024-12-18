@@ -3,18 +3,35 @@ package zombie.characters;
 import java.util.ArrayList;
 import zombie.SandboxOptions;
 import zombie.ai.ZombieGroupManager;
+import zombie.core.random.Rand;
 import zombie.iso.IsoUtils;
 
 public final class ZombieGroup {
    private final ArrayList<IsoZombie> members = new ArrayList();
    public float lastSpreadOutTime;
+   public float idealSizeFactor = 1.0F;
+   int randomizer;
+   boolean negativeValue;
 
    public ZombieGroup() {
+      this.randomizer = Rand.Next(SandboxOptions.instance.zombieConfig.RallyGroupSizeVariance.getValue());
+      this.negativeValue = Rand.NextBool(2);
    }
 
    public ZombieGroup reset() {
       this.members.clear();
       this.lastSpreadOutTime = -1.0F;
+      this.idealSizeFactor = 1.0F;
+      int var1 = Rand.Next(this.randomizer);
+      if (Rand.NextBool(2)) {
+         var1 *= -1;
+      }
+
+      this.idealSizeFactor += (float)var1 / 100.0F;
+      if (this.idealSizeFactor < 0.01F) {
+         this.idealSizeFactor = 0.01F;
+      }
+
       return this;
    }
 

@@ -4,18 +4,21 @@ import java.util.HashMap;
 import java.util.Iterator;
 import zombie.core.math.PZMath;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 
 public final class SoundTimelineScript extends BaseScriptObject {
    private String eventName;
-   private HashMap<String, Integer> positionByName = new HashMap();
+   private final HashMap<String, Integer> positionByName = new HashMap();
 
    public SoundTimelineScript() {
+      super(ScriptType.SoundTimeline);
    }
 
-   public void Load(String var1, String var2) {
+   public void Load(String var1, String var2) throws Exception {
       this.eventName = var1;
       ScriptParser.Block var3 = ScriptParser.parse(var2);
       var3 = (ScriptParser.Block)var3.children.get(0);
+      super.LoadCommonBlock(var3);
       Iterator var4 = var3.values.iterator();
 
       while(var4.hasNext()) {

@@ -7,6 +7,7 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
+import zombie.core.math.PZMath;
 import zombie.popman.ObjectPool;
 
 public final class IsoPuddlesCompute {
@@ -45,7 +46,7 @@ public final class IsoPuddlesCompute {
    }
 
    private static Vector3f floor(Vector3f var0) {
-      return allocVector3f((float)Math.floor((double)var0.x), (float)Math.floor((double)var0.y), (float)Math.floor((double)var0.z));
+      return allocVector3f((float)PZMath.fastfloor(var0.x), (float)PZMath.fastfloor(var0.y), (float)PZMath.fastfloor(var0.z));
    }
 
    private static Vector3f fract(Vector3f var0) {
@@ -53,7 +54,7 @@ public final class IsoPuddlesCompute {
    }
 
    private static float fract(float var0) {
-      return (float)((double)var0 - Math.floor((double)var0));
+      return var0 - (float)PZMath.fastfloor(var0);
    }
 
    private static float mix(float var0, float var1, float var2) {

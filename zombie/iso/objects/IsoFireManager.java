@@ -13,8 +13,10 @@ import zombie.audio.parameters.ParameterFireSize;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoCell;
@@ -22,6 +24,7 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
@@ -208,6 +211,10 @@ public class IsoFireManager {
                WorldSoundManager.instance.addSound(var5, var1.getX(), var1.getY(), var1.getZ(), 20, 20);
             }
 
+            if (PerformanceSettings.FBORenderChunk) {
+               var1.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_ADD);
+            }
+
          }
       }
    }
@@ -231,6 +238,10 @@ public class IsoFireManager {
             IsoFire var5 = new IsoFire(var0, var1, var2, var3, var4, true);
             Add(var5);
             var1.getObjects().add(var5);
+            if (PerformanceSettings.FBORenderChunk) {
+               var1.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_ADD);
+            }
+
          }
       }
    }
@@ -406,10 +417,7 @@ public class IsoFireManager {
                float var8 = var6.getY();
                float var9 = var6.getZ();
                float var10 = IsoUtils.DistanceToSquared(var7, var8, var9 * 3.0F, var1, var2, var3 * 3.0F);
-               if (var6.Traits.HardOfHearing.isSet()) {
-                  var10 *= 4.5F;
-               }
-
+               var10 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
                if (var10 < var4) {
                   var4 = var10;
                }
@@ -420,7 +428,15 @@ public class IsoFireManager {
       }
 
       boolean shouldPlay(IsoFire var1) {
-         return var1 != null && var1.getObjectIndex() != -1 && var1.LifeStage < 4;
+         if (var1 == null) {
+            return false;
+         } else if (var1.getObjectIndex() == -1) {
+            return false;
+         } else if (var1.bSmoke) {
+            return true;
+         } else {
+            return var1.LifeStage < 4;
+         }
       }
 
       int getExistingSlot(IsoFire var1) {
@@ -501,7 +517,7 @@ public class IsoFireManager {
                if (!this.emitter.isPlaying("CampfireRunning")) {
                   this.instance = this.emitter.playSoundImpl("CampfireRunning", (IsoObject)null);
                }
-            } else if (!this.emitter.isPlaying("Fire")) {
+            } else if (!var1.bSmoke && !this.emitter.isPlaying("Fire")) {
                this.instance = this.emitter.playSoundImpl("Fire", (IsoObject)null);
             }
 

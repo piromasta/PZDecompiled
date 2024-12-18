@@ -3,8 +3,10 @@ package zombie.debug;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.function.Consumer;
+import zombie.IndieGL;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.iso.IsoCamera;
@@ -102,6 +104,17 @@ public final class LineDrawer {
       var12 += var17;
       var14 += var17;
       var16 += var17;
+      int var18 = IsoCamera.frameState.playerIndex;
+      PlayerCamera var19 = IsoCamera.cameras[var18];
+      float var20 = var19.zoom;
+      var9 += var19.fixJigglyModelsX * var20;
+      var10 += var19.fixJigglyModelsY * var20;
+      var11 += var19.fixJigglyModelsX * var20;
+      var12 += var19.fixJigglyModelsY * var20;
+      var13 += var19.fixJigglyModelsX * var20;
+      var14 += var19.fixJigglyModelsY * var20;
+      var15 += var19.fixJigglyModelsX * var20;
+      var16 += var19.fixJigglyModelsY * var20;
       drawLine(var9, var10, var11, var12, var6, var7, var8);
       drawLine(var11, var12, var13, var14, var6, var7, var8);
       drawLine(var13, var14, var15, var16, var6, var7, var8);
@@ -140,7 +153,29 @@ public final class LineDrawer {
       float var12 = IsoUtils.YToScreenExact(var0, var1, var2, 0);
       float var13 = IsoUtils.XToScreenExact(var3, var4, var5, 0);
       float var14 = IsoUtils.YToScreenExact(var3, var4, var5, 0);
+      int var15 = IsoCamera.frameState.playerIndex;
+      PlayerCamera var16 = IsoCamera.cameras[var15];
+      float var17 = var16.zoom;
+      var11 += var16.fixJigglyModelsX * var17;
+      var12 += var16.fixJigglyModelsY * var17;
+      var13 += var16.fixJigglyModelsX * var17;
+      var14 += var16.fixJigglyModelsY * var17;
       drawLine(var11, var12, var13, var14, var6, var7, var8, var9, var10);
+   }
+
+   public static void DrawIsoLine(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, float var11) {
+      float var12 = IsoUtils.XToScreenExact(var0, var1, var2, 0);
+      float var13 = IsoUtils.YToScreenExact(var0, var1, var2, 0);
+      float var14 = IsoUtils.XToScreenExact(var3, var4, var5, 0);
+      float var15 = IsoUtils.YToScreenExact(var3, var4, var5, 0);
+      int var16 = IsoCamera.frameState.playerIndex;
+      PlayerCamera var17 = IsoCamera.cameras[var16];
+      float var18 = var17.zoom;
+      var12 += var17.fixJigglyModelsX * var18;
+      var13 += var17.fixJigglyModelsY * var18;
+      var14 += var17.fixJigglyModelsX * var18;
+      var15 += var17.fixJigglyModelsY * var18;
+      drawLine(var12, var13, var14, var15, var6, var7, var8, var9, var10, var11);
    }
 
    public static void DrawIsoTransform(float var0, float var1, float var2, float var3, float var4, float var5, int var6, float var7, float var8, float var9, float var10, int var11) {
@@ -168,17 +203,21 @@ public final class LineDrawer {
    }
 
    static void drawLine(float var0, float var1, float var2, float var3, float var4, float var5, float var6) {
-      SpriteRenderer.instance.renderline((Texture)null, (int)var0, (int)var1, (int)var2, (int)var3, var4, var5, var6, 1.0F);
+      SpriteRenderer.instance.renderlinef((Texture)null, var0, var1, var2, var3, var4, var5, var6, 1.0F, 1);
    }
 
    public static void drawLine(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, int var8) {
-      SpriteRenderer.instance.renderline((Texture)null, (int)var0, (int)var1, (int)var2, (int)var3, var4, var5, var6, var7);
+      SpriteRenderer.instance.renderlinef((Texture)null, var0, var1, var2, var3, var4, var5, var6, var7, var8);
+   }
+
+   public static void drawLine(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9) {
+      SpriteRenderer.instance.renderlinef((Texture)null, var0, var1, var2, var3, var4, var5, var6, var7, var8, var9);
    }
 
    public static void drawRect(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, int var8) {
       SpriteRenderer.instance.render((Texture)null, var0, var1 + (float)var8, (float)var8, var3 - (float)(var8 * 2), var4, var5, var6, var7, (Consumer)null);
       SpriteRenderer.instance.render((Texture)null, var0, var1, var2, (float)var8, var4, var5, var6, var7, (Consumer)null);
-      SpriteRenderer.instance.render((Texture)null, var0 + var2 - (float)var8, var1 + (float)var8, 1.0F, var3 - (float)(var8 * 2), var4, var5, var6, var7, (Consumer)null);
+      SpriteRenderer.instance.render((Texture)null, var0 + var2 - (float)var8, var1 + (float)var8, (float)var8, var3 - (float)(var8 * 2), var4, var5, var6, var7, (Consumer)null);
       SpriteRenderer.instance.render((Texture)null, var0, var1 + var3 - (float)var8, var2, (float)var8, var4, var5, var6, var7, (Consumer)null);
    }
 
@@ -217,6 +256,12 @@ public final class LineDrawer {
       float var10 = var0 + (float)Math.cos((double)var4) * var3;
       float var11 = var1 + (float)Math.sin((double)var4) * var3;
       DrawIsoLine(var0, var1, var2, var10, var11, var2, var5, var6, var7, var8, var9);
+   }
+
+   public static void drawDirectionLine(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10) {
+      float var11 = var0 + (float)Math.cos((double)var4) * var3;
+      float var12 = var1 + (float)Math.sin((double)var4) * var3;
+      DrawIsoLine(var0, var1, var2, var11, var12, var2, var5, var6, var7, var8, var9, var10);
    }
 
    public static void drawDotLines(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, int var10) {
@@ -270,6 +315,12 @@ public final class LineDrawer {
    }
 
    public static void render() {
+      if (PerformanceSettings.FBORenderChunk) {
+         IndieGL.StartShader(0);
+         IndieGL.disableDepthTest();
+         IndieGL.glBlendFunc(770, 771);
+      }
+
       for(int var0 = 0; var0 < lines.size(); ++var0) {
          DrawableLine var1 = (DrawableLine)lines.get(var0);
          if (!var1.bLine) {

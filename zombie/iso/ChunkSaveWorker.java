@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import zombie.core.Core;
-import zombie.debug.DebugLog;
+import zombie.debug.DebugType;
 import zombie.network.GameServer;
 import zombie.vehicles.BaseVehicle;
 import zombie.vehicles.VehiclesDB2;
@@ -88,11 +88,11 @@ public class ChunkSaveWorker {
    }
 
    public void SaveNow() {
-      DebugLog.log("EXITDEBUG: ChunkSaveWorker.SaveNow 1");
+      DebugType.ExitDebug.debugln("ChunkSaveWorker.SaveNow 1");
 
       for(IsoChunk var1 = (IsoChunk)this.toSaveQueue.poll(); var1 != null; var1 = (IsoChunk)this.toSaveQueue.poll()) {
          try {
-            DebugLog.log("EXITDEBUG: ChunkSaveWorker.SaveNow 2 (ch=" + var1.wx + ", " + var1.wy + ")");
+            DebugType.ExitDebug.debugln("ChunkSaveWorker.SaveNow 2 (ch=" + var1.wx + ", " + var1.wy + ")");
             var1.Save(false);
          } catch (Exception var3) {
             var3.printStackTrace();
@@ -100,7 +100,7 @@ public class ChunkSaveWorker {
       }
 
       this.bSaving = false;
-      DebugLog.log("EXITDEBUG: ChunkSaveWorker.SaveNow 3");
+      DebugType.ExitDebug.debugln("ChunkSaveWorker.SaveNow 3");
    }
 
    public void Add(IsoChunk var1) {

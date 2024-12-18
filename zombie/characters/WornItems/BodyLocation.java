@@ -8,6 +8,7 @@ public final class BodyLocation {
    protected final ArrayList<String> aliases = new ArrayList();
    protected final ArrayList<String> exclusive = new ArrayList();
    protected final ArrayList<String> hideModel = new ArrayList();
+   protected final ArrayList<String> altModel = new ArrayList();
    protected boolean bMultiItem = false;
 
    public BodyLocation(BodyLocationGroup var1, String var2) {
@@ -48,6 +49,16 @@ public final class BodyLocation {
       }
    }
 
+   public BodyLocation setAltModel(String var1) {
+      this.checkId(var1, "otherId");
+      if (this.altModel.contains(var1)) {
+         return this;
+      } else {
+         this.altModel.add(var1);
+         return this;
+      }
+   }
+
    public boolean isMultiItem() {
       return this.bMultiItem;
    }
@@ -59,6 +70,10 @@ public final class BodyLocation {
 
    public boolean isHideModel(String var1) {
       return this.hideModel.contains(var1);
+   }
+
+   public boolean isAltModel(String var1) {
+      return this.altModel.contains(var1);
    }
 
    public boolean isExclusive(String var1) {

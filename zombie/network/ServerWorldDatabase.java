@@ -1,5 +1,6 @@
 package zombie.network;
 
+import de.taimos.totp.TOTP;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
@@ -16,12 +17,20 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Scanner;
+import org.apache.commons.codec.binary.Base32;
+import org.apache.commons.codec.binary.Hex;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.ZomboidFileSystem;
+import zombie.characters.Capability;
+import zombie.characters.IsoPlayer;
+import zombie.characters.NetworkUser;
+import zombie.characters.Role;
+import zombie.characters.Roles;
 import zombie.core.Core;
 import zombie.core.secure.PZcrypt;
 import zombie.core.znet.SteamUtils;
@@ -30,6 +39,9 @@ import zombie.debug.LogSeverity;
 import zombie.util.PZSQLUtils;
 
 public class ServerWorldDatabase {
+   public static final int AUTH_TYPE_USERNAME_PASSWORD = 1;
+   public static final int AUTH_TYPE_GOOGLE_AUTH = 2;
+   public static final int AUTH_TYPE_TWO_FACTOR = 3;
    private static final DateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
    public static ServerWorldDatabase instance = new ServerWorldDatabase();
    public String CommandLineAdminUsername = "admin";
@@ -79,7 +91,7 @@ public class ServerWorldDatabase {
 
       while(var7.next()) {
          String var10 = var7.getString(4);
-         if (!var10.equals("world") && !var10.equals("moderator") && !var10.equals("admin") && !var10.equals("password") && !var10.equals("encryptedPwd") && !var10.equals("pwdEncryptType") && !var10.equals("transactionID")) {
+         if (!var10.equals("world") && !var10.equals("moderator") && !var10.equals("admin") && !var10.equals("password") && !var10.equals("encryptedPwd") && !var10.equals("pwdEncryptType")) {
             var8.add(var10);
          }
       }
@@ -116,60 +128,100 @@ public class ServerWorldDatabase {
       return var2;
    }
 
-   public void saveAllTransactionsID(HashMap<String, Integer> var1) {
+   public void getWhitelistUsers(HashMap<String, NetworkUser> var1) {
       try {
-         Iterator var2 = var1.keySet().iterator();
-         PreparedStatement var3 = null;
+         PreparedStatement var2 = this.conn.prepareStatement("SELECT * FROM whitelist");
+         ResultSet var3 = var2.executeQuery();
 
-         while(var2.hasNext()) {
-            String var4 = (String)var2.next();
-            Integer var5 = (Integer)var1.get(var4);
-            var3 = this.conn.prepareStatement("UPDATE whitelist SET transactionID = ? WHERE username = ?");
-            var3.setString(1, var5.toString());
-            var3.setString(2, var4);
-            var3.executeUpdate();
-            var3.close();
+         while(var3.next()) {
+            IsoPlayer var4 = GameServer.getPlayerByUserNameForCommand(var3.getString("username"));
+            NetworkUser var5 = new NetworkUser(var3.getString("world"), var3.getString("username"), var3.getString("lastConnection"), var3.getString("role"), var3.getInt("authType"), var3.getString("steamid"), var3.getString("displayName"), var4 != null);
+            var5.setInWhitelist(true);
+            var1.put(var5.getUsername(), var5);
          }
-      } catch (Exception var6) {
+
+         var2.close();
+      } catch (SQLException var6) {
          var6.printStackTrace();
       }
 
    }
 
-   public void saveTransactionID(String var1, Integer var2) {
+   public void getUserlogUsers(HashMap<String, NetworkUser> var1) {
       try {
-         if (!this.containsUser(var1)) {
-            this.addUser(var1, "");
+         PreparedStatement var2 = this.conn.prepareStatement("SELECT * FROM userlog");
+         ResultSet var3 = var2.executeQuery();
+
+         while(var3.next()) {
+            String var4 = var3.getString("username");
+            if (!var1.containsKey(var4)) {
+               NetworkUser var5 = new NetworkUser(GameServer.ServerName, var4, "", Roles.getDefaultForUser().getName(), 1, "", "", false);
+               var1.put(var4, var5);
+            }
          }
 
-         PreparedStatement var3 = this.conn.prepareStatement("UPDATE whitelist SET transactionID = ? WHERE username = ?");
-         var3.setString(1, var2.toString());
-         var3.setString(2, var1);
-         var3.executeUpdate();
-         var3.close();
-      } catch (Exception var4) {
-         var4.printStackTrace();
+         var2.close();
+      } catch (SQLException var6) {
+         var6.printStackTrace();
       }
 
    }
 
-   public boolean containsUser(String var1) {
+   private int getUserCounter(String var1, String var2) {
+      int var3 = 0;
+
       try {
-         PreparedStatement var2 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ? AND world = ?");
-         var2.setString(1, var1);
-         var2.setString(2, Core.GameSaveWorld);
-         ResultSet var3 = var2.executeQuery();
-         if (var3.next()) {
-            var2.close();
+         PreparedStatement var4 = this.conn.prepareStatement("SELECT SUM(amount) FROM userlog WHERE username = ? AND type = ?");
+         var4.setString(1, var1);
+         var4.setString(2, var2);
+
+         for(ResultSet var5 = var4.executeQuery(); var5.next(); var3 = var5.getInt(1)) {
+         }
+
+         var4.close();
+      } catch (SQLException var6) {
+         DebugLog.General.printException(var6, "DataBase counter " + var2 + " read failed", LogSeverity.Error);
+      }
+
+      return var3;
+   }
+
+   public void updateUserCounters(Collection<NetworkUser> var1) {
+      Iterator var2 = var1.iterator();
+
+      while(var2.hasNext()) {
+         NetworkUser var3 = (NetworkUser)var2.next();
+         int var4 = this.getUserCounter(var3.getUsername(), Userlog.UserlogType.WarningPoint.name());
+         var3.setWarningPoints(var4);
+         int var5 = this.getUserCounter(var3.getUsername(), Userlog.UserlogType.SuspiciousActivity.name());
+         var3.setSuspicionPoints(var5);
+         int var6 = this.getUserCounter(var3.getUsername(), Userlog.UserlogType.Kicked.name());
+         var3.setKicks(var6);
+      }
+
+   }
+
+   public boolean containsUser(String var1, String var2) {
+      try {
+         PreparedStatement var3 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ? AND world = ?");
+         var3.setString(1, var1);
+         var3.setString(2, var2);
+         ResultSet var4 = var3.executeQuery();
+         if (var4.next()) {
+            var3.close();
             return true;
          }
 
-         var2.close();
-      } catch (SQLException var4) {
-         var4.printStackTrace();
+         var3.close();
+      } catch (SQLException var5) {
+         var5.printStackTrace();
       }
 
       return false;
+   }
+
+   public boolean containsUser(String var1) {
+      return this.containsUser(var1, Core.GameSaveWorld);
    }
 
    public boolean containsCaseinsensitiveUser(String var1) {
@@ -210,29 +262,42 @@ public class ServerWorldDatabase {
       }
    }
 
+   public String getTOTPCode(String var1) {
+      Base32 var2 = new Base32();
+      byte[] var3 = var2.decode(var1);
+      String var4 = Hex.encodeHexString(var3);
+      return TOTP.getOTP(var4);
+   }
+
    public String addUser(String var1, String var2) throws SQLException {
+      return this.addUser(var1, var2, 1);
+   }
+
+   public String addUser(String var1, String var2, int var3) throws SQLException {
       if (this.containsCaseinsensitiveUser(var1)) {
          return "A user with this name already exists";
       } else {
          try {
-            PreparedStatement var3 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ? AND world = ?");
-            var3.setString(1, var1);
-            var3.setString(2, Core.GameSaveWorld);
-            ResultSet var4 = var3.executeQuery();
-            if (var4.next()) {
-               var3.close();
+            PreparedStatement var4 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ? AND world = ?");
+            var4.setString(1, var1);
+            var4.setString(2, Core.GameSaveWorld);
+            ResultSet var5 = var4.executeQuery();
+            if (var5.next()) {
+               var4.close();
                return "User " + var1 + " already exist.";
             }
 
-            var3.close();
-            var3 = this.conn.prepareStatement("INSERT INTO whitelist (world, username, password, encryptedPwd, pwdEncryptType) VALUES (?, ?, ?, 'true', '2')");
-            var3.setString(1, Core.GameSaveWorld);
-            var3.setString(2, var1);
-            var3.setString(3, var2);
-            var3.executeUpdate();
-            var3.close();
-         } catch (SQLException var5) {
-            var5.printStackTrace();
+            var4.close();
+            var4 = this.conn.prepareStatement("INSERT INTO whitelist (world, username, password, encryptedPwd, pwdEncryptType, authType, role) VALUES (?, ?, ?, 'true', '2', ?, ?)");
+            var4.setString(1, Core.GameSaveWorld);
+            var4.setString(2, var1);
+            var4.setString(3, var2);
+            var4.setInt(4, var3);
+            var4.setString(5, Roles.getDefaultForNewUser().getName());
+            var4.executeUpdate();
+            var4.close();
+         } catch (SQLException var6) {
+            var6.printStackTrace();
          }
 
          return "User " + var1 + " created with the password " + var2;
@@ -281,18 +346,22 @@ public class ServerWorldDatabase {
       return null;
    }
 
-   public String removeUser(String var1) throws SQLException {
+   public String removeUser(String var1, String var2) throws SQLException {
       try {
-         PreparedStatement var2 = this.conn.prepareStatement("DELETE FROM whitelist WHERE world = ? and username = ?");
-         var2.setString(1, Core.GameSaveWorld);
-         var2.setString(2, var1);
-         var2.executeUpdate();
-         var2.close();
-      } catch (SQLException var3) {
-         var3.printStackTrace();
+         PreparedStatement var3 = this.conn.prepareStatement("DELETE FROM whitelist WHERE world = ? and username = ?");
+         var3.setString(1, var2);
+         var3.setString(2, var1);
+         var3.executeUpdate();
+         var3.close();
+      } catch (SQLException var4) {
+         var4.printStackTrace();
       }
 
       return "User " + var1 + " removed from white list";
+   }
+
+   public String removeUser(String var1) throws SQLException {
+      return this.removeUser(var1, Core.GameSaveWorld);
    }
 
    public void removeUserLog(String var1, String var2, String var3) throws SQLException {
@@ -309,6 +378,43 @@ public class ServerWorldDatabase {
 
    }
 
+   public void connect() {
+      String var10002 = ZomboidFileSystem.instance.getCacheDir();
+      File var1 = new File(var10002 + File.separator + "db");
+      if (!var1.exists()) {
+         var1.mkdirs();
+      }
+
+      var10002 = ZomboidFileSystem.instance.getCacheDir();
+      File var2 = new File(var10002 + File.separator + "db" + File.separator + GameServer.ServerName + ".db");
+      var2.setReadable(true, false);
+      var2.setExecutable(true, false);
+      var2.setWritable(true, false);
+      DebugLog.DetailedInfo.trace("user database \"" + var2.getPath() + "\"");
+      if (!var2.exists()) {
+         DebugLog.log("user database doesn't exist");
+      } else {
+         if (this.conn == null) {
+            try {
+               this.conn = PZSQLUtils.getConnection(var2.getAbsolutePath());
+            } catch (Exception var5) {
+               var5.printStackTrace();
+               DebugLog.log("failed to open user database");
+            }
+         } else {
+            try {
+               if (this.conn.isClosed()) {
+                  this.conn = PZSQLUtils.getConnection(var2.getAbsolutePath());
+               }
+            } catch (Exception var4) {
+               var4.printStackTrace();
+               DebugLog.log("failed to open user database");
+            }
+         }
+
+      }
+   }
+
    public void create() throws SQLException, ClassNotFoundException {
       String var10002 = ZomboidFileSystem.instance.getCacheDir();
       File var1 = new File(var10002 + File.separator + "db");
@@ -321,19 +427,19 @@ public class ServerWorldDatabase {
       var2.setReadable(true, false);
       var2.setExecutable(true, false);
       var2.setWritable(true, false);
-      DebugLog.log("user database \"" + var2.getPath() + "\"");
+      DebugLog.DetailedInfo.trace("user database \"" + var2.getPath() + "\"");
       if (!var2.exists()) {
          try {
             var2.createNewFile();
             this.conn = PZSQLUtils.getConnection(var2.getAbsolutePath());
             Statement var3 = this.conn.createStatement();
-            var3.executeUpdate("CREATE TABLE [whitelist] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL,[world] TEXT DEFAULT '" + GameServer.ServerName + "' NULL,[username] TEXT  NULL,[password] TEXT  NULL, [admin] BOOLEAN DEFAULT false NULL, [moderator] BOOLEAN DEFAULT false NULL, [banned] BOOLEAN DEFAULT false NULL, [priority] BOOLEAN DEFAULT false NULL,  [lastConnection] TEXT NULL)");
+            var3.executeUpdate("CREATE TABLE [whitelist] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL,[world] TEXT DEFAULT '" + GameServer.ServerName + "' NULL,[username] TEXT  NULL, [password] TEXT  NULL, [lastConnection] TEXT NULL, [role] TEXT 'user', [authType] INTEGER NULL DEFAULT 1, [googleKey] TEXT NULL, [encryptedPwd] BOOLEAN NULL DEFAULT false, [pwdEncryptType] INTEGER NULL DEFAULT 1, [steamid] TEXT NULL, [ownerid] TEXT NULL, [displayName] TEXT NULL)");
             var3.executeUpdate("CREATE UNIQUE INDEX [id] ON [whitelist]([id]  ASC)");
             var3.executeUpdate("CREATE UNIQUE INDEX [username] ON [whitelist]([username]  ASC)");
             var3.executeUpdate("CREATE TABLE [bannedip] ([ip] TEXT NOT NULL,[username] TEXT NULL, [reason] TEXT NULL)");
             var3.close();
-         } catch (Exception var12) {
-            var12.printStackTrace();
+         } catch (Exception var15) {
+            var15.printStackTrace();
             DebugLog.log("failed to create user database, server shut down");
             System.exit(1);
          }
@@ -342,195 +448,218 @@ public class ServerWorldDatabase {
       if (this.conn == null) {
          try {
             this.conn = PZSQLUtils.getConnection(var2.getAbsolutePath());
-         } catch (Exception var11) {
-            var11.printStackTrace();
+         } catch (Exception var14) {
+            var14.printStackTrace();
             DebugLog.log("failed to open user database, server shut down");
             System.exit(1);
          }
-      }
-
-      DatabaseMetaData var13 = this.conn.getMetaData();
-      ResultSet var4 = var13.getColumns((String)null, (String)null, "whitelist", "admin");
-      Statement var5 = this.conn.createStatement();
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'admin' BOOLEAN NULL DEFAULT false");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "moderator");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'moderator' BOOLEAN NULL DEFAULT false");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "banned");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'banned' BOOLEAN NULL DEFAULT false");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "priority");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'priority' BOOLEAN NULL DEFAULT false");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "lastConnection");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'lastConnection' TEXT NULL");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "encryptedPwd");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'encryptedPwd' BOOLEAN NULL DEFAULT false");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "pwdEncryptType");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'pwdEncryptType' INTEGER NULL DEFAULT 1");
-      }
-
-      var4.close();
-      if (SteamUtils.isSteamModeEnabled()) {
-         var4 = var13.getColumns((String)null, (String)null, "whitelist", "steamid");
-         if (!var4.next()) {
-            var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'steamid' TEXT NULL");
-         }
-
-         var4.close();
-         var4 = var13.getColumns((String)null, (String)null, "whitelist", "ownerid");
-         if (!var4.next()) {
-            var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'ownerid' TEXT NULL");
-         }
-
-         var4.close();
-      }
-
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "accesslevel");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'accesslevel' TEXT NULL");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "transactionID");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'transactionID' INTEGER NULL");
-      }
-
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "displayName");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'whitelist' ADD 'displayName' TEXT NULL");
-      }
-
-      var4.close();
-      var4 = var5.executeQuery("SELECT * FROM sqlite_master WHERE type = 'index' AND sql LIKE '%UNIQUE%' and name = 'username'");
-      if (!var4.next()) {
+      } else {
          try {
-            var5.executeUpdate("CREATE UNIQUE INDEX [username] ON [whitelist]([username]  ASC)");
-         } catch (Exception var10) {
-            System.out.println("Can't create the username index because some of the username in the database are in double, will drop the double username.");
-            var5.executeUpdate("DELETE FROM whitelist WHERE whitelist.rowid > (SELECT rowid FROM whitelist dbl WHERE whitelist.rowid <> dbl.rowid AND  whitelist.username = dbl.username);");
-            var5.executeUpdate("CREATE UNIQUE INDEX [username] ON [whitelist]([username]  ASC)");
+            if (this.conn.isClosed()) {
+               this.conn = PZSQLUtils.getConnection(var2.getAbsolutePath());
+            }
+         } catch (Exception var13) {
+            var13.printStackTrace();
+            DebugLog.log("failed to open user database, server shut down");
          }
       }
 
-      var4 = var13.getTables((String)null, (String)null, "bannedip", (String[])null);
-      if (!var4.next()) {
-         var5.executeUpdate("CREATE TABLE [bannedip] ([ip] TEXT NOT NULL,[username] TEXT NULL, [reason] TEXT NULL)");
+      DatabaseMetaData var16 = this.conn.getMetaData();
+      Statement var4 = this.conn.createStatement();
+      ResultSet var5 = var16.getColumns((String)null, (String)null, "whitelist", "lastConnection");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'lastConnection' TEXT NULL");
       }
 
-      var4.close();
-      var4 = var13.getTables((String)null, (String)null, "bannedid", (String[])null);
-      if (!var4.next()) {
-         var5.executeUpdate("CREATE TABLE [bannedid] ([steamid] TEXT NOT NULL, [reason] TEXT NULL)");
+      var5.close();
+      var5 = var16.getColumns((String)null, (String)null, "whitelist", "encryptedPwd");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'encryptedPwd' BOOLEAN NULL DEFAULT false");
       }
 
-      var4.close();
-      var4 = var13.getTables((String)null, (String)null, "userlog", (String[])null);
-      if (!var4.next()) {
-         var5.executeUpdate("CREATE TABLE [userlog] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL,[username] TEXT  NULL,[type] TEXT  NULL, [text] TEXT  NULL, [issuedBy] TEXT  NULL, [amount] INTEGER NULL, [lastUpdate] TEXT NULL)");
+      var5.close();
+      var5 = var16.getColumns((String)null, (String)null, "whitelist", "pwdEncryptType");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'pwdEncryptType' INTEGER NULL DEFAULT 1");
       }
 
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "userlog", "lastUpdate");
-      if (!var4.next()) {
-         var5.executeUpdate("ALTER TABLE 'userlog' ADD 'lastUpdate' TEXT NULL");
+      var5.close();
+      var5 = var16.getColumns((String)null, (String)null, "whitelist", "authType");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'authType' INTEGER NULL DEFAULT 1");
       }
 
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "moderator");
-      if (var4.next()) {
+      var5.close();
+      var5 = var16.getColumns((String)null, (String)null, "whitelist", "googleKey");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'googleKey' TEXT NULL");
       }
 
-      var4.close();
-      var4 = var13.getColumns((String)null, (String)null, "whitelist", "admin");
+      var5.close();
+      if (SteamUtils.isSteamModeEnabled()) {
+         var5 = var16.getColumns((String)null, (String)null, "whitelist", "steamid");
+         if (!var5.next()) {
+            var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'steamid' TEXT NULL");
+         }
+
+         var5.close();
+         var5 = var16.getColumns((String)null, (String)null, "whitelist", "ownerid");
+         if (!var5.next()) {
+            var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'ownerid' TEXT NULL");
+         }
+
+         var5.close();
+      }
+
+      var5 = var16.getColumns((String)null, (String)null, "whitelist", "role");
       PreparedStatement var6;
       PreparedStatement var8;
-      if (var4.next()) {
-         var4.close();
-         var6 = this.conn.prepareStatement("SELECT * FROM whitelist where admin = 'true'");
-         ResultSet var7 = var6.executeQuery();
+      String var9;
+      if (!var5.next()) {
+         var4.executeUpdate("CREATE TABLE [whitelist_new] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL,[world] TEXT DEFAULT '" + GameServer.ServerName + "' NULL,[username] TEXT  NULL, [password] TEXT  NULL, [lastConnection] TEXT NULL, [role] TEXT 'user', [authType] INTEGER NULL DEFAULT 1, [googleKey] TEXT NULL, [encryptedPwd] BOOLEAN NULL DEFAULT false, [pwdEncryptType] INTEGER NULL DEFAULT 1, [steamid] TEXT NULL, [ownerid] TEXT NULL)");
+         var6 = this.conn.prepareStatement("SELECT * FROM whitelist");
 
-         while(var7.next()) {
-            var8 = this.conn.prepareStatement("UPDATE whitelist set accesslevel = 'admin' where id = ?");
-            var8.setString(1, var7.getString("id"));
-            System.out.println(var7.getString("username"));
-            var8.executeUpdate();
+         ResultSet var7;
+         for(var7 = var6.executeQuery(); var7.next(); var8.executeUpdate()) {
+            var8 = this.conn.prepareStatement("INSERT INTO whitelist_new (world, username, password, lastConnection, role, authType, googleKey, encryptedPwd, pwdEncryptType, steamid, ownerid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            var9 = Roles.getDefaultForUser().getName();
+            if ("true".equals(var7.getString("banned"))) {
+               var9 = Roles.getDefaultForBanned().getName();
+            }
+
+            if ("true".equals(var7.getString("priority"))) {
+               var9 = Roles.getDefaultForPriorityUser().getName();
+            }
+
+            if ("true".equals(var7.getString("moderator"))) {
+               var9 = Roles.getDefaultForModerator().getName();
+            }
+
+            if ("true".equals(var7.getString("admin"))) {
+               var9 = Roles.getDefaultForAdmin().getName();
+            }
+
+            if ("admin".equals(var7.getString("accesslevel"))) {
+               var9 = Roles.getDefaultForAdmin().getName();
+            }
+
+            var8.setString(1, var7.getString("world"));
+            var8.setString(2, var7.getString("username"));
+            var8.setString(3, var7.getString("password"));
+            var8.setString(4, var7.getString("lastConnection"));
+            var8.setString(5, var9);
+            var8.setString(6, var7.getString("authType"));
+            var8.setString(7, var7.getString("googleKey"));
+            var8.setString(8, var7.getString("encryptedPwd"));
+            var8.setString(9, var7.getString("pwdEncryptType"));
+
+            try {
+               var8.setString(10, var7.getString("steamid"));
+               var8.setString(11, var7.getString("ownerid"));
+            } catch (Exception var12) {
+               var8.setString(10, (String)null);
+               var8.setString(11, (String)null);
+            }
+         }
+
+         var7.close();
+         var4.executeUpdate("DROP TABLE 'whitelist'");
+         var4.executeUpdate("ALTER TABLE 'whitelist_new' RENAME TO 'whitelist'");
+         var4.executeUpdate("CREATE UNIQUE INDEX [id] ON [whitelist]([id]  ASC)");
+         var4.executeUpdate("CREATE UNIQUE INDEX [username] ON [whitelist]([username]  ASC)");
+      }
+
+      var5.close();
+      var5 = var16.getColumns((String)null, (String)null, "whitelist", "displayName");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'whitelist' ADD 'displayName' TEXT NULL");
+      }
+
+      var5.close();
+      var5 = var4.executeQuery("SELECT * FROM sqlite_master WHERE type = 'index' AND sql LIKE '%UNIQUE%' and name = 'username'");
+      if (!var5.next()) {
+         try {
+            var4.executeUpdate("CREATE UNIQUE INDEX [username] ON [whitelist]([username]  ASC)");
+         } catch (Exception var11) {
+            System.out.println("Can't create the username index because some of the username in the database are in double, will drop the double username.");
+            var4.executeUpdate("DELETE FROM whitelist WHERE whitelist.rowid > (SELECT rowid FROM whitelist dbl WHERE whitelist.rowid <> dbl.rowid AND  whitelist.username = dbl.username);");
+            var4.executeUpdate("CREATE UNIQUE INDEX [username] ON [whitelist]([username]  ASC)");
          }
       }
 
-      var4 = var13.getTables((String)null, (String)null, "tickets", (String[])null);
-      if (!var4.next()) {
-         var5.executeUpdate("CREATE TABLE [tickets] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL, [message] TEXT NOT NULL, [author] TEXT NOT NULL,[answeredID] INTEGER,[viewed] BOOLEAN NULL DEFAULT false)");
+      var5 = var16.getTables((String)null, (String)null, "bannedip", (String[])null);
+      if (!var5.next()) {
+         var4.executeUpdate("CREATE TABLE [bannedip] ([ip] TEXT NOT NULL,[username] TEXT NULL, [reason] TEXT NULL)");
       }
 
-      var4.close();
+      var5.close();
+      var5 = var16.getTables((String)null, (String)null, "bannedid", (String[])null);
+      if (!var5.next()) {
+         var4.executeUpdate("CREATE TABLE [bannedid] ([steamid] TEXT NOT NULL, [reason] TEXT NULL)");
+      }
+
+      var5.close();
+      var5 = var16.getTables((String)null, (String)null, "userlog", (String[])null);
+      if (!var5.next()) {
+         var4.executeUpdate("CREATE TABLE [userlog] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL,[username] TEXT  NULL,[type] TEXT  NULL, [text] TEXT  NULL, [issuedBy] TEXT  NULL, [amount] INTEGER NULL, [lastUpdate] TEXT NULL)");
+      }
+
+      var5.close();
+      var5 = var16.getColumns((String)null, (String)null, "userlog", "lastUpdate");
+      if (!var5.next()) {
+         var4.executeUpdate("ALTER TABLE 'userlog' ADD 'lastUpdate' TEXT NULL");
+      }
+
+      var5.close();
+      var5 = var16.getTables((String)null, (String)null, "tickets", (String[])null);
+      if (!var5.next()) {
+         var4.executeUpdate("CREATE TABLE [tickets] ([id] INTEGER  PRIMARY KEY AUTOINCREMENT NOT NULL, [message] TEXT NOT NULL, [author] TEXT NOT NULL,[answeredID] INTEGER,[viewed] BOOLEAN NULL DEFAULT false)");
+      }
+
+      var5.close();
       var6 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ?");
       var6.setString(1, this.CommandLineAdminUsername);
-      var4 = var6.executeQuery();
-      String var14;
-      if (!var4.next()) {
+      var5 = var6.executeQuery();
+      String var17;
+      if (!var5.next()) {
          var6.close();
-         var14 = this.CommandLineAdminPassword;
-         if (var14 == null || var14.isEmpty()) {
-            Scanner var15 = new Scanner(new InputStreamReader(System.in));
+         var17 = this.CommandLineAdminPassword;
+         if (var17 == null || var17.isEmpty()) {
+            Scanner var18 = new Scanner(new InputStreamReader(System.in));
             System.out.println("User 'admin' not found, creating it ");
             System.out.println("Command line admin password: " + this.CommandLineAdminPassword);
             System.out.println("Enter new administrator password: ");
-            var14 = var15.nextLine();
+            var17 = var18.nextLine();
 
-            label129:
+            label154:
             while(true) {
-               if (var14 != null && !"".equals(var14)) {
+               if (var17 != null && !"".equals(var17)) {
                   System.out.println("Confirm the password: ");
-                  String var9 = var15.nextLine();
+                  var9 = var18.nextLine();
 
                   while(true) {
-                     if (var9 != null && !"".equals(var9) && var14.equals(var9)) {
-                        break label129;
+                     if (var9 != null && !"".equals(var9) && var17.equals(var9)) {
+                        break label154;
                      }
 
                      System.out.println("Wrong password, confirm the password: ");
-                     var9 = var15.nextLine();
+                     var9 = var18.nextLine();
                   }
                }
 
                System.out.println("Enter new administrator password: ");
-               var14 = var15.nextLine();
+               var17 = var18.nextLine();
             }
          }
 
          if (this.doAdmin) {
-            var6 = this.conn.prepareStatement("INSERT INTO whitelist (username, password, accesslevel, encryptedPwd, pwdEncryptType) VALUES (?, ?, 'admin', 'true', '2')");
+            var6 = this.conn.prepareStatement("INSERT INTO whitelist (username, password, role, encryptedPwd, pwdEncryptType) VALUES (?, ?, '" + Roles.getDefaultForAdmin().getName() + "', 'true', '2')");
          } else {
-            var6 = this.conn.prepareStatement("INSERT INTO whitelist (username, password, encryptedPwd, pwdEncryptType) VALUES (?, ?, 'true', '2')");
+            var6 = this.conn.prepareStatement("INSERT INTO whitelist (username, password, role, encryptedPwd, pwdEncryptType) VALUES (?, ?, '" + Roles.getDefaultForNewUser().getName() + "', 'true', '2')");
          }
 
          var6.setString(1, this.CommandLineAdminUsername);
-         var6.setString(2, PZcrypt.hash(encrypt(var14)));
+         var6.setString(2, PZcrypt.hash(encrypt(var17)));
          var6.executeUpdate();
          var6.close();
          System.out.println("Administrator account '" + this.CommandLineAdminUsername + "' created.");
@@ -538,16 +667,16 @@ public class ServerWorldDatabase {
          var6.close();
       }
 
-      var5.close();
+      var4.close();
       if (this.CommandLineAdminPassword != null && !this.CommandLineAdminPassword.isEmpty()) {
-         var14 = PZcrypt.hash(encrypt(this.CommandLineAdminPassword));
+         var17 = PZcrypt.hash(encrypt(this.CommandLineAdminPassword));
          var8 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ?");
          var8.setString(1, this.CommandLineAdminUsername);
-         var4 = var8.executeQuery();
-         if (var4.next()) {
+         var5 = var8.executeQuery();
+         if (var5.next()) {
             var8.close();
             var8 = this.conn.prepareStatement("UPDATE whitelist SET password = ? WHERE username = ?");
-            var8.setString(1, var14);
+            var8.setString(1, var17);
             var8.setString(2, this.CommandLineAdminUsername);
             var8.executeUpdate();
             System.out.println("admin password changed via -adminpassword option");
@@ -572,7 +701,7 @@ public class ServerWorldDatabase {
    }
 
    public static boolean isValidUserName(String var0) {
-      if (var0 != null && !var0.trim().isEmpty() && !var0.contains(";") && !var0.contains("@") && !var0.contains("$") && !var0.contains(",") && !var0.contains("/") && !var0.contains(".") && !var0.contains("'") && !var0.contains("?") && !var0.contains("\"") && var0.trim().length() >= 3 && var0.length() <= 20) {
+      if (var0 != null && !var0.trim().isEmpty() && !var0.contains(";") && !var0.contains("@") && !var0.contains("$") && !var0.contains(",") && !var0.contains("\\") && !var0.contains("/") && !var0.contains(".") && !var0.contains("'") && !var0.contains("?") && !var0.contains("\"") && var0.trim().length() >= 3 && var0.length() <= 20) {
          if (var0.contains(nullChar)) {
             return false;
          } else if (var0.trim().equals("admin")) {
@@ -585,141 +714,173 @@ public class ServerWorldDatabase {
       }
    }
 
-   public LogonResult authClient(String var1, String var2, String var3, long var4) {
-      System.out.println("User " + var1 + " is trying to connect.");
-      LogonResult var6 = new LogonResult();
+   public LogonResult googleAuthClient(String var1, String var2) {
+      LogonResult var3 = new LogonResult();
+
+      try {
+         PreparedStatement var4 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE LOWER(username) = LOWER(?) AND world = ?");
+         var4.setString(1, var1);
+         var4.setString(2, Core.GameSaveWorld);
+         ResultSet var5 = var4.executeQuery();
+         if (var5.next()) {
+            if (isNullOrEmpty(var5.getString("googleKey"))) {
+               var3.bAuthorized = false;
+               var4.close();
+               var3.dcReason = "GoogleSecretKeyIsAbsent";
+               return var3;
+            }
+
+            if (!var2.equals(this.getTOTPCode(var5.getString("googleKey")))) {
+               var3.bAuthorized = false;
+               var4.close();
+               var3.dcReason = "InvalidGoogleAuthCode";
+               return var3;
+            }
+
+            var3.bAuthorized = true;
+         }
+      } catch (Exception var6) {
+         var6.printStackTrace();
+      }
+
+      return var3;
+   }
+
+   public LogonResult authClient(String var1, String var2, String var3, long var4, int var6) {
+      DebugLog.DetailedInfo.trace("User " + var1 + " is trying to connect.");
+      LogonResult var7 = new LogonResult();
       if (!ServerOptions.instance.AllowNonAsciiUsername.getValue() && !asciiEncoder.canEncode(var1)) {
-         var6.bAuthorized = false;
-         var6.dcReason = "NonAsciiCharacters";
-         return var6;
+         var7.bAuthorized = false;
+         var7.dcReason = "NonAsciiCharacters";
+         return var7;
       } else if (!isValidUserName(var1)) {
-         var6.bAuthorized = false;
-         var6.dcReason = "InvalidUsername";
-         return var6;
+         var7.bAuthorized = false;
+         var7.dcReason = "InvalidUsername";
+         return var7;
       } else {
          try {
-            PreparedStatement var7;
-            ResultSet var8;
+            PreparedStatement var8;
+            ResultSet var9;
             if (!SteamUtils.isSteamModeEnabled() && !var3.equals("127.0.0.1")) {
-               var7 = this.conn.prepareStatement("SELECT * FROM bannedip WHERE ip = ?");
-               var7.setString(1, var3);
-               var8 = var7.executeQuery();
-               if (var8.next()) {
-                  var6.bAuthorized = false;
-                  var6.bannedReason = var8.getString("reason");
-                  var6.banned = true;
-                  var7.close();
-                  return var6;
+               var8 = this.conn.prepareStatement("SELECT * FROM bannedip WHERE ip = ?");
+               var8.setString(1, var3);
+               var9 = var8.executeQuery();
+               if (var9.next()) {
+                  var7.bAuthorized = false;
+                  var7.bannedReason = var9.getString("reason");
+                  var7.role = Roles.getDefaultForBanned();
+                  var8.close();
+                  return var7;
                }
 
-               var7.close();
+               var8.close();
             }
 
-            if (isNullOrEmpty(var2) && ServerOptions.instance.Open.getValue() && ServerOptions.instance.AutoCreateUserInWhiteList.getValue()) {
-               var6.dcReason = "UserPasswordRequired";
-               var6.bAuthorized = false;
-               return var6;
+            if (isNullOrEmpty(var2) && ServerOptions.instance.Open.getValue() && ServerOptions.instance.AutoCreateUserInWhiteList.getValue() && var6 != 2) {
+               var7.dcReason = "UserPasswordRequired";
+               var7.bAuthorized = false;
+               return var7;
             }
 
-            var7 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE LOWER(username) = LOWER(?) AND world = ?");
-            var7.setString(1, var1);
-            var7.setString(2, Core.GameSaveWorld);
-            var8 = var7.executeQuery();
-            if (var8.next()) {
-               String var9;
-               String var10;
-               PreparedStatement var11;
-               if (!isNullOrEmpty(var8.getString("password")) && (var8.getString("encryptedPwd").equals("false") || var8.getString("encryptedPwd").equals("N"))) {
-                  var9 = var8.getString("password");
-                  var10 = encrypt(var9);
-                  var11 = this.conn.prepareStatement("UPDATE whitelist SET encryptedPwd = 'true' WHERE username = ? and password = ?");
-                  var11.setString(1, var1);
-                  var11.setString(2, var9);
-                  var11.executeUpdate();
-                  var11.close();
-                  var11 = this.conn.prepareStatement("UPDATE whitelist SET password = ? WHERE username = ? AND password = ?");
-                  var11.setString(1, var10);
-                  var11.setString(2, var1);
-                  var11.setString(3, var9);
-                  var11.executeUpdate();
-                  var11.close();
-                  var8 = var7.executeQuery();
+            var8 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE LOWER(username) = LOWER(?) AND world = ?");
+            var8.setString(1, var1);
+            var8.setString(2, Core.GameSaveWorld);
+            var9 = var8.executeQuery();
+            if (var9.next()) {
+               Role var10 = Roles.getRole(var9.getString("role"));
+               var7.role = var10 != null ? var10 : Roles.getDefaultForNewUser();
+               if (!var7.role.haveCapability(Capability.LoginOnServer)) {
+                  var7.bAuthorized = false;
+                  var7.bannedReason = "";
+                  var7.role = Roles.getDefaultForBanned();
+                  var8.close();
+                  return var7;
                }
 
-               if (!isNullOrEmpty(var8.getString("password")) && var8.getInt("pwdEncryptType") == 1) {
-                  var9 = var8.getString("password");
-                  var10 = PZcrypt.hash(var9);
-                  var11 = this.conn.prepareStatement("UPDATE whitelist SET pwdEncryptType = '2', password = ? WHERE username = ? AND password = ?");
-                  var11.setString(1, var10);
-                  var11.setString(2, var1);
-                  var11.setString(3, var9);
-                  var11.executeUpdate();
-                  var11.close();
-                  var8 = var7.executeQuery();
+               String var11;
+               String var12;
+               PreparedStatement var13;
+               if (!isNullOrEmpty(var9.getString("password")) && (var9.getString("encryptedPwd").equals("false") || var9.getString("encryptedPwd").equals("N"))) {
+                  var11 = var9.getString("password");
+                  var12 = encrypt(var11);
+                  var13 = this.conn.prepareStatement("UPDATE whitelist SET encryptedPwd = 'true' WHERE username = ? and password = ?");
+                  var13.setString(1, var1);
+                  var13.setString(2, var11);
+                  var13.executeUpdate();
+                  var13.close();
+                  var13 = this.conn.prepareStatement("UPDATE whitelist SET password = ? WHERE username = ? AND password = ?");
+                  var13.setString(1, var12);
+                  var13.setString(2, var1);
+                  var13.setString(3, var11);
+                  var13.executeUpdate();
+                  var13.close();
+                  var9 = var8.executeQuery();
                }
 
-               if (!isNullOrEmpty(var8.getString("password")) && !var8.getString("password").equals(var2)) {
-                  var6.bAuthorized = false;
-                  var7.close();
+               if (!isNullOrEmpty(var9.getString("password")) && var9.getInt("pwdEncryptType") == 1) {
+                  var11 = var9.getString("password");
+                  var12 = PZcrypt.hash(var11);
+                  var13 = this.conn.prepareStatement("UPDATE whitelist SET pwdEncryptType = '2', password = ? WHERE username = ? AND password = ?");
+                  var13.setString(1, var12);
+                  var13.setString(2, var1);
+                  var13.setString(3, var11);
+                  var13.executeUpdate();
+                  var13.close();
+                  var9 = var8.executeQuery();
+               }
+
+               if (var9.getInt("authType") != var6) {
+                  var7.bAuthorized = false;
+                  var8.close();
+                  var7.dcReason = "WrongAuthenticationMethod";
+               }
+
+               if ((var9.getInt("authType") == 1 || var9.getInt("authType") == 3) && !isNullOrEmpty(var9.getString("password")) && !var9.getString("password").equals(var2)) {
+                  var7.bAuthorized = false;
+                  var8.close();
                   if (isNullOrEmpty(var2)) {
-                     var6.dcReason = "DuplicateAccount";
+                     var7.dcReason = "DuplicateAccount";
                   } else {
-                     var6.dcReason = "InvalidUsernamePassword";
+                     var7.dcReason = "InvalidUsernamePassword";
                   }
 
-                  return var6;
+                  return var7;
                }
 
-               var6.bAuthorized = true;
-               var6.admin = "true".equals(var8.getString("admin")) || "Y".equals(var8.getString("admin"));
-               var6.accessLevel = var8.getString("accesslevel");
-               if (var6.accessLevel == null) {
-                  var6.accessLevel = "";
-                  if (var6.admin) {
-                     var6.accessLevel = "admin";
+               if (var9.getInt("authType") == 2 || var9.getInt("authType") == 3) {
+                  if (!isNullOrEmpty(var9.getString("googleKey"))) {
+                     var7.bNeedSecondFactor = true;
+                  } else {
+                     var7.bNeedSecondFactor = false;
                   }
-
-                  this.setAccessLevel(var1, var6.accessLevel);
                }
 
-               var6.banned = "true".equals(var8.getString("banned")) || "Y".equals(var8.getString("banned"));
-               if (var6.banned) {
-                  var6.bAuthorized = false;
-               }
-
-               if (var8.getString("transactionID") == null) {
-                  var6.transactionID = 0;
-               } else {
-                  var6.transactionID = Integer.parseInt(var8.getString("transactionID"));
-               }
-
-               var6.priority = var8.getString("priority").equals("true");
-               var7.close();
-               return var6;
+               var7.bAuthorized = true;
+               var8.close();
+               return var7;
             }
 
             if (ServerOptions.instance.Open.getValue()) {
                if (!this.isNewAccountAllowed(var3, var4)) {
-                  var7.close();
-                  var6.bAuthorized = false;
-                  var6.dcReason = "MaxAccountsReached";
-                  return var6;
+                  var8.close();
+                  var7.bAuthorized = false;
+                  var7.dcReason = "MaxAccountsReached";
+                  return var7;
                }
 
-               var6.bAuthorized = true;
-               var6.newUser = true;
-               var7.close();
-               return var6;
+               var7.bAuthorized = true;
+               var8.close();
+               return var7;
             }
 
-            var6.bAuthorized = false;
-            var6.dcReason = "UnknownUsername";
-            var7.close();
-         } catch (Exception var12) {
-            var12.printStackTrace();
+            var7.bAuthorized = false;
+            var7.dcReason = "UnknownUsername";
+            var8.close();
+         } catch (Exception var14) {
+            var14.printStackTrace();
          }
 
-         return var6;
+         return var7;
       }
    }
 
@@ -735,7 +896,7 @@ public class ServerWorldDatabase {
          if (var6.next()) {
             var4.bAuthorized = false;
             var4.bannedReason = var6.getString("reason");
-            var4.banned = true;
+            var4.role = Roles.getDefaultForBanned();
             var5.close();
             return var4;
          }
@@ -762,7 +923,7 @@ public class ServerWorldDatabase {
          if (var9.next()) {
             var7.bAuthorized = false;
             var7.bannedReason = var9.getString("reason");
-            var7.banned = true;
+            var7.role = Roles.getDefaultForBanned();
             var8.close();
             return var7;
          }
@@ -854,6 +1015,17 @@ public class ServerWorldDatabase {
       }
    }
 
+   public String changePassword(String var1, String var2) throws SQLException {
+      PreparedStatement var4 = this.conn.prepareStatement("UPDATE whitelist SET pwdEncryptType = '2', password = ?, authType = ? WHERE username = ? and world = ?");
+      var4.setString(1, var2);
+      var4.setInt(2, 1);
+      var4.setString(3, var1);
+      var4.setString(4, Core.GameSaveWorld);
+      var4.executeUpdate();
+      var4.close();
+      return "Your new password is " + var2;
+   }
+
    public String changePwd(String var1, String var2, String var3) throws SQLException {
       PreparedStatement var5 = this.conn.prepareStatement("SELECT * FROM whitelist WHERE username = ? AND password = ? AND world = ?");
       var5.setString(1, var1);
@@ -894,8 +1066,7 @@ public class ServerWorldDatabase {
       }
    }
 
-   public String setAccessLevel(String var1, String var2) throws SQLException {
-      var2 = var2.trim();
+   public String setRole(String var1, Role var2) throws SQLException {
       if (!this.containsUser(var1)) {
          this.addUser(var1, "");
       }
@@ -906,12 +1077,12 @@ public class ServerWorldDatabase {
       ResultSet var4 = var3.executeQuery();
       if (var4.next()) {
          var3.close();
-         var3 = this.conn.prepareStatement("UPDATE whitelist SET accesslevel = ? WHERE username = ?");
-         var3.setString(1, var2);
+         var3 = this.conn.prepareStatement("UPDATE whitelist SET role = ? WHERE username = ?");
+         var3.setString(1, var2.getName());
          var3.setString(2, var1);
          var3.executeUpdate();
          var3.close();
-         return var2.equals("") ? "User " + var1 + " no longer has access level" : "User " + var1 + " is now " + var2;
+         return "User " + var1 + " is now " + var2.getName();
       } else {
          var3.close();
          return "User \"" + var1 + "\" is not in the whitelist, use /adduser first";
@@ -1012,7 +1183,7 @@ public class ServerWorldDatabase {
       ResultSet var4 = var3.executeQuery();
       boolean var5 = var4.next();
       if (var2 && !var5) {
-         PreparedStatement var6 = this.conn.prepareStatement("INSERT INTO whitelist (world, username, password, encryptedPwd) VALUES (?, ?, 'bogus', 'false')");
+         PreparedStatement var6 = this.conn.prepareStatement("INSERT INTO whitelist (world, username, role, password, encryptedPwd) VALUES (?, ?, 'banned', 'bogus', 'false')");
          var6.setString(1, Core.GameSaveWorld);
          var6.setString(2, var1);
          var6.executeUpdate();
@@ -1021,37 +1192,33 @@ public class ServerWorldDatabase {
          var5 = true;
       }
 
+      var3.close();
       if (var5) {
-         String var8 = "true";
-         if (!var2) {
-            var8 = "false";
-         }
-
-         var3.close();
-         var3 = this.conn.prepareStatement("UPDATE whitelist SET banned = ? WHERE username = ?");
+         String var8 = var2 ? "banned" : "user";
+         var3 = this.conn.prepareStatement("UPDATE whitelist SET role = ? WHERE username = ?");
          var3.setString(1, var8);
          var3.setString(2, var1);
          var3.executeUpdate();
          var3.close();
-         if (SteamUtils.isSteamModeEnabled()) {
-            var3 = this.conn.prepareStatement("SELECT steamid FROM whitelist WHERE username = ? AND world = ?");
-            var3.setString(1, var1);
-            var3.setString(2, Core.GameSaveWorld);
-            var4 = var3.executeQuery();
-            if (var4.next()) {
-               String var7 = var4.getString("steamid");
-               var3.close();
-               if (var7 != null && !var7.isEmpty()) {
-                  this.banSteamID(var7, "", var2);
-               }
-            } else {
-               var3.close();
-            }
+         if (!SteamUtils.isSteamModeEnabled()) {
          }
 
-         return var2 ? "User " + var1 + " is now banned" : "User " + var1 + " is now un-banned";
+         var3 = this.conn.prepareStatement("SELECT steamid FROM whitelist WHERE username = ? AND world = ?");
+         var3.setString(1, var1);
+         var3.setString(2, Core.GameSaveWorld);
+         var4 = var3.executeQuery();
+         if (var4.next()) {
+            String var7 = var4.getString("steamid");
+            var3.close();
+            if (var7 != null && !var7.isEmpty()) {
+               this.banSteamID(var7, "", var2);
+            }
+         } else {
+            var3.close();
+         }
+
+         return "User \"" + var1 + "\" is now " + (var2 ? "banned" : "un-banned");
       } else {
-         var3.close();
          return "User \"" + var1 + "\" is not in the whitelist, use /adduser first";
       }
    }
@@ -1133,6 +1300,55 @@ public class ServerWorldDatabase {
          var3.close();
       } catch (SQLException var4) {
          var4.printStackTrace();
+      }
+
+   }
+
+   public String getUserGoogleKey(String var1) throws SQLException {
+      String var2 = "";
+
+      try {
+         PreparedStatement var3 = this.conn.prepareStatement("SELECT googleKey FROM whitelist WHERE username = ? and world = ?");
+         var3.setString(1, var1);
+         var3.setString(2, Core.GameSaveWorld);
+         ResultSet var4 = var3.executeQuery();
+         if (var4.next()) {
+            var2 = var4.getString("googleKey");
+         }
+
+         var3.close();
+      } catch (SQLException var5) {
+         var5.printStackTrace();
+      }
+
+      return var2;
+   }
+
+   public void setUserGoogleKey(String var1, String var2) throws SQLException {
+      try {
+         PreparedStatement var3 = this.conn.prepareStatement("UPDATE whitelist SET googleKey = ? WHERE username = ? and world = ?");
+         var3.setString(1, var2);
+         var3.setString(2, var1);
+         var3.setString(3, Core.GameSaveWorld);
+         var3.executeUpdate();
+         var3.close();
+      } catch (SQLException var4) {
+         var4.printStackTrace();
+      }
+
+   }
+
+   public void resetUserGoogleKey(String var1) throws SQLException {
+      try {
+         PreparedStatement var2 = this.conn.prepareStatement("UPDATE whitelist SET googleKey = ?, authType = ? WHERE username = ? and world = ?");
+         var2.setString(1, "");
+         var2.setInt(2, 1);
+         var2.setString(3, var1);
+         var2.setString(4, Core.GameSaveWorld);
+         var2.executeUpdate();
+         var2.close();
+      } catch (SQLException var3) {
+         var3.printStackTrace();
       }
 
    }
@@ -1237,17 +1453,13 @@ public class ServerWorldDatabase {
 
    public class LogonResult {
       public boolean bAuthorized = false;
+      public boolean bNeedSecondFactor = false;
       public int x;
       public int y;
       public int z;
-      public boolean newUser = false;
-      public boolean admin = false;
-      public boolean banned = false;
-      public boolean priority = false;
       public String bannedReason = null;
       public String dcReason = null;
-      public String accessLevel = "";
-      public int transactionID = 0;
+      public Role role = Roles.getDefaultForNewUser();
 
       public LogonResult() {
       }

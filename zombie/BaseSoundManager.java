@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import zombie.audio.BaseSoundEmitter;
 import zombie.characters.IsoPlayer;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.enums.MaterialType;
 
 public abstract class BaseSoundManager {
    public boolean AllowMusic = true;
@@ -151,4 +152,8 @@ public abstract class BaseSoundManager {
    public abstract void unregisterEmitter(BaseSoundEmitter var1);
 
    public abstract boolean isListenerInRange(float var1, float var2, float var3);
+
+   public abstract void playImpactSound(IsoGridSquare var1);
+
+   public abstract void playImpactSound(IsoGridSquare var1, MaterialType var2);
 }

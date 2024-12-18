@@ -1,5 +1,6 @@
 package zombie.network;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -10,6 +11,8 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Iterator;
+import zombie.ZomboidFileSystem;
+import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.znet.ISteamWorkshopCallback;
 import zombie.core.znet.SteamUGCDetails;
@@ -33,50 +36,78 @@ public class GameServerWorkshopItems {
          return true;
       } else {
          ArrayList var1 = new ArrayList();
-         Iterator var2 = var0.iterator();
+         int[] var2 = new int[var0.size()];
+         Iterator var3 = var0.iterator();
 
-         long var3;
-         while(var2.hasNext()) {
-            var3 = (Long)var2.next();
-            WorkshopItem var5 = new WorkshopItem(var3);
-            var1.add(var5);
+         while(var3.hasNext()) {
+            long var4 = (Long)var3.next();
+            WorkshopItem var6 = new WorkshopItem(var4);
+            var1.add(var6);
+         }
+
+         if (GameServer.bCoop) {
+            CoopSlave.status("UI_ServerStatus_Requesting_Workshop_Item_Details");
          }
 
          if (!QueryItemDetails(var1)) {
             return false;
          } else {
+            int var10 = 0;
+            boolean[] var11 = new boolean[var1.size()];
+            if (GameServer.bCoop) {
+               CoopSlave.instance.sendMessage("status", (String)null, Translator.getText("UI_ServerStatus_Downloaded_Workshop_Items_Progress", var10, var1.size()));
+            }
+
             while(true) {
                SteamUtils.runLoop();
-               boolean var7 = false;
+               boolean var5 = false;
 
-               for(int var8 = 0; var8 < var1.size(); ++var8) {
-                  WorkshopItem var4 = (WorkshopItem)var1.get(var8);
-                  var4.update();
-                  if (var4.state == GameServerWorkshopItems.WorkshopInstallState.Fail) {
-                     return false;
-                  }
-
-                  if (var4.state != GameServerWorkshopItems.WorkshopInstallState.Ready) {
-                     var7 = true;
-                     break;
-                  }
-               }
-
-               if (!var7) {
-                  GameServer.WorkshopInstallFolders = new String[var0.size()];
-                  GameServer.WorkshopTimeStamps = new long[var0.size()];
-
-                  for(int var9 = 0; var9 < var0.size(); ++var9) {
-                     var3 = (Long)var0.get(var9);
-                     String var10 = SteamWorkshop.instance.GetItemInstallFolder(var3);
-                     if (var10 == null) {
-                        noise("GetItemInstallFolder() failed ID=" + var3);
+               for(int var13 = 0; var13 < var1.size(); ++var13) {
+                  WorkshopItem var7 = (WorkshopItem)var1.get(var13);
+                  var7.update();
+                  if (var7.state == GameServerWorkshopItems.WorkshopInstallState.Fail) {
+                     CoopSlave.status(SteamWorkshop.instance.GetItemInstallFolder(var7.ID));
+                     if (++var2[var13] >= 3) {
                         return false;
                      }
 
-                     noise("" + var3 + " installed to " + var10);
-                     GameServer.WorkshopInstallFolders[var9] = var10;
-                     GameServer.WorkshopTimeStamps[var9] = SteamWorkshop.instance.GetItemInstallTimeStamp(var3);
+                     if (GameServer.bCoop) {
+                        CoopSlave.instance.sendMessage("status", (String)null, Translator.getText("UI_ServerStatus_Downloaded_Workshop_Reinstall_Progress", var10, var1.size()));
+                     }
+
+                     ZomboidFileSystem.deleteDirectory(SteamWorkshop.instance.GetItemInstallFolder(var7.ID));
+                     var7.setState(GameServerWorkshopItems.WorkshopInstallState.CheckItemState);
+                  }
+
+                  if (var7.state != GameServerWorkshopItems.WorkshopInstallState.Ready) {
+                     var5 = true;
+                     break;
+                  }
+
+                  if (!var11[var13]) {
+                     var11[var13] = true;
+                     if (GameServer.bCoop) {
+                        ++var10;
+                        CoopSlave.instance.sendMessage("status", (String)null, Translator.getText("UI_ServerStatus_Downloaded_Workshop_Items_Progress", var10, var1.size()));
+                     }
+                  }
+               }
+
+               if (!var5) {
+                  GameServer.WorkshopInstallFolders = new String[var0.size()];
+                  GameServer.WorkshopTimeStamps = new long[var0.size()];
+
+                  for(int var12 = 0; var12 < var0.size(); ++var12) {
+                     long var14 = (Long)var0.get(var12);
+                     String var8 = SteamWorkshop.instance.GetItemInstallFolder(var14);
+                     if (var8 == null) {
+                        noise("GetItemInstallFolder() failed ID=" + var14);
+                        return false;
+                     }
+
+                     noise("" + var14 + " installed to " + var8);
+                     GameServer.WorkshopInstallFolders[var12] = var8;
+                     GameServer.WorkshopTimeStamps[var12] = SteamWorkshop.instance.GetItemInstallTimeStamp(var14);
                   }
 
                   return true;
@@ -84,8 +115,8 @@ public class GameServerWorkshopItems {
 
                try {
                   Thread.sleep(33L);
-               } catch (Exception var6) {
-                  var6.printStackTrace();
+               } catch (Exception var9) {
+                  var9.printStackTrace();
                }
             }
          }
@@ -181,7 +212,7 @@ public class GameServerWorkshopItems {
             var1 |= (long)SteamWorkshopItem.ItemState.NeedsUpdate.getValue();
          }
 
-         if (var1 != (long)SteamWorkshopItem.ItemState.None.getValue() && !SteamWorkshopItem.ItemState.NeedsUpdate.and(var1)) {
+         if (var1 != (long)SteamWorkshopItem.ItemState.None.getValue() && !SteamWorkshopItem.ItemState.NeedsUpdate.and(var1) && (new File(SteamWorkshop.instance.GetItemInstallFolder(this.ID))).exists()) {
             if (SteamWorkshopItem.ItemState.Installed.and(var1)) {
                this.setState(GameServerWorkshopItems.WorkshopInstallState.Ready);
             } else {

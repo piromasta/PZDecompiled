@@ -17,10 +17,6 @@ public final class IsoSpriteManager {
       var1.name = "";
       var1.ID = -1;
       var1.Properties.Set(IsoFlagType.invisible);
-      var1.CurrentAnim = new IsoAnim();
-      var1.CurrentAnim.ID = var1.AnimStack.size();
-      var1.AnimStack.add(var1.CurrentAnim);
-      var1.AnimMap.put("default", var1.CurrentAnim);
       this.NamedMap.put(var1.name, var1);
    }
 
@@ -54,7 +50,7 @@ public final class IsoSpriteManager {
          return (IsoSprite)this.NamedMap.get(var1);
       } else {
          IsoSprite var2 = new IsoSprite(this);
-         var2.LoadFramesNoDirPageSimple(var1);
+         var2.LoadSingleTexture(var1);
          this.NamedMap.put(var1, var2);
          return var2;
       }
@@ -69,7 +65,7 @@ public final class IsoSpriteManager {
          return (IsoSprite)this.NamedMap.get(var6);
       } else {
          IsoSprite var7 = new IsoSprite(this);
-         var7.LoadFramesNoDirPageSimple(var1);
+         var7.LoadSingleTexture(var1);
          this.NamedMap.put(var6, var7);
          return var7;
       }
@@ -77,16 +73,16 @@ public final class IsoSpriteManager {
 
    public IsoSprite AddSprite(String var1) {
       IsoSprite var2 = new IsoSprite(this);
-      var2.LoadFramesNoDirPageSimple(var1);
+      var2.LoadSingleTexture(var1);
       this.NamedMap.put(var1, var2);
       return var2;
    }
 
    public IsoSprite AddSprite(String var1, int var2) {
       IsoSprite var3 = new IsoSprite(this);
-      var3.LoadFramesNoDirPageSimple(var1);
+      var3.LoadSingleTexture(var1);
       if (this.NamedMap.containsKey(var1)) {
-         DebugLog.log("duplicate texture " + var1 + " ignore ID=" + var2 + ", use ID=" + ((IsoSprite)this.NamedMap.get(var1)).ID);
+         DebugLog.Sprite.warn("duplicate texture " + var1 + " ignore ID=" + var2 + ", use ID=" + ((IsoSprite)this.NamedMap.get(var1)).ID);
          var2 = ((IsoSprite)this.NamedMap.get(var1)).ID;
       }
 

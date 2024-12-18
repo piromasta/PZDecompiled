@@ -4,12 +4,14 @@ import java.util.ArrayList;
 import java.util.List;
 import zombie.ai.State;
 import zombie.ai.StateMachine;
+import zombie.characters.action.ActionGroup;
 import zombie.characters.action.ActionState;
 import zombie.core.skinnedmodel.advancedanimation.AnimState;
 import zombie.iso.Vector3;
 import zombie.util.list.PZArrayUtil;
 
 public final class AnimationNodeRecordingFrame extends GenericNameWeightRecordingFrame {
+   private String m_actionGroupName;
    private String m_actionStateName;
    private final ArrayList<String> m_actionSubStateNames = new ArrayList();
    private String m_aiStateName;
@@ -22,9 +24,10 @@ public final class AnimationNodeRecordingFrame extends GenericNameWeightRecordin
       super(var1);
    }
 
-   public void logActionState(ActionState var1, List<ActionState> var2) {
-      this.m_actionStateName = var1 != null ? var1.getName() : null;
-      PZArrayUtil.arrayConvert(this.m_actionSubStateNames, var2, ActionState::getName);
+   public void logActionState(ActionGroup var1, ActionState var2, List<ActionState> var3) {
+      this.m_actionGroupName = var1.getName();
+      this.m_actionStateName = var2 != null ? var2.getName() : null;
+      PZArrayUtil.arrayConvert(this.m_actionSubStateNames, var3, ActionState::getName);
    }
 
    public void logAIState(State var1, List<StateMachine.SubstateSlot> var2) {
@@ -42,9 +45,10 @@ public final class AnimationNodeRecordingFrame extends GenericNameWeightRecordin
       this.m_characterToPlayerDiff.set(var1);
    }
 
-   public void writeHeader(StringBuilder var1) {
+   public void buildHeader(StringBuilder var1) {
       appendCell(var1, "toPlayer.x");
       appendCell(var1, "toPlayer.y");
+      appendCell(var1, "actionGroup");
       appendCell(var1, "actionState");
       appendCell(var1, "actionState.sub[0]");
       appendCell(var1, "actionState.sub[1]");
@@ -55,12 +59,13 @@ public final class AnimationNodeRecordingFrame extends GenericNameWeightRecordin
       appendCell(var1, "animState.sub[0]");
       appendCell(var1, "animState.sub[1]");
       appendCell(var1, "nodeWeights.begin");
-      super.writeHeader(var1);
+      super.buildHeader(var1);
    }
 
    protected void writeData(StringBuilder var1) {
       appendCell(var1, this.m_characterToPlayerDiff.x);
       appendCell(var1, this.m_characterToPlayerDiff.y);
+      appendCellQuot(var1, this.m_actionGroupName);
       appendCellQuot(var1, this.m_actionStateName);
       appendCellQuot(var1, (String)PZArrayUtil.getOrDefault((List)this.m_actionSubStateNames, 0, ""));
       appendCellQuot(var1, (String)PZArrayUtil.getOrDefault((List)this.m_actionSubStateNames, 1, ""));

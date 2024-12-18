@@ -2,6 +2,8 @@ package zombie.iso;
 
 import gnu.trove.map.hash.THashMap;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.core.Core;
@@ -16,8 +18,9 @@ import zombie.util.StringUtils;
 
 public class TileOverlays {
    public static final TileOverlays instance = new TileOverlays();
-   private static final THashMap<String, TileOverlay> overlayMap = new THashMap();
-   private static final ArrayList<TileOverlayEntry> tempEntries = new ArrayList();
+   private final THashMap<String, TileOverlay> overlayMap = new THashMap();
+   private final HashMap<String, ArrayList<String>> overlayNameToUnderlyingName = new HashMap();
+   private final ArrayList<TileOverlayEntry> tempEntries = new ArrayList();
 
    public TileOverlays() {
    }
@@ -40,9 +43,10 @@ public class TileOverlays {
          KahluaTableImpl var5 = (KahluaTableImpl)var2.getValue();
          KahluaTableIterator var6 = var5.iterator();
 
+         TileOverlayEntry var8;
          while(var6.advance()) {
             KahluaTableImpl var7 = (KahluaTableImpl)var6.getValue();
-            TileOverlayEntry var8 = new TileOverlayEntry();
+            var8 = new TileOverlayEntry();
             var8.room = var7.rawgetStr("name");
             var8.chance = var7.rawgetInt("chance");
             var8.usage.parse(var7.rawgetStr("usage"));
@@ -63,12 +67,35 @@ public class TileOverlays {
             var4.entries.add(var8);
          }
 
-         overlayMap.put(var4.tile, var4);
+         this.overlayMap.put(var4.tile, var4);
+         Iterator var12 = var4.entries.iterator();
+
+         while(var12.hasNext()) {
+            var8 = (TileOverlayEntry)var12.next();
+            Iterator var13 = var8.tiles.iterator();
+
+            while(var13.hasNext()) {
+               String var14 = (String)var13.next();
+               ArrayList var15 = (ArrayList)this.overlayNameToUnderlyingName.get(var14);
+               if (var15 == null) {
+                  var15 = new ArrayList();
+                  this.overlayNameToUnderlyingName.put(var14, var15);
+               }
+
+               if (!var15.contains(var4.tile)) {
+                  var15.add(var4.tile);
+               }
+            }
+         }
       }
    }
 
    public boolean hasOverlays(IsoObject var1) {
-      return var1 != null && var1.sprite != null && var1.sprite.name != null && overlayMap.containsKey(var1.sprite.name);
+      return var1 != null && var1.sprite != null && var1.sprite.name != null && this.overlayMap.containsKey(var1.sprite.name);
+   }
+
+   public ArrayList<String> getUnderlyingSpriteNames(String var1) {
+      return (ArrayList)this.overlayNameToUnderlyingName.get(var1);
    }
 
    public void updateTileOverlaySprite(IsoObject var1) {
@@ -81,7 +108,7 @@ public class TileOverlays {
             float var6 = -1.0F;
             float var7 = -1.0F;
             if (var1.sprite != null && var1.sprite.name != null) {
-               TileOverlay var8 = (TileOverlay)overlayMap.get(var1.sprite.name);
+               TileOverlay var8 = (TileOverlay)this.overlayMap.get(var1.sprite.name);
                if (var8 != null) {
                   String var9 = "other";
                   if (var2.getRoom() != null) {
@@ -98,7 +125,7 @@ public class TileOverlays {
                         return;
                      }
 
-                     var3 = var10.pickRandom(var2.x, var2.y, var2.z);
+                     var3 = var10.pickRandom(Math.abs(var2.x), Math.abs(var2.y), Math.abs(var2.z));
                      if (var10.usage.alpha >= 0.0F) {
                         var6 = 1.0F;
                         var5 = 1.0F;
@@ -176,7 +203,7 @@ public class TileOverlays {
       if (var1 != null && var1.isTableSurface()) {
          if (var1.sprite != null && var1.sprite.name != null) {
             if (var1.AttachedAnimSprite != null && !var1.AttachedAnimSprite.isEmpty()) {
-               TileOverlay var2 = (TileOverlay)overlayMap.get(var1.sprite.name);
+               TileOverlay var2 = (TileOverlay)this.overlayMap.get(var1.sprite.name);
                if (var2 != null) {
                   int var3 = var1.AttachedAnimSprite.size();
 
@@ -210,7 +237,8 @@ public class TileOverlays {
    }
 
    public void Reset() {
-      overlayMap.clear();
+      this.overlayMap.clear();
+      this.overlayNameToUnderlyingName.clear();
    }
 
    private static final class TileOverlay {
@@ -233,12 +261,13 @@ public class TileOverlays {
       }
 
       public TileOverlayEntry pickRandom(String var1, IsoGridSquare var2) {
-         this.getEntries(var1, var2, TileOverlays.tempEntries);
-         if (TileOverlays.tempEntries.isEmpty()) {
+         ArrayList var3 = TileOverlays.instance.tempEntries;
+         this.getEntries(var1, var2, var3);
+         if (var3.isEmpty()) {
             return null;
          } else {
-            int var3 = LocationRNG.instance.nextInt(TileOverlays.tempEntries.size(), var2.x, var2.y, var2.z);
-            return (TileOverlayEntry)TileOverlays.tempEntries.get(var3);
+            int var4 = LocationRNG.instance.nextInt(var3.size(), var2.x, var2.y, var2.z);
+            return (TileOverlayEntry)var3.get(var4);
          }
       }
    }
@@ -269,8 +298,8 @@ public class TileOverlays {
 
    private static final class TileOverlayUsage {
       String usage;
-      int zOnly = -1;
-      int zGreaterThan = -1;
+      int zOnly = -2147483648;
+      int zGreaterThan = -2147483648;
       float alpha = -1.0F;
       boolean bTableTop = false;
 
@@ -307,10 +336,10 @@ public class TileOverlays {
       }
 
       boolean match(IsoGridSquare var1) {
-         if (this.zOnly != -1 && var1.z != this.zOnly) {
+         if (this.zOnly != -2147483648 && var1.z != this.zOnly) {
             return false;
          } else {
-            return this.zGreaterThan == -1 || var1.z > this.zGreaterThan;
+            return this.zGreaterThan == -2147483648 || var1.z > this.zGreaterThan;
          }
       }
    }

@@ -2,38 +2,35 @@ package zombie.core.skinnedmodel.animation;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.lwjgl.util.vector.Quaternion;
+import zombie.util.list.PZArrayUtil;
 
 public final class AnimationClip {
    public final String Name;
+   public final boolean IsRagdoll;
+   public final boolean KeepLastFrame;
+   private float m_duration;
    public StaticAnimation staticClip;
    private final KeyframeByBoneIndexElement[] m_KeyFramesByBoneIndex;
-   public float Duration;
-   private final List<Keyframe> m_rootMotionKeyframes = new ArrayList();
+   private final List<Keyframe> m_rootMotionKeyframes;
    private final Keyframe[] KeyframeArray;
-   private static final Quaternion orientation = new Quaternion(-0.07107F, 0.0F, 0.0F, 0.07107F);
 
    public AnimationClip(float var1, List<Keyframe> var2, String var3, boolean var4) {
-      this.Duration = var1;
-      this.KeyframeArray = (Keyframe[])var2.toArray(new Keyframe[0]);
+      this(var1, var2, var3, var4, false);
+   }
+
+   public AnimationClip(float var1, List<Keyframe> var2, String var3, boolean var4, boolean var5) {
+      this.m_rootMotionKeyframes = new ArrayList();
       this.Name = var3;
+      this.IsRagdoll = var5;
+      this.m_duration = var1;
+      this.KeepLastFrame = var4;
+      this.KeyframeArray = (Keyframe[])var2.toArray(new Keyframe[0]);
       this.m_KeyFramesByBoneIndex = new KeyframeByBoneIndexElement[60];
-      ArrayList var5 = new ArrayList();
-      int var6 = this.KeyframeArray.length - (var4 ? 0 : 1);
+      this.recalculateKeyframesByBoneIndex();
+   }
 
-      for(int var7 = 0; var7 < 60; ++var7) {
-         var5.clear();
-
-         for(int var8 = 0; var8 < var6; ++var8) {
-            Keyframe var9 = this.KeyframeArray[var8];
-            if (var9.Bone == var7) {
-               var5.add(var9);
-            }
-         }
-
-         this.m_KeyFramesByBoneIndex[var7] = new KeyframeByBoneIndexElement(var5);
-      }
-
+   public Keyframe getKeyframe(int var1) {
+      return this.KeyframeArray[var1];
    }
 
    public Keyframe[] getBoneFramesAt(int var1) {
@@ -52,6 +49,25 @@ public final class AnimationClip {
       return this.KeyframeArray;
    }
 
+   public float getDuration() {
+      return this.m_duration;
+   }
+
+   private KeyframeByBoneIndexElement getKeyframesForBone(int var1) {
+      return this.m_KeyFramesByBoneIndex[var1];
+   }
+
+   public Keyframe[] getKeyframesForBone(int var1, Keyframe[] var2) {
+      KeyframeByBoneIndexElement var3 = this.getKeyframesForBone(var1);
+      int var4 = var3.m_keyframes.length;
+      if (PZArrayUtil.lengthOf(var2) < var4) {
+         var2 = (Keyframe[])PZArrayUtil.newInstance(Keyframe.class, var2, var4, false, Keyframe::new);
+      }
+
+      PZArrayUtil.arrayCopy((Object[])var2, (Object[])var3.m_keyframes);
+      return var2;
+   }
+
    public float getTranslationLength(BoneAxis var1) {
       float var3 = this.KeyframeArray[this.KeyframeArray.length - 1].Position.x - this.KeyframeArray[0].Position.x;
       float var2;
@@ -62,6 +78,25 @@ public final class AnimationClip {
       }
 
       return (float)Math.sqrt((double)(var3 * var3 + var2 * var2));
+   }
+
+   public void recalculateKeyframesByBoneIndex() {
+      ArrayList var1 = new ArrayList();
+      int var2 = this.KeyframeArray.length > 1 ? this.KeyframeArray.length - (this.KeepLastFrame ? 0 : 1) : 1;
+
+      for(int var3 = 0; var3 < 60; ++var3) {
+         var1.clear();
+
+         for(int var4 = 0; var4 < var2; ++var4) {
+            Keyframe var5 = this.KeyframeArray[var4];
+            if (var5.Bone == var3) {
+               var1.add(var5);
+            }
+         }
+
+         this.m_KeyFramesByBoneIndex[var3] = new KeyframeByBoneIndexElement(var1);
+      }
+
    }
 
    private static class KeyframeByBoneIndexElement {

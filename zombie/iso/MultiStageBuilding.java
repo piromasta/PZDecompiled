@@ -8,12 +8,15 @@ import se.krka.kahlua.vm.KahluaTable;
 import zombie.SandboxOptions;
 import zombie.Lua.LuaManager;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Translator;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.DrainableComboItem;
 import zombie.iso.objects.IsoThumpable;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
 import zombie.util.StringUtils;
@@ -22,6 +25,17 @@ public final class MultiStageBuilding {
    public static final ArrayList<Stage> stages = new ArrayList();
 
    public MultiStageBuilding() {
+   }
+
+   public static Stage getStage(String var0) {
+      for(int var1 = 0; var1 < stages.size(); ++var1) {
+         Stage var2 = (Stage)stages.get(var1);
+         if (var2.ID.equals(var0)) {
+            return var2;
+         }
+      }
+
+      return null;
    }
 
    public static ArrayList<Stage> getStages(IsoGameCharacter var0, IsoObject var1, boolean var2) {
@@ -148,129 +162,137 @@ public final class MultiStageBuilding {
       }
 
       public void doStage(IsoGameCharacter var1, IsoThumpable var2, boolean var3) {
-         int var4 = var2.getHealth();
-         int var5 = var2.getMaxHealth();
-         String var6 = this.sprite;
-         if (var2.north) {
-            var6 = this.northSprite;
-         }
-
-         IsoThumpable var7 = new IsoThumpable(IsoWorld.instance.getCell(), var2.square, var6, var2.north, var2.getTable());
-         var7.setCanBePlastered(this.canBePlastered);
-         if ("doorframe".equals(this.wallType)) {
-            var7.setIsDoorFrame(true);
-            var7.setCanPassThrough(true);
-            var7.setIsThumpable(var2.isThumpable());
-         }
-
-         int var8 = this.bonusHealth;
-         switch (SandboxOptions.instance.ConstructionBonusPoints.getValue()) {
-            case 1:
-               var8 = (int)((double)var8 * 0.5);
-               break;
-            case 2:
-               var8 = (int)((double)var8 * 0.7);
-            case 3:
-            default:
-               break;
-            case 4:
-               var8 = (int)((double)var8 * 1.3);
-               break;
-            case 5:
-               var8 = (int)((double)var8 * 1.5);
-         }
-
-         Iterator var9 = this.perks.keySet().iterator();
-         byte var11 = 20;
-         switch (SandboxOptions.instance.ConstructionBonusPoints.getValue()) {
-            case 1:
-               var11 = 5;
-               break;
-            case 2:
-               var11 = 10;
-            case 3:
-            default:
-               break;
-            case 4:
-               var11 = 35;
-               break;
-            case 5:
-               var11 = 60;
-         }
-
-         int var12 = 0;
-         if (this.bonusHealthSkill) {
-            while(var9.hasNext()) {
-               String var10 = (String)var9.next();
-               var12 += var1.getPerkLevel(PerkFactory.Perks.FromString(var10)) * var11;
+         if (!GameClient.bClient) {
+            int var4 = var2.getHealth();
+            int var5 = var2.getMaxHealth();
+            String var6 = this.sprite;
+            if (var2.north) {
+               var6 = this.northSprite;
             }
-         }
 
-         var7.setMaxHealth(var5 + var8 + var12);
-         var7.setHealth(var4 + var8 + var12);
-         var7.setName(this.name);
-         var7.setThumpSound(this.getThumpSound());
-         var7.setCanBarricade(this.canBarricade);
-         var7.setModData(var2.getModData());
-         if (this.wallType != null) {
-            var7.getModData().rawset("wallType", this.wallType);
-         }
+            IsoThumpable var7 = new IsoThumpable(IsoWorld.instance.getCell(), var2.square, var6, var2.north, var2.getTable());
+            var7.setCanBePlastered(this.canBePlastered);
+            if ("doorframe".equals(this.wallType)) {
+               var7.setIsDoorFrame(true);
+               var7.setCanPassThrough(true);
+               var7.setIsThumpable(var2.isThumpable());
+            }
 
-         if (var3) {
-            ItemContainer var13 = var1.getInventory();
-            Iterator var14 = this.items.keySet().iterator();
+            int var8 = this.bonusHealth;
+            switch (SandboxOptions.instance.ConstructionBonusPoints.getValue()) {
+               case 1:
+                  var8 = (int)((double)var8 * 0.5);
+                  break;
+               case 2:
+                  var8 = (int)((double)var8 * 0.7);
+               case 3:
+               default:
+                  break;
+               case 4:
+                  var8 = (int)((double)var8 * 1.3);
+                  break;
+               case 5:
+                  var8 = (int)((double)var8 * 1.5);
+            }
 
-            label92:
-            while(true) {
-               int var16;
-               InventoryItem var23;
-               do {
-                  while(true) {
-                     String var15;
-                     Item var17;
-                     do {
-                        if (!var14.hasNext()) {
-                           break label92;
-                        }
+            Iterator var9 = this.perks.keySet().iterator();
+            byte var11 = 20;
+            switch (SandboxOptions.instance.ConstructionBonusPoints.getValue()) {
+               case 1:
+                  var11 = 5;
+                  break;
+               case 2:
+                  var11 = 10;
+               case 3:
+               default:
+                  break;
+               case 4:
+                  var11 = 35;
+                  break;
+               case 5:
+                  var11 = 60;
+            }
 
-                        var15 = (String)var14.next();
-                        var16 = (Integer)this.items.get(var15);
-                        var17 = ScriptManager.instance.getItem(var15);
-                     } while(var17 == null);
-
-                     if (var17.getType() == Item.Type.Drainable) {
-                        var23 = var13.getFirstRecurse((var2x) -> {
-                           return var2x.getFullType().equals(var17.getFullName()) && ((DrainableComboItem)var2x).getDrainableUsesInt() >= var16;
-                        });
-                        break;
-                     }
-
-                     for(int var18 = 0; var18 < var16; ++var18) {
-                        InventoryItem var19 = var13.getFirstTypeRecurse(var15);
-                        if (var19 != null) {
-                           var19.Use();
-                        }
-                     }
-                  }
-               } while(var23 == null);
-
-               for(int var24 = 0; var24 < var16; ++var24) {
-                  var23.Use();
+            int var12 = 0;
+            if (this.bonusHealthSkill) {
+               while(var9.hasNext()) {
+                  String var10 = (String)var9.next();
+                  var12 += var1.getPerkLevel(PerkFactory.Perks.FromString(var10)) * var11;
                }
             }
+
+            var7.setMaxHealth(var5 + var8 + var12);
+            var7.setHealth(var4 + var8 + var12);
+            var7.setName(this.name);
+            var7.setThumpSound(this.getThumpSound());
+            var7.setCanBarricade(this.canBarricade);
+            var7.setModData(var2.getModData());
+            if (this.wallType != null) {
+               var7.getModData().rawset("wallType", this.wallType);
+            }
+
+            if (var3) {
+               ItemContainer var13 = var1.getInventory();
+               Iterator var14 = this.items.keySet().iterator();
+
+               label88:
+               while(true) {
+                  int var16;
+                  InventoryItem var23;
+                  do {
+                     while(true) {
+                        String var15;
+                        Item var17;
+                        do {
+                           if (!var14.hasNext()) {
+                              break label88;
+                           }
+
+                           var15 = (String)var14.next();
+                           var16 = (Integer)this.items.get(var15);
+                           var17 = ScriptManager.instance.getItem(var15);
+                        } while(var17 == null);
+
+                        if (var17.getType() == Item.Type.Drainable) {
+                           var23 = var13.getFirstRecurse((var2x) -> {
+                              return var2x.getFullType().equals(var17.getFullName()) && ((DrainableComboItem)var2x).getCurrentUses() >= var16;
+                           });
+                           break;
+                        }
+
+                        for(int var18 = 0; var18 < var16; ++var18) {
+                           InventoryItem var19 = var13.getFirstTypeRecurse(var15);
+                           if (var19 != null) {
+                              var19.UseAndSync();
+                           }
+                        }
+                     }
+                  } while(var23 == null);
+
+                  for(int var24 = 0; var24 < var16; ++var24) {
+                     var23.UseAndSync();
+                  }
+               }
+            }
+
+            Iterator var20 = this.xp.keySet().iterator();
+
+            while(var20.hasNext()) {
+               String var21 = (String)var20.next();
+               var1.getXp().AddXP(PerkFactory.Perks.FromString(var21), (float)(Integer)this.xp.get(var21));
+               if (GameServer.bServer) {
+                  GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.FromString(var21), (float)(Integer)this.xp.get(var21));
+               }
+            }
+
+            int var22 = var2.getSquare().transmitRemoveItemFromSquare(var2);
+            var7.getSquare().AddSpecialObject(var7, var22);
+            var7.getSquare().RecalcAllWithNeighbours(true);
+            var7.transmitCompleteItemToClients();
          }
+      }
 
-         Iterator var20 = this.xp.keySet().iterator();
-
-         while(var20.hasNext()) {
-            String var21 = (String)var20.next();
-            var1.getXp().AddXP(PerkFactory.Perks.FromString(var21), (float)(Integer)this.xp.get(var21));
-         }
-
-         int var22 = var2.getSquare().transmitRemoveItemFromSquare(var2);
-         var7.getSquare().AddSpecialObject(var7, var22);
-         var7.getSquare().RecalcAllWithNeighbours(true);
-         var7.transmitCompleteItemToServer();
+      public void playCompletionSound(IsoGameCharacter var1) {
          if (var1 != null && !StringUtils.isNullOrWhitespace(this.completionSound)) {
             var1.playSound(this.completionSound);
          }

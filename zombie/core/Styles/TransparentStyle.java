@@ -1,6 +1,7 @@
 package zombie.core.Styles;
 
 import zombie.IndieGL;
+import zombie.core.opengl.GLStateRenderThread;
 
 public final class TransparentStyle extends AbstractStyle {
    private static final long serialVersionUID = 1L;
@@ -14,6 +15,7 @@ public final class TransparentStyle extends AbstractStyle {
    }
 
    public void resetState() {
+      GLStateRenderThread.BlendFuncSeparate.restore();
    }
 
    public AlphaOp getAlphaOp() {

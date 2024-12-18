@@ -35,7 +35,12 @@ public final class Languages {
          String var2 = (String)var1.next();
          ChooseGameInfo.Mod var3 = ChooseGameInfo.getAvailableModDetails(var2);
          if (var3 != null) {
-            File var4 = new File(var3.getDir(), "media/lua/shared/Translate");
+            File var4 = new File(var3.getCommonDir(), "media/lua/shared/Translate");
+            if (var4.isDirectory()) {
+               this.loadTranslateDirectory(var4.getAbsolutePath());
+            }
+
+            var4 = new File(var3.getVersionDir(), "media/lua/shared/Translate");
             if (var4.isDirectory()) {
                this.loadTranslateDirectory(var4.getAbsolutePath());
             }

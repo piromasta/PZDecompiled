@@ -25,6 +25,7 @@ import zombie.util.StringUtils;
 public final class Radio extends Moveable implements Talker, IUpdater, WaveSignalDevice {
    protected DeviceData deviceData = null;
    protected GameTime gameTime;
+   private String CanBeEquipped = "";
    protected int lastMin = 0;
    protected boolean doPowerTick = false;
    protected int listenCnt = 0;
@@ -43,6 +44,10 @@ public final class Radio extends Moveable implements Talker, IUpdater, WaveSigna
    public void setDeviceData(DeviceData var1) {
       if (var1 == null) {
          var1 = new DeviceData(this);
+      }
+
+      if (this.deviceData != null) {
+         this.deviceData.cleanSoundsAndEmitter();
       }
 
       this.deviceData = var1;
@@ -216,5 +221,17 @@ public final class Radio extends Moveable implements Talker, IUpdater, WaveSigna
       }
 
       this.deviceData.setParent(this);
+   }
+
+   public void setCanBeEquipped(String var1) {
+      this.CanBeEquipped = var1 == null ? "" : var1;
+   }
+
+   public String canBeEquipped() {
+      return this.CanBeEquipped;
+   }
+
+   public String getClothingExtraSubmenu() {
+      return this.ScriptItem.clothingExtraSubmenu;
    }
 }

@@ -197,6 +197,10 @@ public class Outfit implements Cloneable {
 
    }
 
+   public String getName() {
+      return this.m_Name;
+   }
+
    public static class RandomData {
       public ImmutableColor m_hairColor;
       public String m_maleHairName;

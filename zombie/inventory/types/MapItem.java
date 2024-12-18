@@ -43,7 +43,7 @@ public class MapItem extends InventoryItem {
             ByteBuffer var0 = SliceY.SliceBuffer;
             var0.clear();
             var0.put(FILE_MAGIC);
-            var0.putInt(195);
+            var0.putInt(219);
             WORLD_MAP_INSTANCE.getSymbols().save(var0);
             File var1 = new File(ZomboidFileSystem.instance.getFileNameInCurrentSave("map_symbols.bin"));
             FileOutputStream var2 = new FileOutputStream(var1);

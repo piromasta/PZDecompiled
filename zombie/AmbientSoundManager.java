@@ -1,7 +1,10 @@
 package zombie;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import zombie.Lua.LuaEventManager;
+import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
 import zombie.iso.IsoWorld;
@@ -66,17 +69,48 @@ public final class AmbientSoundManager extends BaseAmbientStreamManager {
    }
 
    public void doAlarm(RoomDef var1) {
-      if (var1 != null && var1.building != null && var1.building.bAlarmed) {
-         float var2 = 1.0F;
-         Ambient var3 = new Ambient("burglar2", (float)(var1.x + var1.getW() / 2), (float)(var1.y + var1.getH() / 2), 700.0F, var2);
-         var3.duration = 49;
-         var3.worldSoundDelay = 3;
+      if (var1 != null && var1.building != null) {
+         if ((float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) <= (float)(SandboxOptions.getInstance().getElecShutModifier() + var1.building.bAlarmDecay)) {
+            float var2 = 1.0F;
+            Ambient var3 = new Ambient("burglar2", (float)(var1.x + var1.getW() / 2), (float)(var1.y + var1.getH() / 2), 700.0F, var2);
+            var3.duration = 49;
+            var3.worldSoundDelay = 3;
+            this.ambient.add(var3);
+            GameServer.sendAlarm(var1.x + var1.getW() / 2, var1.y + var1.getH() / 2);
+         }
+
          var1.building.bAlarmed = false;
          var1.building.setAllExplored(true);
-         this.ambient.add(var3);
-         GameServer.sendAlarm(var1.x + var1.getW() / 2, var1.y + var1.getH() / 2);
       }
 
+   }
+
+   private int GetDistance(int var1, int var2, int var3, int var4) {
+      return (int)Math.sqrt(Math.pow((double)(var1 - var3), 2.0) + Math.pow((double)(var2 - var4), 2.0));
+   }
+
+   public void handleThunderEvent(int var1, int var2) {
+      int var3 = 9999999;
+      ArrayList var4 = GameServer.getPlayers();
+      if (!var4.isEmpty()) {
+         for(int var5 = 0; var5 < var4.size(); ++var5) {
+            IsoPlayer var6 = (IsoPlayer)var4.get(var5);
+            if (var6 != null && var6.isAlive()) {
+               int var7 = this.GetDistance((int)var6.getX(), (int)var6.getY(), var1, var2);
+               if (var7 < var3) {
+                  var3 = var7;
+               }
+            }
+         }
+
+         if (var3 <= 5000) {
+            WorldSoundManager.instance.addSound((Object)null, PZMath.fastfloor((float)var1), PZMath.fastfloor((float)var2), 0, 5000, 5000);
+            Ambient var8 = new Ambient("", (float)var1, (float)var2, 5100.0F, 1.0F);
+            this.ambient.add(var8);
+            GameServer.sendAmbient("", PZMath.fastfloor((float)var1), PZMath.fastfloor((float)var2), (int)Math.ceil((double)var8.radius), var8.volume);
+         }
+
+      }
    }
 
    public void stop() {
@@ -84,8 +118,14 @@ public final class AmbientSoundManager extends BaseAmbientStreamManager {
       this.initialized = false;
    }
 
+   public void save(ByteBuffer var1) {
+   }
+
+   public void load(ByteBuffer var1, int var2) {
+   }
+
    private void updatePowerSupply() {
-      boolean var1 = GameTime.getInstance().NightsSurvived < SandboxOptions.getInstance().getElecShutModifier();
+      boolean var1 = (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) < (float)SandboxOptions.getInstance().getElecShutModifier();
       if (this.electricityShutOffState == -1) {
          IsoWorld.instance.setHydroPowerOn(var1);
       }
@@ -109,7 +149,11 @@ public final class AmbientSoundManager extends BaseAmbientStreamManager {
       this.electricityShutOffState = var1 ? 1 : 0;
    }
 
-   private void checkHaveElectricity() {
+   public void checkHaveElectricity() {
+   }
+
+   public boolean isParameterInsideTrue() {
+      return false;
    }
 
    public class Ambient {
@@ -142,7 +186,7 @@ public final class AmbientSoundManager extends BaseAmbientStreamManager {
       public void update() {
          long var1 = System.currentTimeMillis() / 1000L;
          if (var1 - this.startTime >= (long)this.worldSoundDelay) {
-            WorldSoundManager.instance.addSound((Object)null, (int)this.x, (int)this.y, 0, 600, 600);
+            WorldSoundManager.instance.addSound((Object)null, PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), 0, 600, 600);
          }
 
       }

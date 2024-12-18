@@ -10,16 +10,17 @@ import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.shader.Shader;
 import zombie.core.skinnedmodel.shader.ShaderManager;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoCamera;
+import zombie.iso.IsoWorld;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.weather.ClimateManager;
 import zombie.network.GameServer;
@@ -32,10 +33,10 @@ public class IsoWeatherFX {
    private ParticleRectangle fogParticles;
    private ParticleRectangle snowParticles;
    private ParticleRectangle rainParticles;
-   private static int ID_CLOUD = 0;
-   private static int ID_FOG = 1;
-   private static int ID_SNOW = 2;
-   private static int ID_RAIN = 3;
+   public static int ID_CLOUD = 0;
+   public static int ID_FOG = 1;
+   public static int ID_SNOW = 2;
+   public static int ID_RAIN = 3;
    public static float ZoomMod = 1.0F;
    protected boolean playerIndoors = false;
    protected SteppedUpdateFloat windPrecipIntensity = new SteppedUpdateFloat(0.0F, 0.025F, 0.0F, 1.0F);
@@ -58,7 +59,8 @@ public class IsoWeatherFX {
    private Texture texFogWhite;
    private Color fogColor = new Color(1.0F, 1.0F, 1.0F, 1.0F);
    protected SteppedUpdateFloat indoorsAlphaMod = new SteppedUpdateFloat(1.0F, 0.05F, 0.0F, 1.0F);
-   private ArrayList<ParticleRectangle> particleRectangles = new ArrayList(0);
+   private final ArrayList<ParticleRectangle> particleRectangles = new ArrayList(0);
+   private final WeatherParticleDrawer[][][] drawers = new WeatherParticleDrawer[4][3][4];
    protected static IsoWeatherFX instance;
    private float windUpdCounter = 0.0F;
    static Shader s_shader;
@@ -80,7 +82,7 @@ public class IsoWeatherFX {
             }
          }
 
-         this.cloudParticles = new ParticleRectangle(8192, 4096);
+         this.cloudParticles = new ParticleRectangle(ID_CLOUD, 8192, 4096);
          WeatherParticle[] var11 = new WeatherParticle[16];
 
          for(int var4 = 0; var4 < var11.length; ++var4) {
@@ -114,7 +116,7 @@ public class IsoWeatherFX {
             }
          }
 
-         this.fogParticles = new ParticleRectangle(2048, 1024);
+         this.fogParticles = new ParticleRectangle(ID_FOG, 2048, 1024);
          WeatherParticle[] var14 = new WeatherParticle[16];
 
          for(int var15 = 0; var15 < var14.length; ++var15) {
@@ -140,7 +142,7 @@ public class IsoWeatherFX {
             }
          }
 
-         this.snowParticles = new ParticleRectangle(512, 512);
+         this.snowParticles = new ParticleRectangle(ID_SNOW, 512, 512);
          WeatherParticle[] var18 = new WeatherParticle[1024];
 
          for(int var19 = 0; var19 < var18.length; ++var19) {
@@ -155,7 +157,7 @@ public class IsoWeatherFX {
          this.snowParticles.SetParticles(var18);
          this.particleRectangles.add(var1, this.snowParticles);
          ID_SNOW = var1++;
-         this.rainParticles = new ParticleRectangle(512, 512);
+         this.rainParticles = new ParticleRectangle(ID_RAIN, 512, 512);
          WeatherParticle[] var20 = new WeatherParticle[1024];
 
          for(int var21 = 0; var21 < var20.length; ++var21) {
@@ -330,6 +332,8 @@ public class IsoWeatherFX {
          var1 = Math.min(var1, 0.75F);
       } else if (SandboxOptions.instance.MaxFogIntensity.getValue() == 3) {
          var1 = Math.min(var1, 0.5F);
+      } else if (SandboxOptions.instance.MaxFogIntensity.getValue() == 4) {
+         var1 = Math.min(var1, 0.0F);
       }
 
       this.fogIntensity.setTarget(var1);
@@ -408,8 +412,9 @@ public class IsoWeatherFX {
                this.renderFogCircle();
             }
 
-            if ((var1 != ID_RAIN && var1 != ID_SNOW || Core.OptionRenderPrecipitation <= 2) && ((ParticleRectangle)this.particleRectangles.get(var1)).requiresUpdate()) {
+            if ((var1 != ID_RAIN && var1 != ID_SNOW || Core.getInstance().getOptionRenderPrecipitation() <= 2) && ((ParticleRectangle)this.particleRectangles.get(var1)).requiresUpdate()) {
                ((ParticleRectangle)this.particleRectangles.get(var1)).render();
+               IsoWorld.instance.getCell().getWeatherFX().getDrawer(var1).endFrame();
             }
          }
 
@@ -431,6 +436,7 @@ public class IsoWeatherFX {
       if (!GameServer.bServer) {
          if (((ParticleRectangle)this.particleRectangles.get(ID_CLOUD)).requiresUpdate()) {
             ((ParticleRectangle)this.particleRectangles.get(ID_CLOUD)).render();
+            IsoWorld.instance.getCell().getWeatherFX().getDrawer(ID_CLOUD).endFrame();
          }
 
       }
@@ -441,6 +447,7 @@ public class IsoWeatherFX {
          this.renderFogCircle();
          if (((ParticleRectangle)this.particleRectangles.get(ID_FOG)).requiresUpdate()) {
             ((ParticleRectangle)this.particleRectangles.get(ID_FOG)).render();
+            IsoWorld.instance.getCell().getWeatherFX().getDrawer(ID_FOG).endFrame();
          }
 
       }
@@ -450,10 +457,12 @@ public class IsoWeatherFX {
       if (!GameServer.bServer) {
          if (((ParticleRectangle)this.particleRectangles.get(ID_SNOW)).requiresUpdate()) {
             ((ParticleRectangle)this.particleRectangles.get(ID_SNOW)).render();
+            IsoWorld.instance.getCell().getWeatherFX().getDrawer(ID_SNOW).endFrame();
          }
 
          if (((ParticleRectangle)this.particleRectangles.get(ID_RAIN)).requiresUpdate()) {
             ((ParticleRectangle)this.particleRectangles.get(ID_RAIN)).render();
+            IsoWorld.instance.getCell().getWeatherFX().getDrawer(ID_RAIN).endFrame();
          }
 
       }
@@ -480,7 +489,7 @@ public class IsoWeatherFX {
          IndieGL.glTexParameteri(3553, 10240, 9728);
          if (s_shader == null) {
             RenderThread.invokeOnRenderContext(() -> {
-               s_shader = ShaderManager.instance.getOrCreateShader("fogCircle", false);
+               s_shader = ShaderManager.instance.getOrCreateShader("fogCircle", false, false);
             });
          }
 
@@ -494,6 +503,7 @@ public class IsoWeatherFX {
             s_drawer[var1][var11].init(var3, var4);
          }
 
+         IndieGL.disableDepthTest();
          SpriteRenderer.instance.renderi(this.texFogCircle, var7, var8, var5, var6, this.fogColor.r, this.fogColor.g, this.fogColor.b, this.fogOverlayAlpha, (Consumer)null);
          SpriteRenderer.instance.renderi(this.texFogWhite, 0, 0, var7, var4, this.fogColor.r, this.fogColor.g, this.fogColor.b, this.fogOverlayAlpha, (Consumer)null);
          SpriteRenderer.instance.renderi(this.texFogWhite, var7, 0, var5, var8, this.fogColor.r, this.fogColor.g, this.fogColor.b, this.fogOverlayAlpha, (Consumer)null);
@@ -533,6 +543,39 @@ public class IsoWeatherFX {
    public static float clerp(float var0, float var1, float var2) {
       float var3 = (float)(1.0 - Math.cos((double)var0 * 3.141592653589793)) / 2.0F;
       return var1 * (1.0F - var3) + var2 * var3;
+   }
+
+   public WeatherParticleDrawer getDrawer(int var1) {
+      int var2 = IsoCamera.frameState.playerIndex;
+      int var3 = SpriteRenderer.instance.getMainStateIndex();
+      if (this.drawers[var2][var3][var1] == null) {
+         this.drawers[var2][var3][var1] = new WeatherParticleDrawer();
+      }
+
+      return this.drawers[var2][var3][var1];
+   }
+
+   public void Reset() {
+      this.cloudParticles.Reset();
+      this.fogParticles.Reset();
+      this.snowParticles.Reset();
+      this.rainParticles.Reset();
+      this.cloudParticles = null;
+      this.fogParticles = null;
+      this.snowParticles = null;
+      this.rainParticles = null;
+
+      for(int var1 = 0; var1 < 4; ++var1) {
+         for(int var2 = 0; var2 < 3; ++var2) {
+            for(int var3 = 0; var3 < this.drawers[var1][var2].length; ++var3) {
+               if (this.drawers[var1][var2][var3] != null) {
+                  this.drawers[var1][var2][var3].Reset();
+                  this.drawers[var1][var2][var3] = null;
+               }
+            }
+         }
+      }
+
    }
 
    private static final class Drawer extends TextureDraw.GenericDrawer {

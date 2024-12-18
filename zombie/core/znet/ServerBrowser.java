@@ -8,6 +8,7 @@ import zombie.Lua.LuaManager;
 import zombie.network.Server;
 
 public class ServerBrowser {
+   private static boolean bSuppressLuaCallbacks = false;
    private static IServerBrowserCallback m_callbackInterface = null;
 
    public ServerBrowser() {
@@ -149,6 +150,10 @@ public class ServerBrowser {
       return n_RequestServerRules(var0, var1);
    }
 
+   public static void setSuppressLuaCallbacks(boolean var0) {
+      bSuppressLuaCallbacks = var0;
+   }
+
    public static void setCallbackInterface(IServerBrowserCallback var0) {
       m_callbackInterface = var0;
    }
@@ -180,7 +185,9 @@ public class ServerBrowser {
          m_callbackInterface.OnServerResponded(var0);
       }
 
-      LuaEventManager.triggerEvent("OnSteamServerResponded", var0);
+      if (!bSuppressLuaCallbacks) {
+         LuaEventManager.triggerEvent("OnSteamServerResponded", var0);
+      }
    }
 
    private static void onServerFailedToRespondCallback(int var0) {
@@ -195,7 +202,9 @@ public class ServerBrowser {
          m_callbackInterface.OnRefreshComplete();
       }
 
-      LuaEventManager.triggerEvent("OnSteamRefreshInternetServers");
+      if (!bSuppressLuaCallbacks) {
+         LuaEventManager.triggerEvent("OnSteamRefreshInternetServers");
+      }
    }
 
    private static void onServerRespondedCallback(String var0, int var1) {
@@ -229,7 +238,9 @@ public class ServerBrowser {
          var3.setLastUpdate(1);
          var3.setPasswordProtected(var2.passwordProtected);
          ReleaseServerQuery(var0, var1);
-         LuaEventManager.triggerEvent("OnSteamServerResponded2", var0, (double)var1, var3);
+         if (!bSuppressLuaCallbacks) {
+            LuaEventManager.triggerEvent("OnSteamServerResponded2", var0, (double)var1, var3);
+         }
       }
    }
 
@@ -238,7 +249,9 @@ public class ServerBrowser {
          m_callbackInterface.OnServerFailedToRespond(var0, var1);
       }
 
-      LuaEventManager.triggerEvent("OnSteamServerFailedToRespond2", var0, (double)var1);
+      if (!bSuppressLuaCallbacks) {
+         LuaEventManager.triggerEvent("OnSteamServerFailedToRespond2", var0, (double)var1);
+      }
    }
 
    private static void onRulesRefreshComplete(String var0, int var1, String[] var2) {
@@ -252,6 +265,8 @@ public class ServerBrowser {
          var3.rawset(var2[var4], var2[var4 + 1]);
       }
 
-      LuaEventManager.triggerEvent("OnSteamRulesRefreshComplete", var0, (double)var1, var3);
+      if (!bSuppressLuaCallbacks) {
+         LuaEventManager.triggerEvent("OnSteamRulesRefreshComplete", var0, (double)var1, var3);
+      }
    }
 }

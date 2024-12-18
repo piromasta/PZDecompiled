@@ -11,9 +11,10 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.MoveDeltaModifiers;
+import zombie.characters.Moodles.MoodleType;
 import zombie.characters.skills.PerkFactory;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -25,24 +26,14 @@ import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
+import zombie.util.Pool;
 import zombie.util.Type;
 
 public final class ClimbThroughWindowState extends State {
    private static final ClimbThroughWindowState _instance = new ClimbThroughWindowState();
-   static final Integer PARAM_START_X = 0;
-   static final Integer PARAM_START_Y = 1;
-   static final Integer PARAM_Z = 2;
-   static final Integer PARAM_OPPOSITE_X = 3;
-   static final Integer PARAM_OPPOSITE_Y = 4;
-   static final Integer PARAM_DIR = 5;
-   static final Integer PARAM_ZOMBIE_ON_FLOOR = 6;
-   static final Integer PARAM_PREV_STATE = 7;
-   static final Integer PARAM_SCRATCH = 8;
-   static final Integer PARAM_COUNTER = 9;
-   static final Integer PARAM_SOLID_FLOOR = 10;
-   static final Integer PARAM_SHEET_ROPE = 11;
-   static final Integer PARAM_END_X = 12;
-   static final Integer PARAM_END_Y = 13;
+   static final Integer PARAM_PARAMS = 0;
+   static final Integer PARAM_PREV_STATE = 1;
+   static final Integer PARAM_ZOMBIE_ON_FLOOR = 2;
 
    public ClimbThroughWindowState() {
    }
@@ -52,53 +43,57 @@ public final class ClimbThroughWindowState extends State {
    }
 
    public void enter(IsoGameCharacter var1) {
+      IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       var1.setIgnoreMovement(true);
       var1.setHideWeaponModel(true);
-      HashMap var2 = var1.getStateMachineParams(this);
-      boolean var3 = var2.get(PARAM_COUNTER) == Boolean.TRUE;
+      HashMap var3 = var1.getStateMachineParams(this);
+      ClimbThroughWindowPositioningParams var4 = (ClimbThroughWindowPositioningParams)var3.get(PARAM_PARAMS);
+      boolean var5 = var4.isCounter;
       var1.setVariable("ClimbWindowStarted", false);
       var1.setVariable("ClimbWindowEnd", false);
       var1.setVariable("ClimbWindowFinished", false);
       var1.clearVariable("ClimbWindowGetUpBack");
       var1.clearVariable("ClimbWindowGetUpFront");
-      var1.setVariable("ClimbWindowOutcome", var3 ? "obstacle" : "success");
+      var1.setVariable("ClimbWindowOutcome", var5 ? "obstacle" : "success");
       var1.clearVariable("ClimbWindowFlopped");
-      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
-      if (!var3 && var4 != null && var4.shouldDoFenceLunge()) {
-         this.setLungeXVars(var4);
+      IsoZombie var6 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      if (!var5 && var6 != null && var6.shouldDoFenceLunge()) {
+         this.setLungeXVars(var6);
          var1.setVariable("ClimbWindowOutcome", "lunge");
       }
 
-      if (var2.get(PARAM_SOLID_FLOOR) == Boolean.FALSE) {
+      if (!var4.isFloor) {
          var1.setVariable("ClimbWindowOutcome", "fall");
       }
 
-      if (!(var1 instanceof IsoZombie) && var2.get(PARAM_SHEET_ROPE) == Boolean.TRUE) {
+      if (!(var1 instanceof IsoZombie) && var4.isSheetRope) {
          var1.setVariable("ClimbWindowOutcome", "rope");
       }
 
-      if (var1 instanceof IsoPlayer && ((IsoPlayer)var1).isLocalPlayer()) {
-         ((IsoPlayer)var1).dirtyRecalcGridStackTime = 20.0F;
+      if (var2 != null && var2.isLocalPlayer()) {
+         var2.dirtyRecalcGridStackTime = 20.0F;
+         var2.triggerMusicIntensityEvent("ClimbThroughWindow");
       }
 
    }
 
    public void execute(IsoGameCharacter var1) {
       HashMap var2 = var1.getStateMachineParams(this);
+      ClimbThroughWindowPositioningParams var3 = (ClimbThroughWindowPositioningParams)var2.get(PARAM_PARAMS);
+      IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (!this.isWindowClosing(var1)) {
-         IsoDirections var3 = (IsoDirections)var2.get(PARAM_DIR);
-         var1.setDir(var3);
-         String var4 = var1.getVariableString("ClimbWindowOutcome");
+         var1.setDir(var3.climbDir);
+         String var5 = var1.getVariableString("ClimbWindowOutcome");
          int var7;
          int var8;
          if (var1 instanceof IsoZombie) {
-            boolean var5 = var2.get(PARAM_ZOMBIE_ON_FLOOR) == Boolean.TRUE;
-            if (!var1.isFallOnFront() && var5) {
-               int var6 = (Integer)var2.get(PARAM_OPPOSITE_X);
-               var7 = (Integer)var2.get(PARAM_OPPOSITE_Y);
-               var8 = (Integer)var2.get(PARAM_Z);
-               IsoGridSquare var9 = IsoWorld.instance.CurrentCell.getGridSquare(var6, var7, var8);
-               if (var9 != null && var9.getBrokenGlass() != null) {
+            boolean var6 = var2.get(PARAM_ZOMBIE_ON_FLOOR) == Boolean.TRUE;
+            if (!var1.isFallOnFront() && var6) {
+               var7 = var3.oppositeX;
+               var8 = var3.oppositeY;
+               int var9 = var3.z;
+               IsoGridSquare var10 = IsoWorld.instance.CurrentCell.getGridSquare(var7, var8, var9);
+               if (var10 != null && var10.getBrokenGlass() != null) {
                   var1.addBlood(BloodBodyPartType.Head, true, true, true);
                   var1.addBlood(BloodBodyPartType.Head, true, true, true);
                   var1.addBlood(BloodBodyPartType.Head, true, true, true);
@@ -114,78 +109,104 @@ public final class ClimbThroughWindowState extends State {
                }
             }
 
-            var1.setOnFloor(var5);
-            ((IsoZombie)var1).setKnockedDown(var5);
-            var1.setFallOnFront(var5);
+            var1.setOnFloor(var6);
+            var1.setKnockedDown(var6);
+            var1.setFallOnFront(var6);
          }
 
-         float var11 = (float)(Integer)var2.get(PARAM_START_X) + 0.5F;
-         float var12 = (float)(Integer)var2.get(PARAM_START_Y) + 0.5F;
          if (!var1.getVariableBoolean("ClimbWindowStarted")) {
-            if (var1.x != var11 && (var3 == IsoDirections.N || var3 == IsoDirections.S)) {
-               this.slideX(var1, var11);
-            }
-
-            if (var1.y != var12 && (var3 == IsoDirections.W || var3 == IsoDirections.E)) {
-               this.slideY(var1, var12);
-            }
+            slideCharacterToWindowOpening(var1, var3);
          }
 
+         float var11;
          float var13;
-         float var14;
-         if (var1 instanceof IsoPlayer && var4.equalsIgnoreCase("obstacle")) {
-            var13 = (float)(Integer)var2.get(PARAM_END_X) + 0.5F;
-            var14 = (float)(Integer)var2.get(PARAM_END_Y) + 0.5F;
-            if (var1.DistToSquared(var13, var14) < 0.5625F) {
+         if (var1 instanceof IsoPlayer && var5.equalsIgnoreCase("obstacle")) {
+            var11 = (float)var3.endX + 0.5F;
+            var13 = (float)var3.endY + 0.5F;
+            if (var1.DistToSquared(var11, var13) < 0.5625F) {
                var1.setVariable("ClimbWindowOutcome", "obstacleEnd");
             }
          }
 
-         if (var1 instanceof IsoPlayer && !var1.getVariableBoolean("ClimbWindowEnd") && !"fallfront".equals(var4) && !"back".equals(var4) && !"fallback".equals(var4)) {
-            var7 = (Integer)var2.get(PARAM_OPPOSITE_X);
-            var8 = (Integer)var2.get(PARAM_OPPOSITE_Y);
-            int var15 = (Integer)var2.get(PARAM_Z);
-            IsoGridSquare var10 = IsoWorld.instance.CurrentCell.getGridSquare(var7, var8, var15);
-            if (var10 != null) {
-               this.checkForFallingBack(var10, var1);
-               if (var10 != var1.getSquare() && var10.TreatAsSolidFloor()) {
+         if (var1 instanceof IsoPlayer && !var1.getVariableBoolean("ClimbWindowEnd") && !"fallfront".equals(var5) && !"back".equals(var5) && !"fallback".equals(var5)) {
+            int var12 = var3.oppositeX;
+            var7 = var3.oppositeY;
+            var8 = var3.z;
+            IsoGridSquare var14 = IsoWorld.instance.CurrentCell.getGridSquare(var12, var7, var8);
+            if (var14 != null) {
+               this.checkForFallingBack(var14, var1);
+               if (var14 != var1.getSquare() && var14.TreatAsSolidFloor()) {
                   this.checkForFallingFront(var1.getSquare(), var1);
+               }
+            }
+
+            if (var1.getMoodles().getMoodleLevel(MoodleType.Drunk) > 1 && var1.getVariableString("ClimbWindowOutcome").equals(var5) && (float)Rand.Next(2000) < var1.getStats().Drunkenness) {
+               if (Rand.NextBool(2)) {
+                  var1.setVariable("ClimbWindowOutcome", "fallback");
+               } else {
+                  var1.setVariable("ClimbWindowOutcome", "fallfront");
                }
             }
          }
 
-         if (var1.getVariableBoolean("ClimbWindowStarted") && !"back".equals(var4) && !"fallback".equals(var4) && !"lunge".equals(var4) && !"obstacle".equals(var4) && !"obstacleEnd".equals(var4)) {
-            var13 = (float)(Integer)var2.get(PARAM_START_X);
-            var14 = (float)(Integer)var2.get(PARAM_START_Y);
-            switch (var3) {
+         if (var1.getVariableBoolean("ClimbWindowStarted") && !"back".equals(var5) && !"fallback".equals(var5) && !"lunge".equals(var5) && !"obstacle".equals(var5) && !"obstacleEnd".equals(var5)) {
+            var11 = (float)var3.startX;
+            var13 = (float)var3.startY;
+            switch (var3.climbDir) {
                case N:
-                  var14 -= 0.1F;
-                  break;
-               case S:
-                  ++var14;
-                  break;
-               case W:
                   var13 -= 0.1F;
                   break;
-               case E:
+               case S:
                   ++var13;
+                  break;
+               case W:
+                  var11 -= 0.1F;
+                  break;
+               case E:
+                  ++var11;
             }
 
-            if ((int)var1.x != (int)var13 && (var3 == IsoDirections.W || var3 == IsoDirections.E)) {
-               this.slideX(var1, var13);
+            if (PZMath.fastfloor(var1.getX()) != PZMath.fastfloor(var11) && (var3.climbDir == IsoDirections.W || var3.climbDir == IsoDirections.E)) {
+               slideX(var1, var11);
             }
 
-            if ((int)var1.y != (int)var14 && (var3 == IsoDirections.N || var3 == IsoDirections.S)) {
-               this.slideY(var1, var14);
+            if (PZMath.fastfloor(var1.getY()) != PZMath.fastfloor(var13) && (var3.climbDir == IsoDirections.N || var3.climbDir == IsoDirections.S)) {
+               slideY(var1, var13);
             }
          }
 
-         if (var1.getVariableBoolean("ClimbWindowStarted") && var2.get(PARAM_SCRATCH) == Boolean.TRUE) {
-            var2.put(PARAM_SCRATCH, Boolean.FALSE);
+         if (var1.getVariableBoolean("ClimbWindowStarted") && var3.scratch) {
+            var3.scratch = false;
             var1.getBodyDamage().setScratchedWindow();
+            if (var4 != null) {
+               var4.playerVoiceSound("PainFromGlassCut");
+            }
+         }
+
+         if (var1.getVariableBoolean("ClimbWindowStarted") && var1.isVariable("ClimbWindowOutcome", "fall")) {
+            var1.setFallTime(Math.max(var1.getFallTime(), 2.1F));
          }
 
       }
+   }
+
+   public static void slideCharacterToWindowOpening(IsoGameCharacter var0, ClimbThroughWindowPositioningParams var1) {
+      IsoDirections var2 = var1.climbDir;
+      float var3;
+      if (var2 == IsoDirections.N || var2 == IsoDirections.S) {
+         var3 = (float)var1.startX + 0.5F;
+         if (var0.getX() != var3) {
+            slideX(var0, var3);
+         }
+      }
+
+      if (var2 == IsoDirections.W || var2 == IsoDirections.E) {
+         var3 = (float)var1.startY + 0.5F;
+         if (var0.getY() != var3) {
+            slideY(var0, var3);
+         }
+      }
+
    }
 
    private void checkForFallingBack(IsoGridSquare var1, IsoGameCharacter var2) {
@@ -229,9 +250,10 @@ public final class ClimbThroughWindowState extends State {
       var1.clearVariable("ClimbWindowOutcome");
       var1.clearVariable("ClimbWindowStarted");
       var1.clearVariable("ClimbWindowFlopped");
+      var1.clearVariable("PlayerVoiceSound");
       if (var1 instanceof IsoZombie) {
          var1.setOnFloor(false);
-         ((IsoZombie)var1).setKnockedDown(false);
+         var1.setKnockedDown(false);
       }
 
       IsoZombie var3 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
@@ -256,39 +278,42 @@ public final class ClimbThroughWindowState extends State {
          ((IsoZombie)var1).networkAI.isClimbing = false;
       }
 
+      Pool.tryRelease(var2.get(PARAM_PARAMS));
+      var2.clear();
    }
 
-   public void slideX(IsoGameCharacter var1, float var2) {
-      float var3 = 0.05F * GameTime.getInstance().getMultiplier() / 1.6F;
-      var3 = var2 > var1.x ? Math.min(var3, var2 - var1.x) : Math.max(-var3, var2 - var1.x);
-      var1.x += var3;
-      var1.nx = var1.x;
+   public static void slideX(IsoGameCharacter var0, float var1) {
+      float var2 = 0.05F * GameTime.getInstance().getThirtyFPSMultiplier();
+      var2 = var1 > var0.getX() ? Math.min(var2, var1 - var0.getX()) : Math.max(-var2, var1 - var0.getX());
+      var0.setX(var0.getX() + var2);
+      var0.setNextX(var0.getX());
    }
 
-   public void slideY(IsoGameCharacter var1, float var2) {
-      float var3 = 0.05F * GameTime.getInstance().getMultiplier() / 1.6F;
-      var3 = var2 > var1.y ? Math.min(var3, var2 - var1.y) : Math.max(-var3, var2 - var1.y);
-      var1.y += var3;
-      var1.ny = var1.y;
+   public static void slideY(IsoGameCharacter var0, float var1) {
+      float var2 = 0.05F * GameTime.getInstance().getThirtyFPSMultiplier();
+      var2 = var1 > var0.getY() ? Math.min(var2, var1 - var0.getY()) : Math.max(-var2, var1 - var0.getY());
+      var0.setY(var0.getY() + var2);
+      var0.setNextY(var0.getY());
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
       HashMap var3 = var1.getStateMachineParams(this);
-      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
-      if (var2.m_EventName.equalsIgnoreCase("CheckAttack") && var4 != null && var4.target instanceof IsoGameCharacter) {
-         ((IsoGameCharacter)var4.target).attackFromWindowsLunge(var4);
+      IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      IsoZombie var5 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      if (var2.m_EventName.equalsIgnoreCase("CheckAttack") && var5 != null && var5.target instanceof IsoGameCharacter) {
+         ((IsoGameCharacter)var5.target).attackFromWindowsLunge(var5);
       }
 
-      if (var2.m_EventName.equalsIgnoreCase("OnFloor") && var4 != null) {
-         boolean var5 = Boolean.parseBoolean(var2.m_ParameterValue);
-         var3.put(PARAM_ZOMBIE_ON_FLOOR, var5);
-         if (var5) {
-            this.setLungeXVars(var4);
-            IsoThumpable var6 = (IsoThumpable)Type.tryCastTo(this.getWindow(var1), IsoThumpable.class);
-            if (var6 != null && var6.getSquare() != null && var4.target != null) {
-               var6.Health -= Rand.Next(10, 20);
-               if (var6.Health <= 0) {
-                  var6.destroy();
+      if (var2.m_EventName.equalsIgnoreCase("OnFloor") && var5 != null) {
+         boolean var6 = Boolean.parseBoolean(var2.m_ParameterValue);
+         var3.put(PARAM_ZOMBIE_ON_FLOOR, var6);
+         if (var6) {
+            this.setLungeXVars(var5);
+            IsoThumpable var7 = (IsoThumpable)Type.tryCastTo(this.getWindow(var1), IsoThumpable.class);
+            if (var7 != null && var7.getSquare() != null && var5.target != null) {
+               var7.Health -= Rand.Next(10, 20);
+               if (var7.Health <= 0) {
+                  var7.destroy();
                }
             }
 
@@ -296,24 +321,37 @@ public final class ClimbThroughWindowState extends State {
          }
       }
 
+      if (var2.m_EventName.equalsIgnoreCase("PlayerVoiceSound")) {
+         if (var1.getVariableBoolean("PlayerVoiceSound")) {
+            return;
+         }
+
+         if (var4 == null) {
+            return;
+         }
+
+         var1.setVariable("PlayerVoiceSound", true);
+         var4.playerVoiceSound(var2.m_ParameterValue);
+      }
+
       if (var2.m_EventName.equalsIgnoreCase("PlayWindowSound")) {
          if (!SoundManager.instance.isListenerInRange(var1.getX(), var1.getY(), 10.0F)) {
             return;
          }
 
-         long var8 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
-         var1.getEmitter().setParameterValue(var8, FMODManager.instance.getParameterDescription("TripObstacleType"), 9.0F);
+         long var9 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
+         var1.getEmitter().setParameterValue(var9, FMODManager.instance.getParameterDescription("TripObstacleType"), 9.0F);
       }
 
       if (var2.m_EventName.equalsIgnoreCase("SetState")) {
-         if (var4 == null) {
+         if (var5 == null) {
             return;
          }
 
          try {
-            ParameterZombieState.State var9 = ParameterZombieState.State.valueOf(var2.m_ParameterValue);
-            var4.parameterZombieState.setState(var9);
-         } catch (IllegalArgumentException var7) {
+            ParameterZombieState.State var10 = ParameterZombieState.State.valueOf(var2.m_ParameterValue);
+            var5.parameterZombieState.setState(var10);
+         } catch (IllegalArgumentException var8) {
          }
       }
 
@@ -321,21 +359,22 @@ public final class ClimbThroughWindowState extends State {
 
    public boolean isIgnoreCollide(IsoGameCharacter var1, int var2, int var3, int var4, int var5, int var6, int var7) {
       HashMap var8 = var1.getStateMachineParams(this);
-      int var9 = (Integer)var8.get(PARAM_START_X);
-      int var10 = (Integer)var8.get(PARAM_START_Y);
-      int var11 = (Integer)var8.get(PARAM_END_X);
-      int var12 = (Integer)var8.get(PARAM_END_Y);
-      int var13 = (Integer)var8.get(PARAM_Z);
-      if (var13 == var4 && var13 == var7) {
-         int var14 = PZMath.min(var9, var11);
+      ClimbThroughWindowPositioningParams var9 = (ClimbThroughWindowPositioningParams)var8.get(PARAM_PARAMS);
+      int var10 = var9.startX;
+      int var11 = var9.startY;
+      int var12 = var9.endX;
+      int var13 = var9.endY;
+      int var14 = var9.z;
+      if (var14 == var4 && var14 == var7) {
          int var15 = PZMath.min(var10, var12);
-         int var16 = PZMath.max(var9, var11);
+         int var16 = PZMath.min(var11, var13);
          int var17 = PZMath.max(var10, var12);
-         int var18 = PZMath.min(var2, var5);
-         int var19 = PZMath.min(var3, var6);
-         int var20 = PZMath.max(var2, var5);
-         int var21 = PZMath.max(var3, var6);
-         return var14 <= var18 && var15 <= var19 && var16 >= var20 && var17 >= var21;
+         int var18 = PZMath.max(var11, var13);
+         int var19 = PZMath.min(var2, var5);
+         int var20 = PZMath.min(var3, var6);
+         int var21 = PZMath.max(var2, var5);
+         int var22 = PZMath.max(var3, var6);
+         return var15 <= var19 && var16 <= var20 && var17 >= var21 && var18 >= var22;
       } else {
          return false;
       }
@@ -346,24 +385,25 @@ public final class ClimbThroughWindowState extends State {
          return null;
       } else {
          HashMap var2 = var1.getStateMachineParams(this);
-         int var3 = (Integer)var2.get(PARAM_START_X);
-         int var4 = (Integer)var2.get(PARAM_START_Y);
-         int var5 = (Integer)var2.get(PARAM_Z);
-         IsoGridSquare var6 = IsoWorld.instance.CurrentCell.getGridSquare(var3, var4, var5);
-         int var7 = (Integer)var2.get(PARAM_END_X);
-         int var8 = (Integer)var2.get(PARAM_END_Y);
-         IsoGridSquare var9 = IsoWorld.instance.CurrentCell.getGridSquare(var7, var8, var5);
-         if (var6 != null && var9 != null) {
-            Object var10 = var6.getWindowTo(var9);
-            if (var10 == null) {
-               var10 = var6.getWindowThumpableTo(var9);
+         ClimbThroughWindowPositioningParams var3 = (ClimbThroughWindowPositioningParams)var2.get(PARAM_PARAMS);
+         int var4 = var3.startX;
+         int var5 = var3.startY;
+         int var6 = var3.z;
+         IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare(var4, var5, var6);
+         int var8 = var3.endX;
+         int var9 = var3.endY;
+         IsoGridSquare var10 = IsoWorld.instance.CurrentCell.getGridSquare(var8, var9, var6);
+         if (var7 != null && var10 != null) {
+            Object var11 = var7.getWindowTo(var10);
+            if (var11 == null) {
+               var11 = var7.getWindowThumpableTo(var10);
             }
 
-            if (var10 == null) {
-               var10 = var6.getHoppableTo(var9);
+            if (var11 == null) {
+               var11 = var7.getHoppableTo(var10);
             }
 
-            return (IsoObject)var10;
+            return (IsoObject)var11;
          } else {
             return null;
          }
@@ -372,22 +412,23 @@ public final class ClimbThroughWindowState extends State {
 
    public boolean isWindowClosing(IsoGameCharacter var1) {
       HashMap var2 = var1.getStateMachineParams(this);
+      ClimbThroughWindowPositioningParams var3 = (ClimbThroughWindowPositioningParams)var2.get(PARAM_PARAMS);
       if (var1.getVariableBoolean("ClimbWindowStarted")) {
          return false;
       } else {
-         int var3 = (Integer)var2.get(PARAM_START_X);
-         int var4 = (Integer)var2.get(PARAM_START_Y);
-         int var5 = (Integer)var2.get(PARAM_Z);
-         IsoGridSquare var6 = IsoWorld.instance.CurrentCell.getGridSquare(var3, var4, var5);
-         if (var1.getCurrentSquare() != var6) {
+         int var4 = var3.startX;
+         int var5 = var3.startY;
+         int var6 = var3.z;
+         IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare(var4, var5, var6);
+         if (var1.getCurrentSquare() != var7) {
             return false;
          } else {
-            IsoWindow var7 = (IsoWindow)Type.tryCastTo(this.getWindow(var1), IsoWindow.class);
-            if (var7 == null) {
+            IsoWindow var8 = (IsoWindow)Type.tryCastTo(this.getWindow(var1), IsoWindow.class);
+            if (var8 == null) {
                return false;
             } else {
-               IsoGameCharacter var8 = var7.getFirstCharacterClosing();
-               if (var8 != null && var8.isVariable("CloseWindowOutcome", "success")) {
+               IsoGameCharacter var9 = var8.getFirstCharacterClosing();
+               if (var9 != null && var9.isVariable("CloseWindowOutcome", "success")) {
                   if (var1.isZombie()) {
                      var1.setHitReaction("HeadLeft");
                   } else {
@@ -407,39 +448,39 @@ public final class ClimbThroughWindowState extends State {
       boolean var3 = var1.getPath2() != null;
       boolean var4 = var1 instanceof IsoPlayer;
       if (var3 && var4) {
-         var2.turnDelta = Math.max(var2.turnDelta, 10.0F);
+         var2.setMaxTurnDelta(2.0F);
       }
 
       if (var4 && var1.getVariableBoolean("isTurning")) {
-         var2.turnDelta = Math.max(var2.turnDelta, 5.0F);
+         var2.setMaxTurnDelta(2.0F);
       }
 
    }
 
-   private boolean isFreeSquare(IsoGridSquare var1) {
-      return var1 != null && var1.TreatAsSolidFloor() && !var1.Is(IsoFlagType.solid) && !var1.Is(IsoFlagType.solidtrans);
+   public static boolean isFreeSquare(IsoGridSquare var0) {
+      return var0 != null && var0.TreatAsSolidFloor() && !var0.Is(IsoFlagType.solid) && !var0.Is(IsoFlagType.solidtrans);
    }
 
-   private boolean isObstacleSquare(IsoGridSquare var1) {
-      return var1 != null && var1.TreatAsSolidFloor() && !var1.Is(IsoFlagType.solid) && var1.Is(IsoFlagType.solidtrans) && !var1.Is(IsoFlagType.water);
+   public static boolean isObstacleSquare(IsoGridSquare var0) {
+      return var0 != null && var0.TreatAsSolidFloor() && !var0.Is(IsoFlagType.solid) && var0.Is(IsoFlagType.solidtrans) && !var0.Is(IsoFlagType.water);
    }
 
-   private IsoGridSquare getFreeSquareAfterObstacles(IsoGridSquare var1, IsoDirections var2) {
+   public static IsoGridSquare getFreeSquareAfterObstacles(IsoGridSquare var0, IsoDirections var1) {
       while(true) {
-         IsoGridSquare var3 = var1.getAdjacentSquare(var2);
-         if (var3 == null || var1.isSomethingTo(var3) || var1.getWindowFrameTo(var3) != null || var1.getWindowThumpableTo(var3) != null) {
+         IsoGridSquare var2 = var0.getAdjacentSquare(var1);
+         if (var2 == null || var0.isSomethingTo(var2) || var0.getWindowFrameTo(var2) != null || var0.getWindowThumpableTo(var2) != null) {
             return null;
          }
 
-         if (this.isFreeSquare(var3)) {
-            return var3;
+         if (isFreeSquare(var2)) {
+            return var2;
          }
 
-         if (!this.isObstacleSquare(var3)) {
+         if (!isObstacleSquare(var2)) {
             return null;
          }
 
-         var1 = var3;
+         var0 = var2;
       }
    }
 
@@ -450,8 +491,8 @@ public final class ClimbThroughWindowState extends State {
          var1.setVariable("FenceLungeY", 0.0F);
          float var3 = 0.0F;
          Vector2 var4 = var1.getForwardDirection();
-         PZMath.SideOfLine var5 = PZMath.testSideOfLine(var1.x, var1.y, var1.x + var4.x, var1.y + var4.y, var2.x, var2.y);
-         float var6 = (float)Math.acos((double)var1.getDotWithForwardDirection(var2.x, var2.y));
+         PZMath.SideOfLine var5 = PZMath.testSideOfLine(var1.getX(), var1.getY(), var1.getX() + var4.x, var1.getY() + var4.y, var2.getX(), var2.getY());
+         float var6 = (float)Math.acos((double)var1.getDotWithForwardDirection(var2.getX(), var2.getY()));
          float var7 = PZMath.clamp(PZMath.radToDeg(var6), 0.0F, 90.0F);
          switch (var5) {
             case Left:
@@ -470,13 +511,13 @@ public final class ClimbThroughWindowState extends State {
 
    public boolean isPastInnerEdgeOfSquare(IsoGameCharacter var1, int var2, int var3, IsoDirections var4) {
       if (var4 == IsoDirections.N) {
-         return var1.y < (float)(var3 + 1) - 0.3F;
+         return var1.getY() < (float)(var3 + 1) - 0.3F;
       } else if (var4 == IsoDirections.S) {
-         return var1.y > (float)var3 + 0.3F;
+         return var1.getY() > (float)var3 + 0.3F;
       } else if (var4 == IsoDirections.W) {
-         return var1.x < (float)(var2 + 1) - 0.3F;
+         return var1.getX() < (float)(var2 + 1) - 0.3F;
       } else if (var4 == IsoDirections.E) {
-         return var1.x > (float)var2 + 0.3F;
+         return var1.getX() > (float)var2 + 0.3F;
       } else {
          throw new IllegalArgumentException("unhandled direction");
       }
@@ -484,13 +525,13 @@ public final class ClimbThroughWindowState extends State {
 
    public boolean isPastOuterEdgeOfSquare(IsoGameCharacter var1, int var2, int var3, IsoDirections var4) {
       if (var4 == IsoDirections.N) {
-         return var1.y < (float)var3 - 0.3F;
+         return var1.getY() < (float)var3 - 0.3F;
       } else if (var4 == IsoDirections.S) {
-         return var1.y > (float)(var3 + 1) + 0.3F;
+         return var1.getY() > (float)(var3 + 1) + 0.3F;
       } else if (var4 == IsoDirections.W) {
-         return var1.x < (float)var2 - 0.3F;
+         return var1.getX() < (float)var2 - 0.3F;
       } else if (var4 == IsoDirections.E) {
-         return var1.x > (float)(var2 + 1) + 0.3F;
+         return var1.getX() > (float)(var2 + 1) + 0.3F;
       } else {
          throw new IllegalArgumentException("unhandled direction");
       }
@@ -498,61 +539,80 @@ public final class ClimbThroughWindowState extends State {
 
    public void setParams(IsoGameCharacter var1, IsoObject var2) {
       HashMap var3 = var1.getStateMachineParams(this);
-      var3.clear();
-      boolean var5 = false;
-      boolean var4;
-      if (var2 instanceof IsoWindow var6) {
-         var4 = var6.north;
-         if (var1 instanceof IsoPlayer && var6.isDestroyed() && !var6.isGlassRemoved() && Rand.Next(2) == 0) {
-            var5 = true;
+      ClimbThroughWindowPositioningParams var4 = (ClimbThroughWindowPositioningParams)var3.computeIfAbsent(PARAM_PARAMS, (var0) -> {
+         return ClimbThroughWindowPositioningParams.alloc();
+      });
+      getClimbThroughWindowPositioningParams(var1, var2, var4);
+      if (var4.windowObject == null) {
+         throw new IllegalArgumentException("No valid climb-throuwh portal found. Expected thumpable, window, or window-frame");
+      } else {
+         var3.put(PARAM_ZOMBIE_ON_FLOOR, Boolean.FALSE);
+         var3.put(PARAM_PREV_STATE, var4.climbingCharacter.getCurrentState());
+      }
+   }
+
+   public static void getClimbThroughWindowPositioningParams(IsoGameCharacter var0, IsoObject var1, ClimbThroughWindowPositioningParams var2) {
+      boolean var4 = false;
+      boolean var3;
+      if (var1 instanceof IsoWindow var6) {
+         var2.canClimb = var6.canClimbThrough(var0);
+         var3 = var6.north;
+         if (var0 instanceof IsoPlayer && var6.isDestroyed() && !var6.isGlassRemoved() && Rand.Next(2) == 0) {
+            var4 = true;
          }
-      } else if (var2 instanceof IsoThumpable var21) {
-         var4 = var21.north;
-         if (var1 instanceof IsoPlayer && var21.getName().equals("Barbed Fence") && Rand.Next(101) > 75) {
-            var5 = true;
+      } else if (var1 instanceof IsoThumpable var7) {
+         var2.canClimb = var7.canClimbThrough(var0);
+         var3 = var7.north;
+         if (var0 instanceof IsoPlayer && var7.getName().equals("Barbed Fence") && Rand.Next(101) > 75) {
+            var4 = true;
          }
       } else {
-         if (!IsoWindowFrame.isWindowFrame(var2)) {
-            throw new IllegalArgumentException("expected thumpable, window, or window-frame");
+         if (!(var1 instanceof IsoWindowFrame)) {
+            var2.canClimb = false;
+            var2.climbingCharacter = var0;
+            var2.windowObject = null;
+            return;
          }
 
-         var4 = IsoWindowFrame.isWindowFrame(var2, true);
+         IsoWindowFrame var5 = (IsoWindowFrame)var1;
+         var2.canClimb = true;
+         var3 = var5.getNorth();
       }
 
-      int var7 = var2.getSquare().getX();
-      int var8 = var2.getSquare().getY();
-      int var9 = var2.getSquare().getZ();
-      int var10 = var7;
+      int var22 = var1.getSquare().getX();
+      int var8 = var1.getSquare().getY();
+      int var9 = var1.getSquare().getZ();
+      int var10 = var22;
       int var11 = var8;
-      int var12 = var7;
+      int var12 = var22;
       int var13 = var8;
-      IsoDirections var22;
-      if (var4) {
-         if ((float)var8 < var1.getY()) {
+      IsoDirections var21;
+      if (var3) {
+         if ((float)var8 < var0.getY()) {
             var13 = var8 - 1;
-            var22 = IsoDirections.N;
+            var21 = IsoDirections.N;
          } else {
             var11 = var8 - 1;
-            var22 = IsoDirections.S;
+            var21 = IsoDirections.S;
          }
-      } else if ((float)var7 < var1.getX()) {
-         var12 = var7 - 1;
-         var22 = IsoDirections.W;
+      } else if ((float)var22 < var0.getX()) {
+         var12 = var22 - 1;
+         var21 = IsoDirections.W;
       } else {
-         var10 = var7 - 1;
-         var22 = IsoDirections.E;
+         var10 = var22 - 1;
+         var21 = IsoDirections.E;
       }
 
       IsoGridSquare var14 = IsoWorld.instance.CurrentCell.getGridSquare(var12, var13, var9);
       boolean var15 = var14 != null && var14.Is(IsoFlagType.solidtrans);
       boolean var16 = var14 != null && var14.TreatAsSolidFloor();
-      boolean var17 = var14 != null && var1.canClimbDownSheetRope(var14);
+      boolean var17 = var14 != null && var0.canClimbDownSheetRope(var14);
       int var18 = var12;
       int var19 = var13;
       IsoGridSquare var20;
-      if (var15 && var1.isZombie()) {
-         var20 = var14.getAdjacentSquare(var22);
-         if (this.isFreeSquare(var20) && !var14.isSomethingTo(var20) && var14.getWindowFrameTo(var20) == null && var14.getWindowThumpableTo(var20) == null) {
+      if (var15 && var0.isZombie()) {
+         var20 = var14.getAdjacentSquare(var21);
+         if (isFreeSquare(var20) && !var14.isSomethingTo(var20) && var14.getWindowFrameTo(var20) == null && var14.getWindowThumpableTo(var20) == null) {
             var18 = var20.x;
             var19 = var20.y;
          } else {
@@ -560,8 +620,8 @@ public final class ClimbThroughWindowState extends State {
          }
       }
 
-      if (var15 && !var1.isZombie()) {
-         var20 = this.getFreeSquareAfterObstacles(var14, var22);
+      if (var15 && !var0.isZombie()) {
+         var20 = getFreeSquareAfterObstacles(var14, var21);
          if (var20 == null) {
             var15 = false;
          } else {
@@ -570,19 +630,24 @@ public final class ClimbThroughWindowState extends State {
          }
       }
 
-      var3.put(PARAM_START_X, var10);
-      var3.put(PARAM_START_Y, var11);
-      var3.put(PARAM_Z, var9);
-      var3.put(PARAM_OPPOSITE_X, var12);
-      var3.put(PARAM_OPPOSITE_Y, var13);
-      var3.put(PARAM_END_X, var18);
-      var3.put(PARAM_END_Y, var19);
-      var3.put(PARAM_DIR, var22);
-      var3.put(PARAM_ZOMBIE_ON_FLOOR, Boolean.FALSE);
-      var3.put(PARAM_PREV_STATE, var1.getCurrentState());
-      var3.put(PARAM_SCRATCH, var5 ? Boolean.TRUE : Boolean.FALSE);
-      var3.put(PARAM_COUNTER, var15 ? Boolean.TRUE : Boolean.FALSE);
-      var3.put(PARAM_SOLID_FLOOR, var16 ? Boolean.TRUE : Boolean.FALSE);
-      var3.put(PARAM_SHEET_ROPE, var17 ? Boolean.TRUE : Boolean.FALSE);
+      var2.climbDir = var21;
+      var2.climbingCharacter = var0;
+      var2.windowObject = var1;
+      var2.startX = var10;
+      var2.startY = var11;
+      var2.z = var9;
+      var2.oppositeX = var12;
+      var2.oppositeY = var13;
+      var2.endX = var18;
+      var2.endY = var19;
+      var2.scratch = var4;
+      var2.isCounter = var15;
+      var2.isFloor = var16;
+      var2.isSheetRope = var17;
+   }
+
+   public ClimbThroughWindowPositioningParams getPositioningParams(IsoGameCharacter var1) {
+      HashMap var2 = var1.getStateMachineParams(this);
+      return (ClimbThroughWindowPositioningParams)var2.get(PARAM_PARAMS);
    }
 }

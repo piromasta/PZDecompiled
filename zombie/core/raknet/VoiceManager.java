@@ -1,6 +1,7 @@
 package zombie.core.raknet;
 
-import fmod.FMODSoundBuffer;
+import fmod.FMODRecordPosition;
+import fmod.FMODSoundData;
 import fmod.FMOD_DriverInfo;
 import fmod.FMOD_RESULT;
 import fmod.SoundBuffer;
@@ -9,6 +10,7 @@ import fmod.javafmodJNI;
 import fmod.fmod.FMODManager;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.concurrent.Semaphore;
 import se.krka.kahlua.vm.JavaFunction;
@@ -68,7 +70,10 @@ public class VoiceManager {
    private int volumePlayers;
    public static boolean VoipDisabled;
    private boolean isServer;
-   private static FMODSoundBuffer FMODReceiveBuffer;
+   private static byte[] FMODReceiveBuffer;
+   private final FMODSoundData FMODSoundData = new FMODSoundData();
+   private final FMODRecordPosition FMODRecordPosition = new FMODRecordPosition();
+   private int FMODSoundDataError = 0;
    private int FMODVoiceRecordDriverId;
    private long FMODChannelGroup = 0L;
    private long FMODRecordSound = 0L;
@@ -88,7 +93,6 @@ public class VoiceManager {
    private boolean bIsClient = false;
    private boolean bTestingMicrophone = false;
    private long testingMicrophoneMS = 0L;
-   private final Long recBuf_Current_read = new Long(0L);
    private static long timestamp;
 
    public VoiceManager() {
@@ -132,7 +136,7 @@ public class VoiceManager {
       }
 
       javafmod.FMOD_System_SetVADMode(this.vadMode - 1);
-      FMODReceiveBuffer = new FMODSoundBuffer(this.FMODRecordSound);
+      FMODReceiveBuffer = new byte[2048];
       this.initialisedRecDev = true;
    }
 
@@ -650,12 +654,12 @@ public class VoiceManager {
 
          if (this.initialiseRecDev) {
             this.recDevSemaphore.acquire();
-            javafmod.FMOD_System_GetRecordPosition(this.FMODVoiceRecordDriverId, this.recBuf_Current_read);
+            javafmod.FMOD_System_GetRecordPosition(this.FMODVoiceRecordDriverId, this.FMODRecordPosition);
             if (FMODReceiveBuffer != null) {
                label210:
                while(true) {
                   while(true) {
-                     if (!FMODReceiveBuffer.pull(this.recBuf_Current_read)) {
+                     if ((this.FMODSoundDataError = javafmod.FMOD_Sound_GetData(this.FMODRecordSound, FMODReceiveBuffer, this.FMODSoundData)) != 0) {
                         break label210;
                      }
 
@@ -665,17 +669,17 @@ public class VoiceManager {
 
                      if (!is3D || !IsoPlayer.getInstance().isDead()) {
                         if (this.isModePPT) {
-                           if (GameKeyboard.isKeyDown(Core.getInstance().getKey("Enable voice transmit"))) {
-                              RakVoice.SendFrame(GameClient.connection.connectedGUID, (long)IsoPlayer.getInstance().OnlineID, FMODReceiveBuffer.buf(), FMODReceiveBuffer.get_size());
+                           if (GameKeyboard.isKeyDown("Enable voice transmit")) {
+                              RakVoice.SendFrame(GameClient.connection.connectedGUID, (long)IsoPlayer.getInstance().getOnlineID(), FMODReceiveBuffer, this.FMODSoundData.size);
                               this.indicatorIsVoice = System.currentTimeMillis();
                            } else if (FakeClientManager.isVOIPEnabled()) {
-                              RakVoice.SendFrame(FakeClientManager.getConnectedGUID(), FakeClientManager.getOnlineID(), FMODReceiveBuffer.buf(), FMODReceiveBuffer.get_size());
+                              RakVoice.SendFrame(FakeClientManager.getConnectedGUID(), FakeClientManager.getOnlineID(), FMODReceiveBuffer, this.FMODSoundData.size);
                               this.indicatorIsVoice = System.currentTimeMillis();
                            }
                         }
 
-                        if (this.isModeVAD && FMODReceiveBuffer.get_vad() != 0L) {
-                           RakVoice.SendFrame(GameClient.connection.connectedGUID, (long)IsoPlayer.getInstance().OnlineID, FMODReceiveBuffer.buf(), FMODReceiveBuffer.get_size());
+                        if (this.isModeVAD && this.FMODSoundData.vad != 0L) {
+                           RakVoice.SendFrame(GameClient.connection.connectedGUID, (long)IsoPlayer.getInstance().getOnlineID(), FMODReceiveBuffer, this.FMODSoundData.size);
                            this.indicatorIsVoice = System.currentTimeMillis();
                         }
                         break;
@@ -693,7 +697,7 @@ public class VoiceManager {
                   }
 
                   if (this.isDebugLoopback) {
-                     javafmod.FMOD_System_RAWPlayData(this.getUserPlaySound((short)0), FMODReceiveBuffer.buf(), FMODReceiveBuffer.get_size());
+                     javafmod.FMOD_System_RAWPlayData(this.getUserPlaySound((short)0), FMODReceiveBuffer, this.FMODSoundData.size);
                   }
                }
             }
@@ -771,7 +775,7 @@ public class VoiceManager {
                      float var11 = IsoUtils.DistanceTo(var9.getX(), var9.getY(), var8.getX(), var8.getY());
                      if (var9.isCanHearAll()) {
                         javafmodJNI.FMOD_Channel_Set3DLevel(var10.userplaychannel, 0.0F);
-                        javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.x, var9.y, var9.z, 0.0F, 0.0F, 0.0F);
+                        javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.getX(), var9.getY(), var9.getZ(), 0.0F, 0.0F, 0.0F);
                         this.setUserPlaySound(var10.userplaychannel, this.getCanHearAllVolume(var11));
                         var16 = VoiceManagerData.VoiceDataSource.Cheat;
                         var6 = 0;
@@ -779,7 +783,7 @@ public class VoiceManager {
                         VoiceManagerData.RadioData var12 = this.checkForNearbyRadios(var10);
                         if (var12 != null && var12.deviceData != null) {
                            javafmodJNI.FMOD_Channel_Set3DLevel(var10.userplaychannel, 0.0F);
-                           javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.x, var9.y, var9.z, 0.0F, 0.0F, 0.0F);
+                           javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.getX(), var9.getY(), var9.getZ(), 0.0F, 0.0F, 0.0F);
                            this.setUserPlaySound(var10.userplaychannel, var12.deviceData.getDeviceVolume());
                            var12.deviceData.doReceiveMPSignal(var12.lastReceiveDistance);
                            var16 = VoiceManagerData.VoiceDataSource.Radio;
@@ -787,16 +791,16 @@ public class VoiceManager {
                         } else {
                            if (var12 == null) {
                               javafmodJNI.FMOD_Channel_Set3DLevel(var10.userplaychannel, 0.0F);
-                              javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.x, var9.y, var9.z, 0.0F, 0.0F, 0.0F);
+                              javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.getX(), var9.getY(), var9.getZ(), 0.0F, 0.0F, 0.0F);
                               javafmod.FMOD_Channel_SetVolume(var10.userplaychannel, 0.0F);
                               var16 = VoiceManagerData.VoiceDataSource.Unknown;
                            } else {
                               if (is3D) {
                                  javafmodJNI.FMOD_Channel_Set3DLevel(var10.userplaychannel, IsoUtils.lerp(var11, 0.0F, minDistance));
-                                 javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var8.x, var8.y, var8.z, 0.0F, 0.0F, 0.0F);
+                                 javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var8.getX(), var8.getY(), var8.getZ(), 0.0F, 0.0F, 0.0F);
                               } else {
                                  javafmodJNI.FMOD_Channel_Set3DLevel(var10.userplaychannel, 0.0F);
-                                 javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.x, var9.y, var9.z, 0.0F, 0.0F, 0.0F);
+                                 javafmod.FMOD_Channel_Set3DAttributes(var10.userplaychannel, var9.getX(), var9.getY(), var9.getZ(), 0.0F, 0.0F, 0.0F);
                               }
 
                               this.setUserPlaySound(var10.userplaychannel, IsoUtils.smoothstep(maxDistance, minDistance, var12.lastReceiveDistance));
@@ -897,61 +901,68 @@ public class VoiceManager {
          boolean var4 = false;
          synchronized(var3.radioData) {
             var3.radioData.clear();
+            HashSet var6 = new HashSet();
 
-            for(int var6 = 0; var6 < IsoPlayer.numPlayers; ++var6) {
-               IsoPlayer var7 = IsoPlayer.players[var6];
-               if (var7 != null) {
-                  var4 |= var7.isCanHearAll();
-                  var3.radioData.add(new VoiceManagerData.RadioData(RakVoice.GetMaxDistance(), var7.x, var7.y));
+            for(int var7 = 0; var7 < IsoPlayer.numPlayers; ++var7) {
+               IsoPlayer var8 = IsoPlayer.players[var7];
+               if (var8 != null) {
+                  var4 |= var8.isCanHearAll();
+                  var3.radioData.add(new VoiceManagerData.RadioData(RakVoice.GetMaxDistance(), var8.getX(), var8.getY()));
 
-                  int var8;
-                  for(var8 = 0; var8 < var7.getInventory().getItems().size(); ++var8) {
-                     InventoryItem var9 = (InventoryItem)var7.getInventory().getItems().get(var8);
-                     if (var9 instanceof Radio) {
-                        DeviceData var10 = ((Radio)var9).getDeviceData();
-                        if (var10 != null && var10.getIsTurnedOn()) {
-                           var3.radioData.add(new VoiceManagerData.RadioData(var10, var7.x, var7.y));
+                  int var9;
+                  for(var9 = 0; var9 < var8.getInventory().getItems().size(); ++var9) {
+                     InventoryItem var10 = (InventoryItem)var8.getInventory().getItems().get(var9);
+                     if (var10 instanceof Radio) {
+                        DeviceData var11 = ((Radio)var10).getDeviceData();
+                        if (var11 != null && var11.getIsTurnedOn()) {
+                           var3.radioData.add(new VoiceManagerData.RadioData(var11, var8.getX(), var8.getY()));
                         }
                      }
                   }
 
-                  for(var8 = (int)var7.getX() - 4; (float)var8 < var7.getX() + 5.0F; ++var8) {
-                     for(int var19 = (int)var7.getY() - 4; (float)var19 < var7.getY() + 5.0F; ++var19) {
-                        for(int var20 = (int)var7.getZ() - 1; (float)var20 < var7.getZ() + 1.0F; ++var20) {
-                           IsoGridSquare var11 = IsoCell.getInstance().getGridSquare(var8, var19, var20);
-                           if (var11 != null) {
-                              int var12;
-                              DeviceData var14;
-                              if (var11.getObjects() != null) {
-                                 for(var12 = 0; var12 < var11.getObjects().size(); ++var12) {
-                                    IsoObject var13 = (IsoObject)var11.getObjects().get(var12);
-                                    if (var13 instanceof IsoRadio) {
-                                       var14 = ((IsoRadio)var13).getDeviceData();
-                                       if (var14 != null && var14.getIsTurnedOn()) {
-                                          var3.radioData.add(new VoiceManagerData.RadioData(var14, (float)var11.x, (float)var11.y));
+                  for(var9 = (int)var8.getX() - 4; (float)var9 < var8.getX() + 5.0F; ++var9) {
+                     for(int var21 = (int)var8.getY() - 4; (float)var21 < var8.getY() + 5.0F; ++var21) {
+                        for(int var22 = (int)var8.getZ() - 1; (float)var22 < var8.getZ() + 1.0F; ++var22) {
+                           IsoGridSquare var12 = IsoCell.getInstance().getGridSquare(var9, var21, var22);
+                           if (var12 != null) {
+                              int var13;
+                              DeviceData var15;
+                              if (var12.getObjects() != null) {
+                                 for(var13 = 0; var13 < var12.getObjects().size(); ++var13) {
+                                    IsoObject var14 = (IsoObject)var12.getObjects().get(var13);
+                                    if (var14 instanceof IsoRadio) {
+                                       var15 = ((IsoRadio)var14).getDeviceData();
+                                       if (var15 != null && var15.getIsTurnedOn()) {
+                                          var3.radioData.add(new VoiceManagerData.RadioData(var15, (float)var12.x, (float)var12.y));
+                                          if (!var14.getModData().isEmpty()) {
+                                             Object var16 = var14.getModData().rawget("RadioItemID");
+                                             if (var16 != null && var16 instanceof Double) {
+                                                var6.add(((Double)var16).intValue());
+                                             }
+                                          }
                                        }
                                     }
                                  }
                               }
 
-                              if (var11.getWorldObjects() != null) {
-                                 for(var12 = 0; var12 < var11.getWorldObjects().size(); ++var12) {
-                                    IsoWorldInventoryObject var22 = (IsoWorldInventoryObject)var11.getWorldObjects().get(var12);
-                                    if (var22.getItem() != null && var22.getItem() instanceof Radio) {
-                                       var14 = ((Radio)var22.getItem()).getDeviceData();
-                                       if (var14 != null && var14.getIsTurnedOn()) {
-                                          var3.radioData.add(new VoiceManagerData.RadioData(var14, (float)var11.x, (float)var11.y));
+                              if (var12.getWorldObjects() != null) {
+                                 for(var13 = 0; var13 < var12.getWorldObjects().size(); ++var13) {
+                                    IsoWorldInventoryObject var24 = (IsoWorldInventoryObject)var12.getWorldObjects().get(var13);
+                                    if (var24.getItem() != null && var24.getItem() instanceof Radio && !var6.contains(var24.getItem().getID())) {
+                                       var15 = ((Radio)var24.getItem()).getDeviceData();
+                                       if (var15 != null && var15.getIsTurnedOn()) {
+                                          var3.radioData.add(new VoiceManagerData.RadioData(var15, (float)var12.x, (float)var12.y));
                                        }
                                     }
                                  }
                               }
 
-                              if (var11.getVehicleContainer() != null && var11 == var11.getVehicleContainer().getSquare()) {
-                                 VehiclePart var21 = var11.getVehicleContainer().getPartById("Radio");
-                                 if (var21 != null) {
-                                    DeviceData var23 = var21.getDeviceData();
-                                    if (var23 != null && var23.getIsTurnedOn()) {
-                                       var3.radioData.add(new VoiceManagerData.RadioData(var23, (float)var11.x, (float)var11.y));
+                              if (var12.getVehicleContainer() != null && var12 == var12.getVehicleContainer().getSquare()) {
+                                 VehiclePart var23 = var12.getVehicleContainer().getPartById("Radio");
+                                 if (var23 != null) {
+                                    DeviceData var25 = var23.getDeviceData();
+                                    if (var25 != null && var25.getIsTurnedOn()) {
+                                       var3.radioData.add(new VoiceManagerData.RadioData(var25, (float)var12.x, (float)var12.y));
                                     }
                                  }
                               }
@@ -967,14 +978,14 @@ public class VoiceManager {
          PacketTypes.PacketType.SyncRadioData.doPacket(var5);
          var5.putByte((byte)(var4 ? 1 : 0));
          var5.putInt(var3.radioData.size() * 4);
-         Iterator var17 = var3.radioData.iterator();
+         Iterator var19 = var3.radioData.iterator();
 
-         while(var17.hasNext()) {
-            VoiceManagerData.RadioData var18 = (VoiceManagerData.RadioData)var17.next();
-            var5.putInt(var18.freq);
-            var5.putInt((int)var18.distance);
-            var5.putInt(var18.x);
-            var5.putInt(var18.y);
+         while(var19.hasNext()) {
+            VoiceManagerData.RadioData var20 = (VoiceManagerData.RadioData)var19.next();
+            var5.putInt(var20.freq);
+            var5.putInt((int)var20.distance);
+            var5.putInt(var20.x);
+            var5.putInt(var20.y);
          }
 
          PacketTypes.PacketType.SyncRadioData.send(var1);
@@ -986,11 +997,15 @@ public class VoiceManager {
    }
 
    public int getMicVolumeIndicator() {
-      return FMODReceiveBuffer == null ? 0 : (int)FMODReceiveBuffer.get_loudness();
+      return FMODReceiveBuffer == null ? 0 : (int)this.FMODSoundData.loudness;
    }
 
    public boolean getMicVolumeError() {
-      return FMODReceiveBuffer == null ? true : FMODReceiveBuffer.get_interror();
+      if (FMODReceiveBuffer == null) {
+         return true;
+      } else {
+         return this.FMODSoundDataError == -1;
+      }
    }
 
    public boolean getServerVOIPEnable() {

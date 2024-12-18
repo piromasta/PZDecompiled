@@ -5,12 +5,16 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.Objects;
 import org.joml.Quaternionf;
+import org.joml.Vector2f;
 import org.joml.Vector3f;
+import org.lwjgl.util.vector.Quaternion;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.FliesSound;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.SandboxOptions;
 import zombie.SharedDescriptors;
 import zombie.SoundManager;
@@ -30,19 +34,31 @@ import zombie.characters.AttachedItems.AttachedLocations;
 import zombie.characters.WornItems.BodyLocationGroup;
 import zombie.characters.WornItems.BodyLocations;
 import zombie.characters.WornItems.WornItems;
+import zombie.characters.animals.AnimalDefinitions;
+import zombie.characters.animals.IsoAnimal;
+import zombie.characters.animals.datas.AnimalBreed;
 import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
+import zombie.core.Translator;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
 import zombie.core.physics.Transform;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.BaseGrappleable;
 import zombie.core.skinnedmodel.DeadBodyAtlas;
+import zombie.core.skinnedmodel.IGrappleable;
+import zombie.core.skinnedmodel.IGrappleableWrapper;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.advancedanimation.IAnimatable;
+import zombie.core.skinnedmodel.animation.AnimationPlayer;
+import zombie.core.skinnedmodel.animation.TwistableBoneTransform;
+import zombie.core.skinnedmodel.visual.AnimalVisual;
 import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.visual.HumanVisual;
+import zombie.core.skinnedmodel.visual.IAnimalVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.core.textures.ColorInfo;
@@ -56,8 +72,10 @@ import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.Food;
+import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
@@ -66,25 +84,36 @@ import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderShadows;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.weather.ClimateManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.network.IsoObjectID;
+import zombie.network.MPStatistics;
 import zombie.network.ServerGUI;
 import zombie.network.ServerLOS;
 import zombie.network.ServerMap;
 import zombie.network.ServerOptions;
+import zombie.network.id.IIdentifiable;
+import zombie.network.id.ObjectID;
+import zombie.network.id.ObjectIDManager;
+import zombie.network.id.ObjectIDType;
 import zombie.ui.TextManager;
 import zombie.ui.UIFont;
+import zombie.util.IPooledObject;
+import zombie.util.Pool;
+import zombie.util.StringUtils;
 import zombie.util.Type;
+import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
 
-public final class IsoDeadBody extends IsoMovingObject implements Talker, IHumanVisual {
+public final class IsoDeadBody extends IsoMovingObject implements Talker, IAnimalVisual, IHumanVisual, IIdentifiable, IGrappleableWrapper {
+   private static final ArrayList<IIdentifiable> tempBodies = new ArrayList();
+   private final ObjectID id;
    public static final int MAX_ROT_STAGES = 3;
    private static final int VISUAL_TYPE_HUMAN = 0;
-   private static final IsoObjectID<IsoDeadBody> Bodies = new IsoObjectID(IsoDeadBody.class);
-   private static final ArrayList<IsoDeadBody> tempBodies = new ArrayList();
+   private static final int VISUAL_TYPE_ANIMAL = 1;
    private boolean bFemale;
    private boolean wasZombie;
    private boolean bFakeDead;
@@ -94,26 +123,40 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    private int m_persistentOutfitID;
    private SurvivorDesc desc;
    private BaseVisual baseVisual;
+   private String animalType;
+   private float animalSize;
    private WornItems wornItems;
    private AttachedItems attachedItems;
    private float deathTime;
    private float reanimateTime;
    private IsoPlayer player;
    private boolean fallOnFront;
+   private boolean bKilledByFall;
    private boolean wasSkeleton;
    private InventoryItem primaryHandItem;
    private InventoryItem secondaryHandItem;
    private float m_angle;
+   private final Vector2 m_forwardDirection;
    private int m_zombieRotStageAtDeath;
-   private short onlineID;
-   private short objectID;
+   private short characterOnlineID;
+   public String animalAnimSet;
+   public float weight;
+   public String corpseItem;
+   public String customName;
+   public String invIcon;
+   private final ShadowParams shadowParams;
+   private BaseGrappleable m_grappleable;
+   public boolean ragdollFall;
+   private TwistableBoneTransform[] m_diedBoneTransforms;
+   public AnimationPlayer animationPlayer;
+   private boolean invalidateNextRender;
    private static final ThreadLocal<IsoZombie> tempZombie = new ThreadLocal<IsoZombie>() {
       public IsoZombie initialValue() {
          return new IsoZombie((IsoCell)null);
       }
    };
    private static ColorInfo inf = new ColorInfo();
-   public DeadBodyAtlas.BodyTexture atlasTex;
+   private DeadBodyAtlas.BodyTexture m_atlasTex;
    private static Texture DropShadow = null;
    private static final float HIT_TEST_WIDTH = 0.3F;
    private static final float HIT_TEST_HEIGHT = 0.9F;
@@ -126,18 +169,23 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    public boolean Speaking;
    public String sayLine;
 
+   public ObjectID getObjectID() {
+      return this.id;
+   }
+
    public static boolean isDead(short var0) {
       float var1 = (float)GameTime.getInstance().getWorldAgeHours();
-      Iterator var2 = Bodies.iterator();
+      Iterator var2 = ObjectIDType.DeadBody.getObjects().iterator();
 
-      IsoDeadBody var3;
+      IsoDeadBody var4;
       do {
          if (!var2.hasNext()) {
             return false;
          }
 
-         var3 = (IsoDeadBody)var2.next();
-      } while(var3.onlineID != var0 || !(var1 - var3.deathTime < 0.1F));
+         Object var3 = var2.next();
+         var4 = (IsoDeadBody)var3;
+      } while(var4.characterOnlineID != var0 || !(var1 - var4.deathTime < 0.1F));
 
       return true;
    }
@@ -151,204 +199,274 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    }
 
    public IsoDeadBody(IsoGameCharacter var1, boolean var2) {
+      this(var1, var2, true);
+   }
+
+   public IsoDeadBody(IsoGameCharacter var1, boolean var2, boolean var3) {
       super(var1.getCell(), false);
+      this.id = ObjectIDManager.createObjectID(ObjectIDType.DeadBody);
       this.bFemale = false;
       this.wasZombie = false;
       this.bFakeDead = false;
       this.bCrawling = false;
       this.SpeakTime = 0.0F;
       this.baseVisual = null;
+      this.animalType = null;
+      this.animalSize = 1.0F;
       this.deathTime = -1.0F;
       this.reanimateTime = -1.0F;
       this.fallOnFront = false;
+      this.bKilledByFall = false;
       this.wasSkeleton = false;
       this.primaryHandItem = null;
       this.secondaryHandItem = null;
+      this.m_forwardDirection = new Vector2();
       this.m_zombieRotStageAtDeath = 1;
-      this.onlineID = -1;
-      this.objectID = -1;
+      this.characterOnlineID = -1;
+      this.weight = 0.0F;
+      this.shadowParams = new ShadowParams(0.0F, 0.0F, 0.0F);
+      this.ragdollFall = false;
+      this.m_diedBoneTransforms = null;
+      this.animationPlayer = null;
+      this.invalidateNextRender = false;
       this.burnTimer = 0.0F;
       this.Speaking = false;
       this.sayLine = "";
-      IsoZombie var3 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
       this.setFallOnFront(var1.isFallOnFront());
-      if (!GameClient.bClient && !GameServer.bServer && var3 != null && var3.bCrawling) {
-         if (!var3.isReanimate()) {
+      this.setKilledByFall(var1.isKilledByFall());
+      if (!GameClient.bClient && !GameServer.bServer && var4 != null && var4.bCrawling) {
+         if (!var4.isReanimate()) {
             this.setFallOnFront(true);
          }
 
          this.bCrawling = true;
       }
 
-      IsoGridSquare var4 = var1.getCurrentSquare();
-      if (var4 != null) {
-         if (var1.getZ() < 0.0F) {
-            DebugLog.General.error("invalid z-coordinate %d,%d,%d", var1.x, var1.y, var1.z);
-            var1.setZ(0.0F);
-         }
+      this.ragdollFall = var1.isRagdollFall();
+      IsoGridSquare var5 = var1.getCurrentSquare();
+      if (var5 == null && var1 instanceof IsoAnimal && ((IsoAnimal)var1).getHutch() != null) {
+         var5 = ((IsoAnimal)var1).getHutch().square;
+      }
 
-         this.square = var4;
-         this.current = var4;
-         if (var1 instanceof IsoPlayer) {
-            ((IsoPlayer)var1).removeSaveFile();
-         }
+      if (var1.getZ() < -32.0F) {
+         DebugLog.General.error("invalid z-coordinate %.2f,%.2f,%.2f", var1.getX(), var1.getY(), var1.getZ());
+         var1.setZ(0.0F);
+      }
 
-         var4.getStaticMovingObjects().add(this);
-         if (var1 instanceof IsoSurvivor) {
-            IsoWorld var10000 = IsoWorld.instance;
-            var10000.TotalSurvivorNights += ((IsoSurvivor)var1).nightsSurvived;
-            ++IsoWorld.instance.TotalSurvivorsDead;
-            if (IsoWorld.instance.SurvivorSurvivalRecord < ((IsoSurvivor)var1).nightsSurvived) {
-               IsoWorld.instance.SurvivorSurvivalRecord = ((IsoSurvivor)var1).nightsSurvived;
-            }
+      this.square = var5;
+      this.current = var5;
+      if (var1 instanceof IsoPlayer var6) {
+         if (!var1.isAnimal()) {
+            var6.removeSaveFile();
          }
+      }
 
-         this.bFemale = var1.isFemale();
-         this.wasZombie = var3 != null;
-         if (this.wasZombie) {
-            this.bFakeDead = var3.isFakeDead();
-            this.wasSkeleton = var3.isSkeleton();
+      if (var3 && var5 != null) {
+         var5.getStaticMovingObjects().add(this);
+      }
+
+      if (var1 instanceof IsoSurvivor) {
+         IsoWorld var10000 = IsoWorld.instance;
+         var10000.TotalSurvivorNights += ((IsoSurvivor)var1).nightsSurvived;
+         ++IsoWorld.instance.TotalSurvivorsDead;
+         if (IsoWorld.instance.SurvivorSurvivalRecord < ((IsoSurvivor)var1).nightsSurvived) {
+            IsoWorld.instance.SurvivorSurvivalRecord = ((IsoSurvivor)var1).nightsSurvived;
          }
+      }
 
-         this.dir = var1.dir;
-         this.m_angle = var1.getAnimAngleRadians();
-         this.Collidable = false;
-         this.x = var1.getX();
-         this.y = var1.getY();
-         this.z = var1.getZ();
-         this.nx = this.x;
-         this.ny = this.y;
-         this.offsetX = var1.offsetX;
-         this.offsetY = var1.offsetY;
-         this.solid = false;
-         this.shootable = false;
-         this.onlineID = var1.getOnlineID();
-         this.OutlineOnMouseover = true;
+      this.bFemale = var1.isFemale();
+      this.wasZombie = var4 != null;
+      if (this.wasZombie) {
+         this.bFakeDead = var4.isFakeDead();
+         this.wasSkeleton = var4.isSkeleton();
+      }
+
+      this.dir = var1.dir;
+      this.m_angle = var1.getAnimAngleRadians();
+      var1.getForwardDirection(this.m_forwardDirection);
+      this.Collidable = false;
+      this.setX(var1.getX());
+      this.setY(var1.getY());
+      this.setZ(var1.getZ());
+      this.setNextX(this.getX());
+      this.setNextY(this.getY());
+      this.offsetX = var1.offsetX;
+      this.offsetY = var1.offsetY;
+      this.solid = false;
+      this.shootable = false;
+      this.characterOnlineID = var1.getOnlineID();
+      this.OutlineOnMouseover = true;
+      if (var1 instanceof IsoZombie && var1.getDescriptor() != null) {
+         this.desc = new SurvivorDesc(var1.getDescriptor());
+      }
+
+      if (var1 instanceof IHumanVisual) {
+         this.baseVisual = new HumanVisual(this);
+         this.baseVisual.copyFrom(((IHumanVisual)var1).getHumanVisual());
+         this.m_zombieRotStageAtDeath = this.getHumanVisual().zombieRotStage;
          this.setContainer(var1.getInventory());
-         this.setWornItems(var1.getWornItems());
-         this.setAttachedItems(var1.getAttachedItems());
-         if (var1 instanceof IHumanVisual) {
-            this.baseVisual = new HumanVisual(this);
-            this.baseVisual.copyFrom(((IHumanVisual)var1).getHumanVisual());
-            this.m_zombieRotStageAtDeath = this.getHumanVisual().zombieRotStage;
-         }
+      }
 
+      this.setWornItems(var1.getWornItems());
+      this.setAttachedItems(var1.getAttachedItems());
+      if (!(var1 instanceof IsoAnimal)) {
          var1.setInventory(new ItemContainer());
-         var1.clearWornItems();
-         var1.clearAttachedItems();
-         if (!this.container.bExplored) {
-            this.container.setExplored(var1 instanceof IsoPlayer || var1 instanceof IsoZombie && ((IsoZombie)var1).isReanimatedPlayer());
-         }
+      }
 
-         boolean var5 = var1.isOnFire();
-         if (var1 instanceof IsoZombie) {
-            this.m_persistentOutfitID = var1.getPersistentOutfitID();
-            if (!var2 && !GameServer.bServer) {
-               for(int var6 = 0; var6 < IsoPlayer.numPlayers; ++var6) {
-                  IsoPlayer var7 = IsoPlayer.players[var6];
-                  if (var7 != null && var7.ReanimatedCorpse == var1) {
-                     var7.ReanimatedCorpse = null;
-                     var7.ReanimatedCorpseID = -1;
-                  }
-               }
+      var1.clearWornItems();
+      var1.clearAttachedItems();
+      if (this.container != null && !this.container.bExplored) {
+         this.container.setExplored(var1 instanceof IsoPlayer || var1 instanceof IsoZombie && ((IsoZombie)var1).isReanimatedPlayer());
+      }
 
-               if (!GameClient.bClient && var1.emitter != null) {
-                  var1.emitter.tick();
-               }
-            }
-         } else {
-            if (var1 instanceof IsoSurvivor) {
-               this.getCell().getSurvivorList().remove(var1);
-            }
+      boolean var12 = var1.isOnFire();
+      this.animationPlayer = var1.getAnimationPlayer();
+      int var8;
+      if (var1 instanceof IsoZombie) {
+         this.m_diedBoneTransforms = (TwistableBoneTransform[])Pool.tryRelease((IPooledObject[])this.m_diedBoneTransforms);
+         int var7;
+         if (this.ragdollFall && var1.hasAnimationPlayer()) {
+            var7 = this.animationPlayer.getNumBones();
+            this.m_diedBoneTransforms = TwistableBoneTransform.allocArray(var7);
 
-            this.desc = new SurvivorDesc(var1.getDescriptor());
-            if (var1 instanceof IsoPlayer) {
-               if (GameServer.bServer) {
-                  this.player = (IsoPlayer)var1;
-               } else if (!GameClient.bClient && ((IsoPlayer)var1).isLocalPlayer()) {
-                  this.player = (IsoPlayer)var1;
-               }
+            for(var8 = 0; var8 < var7; ++var8) {
+               this.animationPlayer.getBoneTransformAt(var8, this.m_diedBoneTransforms[var8]);
             }
          }
 
-         LuaManager.copyTable(this.getModData(), var1.getModData());
+         this.m_persistentOutfitID = var1.getPersistentOutfitID();
+         if (!var2 && !GameServer.bServer) {
+            for(var7 = 0; var7 < IsoPlayer.numPlayers; ++var7) {
+               IsoPlayer var14 = IsoPlayer.players[var7];
+               if (var14 != null && var14.ReanimatedCorpse == var1) {
+                  var14.ReanimatedCorpse = null;
+                  var14.ReanimatedCorpseID = -1;
+               }
+            }
+
+            if (!GameClient.bClient && var1.emitter != null) {
+               var1.emitter.tick();
+            }
+         }
+      } else {
+         if (var1 instanceof IsoSurvivor) {
+            this.getCell().getSurvivorList().remove(var1);
+         }
+
+         this.desc = new SurvivorDesc(var1.getDescriptor());
+         if (var1 instanceof IsoPlayer) {
+            this.desc.setVoicePrefix(Objects.equals(this.desc.getVoicePrefix(), "VoiceFemale") ? "FemaleZombie" : "MaleZombie");
+            if (GameServer.bServer) {
+               this.player = (IsoPlayer)var1;
+            } else if (!GameClient.bClient && ((IsoPlayer)var1).isLocalPlayer()) {
+               this.player = (IsoPlayer)var1;
+            }
+         }
+      }
+
+      LuaManager.copyTable(this.getModData(), var1.getModData());
+      if (var1 instanceof IsoAnimal) {
+         this.setAnimalData((IsoAnimal)var1);
+         if (((IsoAnimal)var1).hutch == null) {
+            ((IsoAnimal)var1).remove();
+         }
+      } else {
+         var1.calculateShadowParams(this.getShadowParams());
          var1.removeFromWorld();
          var1.removeFromSquare();
-         this.sayLine = var1.getSayLine();
-         this.SpeakColor = var1.getSpeakColour();
-         this.SpeakTime = var1.getSpeakTime();
-         this.Speaking = var1.isSpeaking();
-         if (var5) {
-            if (!GameClient.bClient && SandboxOptions.instance.FireSpread.getValue()) {
-               IsoFireManager.StartFire(this.getCell(), this.getSquare(), true, 100, 500);
-            }
+      }
 
+      this.sayLine = var1.getSayLine();
+      this.SpeakColor = var1.getSpeakColour();
+      this.SpeakTime = var1.getSpeakTime();
+      this.Speaking = var1.isSpeaking();
+      if (var12) {
+         if (var3 && var5 != null && !GameClient.bClient && SandboxOptions.instance.FireSpread.getValue()) {
+            IsoFireManager.StartFire(this.getCell(), this.getSquare(), true, 100, 500);
+         }
+
+         if (this.container != null) {
             this.container.setExplored(true);
          }
+      }
 
-         if (!var2 && !GameServer.bServer) {
-            LuaEventManager.triggerEvent("OnContainerUpdate", this);
-         }
+      if (!var2 && !GameServer.bServer) {
+         LuaEventManager.triggerEvent("OnContainerUpdate", this);
+      }
 
-         if (var1 instanceof IsoPlayer) {
-            ((IsoPlayer)var1).bDeathFinished = true;
-         }
+      if (var3 && !GameServer.bServer) {
+         LuaEventManager.triggerEvent("OnDeadBodySpawn", this);
+      }
 
-         this.deathTime = (float)GameTime.getInstance().getWorldAgeHours();
-         this.setEatingZombies(var1.getEatingZombies());
-         if (!this.wasZombie) {
-            ArrayList var11 = new ArrayList();
+      if (var1 instanceof IsoPlayer) {
+         ((IsoPlayer)var1).bDeathFinished = true;
+      }
 
-            int var12;
-            for(var12 = -2; var12 < 2; ++var12) {
-               for(int var8 = -2; var8 < 2; ++var8) {
-                  IsoGridSquare var9 = var4.getCell().getGridSquare(var4.x + var12, var4.y + var8, var4.z);
-                  if (var9 != null) {
-                     for(int var10 = 0; var10 < var9.getMovingObjects().size(); ++var10) {
-                        if (var9.getMovingObjects().get(var10) instanceof IsoZombie) {
-                           var11.add((IsoMovingObject)var9.getMovingObjects().get(var10));
-                        }
+      this.deathTime = (float)GameTime.getInstance().getWorldAgeHours();
+      this.setEatingZombies(var1.getEatingZombies());
+      if (var3 && !this.wasZombie && !(var1 instanceof IsoAnimal)) {
+         ArrayList var13 = new ArrayList();
+
+         for(var8 = -2; var8 < 2; ++var8) {
+            for(int var9 = -2; var9 < 2; ++var9) {
+               IsoGridSquare var10 = var5.getCell().getGridSquare(var5.x + var8, var5.y + var9, var5.z);
+               if (var10 != null) {
+                  for(int var11 = 0; var11 < var10.getMovingObjects().size(); ++var11) {
+                     if (var10.getMovingObjects().get(var11) instanceof IsoZombie) {
+                        var13.add((IsoMovingObject)var10.getMovingObjects().get(var11));
                      }
                   }
                }
             }
-
-            for(var12 = 0; var12 < var11.size(); ++var12) {
-               ((IsoZombie)var11.get(var12)).pathToLocationF(this.getX() + Rand.Next(-0.3F, 0.3F), this.getY() + Rand.Next(-0.3F, 0.3F), this.getZ());
-               ((IsoZombie)var11.get(var12)).bodyToEat = this;
-            }
          }
 
-         if (!GameClient.bClient) {
-            this.objectID = Bodies.allocateID();
+         for(var8 = 0; var8 < var13.size(); ++var8) {
+            ((IsoZombie)var13.get(var8)).pathToLocationF(this.getX() + Rand.Next(-0.3F, 0.3F), this.getY() + Rand.Next(-0.3F, 0.3F), this.getZ());
+            ((IsoZombie)var13.get(var8)).bodyToEat = this;
          }
-
-         Bodies.put(this.objectID, this);
-         if (!GameServer.bServer) {
-            FliesSound.instance.corpseAdded((int)this.getX(), (int)this.getY(), (int)this.getZ());
-         }
-
-         DebugLog.Death.noise("Corpse created %s", this.getDescription());
       }
+
+      if (var3) {
+         ObjectIDManager.getInstance().addObject(this);
+      }
+
+      if (var3 && !GameServer.bServer) {
+         FliesSound.instance.corpseAdded(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
+      }
+
+      this.m_grappleable = new BaseGrappleable(this);
+      DebugLog.Death.noise("Corpse created %s", this.getDescription());
    }
 
    public IsoDeadBody(IsoCell var1) {
       super(var1, false);
+      this.id = ObjectIDManager.createObjectID(ObjectIDType.DeadBody);
       this.bFemale = false;
       this.wasZombie = false;
       this.bFakeDead = false;
       this.bCrawling = false;
       this.SpeakTime = 0.0F;
       this.baseVisual = null;
+      this.animalType = null;
+      this.animalSize = 1.0F;
       this.deathTime = -1.0F;
       this.reanimateTime = -1.0F;
       this.fallOnFront = false;
+      this.bKilledByFall = false;
       this.wasSkeleton = false;
       this.primaryHandItem = null;
       this.secondaryHandItem = null;
+      this.m_forwardDirection = new Vector2();
       this.m_zombieRotStageAtDeath = 1;
-      this.onlineID = -1;
-      this.objectID = -1;
+      this.characterOnlineID = -1;
+      this.weight = 0.0F;
+      this.shadowParams = new ShadowParams(0.0F, 0.0F, 0.0F);
+      this.ragdollFall = false;
+      this.m_diedBoneTransforms = null;
+      this.animationPlayer = null;
+      this.invalidateNextRender = false;
       this.burnTimer = 0.0F;
       this.Speaking = false;
       this.sayLine = "";
@@ -359,7 +477,13 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       this.wornItems = new WornItems(var2);
       AttachedLocationGroup var3 = AttachedLocations.getGroup("Human");
       this.attachedItems = new AttachedItems(var3);
+      this.m_grappleable = new BaseGrappleable(this);
       DebugLog.Death.noise("Corpse created on cell %s", this.getDescription());
+   }
+
+   public String toString() {
+      String var10000 = this.getClass().getSimpleName();
+      return var10000 + "{  Name:" + this.getName() + ",  ID:" + this.getID() + ",  wasZombie:" + this.wasZombie + ",  deathTime:" + this.deathTime + " }";
    }
 
    public BaseVisual getVisual() {
@@ -368,6 +492,18 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
    public HumanVisual getHumanVisual() {
       return (HumanVisual)Type.tryCastTo(this.baseVisual, HumanVisual.class);
+   }
+
+   public AnimalVisual getAnimalVisual() {
+      return (AnimalVisual)Type.tryCastTo(this.baseVisual, AnimalVisual.class);
+   }
+
+   public String getAnimalType() {
+      return this.animalType;
+   }
+
+   public float getAnimalSize() {
+      return this.animalSize;
    }
 
    public void getItemVisuals(ItemVisuals var1) {
@@ -391,20 +527,46 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    }
 
    public boolean isFakeDead() {
+      if (SandboxOptions.instance.Lore.DisableFakeDead.getValue() == 3) {
+         this.bFakeDead = false;
+      }
+
+      if (this != null && this.getSquare() != null && this.getSquare().HasStairs() && this.bFakeDead) {
+         this.bFakeDead = false;
+      }
+
       return this.bFakeDead;
    }
 
    public void setFakeDead(boolean var1) {
       if (!var1 || SandboxOptions.instance.Lore.DisableFakeDead.getValue() != 3) {
-         this.bFakeDead = var1;
+         if (this != null && this.getSquare() != null && this.getSquare().HasStairs()) {
+            this.bFakeDead = false;
+         } else {
+            this.bFakeDead = var1;
+         }
       }
    }
 
    public boolean isSkeleton() {
-      return this.wasSkeleton;
+      if (this.animalType == null) {
+         return this.wasSkeleton;
+      } else {
+         Object var1 = this.getModData().rawget("skeleton");
+         return var1 instanceof String && "true".equalsIgnoreCase((String)var1);
+      }
    }
 
    public void setWornItems(WornItems var1) {
+      for(int var2 = 0; var2 < var1.size(); ++var2) {
+         InventoryItem var3 = var1.get(var2).getItem();
+         if (var3 != null && var3.hasTag("ApplyOwnerName") && this.getDescriptor() != null) {
+            var3.nameAfterDescriptor(this.getDescriptor());
+         } else if (var3 != null && var3.hasTag("MonogramOwnerName") && this.getDescriptor() != null) {
+            var3.monogramAfterDescriptor(this.getDescriptor());
+         }
+      }
+
       this.wornItems = new WornItems(var1);
    }
 
@@ -414,17 +576,25 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
    public void setAttachedItems(AttachedItems var1) {
       if (var1 != null) {
-         this.attachedItems = new AttachedItems(var1);
+         if (this.container != null) {
+            this.attachedItems = new AttachedItems(var1);
 
-         for(int var2 = 0; var2 < this.attachedItems.size(); ++var2) {
-            AttachedItem var3 = this.attachedItems.get(var2);
-            InventoryItem var4 = var3.getItem();
-            if (!this.container.contains(var4) && !GameClient.bClient && !GameServer.bServer) {
-               var4.setContainer(this.container);
-               this.container.getItems().add(var4);
+            for(int var2 = 0; var2 < this.attachedItems.size(); ++var2) {
+               AttachedItem var3 = this.attachedItems.get(var2);
+               InventoryItem var4 = var3.getItem();
+               if (!this.container.contains(var4) && !GameClient.bClient && !GameServer.bServer) {
+                  var4.setContainer(this.container);
+                  if (var4.hasTag("ApplyOwnerName") && this.getDescriptor() != null) {
+                     var4.nameAfterDescriptor(this.getDescriptor());
+                  } else if (var4.hasTag("MonogramOwnerName") && this.getDescriptor() != null) {
+                     var4.monogramAfterDescriptor(this.getDescriptor());
+                  }
+
+                  this.container.getItems().add(var4);
+               }
             }
-         }
 
+         }
       }
    }
 
@@ -432,10 +602,86 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       return this.attachedItems;
    }
 
+   public boolean isEquipped(InventoryItem var1) {
+      return this.isEquippedClothing(var1) || this.isHandItem(var1);
+   }
+
+   public boolean isEquippedClothing(InventoryItem var1) {
+      return this.wornItems.contains(var1);
+   }
+
+   public boolean isAttachedItem(InventoryItem var1) {
+      return this.getAttachedItems().contains(var1);
+   }
+
+   public boolean isHandItem(InventoryItem var1) {
+      return this.isPrimaryHandItem(var1) || this.isSecondaryHandItem(var1);
+   }
+
+   public boolean isPrimaryHandItem(InventoryItem var1) {
+      return var1 != null && this.getPrimaryHandItem() == var1;
+   }
+
+   public boolean isSecondaryHandItem(InventoryItem var1) {
+      return var1 != null && this.getSecondaryHandItem() == var1;
+   }
+
+   public float getInventoryWeight() {
+      if (this.getContainer() == null) {
+         return 0.0F;
+      } else {
+         float var1 = 0.0F;
+         ArrayList var2 = this.getContainer().getItems();
+
+         for(int var3 = 0; var3 < var2.size(); ++var3) {
+            InventoryItem var4 = (InventoryItem)var2.get(var3);
+            if (var4.getAttachedSlot() > -1 && !this.isEquipped(var4)) {
+               var1 += var4.getHotbarEquippedWeight();
+            } else if (this.isEquipped(var4)) {
+               var1 += var4.getEquippedWeight();
+            } else {
+               var1 += var4.getUnequippedWeight();
+            }
+         }
+
+         return var1;
+      }
+   }
+
    public InventoryItem getItem() {
-      InventoryItem var1 = InventoryItemFactory.CreateItem("Base.CorpseMale");
-      var1.storeInByteData(this);
-      return var1;
+      String var1 = this.isFemale() ? "Base.CorpseFemale" : "Base.CorpseMale";
+      if (this.isAnimal()) {
+         var1 = "Base.CorpseAnimal";
+      }
+
+      InventoryItem var2 = InventoryItemFactory.CreateItem(var1);
+      if (this.isAnimal()) {
+         var2.copyModData(this.getModData());
+         var2.setIcon(Texture.getSharedTexture(this.invIcon));
+         if (this.isAnimalSkeleton()) {
+            var2.setName(Translator.getText("IGUI_Item_AnimalSkeleton", this.customName));
+         } else {
+            var2.setName(Translator.getText("IGUI_Item_AnimalCorpse", this.customName));
+         }
+
+         var2.setCustomName(true);
+         var2.setActualWeight(this.weight);
+         var2.setWeight(this.weight);
+         var2.setCustomWeight(true);
+      }
+
+      var2.storeInByteData(this);
+      var2.deadBodyObject = this;
+      var2.id = this.id.hashCode();
+      return var2;
+   }
+
+   private String getDeadAnimalIcon(IsoAnimal var1) {
+      if (var1.isBaby()) {
+         return var1.getBreed().invIconBabyDead;
+      } else {
+         return var1.isFemale() ? var1.getBreed().invIconFemaleDead : var1.getBreed().invIconMaleDead;
+      }
    }
 
    private IsoSprite loadSprite(ByteBuffer var1) {
@@ -451,69 +697,81 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       super.load(var1, var2, var3);
       this.bFemale = var1.get() == 1;
       this.wasZombie = var1.get() == 1;
-      if (var2 >= 192) {
-         this.objectID = var1.getShort();
+      if (var1.get() == 1) {
+         this.animalType = GameWindow.ReadString(var1);
+         AnimalDefinitions var4 = AnimalDefinitions.getDef(this.animalType);
+         if (var4 != null) {
+            this.animalAnimSet = var4.animset;
+         }
+
+         this.animalSize = var1.getFloat();
+         this.customName = GameWindow.ReadString(var1);
+         this.corpseItem = GameWindow.ReadString(var1);
+         this.weight = var1.getFloat();
+         this.invIcon = GameWindow.ReadString(var1);
+         this.shadowParams.bm = var1.getFloat();
+         this.shadowParams.fm = var1.getFloat();
+         this.shadowParams.w = var1.getFloat();
       } else {
-         this.objectID = -1;
+         this.shadowParams.set(0.0F, 0.0F, 0.0F);
       }
 
-      boolean var4 = var1.get() == 1;
-      if (var2 >= 171) {
-         this.m_persistentOutfitID = var1.getInt();
+      if (var2 >= 199) {
+         this.id.load(var1);
+      } else {
+         var1.getShort();
       }
 
-      int var5;
-      if (var4 && var2 < 171) {
-         var5 = var1.getShort();
-      }
-
+      boolean var14 = var1.get() == 1;
+      this.m_persistentOutfitID = var1.getInt();
       if (var1.get() == 1) {
          this.desc = new SurvivorDesc(true);
          this.desc.load(var1, var2, (IsoGameCharacter)null);
       }
 
-      if (var2 >= 190) {
-         byte var13 = var1.get();
-         switch (var13) {
-            case 0:
-               this.baseVisual = new HumanVisual(this);
-               this.baseVisual.load(var1, var2);
-               break;
-            default:
-               throw new IOException("invalid visualType for corpse");
-         }
-      } else {
-         this.baseVisual = new HumanVisual(this);
-         this.baseVisual.load(var1, var2);
+      byte var5 = var1.get();
+      switch (var5) {
+         case 0:
+            this.baseVisual = new HumanVisual(this);
+            this.baseVisual.load(var1, var2);
+            break;
+         case 1:
+            this.baseVisual = new AnimalVisual(this);
+            this.baseVisual.load(var1, var2);
+            break;
+         default:
+            throw new IOException("invalid visualType for corpse");
       }
 
+      int var8;
+      int var9;
       if (var1.get() == 1) {
-         var5 = var1.getInt();
+         int var6 = var1.getInt();
 
          try {
             this.setContainer(new ItemContainer());
-            this.container.ID = var5;
-            ArrayList var6 = this.container.load(var1, var2);
-            byte var7 = var1.get();
+            this.container.ID = var6;
+            ArrayList var7 = this.container.load(var1, var2);
+            var8 = var1.get();
 
-            for(int var8 = 0; var8 < var7; ++var8) {
-               String var9 = GameWindow.ReadString(var1);
-               short var10 = var1.getShort();
-               if (var10 >= 0 && var10 < var6.size() && this.wornItems.getBodyLocationGroup().getLocation(var9) != null) {
-                  this.wornItems.setItem(var9, (InventoryItem)var6.get(var10));
-               }
-            }
-
-            byte var14 = var1.get();
-
-            for(int var15 = 0; var15 < var14; ++var15) {
-               String var16 = GameWindow.ReadString(var1);
+            for(var9 = 0; var9 < var8; ++var9) {
+               String var10 = GameWindow.ReadString(var1);
                short var11 = var1.getShort();
-               if (var11 >= 0 && var11 < var6.size() && this.attachedItems.getGroup().getLocation(var16) != null) {
-                  this.attachedItems.setItem(var16, (InventoryItem)var6.get(var11));
+               if (var11 >= 0 && var11 < var7.size() && this.wornItems.getBodyLocationGroup().getLocation(var10) != null) {
+                  this.wornItems.setItem(var10, (InventoryItem)var7.get(var11));
                }
             }
-         } catch (Exception var12) {
+
+            byte var17 = var1.get();
+
+            for(int var18 = 0; var18 < var17; ++var18) {
+               String var20 = GameWindow.ReadString(var1);
+               short var12 = var1.getShort();
+               if (var12 >= 0 && var12 < var7.size() && this.attachedItems.getGroup().getLocation(var20) != null) {
+                  this.attachedItems.setItem(var20, (InventoryItem)var7.get(var12));
+               }
+            }
+         } catch (Exception var13) {
             if (this.container != null) {
                DebugLog.log("Failed to stream in container ID: " + this.container.ID);
             }
@@ -522,25 +780,40 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
       this.deathTime = var1.getFloat();
       this.reanimateTime = var1.getFloat();
-      this.fallOnFront = var1.get() == 1;
-      if (var4 && (GameClient.bClient || GameServer.bServer && ServerGUI.isCreated())) {
+      byte var15 = var1.get();
+      this.fallOnFront = (var15 & 1) != 0;
+      this.bKilledByFall = (var15 & 2) != 0;
+      if (var14 && (GameClient.bClient || GameServer.bServer && ServerGUI.isCreated())) {
          this.checkClothing((InventoryItem)null);
       }
 
       this.wasSkeleton = var1.get() == 1;
-      if (var2 >= 159) {
-         this.m_angle = var1.getFloat();
-      } else {
-         this.m_angle = this.dir.toAngle();
-      }
+      this.m_angle = var1.getFloat();
+      this.m_zombieRotStageAtDeath = var1.get() & 255;
+      this.bCrawling = var1.get() == 1;
+      this.bFakeDead = var1.get() == 1;
+      this.ragdollFall = var1.get() == 1;
+      if (this.ragdollFall) {
+         int var16 = var1.getInt();
+         this.m_diedBoneTransforms = TwistableBoneTransform.allocArray(var16);
 
-      if (var2 >= 166) {
-         this.m_zombieRotStageAtDeath = var1.get() & 255;
-      }
-
-      if (var2 >= 168) {
-         this.bCrawling = var1.get() == 1;
-         this.bFakeDead = var1.get() == 1;
+         for(var8 = 0; var8 < var16; ++var8) {
+            var9 = var1.getInt();
+            org.lwjgl.util.vector.Vector3f var19 = new org.lwjgl.util.vector.Vector3f();
+            var19.x = var1.getFloat();
+            var19.y = var1.getFloat();
+            var19.z = var1.getFloat();
+            Quaternion var21 = new Quaternion();
+            var21.x = var1.getFloat();
+            var21.y = var1.getFloat();
+            var21.z = var1.getFloat();
+            var21.w = var1.getFloat();
+            org.lwjgl.util.vector.Vector3f var22 = new org.lwjgl.util.vector.Vector3f();
+            var22.x = var1.getFloat();
+            var22.y = var1.getFloat();
+            var22.z = var1.getFloat();
+            this.m_diedBoneTransforms[var9].set(var19, var21, var22);
+         }
       }
 
    }
@@ -549,7 +822,22 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       super.save(var1, var2);
       var1.put((byte)(this.bFemale ? 1 : 0));
       var1.put((byte)(this.wasZombie ? 1 : 0));
-      var1.putShort(this.objectID);
+      if (this.isAnimal()) {
+         var1.put((byte)1);
+         GameWindow.WriteString(var1, this.animalType);
+         var1.putFloat(this.animalSize);
+         GameWindow.WriteString(var1, this.customName);
+         GameWindow.WriteString(var1, this.corpseItem);
+         var1.putFloat(this.weight);
+         GameWindow.WriteString(var1, this.invIcon);
+         var1.putFloat(this.shadowParams.bm);
+         var1.putFloat(this.shadowParams.fm);
+         var1.putFloat(this.shadowParams.w);
+      } else {
+         var1.put((byte)0);
+      }
+
+      this.getObjectID().save(var1);
       if (!GameServer.bServer && !GameClient.bClient) {
          var1.put((byte)0);
       } else {
@@ -566,48 +854,87 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
       if (this.baseVisual instanceof HumanVisual) {
          var1.put((byte)0);
-         this.baseVisual.save(var1);
-         if (this.container != null) {
-            var1.put((byte)1);
-            var1.putInt(this.container.ID);
-            ArrayList var3 = this.container.save(var1);
-            if (this.wornItems.size() > 127) {
-               throw new RuntimeException("too many worn items");
+      } else {
+         if (!(this.baseVisual instanceof AnimalVisual)) {
+            throw new IllegalStateException("unhandled baseVisual class");
+         }
+
+         var1.put((byte)1);
+      }
+
+      this.baseVisual.save(var1);
+      if (this.container != null) {
+         var1.put((byte)1);
+         var1.putInt(this.container.ID);
+         ArrayList var3 = this.container.save(var1);
+         if (this.wornItems.size() > 127) {
+            throw new RuntimeException("too many worn items");
+         }
+
+         var1.put((byte)this.wornItems.size());
+         this.wornItems.forEach((var2x) -> {
+            GameWindow.WriteString(var1, var2x.getLocation());
+            var1.putShort((short)var3.indexOf(var2x.getItem()));
+         });
+         if (this.attachedItems == null) {
+            var1.put((byte)0);
+         } else {
+            if (this.attachedItems.size() > 127) {
+               throw new RuntimeException("too many attached items");
             }
 
-            var1.put((byte)this.wornItems.size());
-            this.wornItems.forEach((var2x) -> {
+            var1.put((byte)this.attachedItems.size());
+            this.attachedItems.forEach((var2x) -> {
                GameWindow.WriteString(var1, var2x.getLocation());
                var1.putShort((short)var3.indexOf(var2x.getItem()));
             });
-            if (this.attachedItems == null) {
-               var1.put((byte)0);
-            } else {
-               if (this.attachedItems.size() > 127) {
-                  throw new RuntimeException("too many attached items");
-               }
-
-               var1.put((byte)this.attachedItems.size());
-               this.attachedItems.forEach((var2x) -> {
-                  GameWindow.WriteString(var1, var2x.getLocation());
-                  var1.putShort((short)var3.indexOf(var2x.getItem()));
-               });
-            }
-         } else {
-            var1.put((byte)0);
          }
-
-         var1.putFloat(this.deathTime);
-         var1.putFloat(this.reanimateTime);
-         var1.put((byte)(this.fallOnFront ? 1 : 0));
-         var1.put((byte)(this.isSkeleton() ? 1 : 0));
-         var1.putFloat(this.m_angle);
-         var1.put((byte)this.m_zombieRotStageAtDeath);
-         var1.put((byte)(this.bCrawling ? 1 : 0));
-         var1.put((byte)(this.bFakeDead ? 1 : 0));
       } else {
-         throw new IllegalStateException("unhandled baseVisual class");
+         var1.put((byte)0);
       }
+
+      var1.putFloat(this.deathTime);
+      var1.putFloat(this.reanimateTime);
+      byte var10 = 0;
+      if (this.fallOnFront) {
+         var10 = (byte)(var10 | 1);
+      }
+
+      if (this.bKilledByFall) {
+         var10 = (byte)(var10 | 2);
+      }
+
+      var1.put(var10);
+      var1.put((byte)(this.isSkeleton() ? 1 : 0));
+      var1.putFloat(this.m_angle);
+      var1.put((byte)this.m_zombieRotStageAtDeath);
+      var1.put((byte)(this.bCrawling ? 1 : 0));
+      var1.put((byte)(this.bFakeDead ? 1 : 0));
+      var1.put((byte)(this.ragdollFall ? 1 : 0));
+      if (this.ragdollFall) {
+         org.lwjgl.util.vector.Vector3f var4 = new org.lwjgl.util.vector.Vector3f();
+         Quaternion var5 = new Quaternion();
+         org.lwjgl.util.vector.Vector3f var6 = new org.lwjgl.util.vector.Vector3f();
+         int var7 = PZArrayUtil.lengthOf(this.m_diedBoneTransforms);
+         var1.putInt(var7);
+
+         for(int var8 = 0; var8 < var7; ++var8) {
+            TwistableBoneTransform var9 = this.m_diedBoneTransforms[var8];
+            var9.getPRS(var4, var5, var6);
+            var1.putInt(var8);
+            var1.putFloat(var4.x);
+            var1.putFloat(var4.y);
+            var1.putFloat(var4.z);
+            var1.putFloat(var5.x);
+            var1.putFloat(var5.y);
+            var1.putFloat(var5.z);
+            var1.putFloat(var5.w);
+            var1.putFloat(var6.x);
+            var1.putFloat(var6.y);
+            var1.putFloat(var6.z);
+         }
+      }
+
    }
 
    public void softReset() {
@@ -635,10 +962,10 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
          this.getWornItems().clear();
          this.getAttachedItems().clear();
          this.getContainer().clear();
-         this.atlasTex = null;
+         this.m_atlasTex = null;
       } else if ("zombieRotStage".equals(var1)) {
          this.getHumanVisual().zombieRotStage = var2.getInt();
-         this.atlasTex = null;
+         this.m_atlasTex = null;
       } else {
          super.loadChange(var1, var2);
       }
@@ -666,13 +993,19 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       boolean var8 = this.isHighlighted();
       float var9;
       float var10;
+      float var11;
+      float var12;
       if (ModelManager.instance.bDebugEnableModels && ModelManager.instance.isCreated()) {
-         if (this.atlasTex == null) {
-            this.atlasTex = DeadBodyAtlas.instance.getBodyTexture(this);
+         if (PerformanceSettings.FBORenderChunk && DebugOptions.instance.FBORenderChunk.CorpsesInChunkTexture.getValue()) {
+            return;
+         }
+
+         if (this.m_atlasTex == null) {
+            this.m_atlasTex = DeadBodyAtlas.instance.getBodyTexture(this);
             DeadBodyAtlas.instance.render();
          }
 
-         if (this.atlasTex != null) {
+         if (this.m_atlasTex != null) {
             if (IsoSprite.globalOffsetX == -1.0F) {
                IsoSprite.globalOffsetX = -IsoCamera.frameState.OffX;
                IsoSprite.globalOffsetY = -IsoCamera.frameState.OffY;
@@ -680,10 +1013,17 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
             var9 = IsoUtils.XToScreen(var1, var2, var3, 0);
             var10 = IsoUtils.YToScreen(var1, var2, var3, 0);
+            var11 = IsoSprite.globalOffsetX;
+            var12 = IsoSprite.globalOffsetY;
             this.sx = var9;
             this.sy = var10;
-            var9 = this.sx + IsoSprite.globalOffsetX;
-            var10 = this.sy + IsoSprite.globalOffsetY;
+            var9 = this.sx + var11;
+            var10 = this.sy + var12;
+            if (PerformanceSettings.FBORenderChunk) {
+               var9 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsX * IsoCamera.frameState.zoom;
+               var10 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsY * IsoCamera.frameState.zoom;
+            }
+
             if (Core.TileScale == 1) {
             }
 
@@ -708,8 +1048,19 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
                inf.set(1.0F, 1.0F, 1.0F, 1.0F);
             }
 
-            this.atlasTex.render((float)((int)var9), (float)((int)var10), var4.r, var4.g, var4.b, var4.a);
-            if (Core.bDebug && DebugOptions.instance.DeadBodyAtlasRender.getValue()) {
+            if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue() && !var8) {
+               inf.set(1.0F, 1.0F, 1.0F, 1.0F);
+            }
+
+            this.m_atlasTex.render(var1, var2, var3, var9, var10, var4.r, var4.g, var4.b, var4.a);
+            if (Core.bDebug && DebugOptions.instance.DeadBodyAtlas.Render.getValue()) {
+               if (PerformanceSettings.FBORenderChunk) {
+                  IndieGL.disableDepthTest();
+                  IndieGL.StartShader(0);
+               } else {
+                  IndieGL.glBlendFunc(770, 771);
+               }
+
                LineDrawer.DrawIsoLine(var1 - 0.5F, var2, var3, var1 + 0.5F, var2, var3, 1.0F, 1.0F, 1.0F, 0.25F, 1);
                LineDrawer.DrawIsoLine(var1, var2 - 0.5F, var3, var1, var2 + 0.5F, var3, 1.0F, 1.0F, 1.0F, 0.25F, 1);
             }
@@ -722,45 +1073,46 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
          }
       }
 
-      float var11;
-      if (Core.bDebug && DebugOptions.instance.DeadBodyAtlasRender.getValue()) {
+      if (Core.bDebug && DebugOptions.instance.DeadBodyAtlas.Render.getValue()) {
          _rotation.setAngleAxis((double)this.m_angle + 1.5707963267948966, 0.0, 0.0, 1.0);
          _transform.setRotation(_rotation);
-         _transform.origin.set(this.x, this.y, this.z);
+         _transform.origin.set(this.getX(), this.getY(), this.getZ());
          Vector3f var28 = _tempVec3f_1;
          _transform.basis.getColumn(1, var28);
-         Vector3f var30 = _tempVec3f_2;
-         var28.cross(_UNIT_Z, var30);
+         Vector3f var29 = _tempVec3f_2;
+         var28.cross(_UNIT_Z, var29);
          var11 = 0.3F;
-         float var12 = 0.9F;
+         var12 = 0.9F;
          var28.x *= var12;
          var28.y *= var12;
-         var30.x *= var11;
-         var30.y *= var11;
+         var29.x *= var11;
+         var29.y *= var11;
          float var13 = var1 + var28.x;
          float var14 = var2 + var28.y;
          float var15 = var1 - var28.x;
          float var16 = var2 - var28.y;
-         float var17 = var13 - var30.x;
-         float var18 = var13 + var30.x;
-         float var19 = var15 - var30.x;
-         float var20 = var15 + var30.x;
-         float var21 = var16 - var30.y;
-         float var22 = var16 + var30.y;
-         float var23 = var14 - var30.y;
-         float var24 = var14 + var30.y;
+         float var17 = var13 - var29.x;
+         float var18 = var13 + var29.x;
+         float var19 = var15 - var29.x;
+         float var20 = var15 + var29.x;
+         float var21 = var16 - var29.y;
+         float var22 = var16 + var29.y;
+         float var23 = var14 - var29.y;
+         float var24 = var14 + var29.y;
          float var25 = 1.0F;
          float var26 = 1.0F;
          float var27 = 1.0F;
          if (this.isMouseOver((float)Mouse.getX(), (float)Mouse.getY())) {
+            DeadBodyAtlas.instance.invalidateBodyTexture(this.m_atlasTex, this);
             var27 = 0.0F;
             var25 = 0.0F;
          }
 
-         LineDrawer.addLine(var17, var23, 0.0F, var18, var24, 0.0F, var25, var26, var27, (String)null, true);
-         LineDrawer.addLine(var17, var23, 0.0F, var19, var21, 0.0F, var25, var26, var27, (String)null, true);
-         LineDrawer.addLine(var18, var24, 0.0F, var20, var22, 0.0F, var25, var26, var27, (String)null, true);
-         LineDrawer.addLine(var19, var21, 0.0F, var20, var22, 0.0F, var25, var26, var27, (String)null, true);
+         LineDrawer.addLine(var17, var23, this.getZ(), var18, var24, this.getZ(), var25, var26, var27, (String)null, true);
+         LineDrawer.addLine(var17, var23, this.getZ(), var19, var21, this.getZ(), var25, var26, var27, (String)null, true);
+         LineDrawer.addLine(var18, var24, this.getZ(), var20, var22, this.getZ(), var25, var26, var27, (String)null, true);
+         LineDrawer.addLine(var19, var21, this.getZ(), var20, var22, this.getZ(), var25, var26, var27, (String)null, true);
+         LineDrawer.addLine(this.getX(), this.getY(), this.getZ(), this.getX(), this.getY(), (float)PZMath.fastfloor(this.getZ()), var25, var26, var27, (String)null, true);
       }
 
       if (this.isFakeDead() && DebugOptions.instance.ZombieRenderFakeDead.getValue()) {
@@ -771,89 +1123,155 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
          TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var9, (double)var10, String.format("FakeDead %.2f", var11), 1.0, 1.0, 1.0, 1.0);
       }
 
-      if (Core.bDebug && DebugOptions.instance.MultiplayerShowZombieOwner.getValue()) {
-         Color var29 = Colors.Yellow;
-         var10 = IsoUtils.XToScreenExact(var1 + 0.4F, var2 + 0.4F, var3, 0);
-         var11 = IsoUtils.YToScreenExact(var1 + 0.4F, var2 - 1.4F, var3, 0);
-         TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)var10, (double)var11, this.objectID + " / " + this.onlineID + " / " + (this.isFemale() ? "F" : "M"), (double)var29.r, (double)var29.g, (double)var29.b, (double)var29.a);
-         TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)var10, (double)(var11 + 10.0F), String.format("x=%09.3f ", var1) + String.format("y=%09.3f ", var2) + String.format("z=%d", (byte)((int)var3)), (double)var29.r, (double)var29.g, (double)var29.b, (double)var29.a);
+      if (Core.bDebug) {
+         this.renderDebugData();
       }
 
    }
 
    public void renderShadow() {
-      _rotation.setAngleAxis((double)this.m_angle + 1.5707963267948966, 0.0, 0.0, 1.0);
+      if (this.invalidateNextRender) {
+         this.invalidateCorpse();
+         this.invalidateNextRender = false;
+      }
+
+      _rotation.setAngleAxis((double)this.m_angle + 4.71238898038469, 0.0, 0.0, 1.0);
       _transform.setRotation(_rotation);
-      _transform.origin.set(this.x, this.y, this.z);
+      _transform.origin.set(this.getX(), this.getY(), this.getZ());
       Vector3f var1 = _tempVec3f_1;
       _transform.basis.getColumn(1, var1);
-      float var2 = 0.45F;
-      float var3 = 1.4F;
-      float var4 = 1.125F;
-      int var5 = IsoCamera.frameState.playerIndex;
-      ColorInfo var6 = this.square.lighting[var5].lightInfo();
-      renderShadow(this.x, this.y, this.z, var1, var2, var3, var4, var6, this.getAlpha(var5));
+      ShadowParams var2 = this.shadowParams;
+      if (this.m_atlasTex != null && !this.isAnimal() && ModelManager.instance.bDebugEnableModels && ModelManager.instance.isCreated() && (!PerformanceSettings.FBORenderChunk || !DebugOptions.instance.FBORenderChunk.CorpsesInChunkTexture.getValue())) {
+         var2 = this.m_atlasTex.getShadowParams();
+      }
+
+      float var3 = 0.45F;
+      float var4 = 1.4F;
+      float var5 = 1.125F;
+      if (var2.bm > 0.0F) {
+         var5 = var2.bm * this.animalSize;
+      }
+
+      if (var2.fm > 0.0F) {
+         var4 = var2.fm * this.animalSize;
+      }
+
+      if (var2.w > 0.0F) {
+         var3 = var2.w * this.animalSize;
+      }
+
+      float var6 = this.isSkeleton() ? 0.5F : 1.0F;
+      int var7 = IsoCamera.frameState.playerIndex;
+      ColorInfo var8 = this.square.lighting[var7].lightInfo();
+      if (PerformanceSettings.FBORenderChunk) {
+         FBORenderShadows.getInstance().addShadow(this.getX(), this.getY(), this.getZ(), var1, var3, var4, var5, var8.r, var8.g, var8.b, this.getAlpha(var7) * var6, this.isAnimal());
+      } else {
+         renderShadow(this.getX(), this.getY(), this.getZ(), var1, var3, var4, var5, var8, this.getAlpha(var7) * var6, this.isAnimal());
+      }
    }
 
    public static void renderShadow(float var0, float var1, float var2, Vector3f var3, float var4, float var5, float var6, ColorInfo var7, float var8) {
-      float var9 = var8 * ((var7.r + var7.g + var7.b) / 3.0F);
-      var9 *= 0.66F;
+      renderShadow(var0, var1, var2, var3, var4, var5, var6, var7, var8, false);
+   }
+
+   public static void renderShadow(float var0, float var1, float var2, Vector3f var3, float var4, float var5, float var6, ColorInfo var7, float var8, boolean var9) {
+      float var10 = var8 * ((var7.r + var7.g + var7.b) / 3.0F);
+      var10 *= 0.66F;
       var3.normalize();
-      Vector3f var10 = _tempVec3f_2;
-      var3.cross(_UNIT_Z, var10);
-      var4 = Math.max(0.65F, var4);
-      var5 = Math.max(var5, 0.65F);
-      var6 = Math.max(var6, 0.65F);
-      var10.x *= var4;
-      var10.y *= var4;
-      float var11 = var0 + var3.x * var5;
-      float var12 = var1 + var3.y * var5;
-      float var13 = var0 - var3.x * var6;
-      float var14 = var1 - var3.y * var6;
-      float var15 = var11 - var10.x;
-      float var16 = var11 + var10.x;
-      float var17 = var13 - var10.x;
-      float var18 = var13 + var10.x;
-      float var19 = var14 - var10.y;
-      float var20 = var14 + var10.y;
-      float var21 = var12 - var10.y;
-      float var22 = var12 + var10.y;
-      float var23 = IsoUtils.XToScreenExact(var15, var21, var2, 0);
-      float var24 = IsoUtils.YToScreenExact(var15, var21, var2, 0);
-      float var25 = IsoUtils.XToScreenExact(var16, var22, var2, 0);
-      float var26 = IsoUtils.YToScreenExact(var16, var22, var2, 0);
-      float var27 = IsoUtils.XToScreenExact(var18, var20, var2, 0);
-      float var28 = IsoUtils.YToScreenExact(var18, var20, var2, 0);
-      float var29 = IsoUtils.XToScreenExact(var17, var19, var2, 0);
-      float var30 = IsoUtils.YToScreenExact(var17, var19, var2, 0);
+      Vector3f var11 = _tempVec3f_2;
+      var3.cross(_UNIT_Z, var11);
+      if (!var9) {
+         var4 = Math.max(0.65F, var4);
+         var5 = Math.max(var5, 0.65F);
+         var6 = Math.max(var6, 0.65F);
+      }
+
+      var11.x *= var4;
+      var11.y *= var4;
+      float var12 = var0 + var3.x * var5;
+      float var13 = var1 + var3.y * var5;
+      float var14 = var0 - var3.x * var6;
+      float var15 = var1 - var3.y * var6;
+      float var16 = var12 - var11.x;
+      float var17 = var12 + var11.x;
+      float var18 = var14 - var11.x;
+      float var19 = var14 + var11.x;
+      float var20 = var15 - var11.y;
+      float var21 = var15 + var11.y;
+      float var22 = var13 - var11.y;
+      float var23 = var13 + var11.y;
+      float var24 = IsoUtils.XToScreenExact(var16, var22, var2, 0);
+      float var25 = IsoUtils.YToScreenExact(var16, var22, var2, 0);
+      float var26 = IsoUtils.XToScreenExact(var17, var23, var2, 0);
+      float var27 = IsoUtils.YToScreenExact(var17, var23, var2, 0);
+      float var28 = IsoUtils.XToScreenExact(var19, var21, var2, 0);
+      float var29 = IsoUtils.YToScreenExact(var19, var21, var2, 0);
+      float var30 = IsoUtils.XToScreenExact(var18, var20, var2, 0);
+      float var31 = IsoUtils.YToScreenExact(var18, var20, var2, 0);
       if (DropShadow == null) {
          DropShadow = Texture.getSharedTexture("media/textures/NewShadow.png");
       }
 
-      SpriteRenderer.instance.renderPoly(DropShadow, var23, var24, var25, var26, var27, var28, var29, var30, 0.0F, 0.0F, 0.0F, var9);
+      SpriteRenderer.instance.renderPoly(DropShadow, var24, var25, var26, var27, var28, var29, var30, var31, 0.0F, 0.0F, 0.0F, var10);
       if (DebugOptions.instance.IsoSprite.DropShadowEdges.getValue()) {
-         LineDrawer.addLine(var15, var21, var2, var16, var22, var2, 1, 1, 1, (String)null);
-         LineDrawer.addLine(var16, var22, var2, var18, var20, var2, 1, 1, 1, (String)null);
-         LineDrawer.addLine(var18, var20, var2, var17, var19, var2, 1, 1, 1, (String)null);
-         LineDrawer.addLine(var17, var19, var2, var15, var21, var2, 1, 1, 1, (String)null);
+         LineDrawer.addLine(var16, var22, var2, var17, var23, var2, 1, 1, 1, (String)null);
+         LineDrawer.addLine(var17, var23, var2, var19, var21, var2, 1, 1, 1, (String)null);
+         LineDrawer.addLine(var19, var21, var2, var18, var20, var2, 1, 1, 1, (String)null);
+         LineDrawer.addLine(var18, var20, var2, var16, var22, var2, 1, 1, 1, (String)null);
       }
 
    }
 
+   public ShadowParams getShadowParams() {
+      return this.shadowParams;
+   }
+
    public void renderObjectPicker(float var1, float var2, float var3, ColorInfo var4) {
-      if (this.atlasTex != null) {
-         this.atlasTex.renderObjectPicker(this.sx, this.sy, var4, this.square, this);
+      if (this.m_atlasTex != null) {
+         this.m_atlasTex.renderObjectPicker(this.sx, this.sy, var4, this.square, this);
       }
    }
 
    public boolean isMouseOver(float var1, float var2) {
       _rotation.setAngleAxis((double)this.m_angle + 1.5707963267948966, 0.0, 0.0, 1.0);
       _transform.setRotation(_rotation);
-      _transform.origin.set(this.x, this.y, this.z);
+      _transform.origin.set(this.getX(), this.getY(), this.getZ());
       _transform.inverse();
-      Vector3f var3 = _tempVec3f_1.set(IsoUtils.XToIso(var1, var2, this.z), IsoUtils.YToIso(var1, var2, this.z), this.z);
+      Vector3f var3 = _tempVec3f_1.set(IsoUtils.XToIso(var1, var2, this.getZ()), IsoUtils.YToIso(var1, var2, this.getZ()), this.getZ());
       _transform.transform(var3);
       return var3.x >= -0.3F && var3.y >= -0.9F && var3.x < 0.3F && var3.y < 0.9F;
+   }
+
+   public Vector2f getGrabHeadPosition(Vector2f var1) {
+      _rotation.setAngleAxis((double)this.m_angle + 1.5707963267948966, 0.0, 0.0, 1.0);
+      _transform.setRotation(_rotation);
+      _transform.origin.set(this.getX(), this.getY(), this.getZ());
+      Vector3f var2 = _tempVec3f_1;
+      _transform.basis.getColumn(1, var2);
+      float var3 = 0.9F;
+      var2.x *= var3;
+      var2.y *= var3;
+      float var4 = this.getX() + var2.x;
+      float var5 = this.getY() + var2.y;
+      float var6 = this.getX() - var2.x;
+      float var7 = this.getY() - var2.y;
+      return this.isFallOnFront() ? var1.set(var6, var7) : var1.set(var4, var5);
+   }
+
+   public Vector2f getGrabLegsPosition(Vector2f var1) {
+      _rotation.setAngleAxis((double)this.m_angle + 1.5707963267948966, 0.0, 0.0, 1.0);
+      _transform.setRotation(_rotation);
+      _transform.origin.set(this.getX(), this.getY(), this.getZ());
+      Vector3f var2 = _tempVec3f_1;
+      _transform.basis.getColumn(1, var2);
+      float var3 = 0.9F;
+      var2.x *= var3;
+      var2.y *= var3;
+      float var4 = this.getX() + var2.x;
+      float var5 = this.getY() + var2.y;
+      float var6 = this.getX() - var2.x;
+      float var7 = this.getY() - var2.y;
+      return this.isFallOnFront() ? var1.set(var4, var5) : var1.set(var6, var7);
    }
 
    public void Burn() {
@@ -861,6 +1279,7 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
          if (this.getSquare() != null && this.getSquare().getProperties().Is(IsoFlagType.burning)) {
             this.burnTimer += GameTime.instance.getMultipliedSecondsSinceLastUpdate();
             if (this.burnTimer >= 10.0F) {
+               MPStatistics.onCorpseBurned();
                boolean var1 = true;
 
                for(int var2 = 0; var2 < this.getSquare().getObjects().size(); ++var2) {
@@ -891,7 +1310,7 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    public void setContainer(ItemContainer var1) {
       super.setContainer(var1);
       var1.type = this.bFemale ? "inventoryfemale" : "inventorymale";
-      var1.Capacity = 8;
+      var1.Capacity = 12;
       var1.SourceGrid = this.square;
    }
 
@@ -902,26 +1321,30 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
          var3 = this.wornItems.getItemByIndex(var2);
          if (this.container == null || this.container.getItems().indexOf(var3) == -1) {
             this.wornItems.remove(var3);
-            this.atlasTex = null;
+            this.m_atlasTex = null;
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
             --var2;
          }
       }
 
       if (var1 == this.getPrimaryHandItem()) {
          this.setPrimaryHandItem((InventoryItem)null);
-         this.atlasTex = null;
+         this.m_atlasTex = null;
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
       }
 
       if (var1 == this.getSecondaryHandItem()) {
          this.setSecondaryHandItem((InventoryItem)null);
-         this.atlasTex = null;
+         this.m_atlasTex = null;
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
       }
 
       for(var2 = 0; var2 < this.attachedItems.size(); ++var2) {
          var3 = this.attachedItems.getItemByIndex(var2);
          if (this.container == null || this.container.getItems().indexOf(var3) == -1) {
             this.attachedItems.remove(var3);
-            this.atlasTex = null;
+            this.m_atlasTex = null;
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
             --var2;
          }
       }
@@ -953,14 +1376,10 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    public void addToWorld() {
       super.addToWorld();
       if (!GameServer.bServer) {
-         FliesSound.instance.corpseAdded((int)this.getX(), (int)this.getY(), (int)this.getZ());
+         FliesSound.instance.corpseAdded(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
       }
 
-      if (!GameClient.bClient && this.objectID == -1) {
-         this.objectID = Bodies.allocateID();
-      }
-
-      Bodies.put(this.objectID, this);
+      ObjectIDManager.getInstance().addObject(this);
       if (!GameClient.bClient) {
          if (this.reanimateTime > 0.0F) {
             this.getCell().addToStaticUpdaterObjectList(this);
@@ -983,10 +1402,11 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
    public void removeFromWorld() {
       if (!GameServer.bServer) {
-         FliesSound.instance.corpseRemoved((int)this.getX(), (int)this.getY(), (int)this.getZ());
+         FliesSound.instance.corpseRemoved(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
       }
 
-      Bodies.remove(this.objectID);
+      ObjectIDManager.getInstance().remove(this.id);
+      this.m_diedBoneTransforms = (TwistableBoneTransform[])Pool.tryRelease((IPooledObject[])this.m_diedBoneTransforms);
       super.removeFromWorld();
    }
 
@@ -1001,49 +1421,41 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
             float var2 = var1 / 3.0F;
             float var3 = (float)GameTime.getInstance().getWorldAgeHours();
             tempBodies.clear();
-            Bodies.getObjects(tempBodies);
-            Iterator var4 = tempBodies.iterator();
+            tempBodies.addAll(ObjectIDType.DeadBody.getObjects());
 
-            while(true) {
-               IsoDeadBody var5;
-               do {
-                  do {
-                     do {
-                        if (!var4.hasNext()) {
-                           return;
+            for(int var4 = 0; var4 < tempBodies.size(); ++var4) {
+               IsoDeadBody var5 = (IsoDeadBody)tempBodies.get(var4);
+               if (var5.getHumanVisual() != null) {
+                  if (var5.deathTime > var3) {
+                     var5.deathTime = var3;
+                     var5.getHumanVisual().zombieRotStage = var5.m_zombieRotStageAtDeath;
+                  }
+
+                  if (!var5.updateFakeDead() && (ServerOptions.instance.RemovePlayerCorpsesOnCorpseRemoval.getValue() || var5.wasZombie)) {
+                     int var6 = var5.getHumanVisual().zombieRotStage;
+                     var5.updateRotting(var3, var2, var0);
+                     if (var5.isFakeDead()) {
+                     }
+
+                     int var7 = var5.getHumanVisual().zombieRotStage;
+                     float var8 = var3 - var5.deathTime;
+                     if (!(var8 < var1 + (var5.isSkeleton() ? var2 : 0.0F))) {
+                        if (var0) {
+                           int var9 = (int)(var8 / var2);
+                           DebugLog.General.debugln("%s REMOVE %d -> %d age=%.2f stages=%d", var5, var6, var7, var8, var9);
                         }
 
-                        var5 = (IsoDeadBody)var4.next();
-                     } while(var5.getHumanVisual() == null);
+                        if (GameServer.bServer) {
+                           GameServer.sendRemoveCorpseFromMap(var5);
+                        }
 
-                     if (var5.deathTime > var3) {
-                        var5.deathTime = var3;
-                        var5.getHumanVisual().zombieRotStage = var5.m_zombieRotStageAtDeath;
+                        var5.removeFromWorld();
+                        var5.removeFromSquare();
                      }
-                  } while(var5.updateFakeDead());
-               } while(!ServerOptions.instance.RemovePlayerCorpsesOnCorpseRemoval.getValue() && !var5.wasZombie);
-
-               int var6 = var5.getHumanVisual().zombieRotStage;
-               var5.updateRotting(var3, var2, var0);
-               if (var5.isFakeDead()) {
-               }
-
-               int var7 = var5.getHumanVisual().zombieRotStage;
-               float var8 = var3 - var5.deathTime;
-               if (!(var8 < var1 + (var5.isSkeleton() ? var2 : 0.0F))) {
-                  if (var0) {
-                     int var9 = (int)(var8 / var2);
-                     DebugLog.General.debugln("%s REMOVE %d -> %d age=%.2f stages=%d", var5, var6, var7, var8, var9);
                   }
-
-                  if (GameServer.bServer) {
-                     GameServer.sendRemoveCorpseFromMap(var5);
-                  }
-
-                  var5.removeFromWorld();
-                  var5.removeFromSquare();
                }
             }
+
          }
       }
    }
@@ -1064,7 +1476,8 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
             }
 
             this.getHumanVisual().zombieRotStage = var6;
-            this.atlasTex = null;
+            this.m_atlasTex = null;
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
             if (GameServer.bServer) {
                this.sendObjectChange("zombieRotStage");
             }
@@ -1077,10 +1490,10 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
             }
 
             String var8 = ClimateManager.getInstance().getSeasonName();
-            if (var7 >= 1 && var8 != "Winter") {
+            if (var7 >= 1 && !"Winter".equals(var8)) {
                if (SandboxOptions.instance.MaggotSpawn.getValue() != 3) {
                   byte var9 = 5;
-                  if (var8 == "Summer") {
+                  if ("Summer".equals(var8)) {
                      var9 = 3;
                   }
 
@@ -1138,7 +1551,8 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
                this.getWornItems().clear();
                this.getAttachedItems().clear();
                this.getContainer().clear();
-               this.atlasTex = null;
+               this.m_atlasTex = null;
+               this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
                if (GameServer.bServer) {
                   this.sendObjectChange("becomeSkeleton");
                }
@@ -1271,7 +1685,7 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
    public void update() {
       if (this.current == null) {
-         this.current = IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)this.y, (double)this.z);
+         this.current = IsoWorld.instance.CurrentCell.getGridSquare((double)this.getX(), (double)this.getY(), (double)PZMath.floor(this.getZ()));
       }
 
       if (!GameClient.bClient) {
@@ -1285,132 +1699,216 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       }
    }
 
-   public void reanimate() {
-      short var1 = -1;
-      if (GameServer.bServer) {
-         var1 = ServerMap.instance.getUniqueZombieId();
-         if (var1 == -1) {
-            return;
-         }
-      }
-
-      SurvivorDesc var2 = new SurvivorDesc();
-      var2.setFemale(this.isFemale());
-      IsoZombie var3 = new IsoZombie(IsoWorld.instance.CurrentCell, var2, -1);
-      var3.setPersistentOutfitID(this.m_persistentOutfitID);
-      if (this.container == null) {
-         this.container = new ItemContainer();
-      }
-
-      var3.setInventory(this.container);
-      this.container = null;
-      var3.getHumanVisual().copyFrom(this.getHumanVisual());
-      var3.getWornItems().copyFrom(this.wornItems);
-      this.wornItems.clear();
-      var3.getAttachedItems().copyFrom(this.attachedItems);
-      this.attachedItems.clear();
-      var3.setX(this.getX());
-      var3.setY(this.getY());
-      var3.setZ(this.getZ());
-      var3.setCurrent(this.getCurrentSquare());
-      var3.setMovingSquareNow();
-      var3.setDir(this.dir);
-      LuaManager.copyTable(var3.getModData(), this.getModData());
-      var3.getAnimationPlayer().setTargetAngle(this.m_angle);
-      var3.getAnimationPlayer().setAngleToTarget();
-      var3.setForwardDirection(Vector2.fromLengthDirection(1.0F, this.m_angle));
-      var3.setAlphaAndTarget(1.0F);
-      Arrays.fill(var3.IsVisibleToPlayer, true);
-      var3.setOnFloor(true);
-      var3.setCrawler(this.bCrawling);
-      var3.setCanWalk(!this.bCrawling);
-      var3.walkVariant = "ZombieWalk";
-      var3.DoZombieStats();
-      var3.setFallOnFront(this.isFallOnFront());
-      if (SandboxOptions.instance.Lore.Toughness.getValue() == 1) {
-         var3.setHealth(3.5F + Rand.Next(0.0F, 0.3F));
-      }
-
-      if (SandboxOptions.instance.Lore.Toughness.getValue() == 2) {
-         var3.setHealth(1.8F + Rand.Next(0.0F, 0.3F));
-      }
-
-      if (SandboxOptions.instance.Lore.Toughness.getValue() == 3) {
-         var3.setHealth(0.5F + Rand.Next(0.0F, 0.3F));
-      }
-
-      if (GameServer.bServer) {
-         var3.OnlineID = var1;
-         ServerMap.instance.ZombieMap.put(var3.OnlineID, var3);
-      }
-
-      if (this.isFakeDead()) {
-         var3.setWasFakeDead(true);
+   public void Grappled(IGrappleable var1, HandWeapon var2, float var3, String var4) {
+      if (var1 == null) {
+         DebugLog.Grapple.warn("Grappler is null. Nothing to grapple us.");
+      } else if (var3 < 0.5F) {
+         DebugLog.Grapple.debugln("Effectiveness insufficient. %f. Rejecting grapple.", var3);
+         var1.RejectGrapple(this);
+      } else if (!this.canBeGrappled()) {
+         DebugLog.Grapple.debugln("Cannot grapple. No transition available to grappled state.");
+         var1.RejectGrapple(this);
+      } else if (this.isFakeDead()) {
+         DebugLog.Grapple.debugln("Corpse is a fake-dead. Cannot grapple.");
       } else {
-         var3.setReanimatedPlayer(true);
-         var3.getDescriptor().setID(0);
-         SharedDescriptors.createPlayerZombieDescriptor(var3);
+         IsoZombie var5 = this.reanimateZombieForGrapple();
+         if (var5 == null) {
+            DebugLog.Grapple.warn("Corpse failed to reanimate. Cannot grapple.");
+         } else {
+            DebugLog.Grapple.debugln("Accepting grapple by: %s", var1.getClass().getName());
+            var5.Grappled(var1, var2, var3, var4);
+         }
       }
+   }
 
-      var3.setReanimate(this.bCrawling);
-      if (!IsoWorld.instance.CurrentCell.getZombieList().contains(var3)) {
-         IsoWorld.instance.CurrentCell.getZombieList().add(var3);
+   private IsoZombie reanimateZombieForGrapple() {
+      if (this.isAnimal()) {
+         return null;
+      } else {
+         DebugLog.Grapple.debugln("Reanimating corpse for grappling.");
+         IsoZombie var1 = (IsoZombie)this.reanimate();
+         if (var1 == null) {
+            DebugLog.Grapple.warn("Failed to reanimate Zombie for grappling.");
+            return null;
+         } else {
+            var1.setName("ReanimatedCorpse_" + this);
+            var1.setReanimatedForGrappleOnly(true);
+            var1.addFootstepParametersIfNeeded();
+            var1.setFakeDead(false);
+            var1.setCrawler(false);
+            var1.setOnFloor(true);
+            return var1;
+         }
       }
+   }
 
-      if (!IsoWorld.instance.CurrentCell.getObjectList().contains(var3) && !IsoWorld.instance.CurrentCell.getAddList().contains(var3)) {
-         IsoWorld.instance.CurrentCell.getAddList().add(var3);
-      }
-
-      if (GameServer.bServer) {
-         if (this.player != null) {
-            this.player.ReanimatedCorpse = var3;
-            this.player.ReanimatedCorpseID = var3.OnlineID;
+   public IsoGameCharacter reanimate() {
+      if (this.isAnimal()) {
+         return this.reanimateAnimal();
+      } else {
+         MPStatistics.onPlayerWasZombified();
+         short var1 = -1;
+         if (GameServer.bServer) {
+            var1 = ServerMap.instance.getUniqueZombieId();
+            if (var1 == -1) {
+               return null;
+            }
          }
 
-         var3.networkAI.reanimatedBodyID = this.objectID;
-      }
+         SurvivorDesc var2 = new SurvivorDesc();
+         var2.setFemale(this.isFemale());
+         if (this.desc != null) {
+            var2.setVoicePrefix(this.desc.getVoicePrefix());
+         }
 
-      if (GameServer.bServer) {
-         GameServer.sendRemoveCorpseFromMap(this);
-      }
+         IsoZombie var3 = new IsoZombie(IsoWorld.instance.CurrentCell, var2, -1);
+         var3.setPersistentOutfitID(this.m_persistentOutfitID);
+         if (this.container == null) {
+            this.container = new ItemContainer();
+         }
 
+         var3.setInventory(this.container);
+         this.container = null;
+         var3.getHumanVisual().copyFrom(this.getHumanVisual());
+         var3.getWornItems().copyFrom(this.wornItems);
+         this.wornItems.clear();
+         var3.getAttachedItems().copyFrom(this.attachedItems);
+         this.attachedItems.clear();
+         var3.setX(this.getX());
+         var3.setY(this.getY());
+         var3.setZ(this.getZ());
+         var3.setCurrent(this.getCurrentSquare());
+         var3.setMovingSquareNow();
+         var3.setDir(this.dir);
+         LuaManager.copyTable(var3.getModData(), this.getModData());
+         if (var3.getModData().rawget("_bloodSplatAmount") != null) {
+            Double var4 = (Double)var3.getModData().rawget("_bloodSplatAmount");
+            var3.bloodSplatAmount = (int)Math.min(var4, 1000.0);
+         }
+
+         var3.getAnimationPlayer().setTargetAngle(this.m_angle);
+         var3.getAnimationPlayer().setAngleToTarget();
+         var3.setForwardDirection(Vector2.fromLengthDirection(1.0F, this.m_angle));
+         var3.setAlphaAndTarget(1.0F);
+         Arrays.fill(var3.IsVisibleToPlayer, true);
+         var3.setOnFloor(true);
+         var3.setCrawler(this.bCrawling);
+         var3.setCanWalk(!this.bCrawling);
+         var3.walkVariant = "ZombieWalk";
+         var3.DoZombieStats();
+         var3.setFallOnFront(this.isFallOnFront());
+         if (SandboxOptions.instance.Lore.Toughness.getValue() == 1) {
+            var3.setHealth(3.5F + Rand.Next(0.0F, 0.3F));
+         }
+
+         if (SandboxOptions.instance.Lore.Toughness.getValue() == 2) {
+            var3.setHealth(1.8F + Rand.Next(0.0F, 0.3F));
+         }
+
+         if (SandboxOptions.instance.Lore.Toughness.getValue() == 3) {
+            var3.setHealth(0.5F + Rand.Next(0.0F, 0.3F));
+         }
+
+         if (GameServer.bServer) {
+            var3.OnlineID = var1;
+            ServerMap.instance.ZombieMap.put(var3.OnlineID, var3);
+         }
+
+         if (this.isFakeDead()) {
+            var3.setWasFakeDead(true);
+         } else {
+            var3.setReanimatedPlayer(true);
+            var3.getDescriptor().setID(0);
+            SharedDescriptors.createPlayerZombieDescriptor(var3);
+         }
+
+         var3.setReanimate(this.bCrawling);
+         if (!IsoWorld.instance.CurrentCell.getZombieList().contains(var3)) {
+            IsoWorld.instance.CurrentCell.getZombieList().add(var3);
+         }
+
+         if (!IsoWorld.instance.CurrentCell.getObjectList().contains(var3) && !IsoWorld.instance.CurrentCell.getAddList().contains(var3)) {
+            IsoWorld.instance.CurrentCell.getAddList().add(var3);
+         }
+
+         if (GameServer.bServer) {
+            if (this.player != null) {
+               this.player.ReanimatedCorpse = var3;
+               this.player.ReanimatedCorpseID = var3.OnlineID;
+            }
+
+            var3.networkAI.reanimatedBodyID.set(this.id);
+         }
+
+         if (GameServer.bServer) {
+            GameServer.sendRemoveCorpseFromMap(this);
+         }
+
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_REMOVE);
+         this.removeFromWorld();
+         this.removeFromSquare();
+         LuaEventManager.triggerEvent("OnContainerUpdate");
+         var3.setReanimateTimer(0.0F);
+         var3.onWornItemsChanged();
+         if (this.player != null) {
+            if (GameServer.bServer) {
+               GameServer.sendReanimatedZombieID(this.player, var3);
+            } else if (!GameClient.bClient && this.player.isLocalPlayer()) {
+               this.player.ReanimatedCorpse = var3;
+            }
+
+            this.player.setLeaveBodyTimedown(3601.0F);
+         }
+
+         var3.getActionContext().update();
+         float var8 = GameTime.getInstance().FPSMultiplier;
+         GameTime.getInstance().FPSMultiplier = 100.0F;
+
+         try {
+            var3.advancedAnimator.update(GameTime.getInstance().getTimeDelta());
+         } finally {
+            GameTime.getInstance().FPSMultiplier = var8;
+         }
+
+         if (this.isFakeDead() && SoundManager.instance.isListenerInRange(this.getX(), this.getY(), 20.0F) && !GameServer.bServer) {
+            var3.parameterZombieState.setState(ParameterZombieState.State.Reanimate);
+         }
+
+         var3.bNeverDoneAlpha = false;
+         if (Core.bDebug) {
+            DebugLog.Multiplayer.debugln("Reanimate: corpse=%s/%d zombie=%d delay=%f", this.getObjectID().getDescription(), this.getCharacterOnlineID(), var3.getOnlineID(), GameTime.getInstance().getWorldAgeHours() - (double)this.reanimateTime);
+         }
+
+         return var3;
+      }
+   }
+
+   private IsoAnimal reanimateAnimal() {
+      AnimalDefinitions var1 = AnimalDefinitions.getDef(this.getAnimalType());
+      IsoAnimal var2 = new IsoAnimal(this.getCell(), (int)this.getX(), (int)this.getY(), (int)this.getZ(), this.getAnimalType(), (AnimalBreed)var1.getBreeds().get(0));
+      var2.getAnimalVisual().copyFrom(this.getAnimalVisual());
+      var2.getData().setSize(this.getAnimalSize());
+      var2.getData().setWeight(this.getWeight());
+      var2.setShouldBeSkeleton(this.isSkeleton());
+      var2.setX(this.getX());
+      var2.setY(this.getY());
+      var2.setZ(this.getZ());
+      var2.setCurrent(this.getCurrentSquare());
+      var2.setMovingSquareNow();
+      var2.setDir(this.dir);
+      LuaManager.copyTable(var2.getModData(), this.getModData());
+      var2.getAnimationPlayer().setTargetAngle(this.m_angle);
+      var2.getAnimationPlayer().setAngleToTarget();
+      var2.setForwardDirection(Vector2.fromLengthDirection(1.0F, this.m_angle));
+      var2.setAlphaAndTarget(1.0F);
+      var2.addToWorld();
+      this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_REMOVE);
       this.removeFromWorld();
       this.removeFromSquare();
-      LuaEventManager.triggerEvent("OnContainerUpdate");
-      var3.setReanimateTimer(0.0F);
-      var3.onWornItemsChanged();
-      if (this.player != null) {
-         if (GameServer.bServer) {
-            GameServer.sendReanimatedZombieID(this.player, var3);
-         } else if (!GameClient.bClient && this.player.isLocalPlayer()) {
-            this.player.ReanimatedCorpse = var3;
-         }
-
-         this.player.setLeaveBodyTimedown(3601.0F);
-      }
-
-      var3.actionContext.update();
-      float var4 = GameTime.getInstance().FPSMultiplier;
-      GameTime.getInstance().FPSMultiplier = 100.0F;
-
-      try {
-         var3.advancedAnimator.update();
-      } finally {
-         GameTime.getInstance().FPSMultiplier = var4;
-      }
-
-      if (this.isFakeDead() && SoundManager.instance.isListenerInRange(this.x, this.y, 20.0F) && !GameServer.bServer) {
-         var3.parameterZombieState.setState(ParameterZombieState.State.Reanimate);
-      }
-
-      if (Core.bDebug) {
-         DebugLog.Multiplayer.debugln("Reanimate: corpse=%d/%d zombie=%d delay=%f", this.getObjectID(), this.getOnlineID(), var3.getOnlineID(), GameTime.getInstance().getWorldAgeHours() - (double)this.reanimateTime);
-      }
-
+      return var2;
    }
 
    public static void Reset() {
-      Bodies.clear();
    }
 
    public void Collision(Vector2 var1, IsoObject var2) {
@@ -1420,7 +1918,7 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
          Vector3f var6 = (Vector3f)((BaseVehicle.Vector3fObjectPool)BaseVehicle.TL_vector3f_pool.get()).alloc();
          var3.getLinearVelocity(var5);
          var5.y = 0.0F;
-         var6.set(var3.x - this.x, 0.0F, var3.z - this.z);
+         var6.set(var3.getX() - this.getX(), 0.0F, var3.getZ() - this.getZ());
          var6.normalize();
          var5.mul(var6);
          ((BaseVehicle.Vector3fObjectPool)BaseVehicle.TL_vector3f_pool.get()).release(var6);
@@ -1444,6 +1942,14 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
 
    public void setFallOnFront(boolean var1) {
       this.fallOnFront = var1;
+   }
+
+   public boolean isKilledByFall() {
+      return this.bKilledByFall;
+   }
+
+   public void setKilledByFall(boolean var1) {
+      this.bKilledByFall = var1;
    }
 
    public InventoryItem getPrimaryHandItem() {
@@ -1486,7 +1992,8 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
    }
 
    private String getDescription() {
-      return String.format("object-id=%d online-id=%d bFakeDead=%b bCrawling=%b isFallOnFront=%b (x=%f,y=%f,z=%f;a=%f) outfit=%d", this.objectID, this.onlineID, this.bFakeDead, this.bCrawling, this.fallOnFront, this.x, this.y, this.z, this.m_angle, this.m_persistentOutfitID);
+      String var10000 = this.getObjectID().getDescription();
+      return "{ \"IsoDeadBody\" : { \"ObjectID\" : " + var10000 + ", \"characterOnlineID\" : " + this.characterOnlineID + ", \"bFakeDead\" : " + this.bFakeDead + ", \"bCrawling\" : " + this.bCrawling + ", \"fallOnFront\" : " + this.fallOnFront + ", \"x\" : " + this.getX() + ", \"y\" : " + this.getY() + ", \"z\" : " + this.getZ() + ", \"m_angle\" : " + this.m_angle + ", \"m_persistentOutfitID\" : " + this.m_persistentOutfitID + " } }";
    }
 
    public String readInventory(ByteBuffer var1) {
@@ -1520,7 +2027,7 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
                   }
                }
             } catch (IOException var10) {
-               DebugLog.Multiplayer.printException(var10, "ReadDeadBodyInventory error for dead body " + this.getOnlineID(), LogSeverity.Error);
+               DebugLog.Multiplayer.printException(var10, "ReadDeadBodyInventory error for dead body " + this.getCharacterOnlineID(), LogSeverity.Error);
             }
          }
 
@@ -1530,42 +2037,181 @@ public final class IsoDeadBody extends IsoMovingObject implements Talker, IHuman
       }
    }
 
-   public short getObjectID() {
-      return this.objectID;
+   public short getCharacterOnlineID() {
+      return this.characterOnlineID;
    }
 
-   public void setObjectID(short var1) {
-      this.objectID = var1;
-   }
-
-   public short getOnlineID() {
-      return this.onlineID;
-   }
-
-   public void setOnlineID(short var1) {
-      this.onlineID = var1;
+   public void setCharacterOnlineID(short var1) {
+      this.characterOnlineID = var1;
    }
 
    public boolean isPlayer() {
       return this.player != null;
    }
 
-   public static IsoDeadBody getDeadBody(short var0) {
-      return (IsoDeadBody)Bodies.get(var0);
-   }
-
-   public static void addDeadBodyID(short var0, IsoDeadBody var1) {
-      Bodies.put(var0, var1);
-   }
-
-   public static void removeDeadBody(short var0) {
-      IsoDeadBody var1 = (IsoDeadBody)Bodies.get(var0);
+   public static void removeDeadBody(ObjectID var0) {
+      IsoDeadBody var1 = (IsoDeadBody)var0.getObject();
       if (var1 != null) {
-         Bodies.remove(var0);
+         ObjectIDManager.getInstance().remove(var0);
          if (var1.getSquare() != null) {
             var1.getSquare().removeCorpse(var1, true);
          }
       }
 
+   }
+
+   public IsoGridSquare getRenderSquare() {
+      if (this.getSquare() == null) {
+         return null;
+      } else {
+         byte var1 = 8;
+         if (PZMath.coordmodulo(this.square.x, var1) == 0 && PZMath.coordmodulo(this.square.y, var1) == var1 - 1) {
+            return this.square.getAdjacentSquare(IsoDirections.S);
+         } else {
+            return PZMath.coordmodulo(this.square.x, var1) == var1 - 1 && PZMath.coordmodulo(this.square.y, var1) == 0 ? this.square.getAdjacentSquare(IsoDirections.E) : this.getSquare();
+         }
+      }
+   }
+
+   public void renderDebugData() {
+      TextManager var10000 = TextManager.instance;
+      Objects.requireNonNull(var10000);
+      TextManager.StringDrawer var1 = var10000::DrawString;
+      Color var2 = Colors.GreenYellow;
+      float var3 = IsoUtils.XToScreenExact(this.getX() + 0.4F, this.getY() + 0.4F, this.getZ(), 0);
+      float var4 = IsoUtils.YToScreenExact(this.getX() + 0.4F, this.getY() - 1.4F, this.getZ(), 0);
+      float var5 = 10.0F;
+      float var6 = 1.0F;
+      if (DebugOptions.instance.Multiplayer.DebugFlags.DeadBody.Enable.getValue()) {
+         var1.draw(UIFont.DebugConsole, (double)var3, (double)(var4 + (var5 += 11.0F)), String.format("%d", this.characterOnlineID), (double)var2.r, (double)var2.g, (double)var2.b, (double)var6);
+      }
+
+      if (DebugOptions.instance.Multiplayer.DebugFlags.DeadBody.Enable.getValue() && DebugOptions.instance.Multiplayer.DebugFlags.DeadBody.Position.getValue()) {
+         var2 = Colors.NavajoWhite;
+         var1.draw(UIFont.DebugConsole, (double)var3, (double)(var4 + (var5 += 11.0F)), String.format("x=%09.3f ", this.getX()) + String.format("y=%09.3f ", this.getY()) + String.format("z=%d", (byte)((int)this.getZ())), (double)var2.r, (double)var2.g, (double)var2.b, (double)var6);
+      }
+
+   }
+
+   public boolean isAnimal() {
+      return !StringUtils.isNullOrEmpty(this.animalType);
+   }
+
+   public float getWeight() {
+      return this.weight;
+   }
+
+   public String getCorpseItem() {
+      return this.corpseItem;
+   }
+
+   public String getCustomName() {
+      return this.customName;
+   }
+
+   public void setAnimalData(IsoAnimal var1) {
+      Object var2 = LuaManager.getFunctionObject("setAnimalBodyData");
+      if (var2 != null) {
+         LuaManager.caller.protectedCallVoid(LuaManager.thread, var2, var1, this.getModData());
+      }
+
+      this.animalType = var1.getAnimalType();
+      this.animalSize = var1.getAnimalSize();
+      this.baseVisual = new AnimalVisual(this);
+      this.baseVisual.copyFrom(var1.getAnimalVisual());
+      this.animalAnimSet = var1.adef.animset;
+      this.weight = var1.getData().getWeight();
+      this.customName = var1.getFullName();
+      this.deathTime = (float)GameTime.getInstance().getWorldAgeHours();
+      this.invIcon = this.getDeadAnimalIcon(var1);
+      this.getShadowParams().set(var1.adef.shadoww, var1.adef.shadowfm, var1.adef.shadowbm);
+   }
+
+   public SurvivorDesc getDescriptor() {
+      return this.desc;
+   }
+
+   public Vector2 getAnimForwardDirection(Vector2 var1) {
+      var1.set(this.m_forwardDirection);
+      return var1;
+   }
+
+   public void setForwardDirection(Vector2 var1) {
+      this.m_angle = var1.getDirection();
+      this.m_forwardDirection.set(var1);
+   }
+
+   public boolean isPerformingGrappleAnimation() {
+      return false;
+   }
+
+   public void setForwardDirectionAngle(float var1) {
+      this.m_angle = var1;
+      this.m_forwardDirection.setDirection(var1);
+   }
+
+   public IAnimatable getAnimatable() {
+      return null;
+   }
+
+   public IGrappleable getWrappedGrappleable() {
+      return this.m_grappleable;
+   }
+
+   public TwistableBoneTransform[] getDiedBoneTransforms() {
+      return this.m_diedBoneTransforms;
+   }
+
+   public String getCarcassName() {
+      if (!StringUtils.isNullOrEmpty(this.animalType) && !StringUtils.isNullOrEmpty(this.getBreed())) {
+         String var10000 = this.animalType;
+         return var10000 + this.getBreed();
+      } else {
+         return "";
+      }
+   }
+
+   public String getBreed() {
+      return (String)this.getModData().rawget("AnimalBreed");
+   }
+
+   public boolean hasAnimalParts() {
+      return this.getModData().rawget("parts") != null ? (Boolean)this.getModData().rawget("parts") : false;
+   }
+
+   public boolean isAnimalSkeleton() {
+      return "true".equals(this.getModData().rawget("skeleton"));
+   }
+
+   public void invalidateCorpse() {
+      if (PerformanceSettings.FBORenderChunk && DebugOptions.instance.FBORenderChunk.CorpsesInChunkTexture.getValue()) {
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_CORPSE);
+      } else {
+         this.m_atlasTex = null;
+      }
+
+   }
+
+   public void setInvalidateNextRender(boolean var1) {
+      this.invalidateNextRender = var1;
+   }
+
+   public String getInvIcon() {
+      return this.invIcon;
+   }
+
+   public String getPickUpSound() {
+      AnimalDefinitions var1 = AnimalDefinitions.getDef(this.getAnimalType());
+      if (var1 == null) {
+         return "CorpseGrab";
+      } else {
+         AnimalBreed var2 = var1.getBreedByName(this.getBreed());
+         if (var2 == null) {
+            return "CorpseGrab";
+         } else {
+            AnimalBreed.Sound var3 = var2.getSound("pick_up_corpse");
+            return var3 != null && !StringUtils.isNullOrWhitespace(var3.soundName) ? var3.soundName : "CorpseGrab";
+         }
+      }
    }
 }

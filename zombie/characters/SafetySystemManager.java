@@ -3,13 +3,13 @@ package zombie.characters;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import zombie.GameTime;
-import zombie.core.Core;
-import zombie.core.logger.LoggerManager;
 import zombie.core.math.PZMath;
+import zombie.core.raknet.UdpConnection;
 import zombie.debug.DebugLog;
 import zombie.debug.LogSeverity;
 import zombie.iso.areas.NonPvpZone;
 import zombie.network.GameServer;
+import zombie.network.PVPLogTool;
 import zombie.network.ServerOptions;
 import zombie.util.Type;
 
@@ -71,23 +71,18 @@ public class SafetySystemManager {
    }
 
    public static void clearSafety(IsoPlayer var0) {
-      if (var0 != null) {
-         Safety var1 = var0.getSafety();
-         LoggerManager.getLogger("pvp").write(String.format("user \"%s\" clear safety %s", var0.getUsername(), var1.getDescription()), "INFO");
-         playerCooldown.remove(var0.getUsername());
-         playerSafety.remove(var0.getUsername());
-         playerDelay.remove(var0.getUsername());
-      } else if (Core.bDebug) {
-         DebugLog.Combat.debugln("ClearSafety: player not found");
-      }
-
+      playerCooldown.remove(var0.getUsername());
+      playerSafety.remove(var0.getUsername());
+      playerDelay.remove(var0.getUsername());
+      var0.getSafety().setCooldown(0.0F);
+      var0.getSafety().setToggle(0.0F);
+      PVPLogTool.logSafety(var0, "clear");
    }
 
    public static void storeSafety(IsoPlayer var0) {
       try {
          if (var0 != null && var0.isAlive()) {
             Safety var1 = var0.getSafety();
-            LoggerManager.getLogger("pvp").write(String.format("user \"%s\" store safety %s", var0.getUsername(), var1.getDescription()), "INFO");
             playerSafety.put(var0.getUsername(), var1.isEnabled());
             playerCooldown.put(var0.getUsername(), var1.getCooldown());
             playerDelay.put(var0.getUsername(), System.currentTimeMillis());
@@ -115,7 +110,9 @@ public class SafetySystemManager {
                   var2.remove();
                }
             }
-         } else if (Core.bDebug) {
+
+            PVPLogTool.logSafety(var0, "store");
+         } else {
             DebugLog.Combat.debugln("StoreSafety: player not found");
          }
       } catch (Exception var3) {
@@ -137,8 +134,8 @@ public class SafetySystemManager {
             }
 
             playerDelay.put(var0.getUsername(), System.currentTimeMillis());
-            LoggerManager.getLogger("pvp").write(String.format("user \"%s\" restore safety %s", var0.getUsername(), var1.getDescription()), "INFO");
-         } else if (Core.bDebug) {
+            PVPLogTool.logSafety(var0, "restore");
+         } else {
             DebugLog.Combat.debugln("RestoreSafety: player not found");
          }
       } catch (Exception var2) {
@@ -215,5 +212,47 @@ public class SafetySystemManager {
       }
 
       return var2;
+   }
+
+   public static long getSafetyTimestamp(String var0) {
+      return (Long)playerDelay.getOrDefault(var0, System.currentTimeMillis());
+   }
+
+   public static long getSafetyDelay() {
+      return 1500L;
+   }
+
+   public static float getCooldown(UdpConnection var0) {
+      if (ServerOptions.getInstance().PVP.getValue() && ServerOptions.getInstance().SafetySystem.getValue() && ServerOptions.getInstance().SafetyDisconnectDelay.getValue() > 0) {
+         float var1 = 0.0F;
+         IsoPlayer[] var2;
+         if (GameServer.bServer) {
+            var2 = var0.players;
+         } else {
+            var2 = IsoPlayer.players;
+         }
+
+         IsoPlayer[] var3 = var2;
+         int var4 = var2.length;
+
+         for(int var5 = 0; var5 < var4; ++var5) {
+            IsoPlayer var6 = var3[var5];
+            if (var6 != null && var6.getSafety().getCooldown() + var6.getSafety().getToggle() > var1) {
+               var1 = var6.getSafety().getCooldown() + var6.getSafety().getToggle();
+            }
+         }
+
+         if (GameServer.bServer) {
+            if (var1 > 0.0F) {
+               var1 = (float)ServerOptions.getInstance().SafetyDisconnectDelay.getValue();
+            }
+
+            DebugLog.Multiplayer.debugln("Delay %f", var1);
+         }
+
+         return var1;
+      } else {
+         return 0.0F;
+      }
    }
 }

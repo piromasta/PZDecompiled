@@ -56,21 +56,35 @@ public abstract class WorldMapStyleLayer {
    }
 
    protected float evalFloat(RenderArgs var1, ArrayList<FloatStop> var2) {
+      return this.evalFloat(var1, var2, 1.0F);
+   }
+
+   protected float evalFloat(RenderArgs var1, ArrayList<FloatStop> var2, float var3) {
       if (var2.isEmpty()) {
-         return 1.0F;
+         return var3;
       } else {
-         float var3 = var1.drawer.m_zoomF;
-         int var4 = findStop(var3, var2);
-         int var5 = var4 == -1 ? 0 : var4;
-         int var6 = PZMath.min(var4 + 1, var2.size() - 1);
-         FloatStop var7 = (FloatStop)var2.get(var5);
+         float var4 = var1.drawer.m_zoomF;
+         int var5 = findStop(var4, var2);
+         int var6 = var5 == -1 ? 0 : var5;
+         int var7 = PZMath.min(var5 + 1, var2.size() - 1);
          FloatStop var8 = (FloatStop)var2.get(var6);
-         float var9 = var5 == var6 ? 1.0F : (PZMath.clamp(var3, var7.m_zoom, var8.m_zoom) - var7.m_zoom) / (var8.m_zoom - var7.m_zoom);
-         return PZMath.lerp(var7.f, var8.f, var9);
+         FloatStop var9 = (FloatStop)var2.get(var7);
+         float var10 = var6 == var7 ? 1.0F : (PZMath.clamp(var4, var8.m_zoom, var9.m_zoom) - var8.m_zoom) / (var9.m_zoom - var8.m_zoom);
+         return PZMath.lerp(var8.f, var9.f, var10);
       }
    }
 
-   protected Texture evalTexture(RenderArgs var1, ArrayList<TextureStop> var2) {
+   protected Texture evalTexture(RenderArgs var1, ArrayList<? extends TextureStop> var2) {
+      TextureStop var3 = this.evalTextureStop(var1, var2);
+      return var3 == null ? null : var3.texture;
+   }
+
+   protected TextureScaling evalTextureScaling(RenderArgs var1, ArrayList<? extends TextureStop> var2, TextureScaling var3) {
+      TextureStop var4 = this.evalTextureStop(var1, var2);
+      return var4 == null ? var3 : var4.scaling;
+   }
+
+   protected TextureStop evalTextureStop(RenderArgs var1, ArrayList<? extends TextureStop> var2) {
       if (var2.isEmpty()) {
          return null;
       } else {
@@ -81,10 +95,10 @@ public abstract class WorldMapStyleLayer {
          TextureStop var7 = (TextureStop)var2.get(var5);
          TextureStop var8 = (TextureStop)var2.get(var6);
          if (var7 == var8) {
-            return var3 < var7.m_zoom ? null : var7.texture;
+            return var3 < var7.m_zoom ? null : var7;
          } else if (!(var3 < var7.m_zoom) && !(var3 > var8.m_zoom)) {
             float var9 = var5 == var6 ? 1.0F : (PZMath.clamp(var3, var7.m_zoom, var8.m_zoom) - var7.m_zoom) / (var8.m_zoom - var7.m_zoom);
-            return var9 < 0.5F ? var7.texture : var8.texture;
+            return var9 < 0.5F ? var7 : var8;
          } else {
             return null;
          }
@@ -165,11 +179,33 @@ public abstract class WorldMapStyleLayer {
    public static class TextureStop extends Stop {
       public String texturePath;
       public Texture texture;
+      public TextureScaling scaling;
 
       public TextureStop(float var1, String var2) {
          super(var1);
+         this.scaling = WorldMapStyleLayer.TextureScaling.IsoGridSquare;
          this.texturePath = var2;
          this.texture = Texture.getTexture(var2);
+      }
+
+      public TextureStop(float var1, String var2, TextureScaling var3) {
+         super(var1);
+         this.scaling = WorldMapStyleLayer.TextureScaling.IsoGridSquare;
+         this.texturePath = var2;
+         this.texture = Texture.getTexture(var2);
+         this.scaling = var3 == null ? WorldMapStyleLayer.TextureScaling.IsoGridSquare : var3;
+      }
+
+      public TextureStop(float var1, String var2, String var3) {
+         this(var1, var2, WorldMapStyleLayer.TextureScaling.valueOf(var3));
+      }
+   }
+
+   public static enum TextureScaling {
+      IsoGridSquare,
+      ScreenPixel;
+
+      private TextureScaling() {
       }
    }
 

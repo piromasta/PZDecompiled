@@ -1,208 +1,116 @@
 package zombie.network;
 
-import com.google.common.util.concurrent.FutureCallback;
-import de.btobastian.javacord.DiscordAPI;
-import de.btobastian.javacord.Javacord;
-import de.btobastian.javacord.entities.Channel;
-import de.btobastian.javacord.entities.message.Message;
-import de.btobastian.javacord.listener.message.MessageCreateListener;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Set;
+import org.javacord.api.DiscordApi;
+import org.javacord.api.DiscordApiBuilder;
+import org.javacord.api.entity.channel.TextChannel;
+import org.javacord.api.entity.message.Message;
+import org.javacord.api.event.message.MessageCreateEvent;
 import zombie.debug.DebugLog;
-import zombie.debug.DebugType;
+import zombie.util.StringUtils;
 
 public class DiscordBot {
-   private DiscordAPI api;
-   private Collection<Channel> channels;
-   private Channel current;
-   private String currentChannelName;
-   private String currentChannelID;
-   private String name;
-   private DiscordSender sender;
+   private final DiscordSender sender;
+   private final String serverName;
+   private TextChannel channel;
+   private DiscordApi api;
 
    public DiscordBot(String var1, DiscordSender var2) {
-      this.name = var1;
+      this.serverName = var1;
       this.sender = var2;
-      this.current = null;
    }
 
    public void connect(boolean var1, String var2, String var3, String var4) {
-      if (var2 == null || var2.isEmpty()) {
-         DebugLog.log(DebugType.Network, "DISCORD: token not configured");
-         var1 = false;
+      if (var1) {
+         DebugLog.Discord.debugln("enabled");
+         if (!StringUtils.isNullOrEmpty(var2)) {
+            this.api = (DiscordApi)(new DiscordApiBuilder()).setToken(var2).setAllIntents().login().join();
+            if (this.api != null) {
+               this.channel = this.getChannel(var4, var3);
+               if (this.channel != null) {
+                  DebugLog.Discord.debugln("initialization succeeded");
+                  this.api.updateUsername(this.serverName);
+                  this.api.addMessageCreateListener(this::receiveMessage);
+                  DebugLog.Discord.println("invite-url %s", this.api.createBotInvite());
+               } else {
+                  DebugLog.Discord.warn("initialization failed");
+               }
+            }
+         } else {
+            DebugLog.Discord.warn("token not configured");
+         }
+      } else {
+         DebugLog.Discord.debugln("disabled");
       }
 
-      if (!var1) {
-         DebugLog.log(DebugType.Network, "*** DISCORD DISABLED ****");
-         this.current = null;
-      } else {
-         this.api = Javacord.getApi(var2, true);
-         this.api.connect(new Connector());
-         DebugLog.log(DebugType.Network, "*** DISCORD ENABLED ****");
-         this.currentChannelName = var3;
-         this.currentChannelID = var4;
-      }
    }
 
-   private void setChannel(String var1, String var2) {
-      Collection var3 = this.getChannelNames();
-      if ((var1 == null || var1.isEmpty()) && !var3.isEmpty()) {
-         var1 = (String)var3.iterator().next();
-         DebugLog.log(DebugType.Network, "DISCORD: set default channel name = \"" + var1 + "\"");
-      }
-
-      if (var2 != null && !var2.isEmpty()) {
-         this.setChannelByID(var2);
-      } else {
-         if (var1 != null) {
-            this.setChannelByName(var1);
+   public TextChannel getChannel(String var1, String var2) {
+      TextChannel var3 = null;
+      if (!StringUtils.isNullOrEmpty(var1)) {
+         var3 = (TextChannel)this.api.getTextChannelById(var1).orElse((Object)null);
+         if (var3 == null) {
+            DebugLog.Discord.warn("channel with ID \"%s\" not found. Try to use channel name instead", var1);
+         } else {
+            DebugLog.Discord.debugln("enabled on channel with ID \"%s\"", var1);
          }
-
+      } else if (!StringUtils.isNullOrEmpty(var2)) {
+         Set var4 = this.api.getTextChannelsByName(var2);
+         if (var4.size() == 0) {
+            DebugLog.Discord.warn("channel with name \"%s\" not found. Try to use channel ID instead", var2);
+         } else if (var4.size() == 1) {
+            DebugLog.Discord.debugln("enabled on channel with name \"%s\"", var2);
+            var3 = (TextChannel)var4.stream().findFirst().orElse((Object)null);
+         } else {
+            DebugLog.Discord.warn("server has few channels with name \"%s\". Please, use channel ID instead", var2);
+         }
+      } else {
+         var3 = (TextChannel)this.api.getTextChannels().stream().findFirst().orElse((Object)null);
+         if (var3 == null) {
+            DebugLog.Discord.warn("channels not found");
+         }
       }
+
+      return var3;
    }
 
    public void sendMessage(String var1, String var2) {
-      if (this.current != null) {
-         this.current.sendMessage(var1 + ": " + var2);
-         DebugLog.log(DebugType.Network, "DISCORD: User '" + var1 + "' send message: '" + var2 + "'");
+      if (this.channel != null) {
+         String var3 = var1 + ": " + var2;
+         this.channel.sendMessage(var3);
+         DebugLog.Discord.debugln("send message: \"%s\"", var3);
       }
 
    }
 
-   private Collection<String> getChannelNames() {
-      ArrayList var1 = new ArrayList();
-      this.channels = this.api.getChannels();
-      Iterator var2 = this.channels.iterator();
-
-      while(var2.hasNext()) {
-         Channel var3 = (Channel)var2.next();
-         var1.add(var3.getName());
-      }
-
-      return var1;
-   }
-
-   private void setChannelByName(String var1) {
-      this.current = null;
-      Iterator var2 = this.channels.iterator();
-
-      while(var2.hasNext()) {
-         Channel var3 = (Channel)var2.next();
-         if (var3.getName().equals(var1)) {
-            if (this.current != null) {
-               DebugLog.log(DebugType.Network, "Discord server has few channels with name '" + var1 + "'. Please, use channel ID instead");
-               this.current = null;
-               return;
+   public void receiveMessage(MessageCreateEvent var1) {
+      TextChannel var2 = var1.getChannel();
+      if (this.channel != null && var2 != null && this.channel.getId() == var2.getId()) {
+         Message var3 = var1.getMessage();
+         if (!var3.getAuthor().isYourself()) {
+            String var4 = this.removeSmilesAndImages(var3.getReadableContent());
+            if (!var4.isEmpty()) {
+               this.sender.sendMessageFromDiscord(var3.getAuthor().getDisplayName(), var4);
             }
 
-            this.current = var3;
+            DebugLog.Discord.debugln("get message \"%s\" from user \"%s\"", var4, var3.getAuthor().getDisplayName());
          }
-      }
-
-      if (this.current == null) {
-         DebugLog.log(DebugType.Network, "DISCORD: channel \"" + var1 + "\" is not found. Try to use channel ID instead");
-      } else {
-         DebugLog.log(DebugType.Network, "Discord enabled on channel: " + var1);
       }
 
    }
 
-   private void setChannelByID(String var1) {
-      this.current = null;
-      Iterator var2 = this.channels.iterator();
+   private String removeSmilesAndImages(String var1) {
+      StringBuilder var2 = new StringBuilder();
+      char[] var3 = var1.toCharArray();
+      int var4 = var3.length;
 
-      while(var2.hasNext()) {
-         Channel var3 = (Channel)var2.next();
-         if (var3.getId().equals(var1)) {
-            DebugLog.log(DebugType.Network, "Discord enabled on channel with ID: " + var1);
-            this.current = var3;
-            break;
+      for(int var5 = 0; var5 < var4; ++var5) {
+         Character var6 = var3[var5];
+         if (!Character.isLowSurrogate(var6) && !Character.isHighSurrogate(var6)) {
+            var2.append(var6);
          }
       }
 
-      if (this.current == null) {
-         DebugLog.log(DebugType.Network, "DISCORD: channel with ID \"" + var1 + "\" not found");
-      }
-
-   }
-
-   class Connector implements FutureCallback<DiscordAPI> {
-      Connector() {
-      }
-
-      public void onSuccess(DiscordAPI var1) {
-         DebugLog.log(DebugType.Network, "*** DISCORD API CONNECTED ****");
-         DiscordBot.this.setChannel(DiscordBot.this.currentChannelName, DiscordBot.this.currentChannelID);
-         var1.registerListener(DiscordBot.this.new Listener());
-         var1.updateUsername(DiscordBot.this.name);
-         if (DiscordBot.this.current != null) {
-            DebugLog.log(DebugType.Network, "*** DISCORD INITIALIZATION SUCCEEDED ****");
-         } else {
-            DebugLog.log(DebugType.Network, "*** DISCORD INITIALIZATION FAILED ****");
-         }
-
-      }
-
-      public void onFailure(Throwable var1) {
-         var1.printStackTrace();
-      }
-   }
-
-   class Listener implements MessageCreateListener {
-      Listener() {
-      }
-
-      public void onMessageCreate(DiscordAPI var1, Message var2) {
-         if (DiscordBot.this.current != null) {
-            if (!var1.getYourself().getId().equals(var2.getAuthor().getId())) {
-               if (var2.getChannelReceiver().getId().equals(DiscordBot.this.current.getId())) {
-                  DebugLog.log(DebugType.Network, "DISCORD: get message on current channel");
-                  DebugType var10000 = DebugType.Network;
-                  String var10001 = var2.getContent();
-                  DebugLog.log(var10000, "DISCORD: send message = \"" + var10001 + "\" for " + var2.getAuthor().getName() + ")");
-                  String var3 = this.replaceChannelIDByItsName(var1, var2);
-                  var3 = this.removeSmilesAndImages(var3);
-                  if (!var3.isEmpty() && !var3.matches("^\\s$")) {
-                     DiscordBot.this.sender.sendMessageFromDiscord(var2.getAuthor().getName(), var3);
-                  }
-               }
-
-            }
-         }
-      }
-
-      private String replaceChannelIDByItsName(DiscordAPI var1, Message var2) {
-         String var3 = var2.getContent();
-         Pattern var4 = Pattern.compile("<#(\\d+)>");
-         Matcher var5 = var4.matcher(var2.getContent());
-         if (var5.find()) {
-            for(int var6 = 1; var6 <= var5.groupCount(); ++var6) {
-               Channel var7 = var1.getChannelById(var5.group(var6));
-               if (var7 != null) {
-                  var3 = var3.replaceAll("<#" + var5.group(var6) + ">", "#" + var7.getName());
-               }
-            }
-         }
-
-         return var3;
-      }
-
-      private String removeSmilesAndImages(String var1) {
-         StringBuilder var2 = new StringBuilder();
-         char[] var3 = var1.toCharArray();
-         int var4 = var3.length;
-
-         for(int var5 = 0; var5 < var4; ++var5) {
-            Character var6 = var3[var5];
-            if (!Character.isLowSurrogate(var6) && !Character.isHighSurrogate(var6)) {
-               var2.append(var6);
-            }
-         }
-
-         return var2.toString();
-      }
+      return var2.toString();
    }
 }

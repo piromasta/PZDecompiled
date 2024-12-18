@@ -3,12 +3,16 @@ package zombie;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Stack;
+import zombie.characters.AnimalFootstepManager;
+import zombie.characters.AnimalVocalsManager;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.ZombieFootstepManager;
 import zombie.characters.ZombieThumpManager;
 import zombie.characters.ZombieVocalsManager;
+import zombie.characters.animals.AnimalPopulationManager;
 import zombie.core.collision.Polygon;
 import zombie.core.profiling.PerformanceProfileProbe;
+import zombie.iso.FishSplashSoundManager;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoPushableObject;
 import zombie.iso.IsoWorld;
@@ -141,7 +145,7 @@ public final class CollisionManager {
       int var1;
       if (this.longArray[0] == null) {
          for(var1 = 0; var1 < this.longArray.length; ++var1) {
-            this.longArray[var1] = new Long(0L);
+            this.longArray[var1] = 0L;
          }
       }
 
@@ -194,12 +198,12 @@ public final class CollisionManager {
             if (var7.connectList != null) {
                var3.add(var7);
             } else {
-               var7.setNx(var7.getNx() + var7.getImpulsex());
-               var7.setNy(var7.getNy() + var7.getImpulsey());
-               var7.setImpulsex(var7.getNx() - var7.getX());
-               var7.setImpulsey(var7.getNy() - var7.getY());
-               var7.setNx(var7.getX());
-               var7.setNy(var7.getY());
+               var7.setNextX(var7.getNextX() + var7.getImpulsex());
+               var7.setNextY(var7.getNextY() + var7.getImpulsey());
+               var7.setImpulsex(var7.getNextX() - var7.getX());
+               var7.setImpulsey(var7.getNextY() - var7.getY());
+               var7.setNextX(var7.getX());
+               var7.setNextY(var7.getY());
             }
          }
       }
@@ -243,10 +247,10 @@ public final class CollisionManager {
       for(int var25 = 0; var25 < var24; ++var25) {
          Contact var27 = (Contact)this.ContactMap.get(var25);
          if (!(Math.abs(var27.a.getZ() - var27.b.getZ()) > 0.3F)) {
-            var1.x = var27.a.getNx() - var27.a.getX();
-            var1.y = var27.a.getNy() - var27.a.getY();
-            var2.x = var27.b.getNx() - var27.b.getX();
-            var2.y = var27.b.getNy() - var27.b.getY();
+            var1.x = var27.a.getNextX() - var27.a.getX();
+            var1.y = var27.a.getNextY() - var27.a.getY();
+            var2.x = var27.b.getNextX() - var27.b.getX();
+            var2.y = var27.b.getNextY() - var27.b.getY();
             if (var1.x != 0.0F || var1.y != 0.0F || var2.x != 0.0F || var2.y != 0.0F || var27.a.getImpulsex() != 0.0F || var27.a.getImpulsey() != 0.0F || var27.b.getImpulsex() != 0.0F || var27.b.getImpulsey() != 0.0F) {
                var10 = var27.a.getX() - var27.a.getWidth();
                float var29 = var27.a.getX() + var27.a.getWidth();
@@ -313,8 +317,11 @@ public final class CollisionManager {
 
       ArrayList var26 = IsoWorld.instance.CurrentCell.getObjectList();
       int var28 = var26.size();
-      MovingObjectUpdateScheduler.instance.postupdate();
+      AnimalPopulationManager.getInstance().update();
+      AnimalVocalsManager.instance.update();
+      AnimalFootstepManager.instance.update();
       IsoMovingObject.treeSoundMgr.update();
+      FishSplashSoundManager.instance.update();
       ZombieFootstepManager.instance.update();
       ZombieThumpManager.instance.update();
       ZombieVocalsManager.instance.update();

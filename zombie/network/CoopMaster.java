@@ -279,7 +279,10 @@ public class CoopMaster {
             String var3 = var2.group(1);
             String var4 = var2.group(3);
             String var5 = var2.group(4);
-            LuaEventManager.triggerEvent("OnCoopServerMessage", var3, var4, var5);
+            if (!var3.equals("ping")) {
+               LuaEventManager.triggerEvent("OnCoopServerMessage", var3, var4, var5);
+            }
+
             this.handleMessage(var3, var4, var5);
          } else {
             DebugLog.log(DebugType.Network, "[CoopMaster] Unknown message incoming from the slave server: " + var1);

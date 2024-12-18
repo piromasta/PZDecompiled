@@ -1,19 +1,23 @@
 package zombie.iso.weather.fx;
 
+import java.util.Arrays;
+import zombie.core.SpriteRenderer;
 import zombie.debug.LineDrawer;
 import zombie.iso.IsoCamera;
 
 public class ParticleRectangle {
    protected boolean DEBUG_BOUNDS = false;
+   protected int id;
    private int width;
    private int height;
    private WeatherParticle[] particles;
    private int particlesToRender;
    private int particlesReqUpdCnt = 0;
 
-   public ParticleRectangle(int var1, int var2) {
-      this.width = var1;
-      this.height = var2;
+   public ParticleRectangle(int var1, int var2, int var3) {
+      this.id = var1;
+      this.width = var2;
+      this.height = var3;
    }
 
    public int getWidth() {
@@ -82,6 +86,7 @@ public class ParticleRectangle {
 
       int var8 = -var6;
       int var9 = -var7;
+      SpriteRenderer.instance.StartShader(0, var1);
 
       for(int var12 = -1; var12 < var5; ++var12) {
          for(int var13 = -1; var13 < var4; ++var13) {
@@ -103,5 +108,10 @@ public class ParticleRectangle {
          }
       }
 
+   }
+
+   public void Reset() {
+      Arrays.fill(this.particles, (Object)null);
+      this.particles = null;
    }
 }

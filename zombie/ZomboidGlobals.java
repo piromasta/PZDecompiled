@@ -75,62 +75,7 @@ public final class ZomboidGlobals {
    public static void toLua() {
       KahluaTable var0 = (KahluaTable)LuaManager.env.rawget("ZomboidGlobals");
       if (var0 == null) {
-         DebugLog.log("ERROR: ZomboidGlobals table undefined in Lua");
-      } else {
-         double var1 = 1.0;
-         if (SandboxOptions.instance.getFoodLootModifier() == 1) {
-            var1 = 0.0;
-         } else if (SandboxOptions.instance.getFoodLootModifier() == 2) {
-            var1 = 0.05;
-         } else if (SandboxOptions.instance.getFoodLootModifier() == 3) {
-            var1 = 0.2;
-         } else if (SandboxOptions.instance.getFoodLootModifier() == 4) {
-            var1 = 0.6;
-         } else if (SandboxOptions.instance.getFoodLootModifier() == 5) {
-            var1 = 1.0;
-         } else if (SandboxOptions.instance.getFoodLootModifier() == 6) {
-            var1 = 2.0;
-         } else if (SandboxOptions.instance.getFoodLootModifier() == 7) {
-            var1 = 4.0;
-         }
-
-         var0.rawset("FoodLootModifier", var1);
-         double var3 = 1.0;
-         if (SandboxOptions.instance.getWeaponLootModifier() == 1) {
-            var3 = 0.0;
-         } else if (SandboxOptions.instance.getWeaponLootModifier() == 2) {
-            var3 = 0.05;
-         } else if (SandboxOptions.instance.getWeaponLootModifier() == 3) {
-            var3 = 0.2;
-         } else if (SandboxOptions.instance.getWeaponLootModifier() == 4) {
-            var3 = 0.6;
-         } else if (SandboxOptions.instance.getWeaponLootModifier() == 5) {
-            var3 = 1.0;
-         } else if (SandboxOptions.instance.getWeaponLootModifier() == 6) {
-            var3 = 2.0;
-         } else if (SandboxOptions.instance.getWeaponLootModifier() == 7) {
-            var3 = 4.0;
-         }
-
-         var0.rawset("WeaponLootModifier", var3);
-         double var5 = 1.0;
-         if (SandboxOptions.instance.getOtherLootModifier() == 1) {
-            var5 = 0.0;
-         } else if (SandboxOptions.instance.getOtherLootModifier() == 2) {
-            var5 = 0.05;
-         } else if (SandboxOptions.instance.getOtherLootModifier() == 3) {
-            var5 = 0.2;
-         } else if (SandboxOptions.instance.getOtherLootModifier() == 4) {
-            var5 = 0.6;
-         } else if (SandboxOptions.instance.getOtherLootModifier() == 5) {
-            var5 = 1.0;
-         } else if (SandboxOptions.instance.getOtherLootModifier() == 6) {
-            var5 = 2.0;
-         } else if (SandboxOptions.instance.getOtherLootModifier() == 7) {
-            var5 = 4.0;
-         }
-
-         var0.rawset("OtherLootModifier", var5);
+         DebugLog.Zombie.error("ERROR: ZomboidGlobals table undefined in Lua");
       }
    }
 }

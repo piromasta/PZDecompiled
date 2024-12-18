@@ -29,8 +29,8 @@ public final class RadialProgressBar extends UIElement {
          if (this.isVisible()) {
             if (this.Parent == null || this.Parent.maxDrawHeight == -1 || !((double)this.Parent.maxDrawHeight <= this.y)) {
                if (this.radialTexture != null) {
-                  float var1 = (float)(this.x + this.xScroll + this.getAbsoluteX() + (double)this.radialTexture.offsetX);
-                  float var2 = (float)(this.y + this.yScroll + this.getAbsoluteY() + (double)this.radialTexture.offsetY);
+                  float var1 = (float)(this.xScroll + this.getAbsoluteX() + (double)this.radialTexture.offsetX);
+                  float var2 = (float)(this.yScroll + this.getAbsoluteY() + (double)this.radialTexture.offsetY);
                   float var3 = this.radialTexture.xStart;
                   float var4 = this.radialTexture.yStart;
                   float var5 = this.radialTexture.xEnd - this.radialTexture.xStart;

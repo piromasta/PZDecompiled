@@ -10,14 +10,14 @@ import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.PersistentOutfits;
 import zombie.Lua.LuaManager;
 import zombie.characters.AttachedItems.AttachedWeaponDefinitions;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.population.Outfit;
 import zombie.core.skinnedmodel.population.OutfitManager;
 import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
+import zombie.iso.zones.Zone;
 import zombie.network.GameServer;
 import zombie.util.StringUtils;
 import zombie.util.Type;
@@ -129,23 +129,37 @@ public final class ZombiesZoneDefinition {
             if (var2 == null) {
                String var3 = var1.getRoom() == null ? null : var1.getRoom().getName();
                Outfit var4 = getRandomDefaultOutfit(var0.isFemale(), var3);
+               UnderwearDefinition.addRandomUnderwear(var0);
                var0.dressInPersistentOutfit(var4.m_Name);
-               UnderwearDefinition.addRandomUnderwear(var0);
             } else {
-               applyDefinition(var0, var2.zone, var2.table, var2.bFemale);
                UnderwearDefinition.addRandomUnderwear(var0);
+               applyDefinition(var0, var2.zone, var2.table, var2.bFemale);
             }
          }
       }
    }
 
-   public static IsoMetaGrid.Zone getDefinitionZoneAt(int var0, int var1, int var2) {
+   public static Zone getDefinitionZoneAt(int var0, int var1, int var2) {
       ArrayList var3 = IsoWorld.instance.MetaGrid.getZonesAt(var0, var1, var2);
+      ArrayList var4 = new ArrayList();
 
-      for(int var4 = var3.size() - 1; var4 >= 0; --var4) {
-         IsoMetaGrid.Zone var5 = (IsoMetaGrid.Zone)var3.get(var4);
-         if ("ZombiesType".equalsIgnoreCase(var5.type) || s_zoneMap.containsKey(var5.type)) {
-            return var5;
+      int var5;
+      Zone var6;
+      for(var5 = var3.size() - 1; var5 >= 0; --var5) {
+         var6 = (Zone)var3.get(var5);
+         if ("ZombiesType".equalsIgnoreCase(var6.type) && var6.name != null && s_zoneMap.get(var6.name) != null) {
+            return var6;
+         }
+
+         if (s_zoneMap.containsKey(var6.type)) {
+            var4.add(var6);
+         }
+      }
+
+      for(var5 = var4.size() - 1; var5 >= 0; --var5) {
+         var6 = (Zone)var4.get(var5);
+         if (s_zoneMap.containsKey(var6.type)) {
+            return var6;
          }
       }
 
@@ -159,7 +173,7 @@ public final class ZombiesZoneDefinition {
       } else {
          String var5 = var4.getRoom() == null ? null : var4.getRoom().getName();
          checkDirty();
-         IsoMetaGrid.Zone var6 = getDefinitionZoneAt(var0, var1, var2);
+         Zone var6 = getDefinitionZoneAt(var0, var1, var2);
          if (var6 == null) {
             return null;
          } else if (var6.spawnSpecialZombies == Boolean.FALSE) {
@@ -252,7 +266,7 @@ public final class ZombiesZoneDefinition {
       }
    }
 
-   public static void applyDefinition(IsoZombie var0, IsoMetaGrid.Zone var1, ZZDOutfit var2, boolean var3) {
+   public static void applyDefinition(IsoZombie var0, Zone var1, ZZDOutfit var2, boolean var3) {
       var0.setFemaleEtc(var3);
       Outfit var4 = null;
       if (!var3) {
@@ -481,7 +495,7 @@ public final class ZombiesZoneDefinition {
    }
 
    public static final class PickDefinition {
-      IsoMetaGrid.Zone zone;
+      Zone zone;
       ZZDOutfit table;
       boolean bFemale;
 

@@ -1,13 +1,6 @@
 package zombie.erosion.obj;
 
 import java.util.ArrayList;
-import zombie.core.Core;
-import zombie.debug.DebugLog;
-import zombie.iso.IsoDirections;
-import zombie.iso.sprite.IsoDirectionFrame;
-import zombie.iso.sprite.IsoSprite;
-import zombie.iso.sprite.IsoSpriteManager;
-import zombie.network.GameServer;
 
 public final class ErosionObjSprites {
    public static final int SECTION_BASE = 0;
@@ -125,27 +118,10 @@ public final class ErosionObjSprites {
       private int index = -1;
 
       public Sprites(String var1) {
-         if (Core.bDebug || GameServer.bServer && GameServer.bDebug) {
-            IsoSprite var2 = IsoSpriteManager.instance.getSprite(var1);
-            if (var2.CurrentAnim.Frames.size() == 0 || !GameServer.bServer && ((IsoDirectionFrame)var2.CurrentAnim.Frames.get(0)).getTexture(IsoDirections.N) == null || var2.ID < 10000) {
-               DebugLog.log("EMPTY SPRITE " + var1);
-            }
-         }
-
          this.sprites.add(var1);
       }
 
       public Sprites(ArrayList<String> var1) {
-         if (Core.bDebug || GameServer.bServer && GameServer.bDebug) {
-            for(int var2 = 0; var2 < var1.size(); ++var2) {
-               IsoSprite var3 = IsoSpriteManager.instance.getSprite((String)var1.get(var2));
-               if (var3.CurrentAnim.Frames.size() == 0 || !GameServer.bServer && ((IsoDirectionFrame)var3.CurrentAnim.Frames.get(0)).getTexture(IsoDirections.N) == null || var3.ID < 10000) {
-                  Object var10000 = var1.get(var2);
-                  DebugLog.log("EMPTY SPRITE " + (String)var10000);
-               }
-            }
-         }
-
          this.sprites.addAll(var1);
       }
 

@@ -4,7 +4,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.PrintStream;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
+import zombie.ZomboidFileSystem;
 import zombie.debug.DebugLog;
 import zombie.util.StringUtils;
 
@@ -12,7 +12,6 @@ public final class ZLogger {
    private final String name;
    private final OutputStreams outputStreams = new OutputStreams();
    private File file = null;
-   private static final SimpleDateFormat s_fileNameSdf = new SimpleDateFormat("dd-MM-yy_HH-mm-ss");
    private static final SimpleDateFormat s_logSdf = new SimpleDateFormat("dd-MM-yy HH:mm:ss.SSS");
    private static final long s_maxSizeKo = 10000L;
 
@@ -34,7 +33,7 @@ public final class ZLogger {
    }
 
    private static String getLoggerName(String var0) {
-      String var10000 = s_fileNameSdf.format(Calendar.getInstance().getTime());
+      String var10000 = ZomboidFileSystem.getStartupTimeStamp();
       return var10000 + "_" + var0;
    }
 
@@ -59,7 +58,7 @@ public final class ZLogger {
       StringBuilder var4 = new StringBuilder();
       var4.setLength(0);
       if (!var3) {
-         var4.append("[").append(s_logSdf.format(Calendar.getInstance().getTime())).append("]");
+         var4.append("[").append(ZomboidFileSystem.getTimeStampStringNow(s_logSdf)).append("]");
       }
 
       if (!StringUtils.isNullOrEmpty(var2)) {

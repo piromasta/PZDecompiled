@@ -28,7 +28,7 @@ public final class CloseWindowState extends State {
       var1.setIgnoreMovement(true);
       var1.setHideWeaponModel(true);
       IsoWindow var3 = (IsoWindow)var2.get(0);
-      if (Core.bDebug && DebugOptions.instance.CheatWindowUnlock.getValue()) {
+      if (Core.bDebug && DebugOptions.instance.Cheat.Window.Unlock.getValue()) {
          var3.Locked = false;
          var3.PermaLocked = false;
       }
@@ -149,15 +149,15 @@ public final class CloseWindowState extends State {
 
    private void onSuccess(IsoGameCharacter var1, IsoWindow var2) {
       var1.setVariable("StopAfterAnimLooped", "success");
-      IsoPlayer.getInstance().ContextPanic = 0.0F;
-      if (var2.getObjectIndex() != -1 && var2.open) {
+      ((IsoPlayer)var1).ContextPanic = 0.0F;
+      if (var2.getObjectIndex() != -1 && var2.open && ((IsoPlayer)var1).isLocalPlayer()) {
          var2.ToggleWindow(var1);
       }
 
    }
 
    private void exert(IsoGameCharacter var1) {
-      float var2 = GameTime.getInstance().getMultiplier() / 1.6F;
+      float var2 = GameTime.getInstance().getThirtyFPSMultiplier();
       switch (var1.getPerkLevel(PerkFactory.Perks.Fitness)) {
          case 1:
             var1.exert(0.01F * var2);

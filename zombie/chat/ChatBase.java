@@ -299,23 +299,15 @@ public abstract class ChatBase {
          synchronized(this.memberLock) {
             Iterator var4 = this.members.iterator();
 
-            while(true) {
-               if (!var4.hasNext()) {
-                  break;
-               }
-
+            while(var4.hasNext()) {
                short var5 = (Short)var4.next();
                IsoPlayer var6 = ChatUtility.findPlayer(var5);
                if (var6 != null && var2.getOnlineID() != var5) {
                   this.sendMessageToPlayer(var5, var1);
                }
             }
-         }
 
-         if (Core.bDebug) {
-            DebugLog.log("New message '" + var1 + "' was sent members of chat '" + this.getID() + "'");
          }
-
       }
    }
 
@@ -323,23 +315,15 @@ public abstract class ChatBase {
       synchronized(this.memberLock) {
          Iterator var3 = this.members.iterator();
 
-         while(true) {
-            if (!var3.hasNext()) {
-               break;
-            }
-
+         while(var3.hasNext()) {
             short var4 = (Short)var3.next();
             IsoPlayer var5 = ChatUtility.findPlayer(var4);
             if (var5 != null) {
                this.sendMessageToPlayer(var4, var1);
             }
          }
-      }
 
-      if (Core.bDebug) {
-         DebugLog.log("New message '" + var1 + "' was sent members of chat '" + this.getID() + "'");
       }
-
    }
 
    public void sendMessageToPlayer(UdpConnection var1, ChatMessage var2) {
@@ -369,7 +353,6 @@ public abstract class ChatBase {
       UdpConnection var3 = ChatUtility.findConnection(var1);
       if (var3 != null) {
          this.sendChatMessageToPlayer(var3, var2);
-         DebugLog.log("Message '" + var2 + "' was sent to player with id '" + var1 + "' of chat '" + this.getID() + "'");
       }
    }
 

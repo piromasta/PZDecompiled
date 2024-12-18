@@ -120,17 +120,15 @@ public final class DevicePresets implements Cloneable {
    }
 
    public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
-      if (var2 >= 69) {
-         this.clearPresets();
-         this.maxPresets = var1.getInt();
-         int var4 = var1.getInt();
+      this.clearPresets();
+      this.maxPresets = var1.getInt();
+      int var4 = var1.getInt();
 
-         for(int var5 = 0; var5 < var4; ++var5) {
-            String var6 = GameWindow.ReadString(var1);
-            int var7 = var1.getInt();
-            if (this.presets.size() < this.maxPresets) {
-               this.presets.add(new PresetEntry(var6, var7));
-            }
+      for(int var5 = 0; var5 < var4; ++var5) {
+         String var6 = GameWindow.ReadString(var1);
+         int var7 = var1.getInt();
+         if (this.presets.size() < this.maxPresets) {
+            this.presets.add(new PresetEntry(var6, var7));
          }
       }
 

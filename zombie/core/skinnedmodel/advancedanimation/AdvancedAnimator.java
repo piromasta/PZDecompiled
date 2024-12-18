@@ -14,8 +14,10 @@ import zombie.characters.CharacterActionAnims;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
 import zombie.core.skinnedmodel.advancedanimation.debug.AnimatorDebugMonitor;
+import zombie.core.skinnedmodel.advancedanimation.events.IAnimEventCallback;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
 import zombie.core.skinnedmodel.animation.debug.AnimationPlayerRecorder;
+import zombie.core.utils.TransitionNodeProxy;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
 import zombie.gameStates.ChooseGameInfo;
@@ -33,9 +35,10 @@ public final class AdvancedAnimator implements IAnimEventCallback {
    private final List<SubLayerSlot> m_subLayers = new ArrayList();
    public static float s_MotionScale = 0.76F;
    public static float s_RotationScale = 0.76F;
-   private AnimatorDebugMonitor debugMonitor;
+   private static AnimatorDebugMonitor debugMonitor;
    private static long animSetModificationTime = -1L;
    private static long actionGroupModificationTime = -1L;
+   private final AnimationVariableWhileAliveFlagsContainer m_setFlagCounters = new AnimationVariableWhileAliveFlagsContainer();
    private AnimationPlayerRecorder m_recorder = null;
 
    public AdvancedAnimator() {
@@ -58,7 +61,11 @@ public final class AdvancedAnimator implements IAnimEventCallback {
          for(int var2 = 0; var2 < var1.size(); ++var2) {
             String var3 = (String)var1.get(var2);
             ChooseGameInfo.Mod var4 = ChooseGameInfo.getModDetails(var3);
-            if (var4 != null && var4.animSetsFile != null && var0.startsWith(var4.animSetsFile.getPath())) {
+            if (var4 != null && var4.animSetsFile != null && var4.animSetsFile.common.canonicalFile != null && var0.startsWith(var4.animSetsFile.common.canonicalFile.getPath())) {
+               return true;
+            }
+
+            if (var4 != null && var4.animSetsFile != null && var4.animSetsFile.version.canonicalFile != null && var0.startsWith(var4.animSetsFile.version.canonicalFile.getPath())) {
                return true;
             }
          }
@@ -83,7 +90,11 @@ public final class AdvancedAnimator implements IAnimEventCallback {
          for(int var2 = 0; var2 < var1.size(); ++var2) {
             String var3 = (String)var1.get(var2);
             ChooseGameInfo.Mod var4 = ChooseGameInfo.getModDetails(var3);
-            if (var4 != null && var4.actionGroupsFile != null && var0.startsWith(var4.actionGroupsFile.getPath())) {
+            if (var4 != null && var4.actionGroupsFile != null && var4.actionGroupsFile.common.canonicalFile != null && var0.startsWith(var4.actionGroupsFile.common.canonicalFile.getPath())) {
+               return true;
+            }
+
+            if (var4 != null && var4.actionGroupsFile != null && var4.actionGroupsFile.version.canonicalFile != null && var0.startsWith(var4.actionGroupsFile.version.canonicalFile.getPath())) {
                return true;
             }
          }
@@ -150,14 +161,22 @@ public final class AdvancedAnimator implements IAnimEventCallback {
          var1.append(this.m_rootLayer.GetDebugString()).append("\n");
       }
 
+      for(int var4 = 0; var4 < this.m_subLayers.size(); ++var4) {
+         SubLayerSlot var3 = (SubLayerSlot)this.m_subLayers.get(var4);
+         if (var3.shouldBeActive) {
+            var1.append("SubLayer: ").append(var4).append("\n");
+            var1.append(var3.animLayer.GetDebugString()).append("\n");
+         }
+      }
+
       var1.append("Variables:\n");
       var1.append("Weapon: ").append(this.character.getVariableString("weapon")).append("\n");
       var1.append("Aim: ").append(this.character.getVariableString("aim")).append("\n");
-      Iterator var4 = this.character.getGameVariables().iterator();
+      Iterator var5 = this.character.getGameVariables().iterator();
 
-      while(var4.hasNext()) {
-         IAnimationVariableSlot var3 = (IAnimationVariableSlot)var4.next();
-         var1.append("  ").append(var3.getKey()).append(" : ").append(var3.getValueString()).append("\n");
+      while(var5.hasNext()) {
+         IAnimationVariableSlot var6 = (IAnimationVariableSlot)var5.next();
+         var1.append("  ").append(var6.getKey()).append(" : ").append(var6.getValueString()).append("\n");
       }
 
       return var1.toString();
@@ -187,6 +206,18 @@ public final class AdvancedAnimator implements IAnimEventCallback {
       for(int var4 = 0; var4 < this.m_subLayers.size(); ++var4) {
          SubLayerSlot var3 = (SubLayerSlot)this.m_subLayers.get(var4);
          var3.animLayer.Reset();
+      }
+
+   }
+
+   public void Reset() {
+      if (this.m_rootLayer != null) {
+         this.m_rootLayer.Reset();
+      }
+
+      for(int var1 = 0; var1 < this.m_subLayers.size(); ++var1) {
+         SubLayerSlot var2 = (SubLayerSlot)this.m_subLayers.get(var1);
+         var2.animLayer.Reset();
       }
 
    }
@@ -235,10 +266,16 @@ public final class AdvancedAnimator implements IAnimEventCallback {
          PZArrayUtil.forEach(this.m_subLayers, (var0) -> {
             var0.shouldBeActive = false;
          });
+         DebugLog.AnimationDetailed.debugln("*** SetState: <%s>", var1);
          Lambda.forEachFrom(PZArrayUtil::forEach, (List)var2, this, (var0, var1x) -> {
+            DebugLog.AnimationDetailed.debugln("  SetSubState: <%s>", var0);
             SubLayerSlot var2 = var1x.getOrCreateSlot(var0);
             var2.transitionTo(var1x.animSet.GetState(var0), false);
          });
+         if (var2.isEmpty()) {
+            DebugLog.AnimationDetailed.debugln("  SetSubState: NoneToSet");
+         }
+
          PZArrayUtil.forEach(this.m_subLayers, SubLayerSlot::applyTransition);
       }
    }
@@ -280,11 +317,11 @@ public final class AdvancedAnimator implements IAnimEventCallback {
       }
    }
 
-   public void update() {
-      GameProfiler.getInstance().invokeAndMeasure("AdvancedAnimator.Update", this, AdvancedAnimator::updateInternal);
+   public void update(float var1) {
+      GameProfiler.getInstance().invokeAndMeasure("AdvancedAnimator.Update", this, var1, AdvancedAnimator::updateInternal);
    }
 
-   private void updateInternal() {
+   private void updateInternal(float var1) {
       if (this.character.getAnimationPlayer() != null) {
          if (this.character.getAnimationPlayer().isReady()) {
             if (this.animSet != null) {
@@ -292,34 +329,114 @@ public final class AdvancedAnimator implements IAnimEventCallback {
                   this.m_rootLayer.TransitionTo(this.animSet.GetState("Idle"), true);
                }
 
-               this.m_rootLayer.Update();
+               this.m_rootLayer.UpdateLiveAnimNodes();
 
-               int var1;
-               for(var1 = 0; var1 < this.m_subLayers.size(); ++var1) {
-                  SubLayerSlot var2 = (SubLayerSlot)this.m_subLayers.get(var1);
-                  var2.update();
+               int var2;
+               SubLayerSlot var3;
+               for(var2 = 0; var2 < this.m_subLayers.size(); ++var2) {
+                  var3 = (SubLayerSlot)this.m_subLayers.get(var2);
+                  var3.animLayer.UpdateLiveAnimNodes();
                }
 
-               if (this.debugMonitor != null && this.character instanceof IsoGameCharacter) {
-                  var1 = 1 + this.getActiveSubLayerCount();
-                  AnimLayer[] var5 = new AnimLayer[var1];
-                  var5[0] = this.m_rootLayer;
-                  var1 = 0;
+               this.GenerateTransitionData();
+               this.m_rootLayer.Update(var1);
 
-                  for(int var3 = 0; var3 < this.m_subLayers.size(); ++var3) {
-                     SubLayerSlot var4 = (SubLayerSlot)this.m_subLayers.get(var3);
-                     if (var4.shouldBeActive) {
-                        var5[1 + var1] = var4.animLayer;
-                        ++var1;
+               for(var2 = 0; var2 < this.m_subLayers.size(); ++var2) {
+                  var3 = (SubLayerSlot)this.m_subLayers.get(var2);
+                  var3.update(var1);
+               }
+
+               if (debugMonitor != null && this.character instanceof IsoGameCharacter) {
+                  if (debugMonitor.getTarget() != this.character) {
+                     return;
+                  }
+
+                  var2 = 1 + this.getActiveSubLayerCount();
+                  AnimLayer[] var6 = new AnimLayer[var2];
+                  var6[0] = this.m_rootLayer;
+                  var2 = 0;
+
+                  for(int var4 = 0; var4 < this.m_subLayers.size(); ++var4) {
+                     SubLayerSlot var5 = (SubLayerSlot)this.m_subLayers.get(var4);
+                     if (var5.shouldBeActive) {
+                        var6[1 + var2] = var5.animLayer;
+                        ++var2;
                      }
                   }
 
-                  this.debugMonitor.update((IsoGameCharacter)this.character, var5);
+                  debugMonitor.update((IsoGameCharacter)this.character, var6);
                }
 
             }
          }
       }
+   }
+
+   private void GenerateTransitionData() {
+      TransitionNodeProxy var1 = new TransitionNodeProxy();
+      this.m_rootLayer.FindTransitioningLiveAnimNode(var1, true);
+
+      int var2;
+      for(var2 = 0; var2 < this.m_subLayers.size(); ++var2) {
+         SubLayerSlot var3 = (SubLayerSlot)this.m_subLayers.get(var2);
+         var3.animLayer.FindTransitioningLiveAnimNode(var1, false);
+      }
+
+      if (!var1.m_allNewNodes.isEmpty() || !var1.m_allOutgoingNodes.isEmpty()) {
+         DebugLog.AnimationDetailed.debugln("************* New Nodes *************");
+
+         for(var2 = 0; var2 < var1.m_allNewNodes.size(); ++var2) {
+            DebugLog.AnimationDetailed.debugln("  %s", ((TransitionNodeProxy.NodeLayerPair)var1.m_allNewNodes.get(var2)).liveAnimNode.getName());
+         }
+
+         DebugLog.AnimationDetailed.debugln("************* Out Nodes *************");
+
+         for(var2 = 0; var2 < var1.m_allOutgoingNodes.size(); ++var2) {
+            DebugLog.AnimationDetailed.debugln("  %s", ((TransitionNodeProxy.NodeLayerPair)var1.m_allOutgoingNodes.get(var2)).liveAnimNode.getName());
+         }
+
+         DebugLog.AnimationDetailed.debugln("*************************************");
+      }
+
+      if (var1.HasAnyPossibleTransitions()) {
+         this.FindTransitionsFromProxy(var1);
+         this.ProcessTransitions(var1);
+      }
+   }
+
+   public void FindTransitionsFromProxy(TransitionNodeProxy var1) {
+      for(int var2 = 0; var2 < var1.m_allNewNodes.size(); ++var2) {
+         TransitionNodeProxy.NodeLayerPair var3 = (TransitionNodeProxy.NodeLayerPair)var1.m_allNewNodes.get(var2);
+         AnimNode var4 = var3.liveAnimNode.getSourceNode();
+
+         for(boolean var5 = false; var2 < var1.m_allOutgoingNodes.size(); ++var2) {
+            TransitionNodeProxy.NodeLayerPair var6 = (TransitionNodeProxy.NodeLayerPair)var1.m_allOutgoingNodes.get(var2);
+            if (var4 != var6.liveAnimNode.getSourceNode()) {
+               AnimTransition var7 = var6.liveAnimNode.findTransitionTo(this.character, var3.liveAnimNode.getSourceNode());
+               if (var7 != null) {
+                  TransitionNodeProxy.TransitionNodeProxyData var8 = new TransitionNodeProxy.TransitionNodeProxyData();
+                  var8.m_animLayerIn = var3.animLayer;
+                  var8.m_NewAnimNode = var3.liveAnimNode;
+                  var8.m_animLayerOut = var6.animLayer;
+                  var8.m_OldAnimNode = var6.liveAnimNode;
+                  var8.m_transitionOut = var7;
+                  var1.m_foundTransitions.add(var8);
+                  DebugLog.AnimationDetailed.debugln("** NEW ** Anim: <%s>; <%s>; this: <%s>", var8.m_NewAnimNode.getName(), var8.m_transitionOut != null ? "true" : "false", this.toString());
+               }
+            }
+         }
+      }
+
+   }
+
+   public void ProcessTransitions(TransitionNodeProxy var1) {
+      for(int var2 = 0; var2 < var1.m_foundTransitions.size(); ++var2) {
+         TransitionNodeProxy.TransitionNodeProxyData var3 = (TransitionNodeProxy.TransitionNodeProxyData)var1.m_foundTransitions.get(var2);
+         AnimationTrack var4 = var3.m_animLayerOut.startTransitionAnimation(var3);
+         var3.m_NewAnimNode.startTransitionIn(var3.m_OldAnimNode, var3.m_transitionOut, var4);
+         var3.m_OldAnimNode.setTransitionOut(var3.m_transitionOut);
+      }
+
    }
 
    public void render() {
@@ -359,11 +476,12 @@ public final class AdvancedAnimator implements IAnimEventCallback {
 
                while(var11.hasNext()) {
                   AnimNode var12 = (AnimNode)var11.next();
-                  Iterator var13 = var12.m_Conditions.iterator();
+                  AnimCondition[] var13 = var12.m_Conditions;
+                  int var14 = var13.length;
 
-                  while(var13.hasNext()) {
-                     AnimCondition var14 = (AnimCondition)var13.next();
-                     if (var14.m_Type == AnimCondition.Type.STRING && var14.m_Name.toLowerCase().equals("performingaction") && var14.m_StringValue.equalsIgnoreCase(var6)) {
+                  for(int var15 = 0; var15 < var14; ++var15) {
+                     AnimCondition var16 = var13[var15];
+                     if (var16.m_Type == AnimCondition.Type.STRING && var16.m_Name.toLowerCase().equals("performingaction") && var16.m_StringValue.equalsIgnoreCase(var6)) {
                         var3 = true;
                         break;
                      }
@@ -407,12 +525,13 @@ public final class AdvancedAnimator implements IAnimEventCallback {
 
             while(var5.hasNext()) {
                AnimNode var6 = (AnimNode)var5.next();
-               Iterator var7 = var6.m_Conditions.iterator();
+               AnimCondition[] var7 = var6.m_Conditions;
+               int var8 = var7.length;
 
-               while(var7.hasNext()) {
-                  AnimCondition var8 = (AnimCondition)var7.next();
-                  if (var8.m_Name != null && !var1.contains(var8.m_Name.toLowerCase())) {
-                     var1.add(var8.m_Name.toLowerCase());
+               for(int var9 = 0; var9 < var8; ++var9) {
+                  AnimCondition var10 = var7[var9];
+                  if (var10.m_Name != null && !var1.contains(var10.m_Name.toLowerCase())) {
+                     var1.add(var10.m_Name.toLowerCase());
                   }
                }
             }
@@ -423,11 +542,11 @@ public final class AdvancedAnimator implements IAnimEventCallback {
    }
 
    public AnimatorDebugMonitor getDebugMonitor() {
-      return this.debugMonitor;
+      return debugMonitor;
    }
 
    public void setDebugMonitor(AnimatorDebugMonitor var1) {
-      this.debugMonitor = var1;
+      debugMonitor = var1;
    }
 
    public IAnimatable getCharacter() {
@@ -443,8 +562,8 @@ public final class AdvancedAnimator implements IAnimEventCallback {
             if (var5.isActive() && var5.getSourceNode() != null && var1.equals(var5.getSourceNode().m_SpeedScaleVariable)) {
                var5.getSourceNode().m_SpeedScale = "" + var2;
 
-               for(int var6 = 0; var6 < var5.m_AnimationTracks.size(); ++var6) {
-                  ((AnimationTrack)var5.m_AnimationTracks.get(var6)).SpeedDelta = var2;
+               for(int var6 = 0; var6 < var5.getMainAnimationTracksCount(); ++var6) {
+                  var5.getMainAnimationTrackAt(var6).SpeedDelta = var2;
                }
             }
          }
@@ -513,19 +632,37 @@ public final class AdvancedAnimator implements IAnimEventCallback {
       return this.m_recorder != null && this.m_recorder.isRecording();
    }
 
+   public void incrementWhileAliveFlag(AnimationVariableReference var1) {
+      int var2 = this.m_setFlagCounters.incrementWhileAliveFlag(var1);
+      DebugType.Animation.trace("Variable: %s. Count: %d", var1, var2);
+      var1.setVariable(this.getCharacter(), var2 > 0);
+   }
+
+   public void decrementWhileAliveFlag(AnimationVariableReference var1) {
+      int var2 = this.m_setFlagCounters.decrementWhileAliveFlag(var1);
+      DebugType.Animation.trace("Variable: %s. Count: %d", var1, var2);
+      var1.setVariable(this.getCharacter(), var2 > 0);
+   }
+
    public static class SubLayerSlot {
       public boolean shouldBeActive = false;
       public final AnimLayer animLayer;
 
-      public SubLayerSlot(AnimLayer var1, IAnimatable var2, IAnimEventCallback var3) {
+      public SubLayerSlot(AnimLayer var1, IAnimatable var2, AdvancedAnimator var3) {
          this.animLayer = new AnimLayer(var1, var2, var3);
       }
 
-      public void update() {
-         this.animLayer.Update();
+      public void update(float var1) {
+         for(int var2 = 0; var2 < this.animLayer.getLiveAnimNodes().size(); ++var2) {
+            LiveAnimNode var3 = (LiveAnimNode)this.animLayer.getLiveAnimNodes().get(var2);
+            DebugLog.AnimationDetailed.debugln("  Anim: <%d> : <%s>", var2, var3.getName());
+         }
+
+         this.animLayer.Update(var1);
       }
 
       public void transitionTo(AnimState var1, boolean var2) {
+         DebugLog.AnimationDetailed.debugln("SubLayerSlot: TransitionTo: from Anim <%s> to State <%s>", this.animLayer.getLiveAnimNodes().isEmpty() ? "NoAnim" : ((LiveAnimNode)this.animLayer.getLiveAnimNodes().get(0)).getName(), var1 != null ? var1.m_Name : "NoState");
          this.animLayer.TransitionTo(var1, var2);
          this.shouldBeActive = var1 != null;
       }

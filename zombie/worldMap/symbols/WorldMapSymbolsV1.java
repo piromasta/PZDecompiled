@@ -16,32 +16,31 @@ public class WorldMapSymbolsV1 {
    private final UIWorldMap m_ui;
    private final WorldMapSymbols m_uiSymbols;
    private final ArrayList<WorldMapBaseSymbolV1> m_symbols = new ArrayList();
+   private final Listener m_listener = new Listener(this);
 
    public WorldMapSymbolsV1(UIWorldMap var1, WorldMapSymbols var2) {
       Objects.requireNonNull(var1);
       this.m_ui = var1;
       this.m_uiSymbols = var2;
+      this.m_uiSymbols.addListener(this.m_listener);
       this.reinit();
    }
 
    public WorldMapTextSymbolV1 addTranslatedText(String var1, UIFont var2, float var3, float var4) {
-      WorldMapTextSymbol var5 = this.m_uiSymbols.addTranslatedText(var1, var2, var3, var4, 1.0F, 1.0F, 1.0F, 1.0F);
-      WorldMapTextSymbolV1 var6 = ((WorldMapTextSymbolV1)s_textPool.alloc()).init(this, var5);
-      this.m_symbols.add(var6);
+      this.m_uiSymbols.addTranslatedText(var1, var2, var3, var4, 1.0F, 1.0F, 1.0F, 1.0F);
+      WorldMapTextSymbolV1 var6 = (WorldMapTextSymbolV1)this.m_symbols.get(this.m_symbols.size() - 1);
       return var6;
    }
 
    public WorldMapTextSymbolV1 addUntranslatedText(String var1, UIFont var2, float var3, float var4) {
-      WorldMapTextSymbol var5 = this.m_uiSymbols.addUntranslatedText(var1, var2, var3, var4, 1.0F, 1.0F, 1.0F, 1.0F);
-      WorldMapTextSymbolV1 var6 = ((WorldMapTextSymbolV1)s_textPool.alloc()).init(this, var5);
-      this.m_symbols.add(var6);
+      this.m_uiSymbols.addUntranslatedText(var1, var2, var3, var4, 1.0F, 1.0F, 1.0F, 1.0F);
+      WorldMapTextSymbolV1 var6 = (WorldMapTextSymbolV1)this.m_symbols.get(this.m_symbols.size() - 1);
       return var6;
    }
 
    public WorldMapTextureSymbolV1 addTexture(String var1, float var2, float var3) {
-      WorldMapTextureSymbol var4 = this.m_uiSymbols.addTexture(var1, var2, var3, 1.0F, 1.0F, 1.0F, 1.0F);
-      WorldMapTextureSymbolV1 var5 = ((WorldMapTextureSymbolV1)s_texturePool.alloc()).init(this, var4);
-      this.m_symbols.add(var5);
+      this.m_uiSymbols.addTexture(var1, var2, var3, 1.0F, 1.0F, 1.0F, 1.0F);
+      WorldMapTextureSymbolV1 var5 = (WorldMapTextureSymbolV1)this.m_symbols.get(this.m_symbols.size() - 1);
       return var5;
    }
 
@@ -59,15 +58,13 @@ public class WorldMapSymbolsV1 {
 
    public void removeSymbolByIndex(int var1) {
       this.m_uiSymbols.removeSymbolByIndex(var1);
-      ((WorldMapBaseSymbolV1)this.m_symbols.remove(var1)).release();
    }
 
    public void clear() {
       this.m_uiSymbols.clear();
-      this.reinit();
    }
 
-   void reinit() {
+   private void reinit() {
       int var1;
       for(var1 = 0; var1 < this.m_symbols.size(); ++var1) {
          ((WorldMapBaseSymbolV1)this.m_symbols.get(var1)).release();
@@ -96,6 +93,51 @@ public class WorldMapSymbolsV1 {
       var0.setExposed(WorldMapSymbolsV1.class);
       var0.setExposed(WorldMapTextSymbolV1.class);
       var0.setExposed(WorldMapTextureSymbolV1.class);
+   }
+
+   private static final class Listener implements IWorldMapSymbolListener {
+      final WorldMapSymbolsV1 m_api;
+
+      Listener(WorldMapSymbolsV1 var1) {
+         this.m_api = var1;
+      }
+
+      public void onAdd(WorldMapBaseSymbol var1) {
+         int var2 = this.indexOf(var1);
+         WorldMapTextSymbol var3 = (WorldMapTextSymbol)Type.tryCastTo(var1, WorldMapTextSymbol.class);
+         if (var3 != null) {
+            WorldMapTextSymbolV1 var6 = ((WorldMapTextSymbolV1)WorldMapSymbolsV1.s_textPool.alloc()).init(this.m_api, var3);
+            this.m_api.m_symbols.add(var2, var6);
+         } else {
+            WorldMapTextureSymbol var4 = (WorldMapTextureSymbol)Type.tryCastTo(var1, WorldMapTextureSymbol.class);
+            if (var4 != null) {
+               WorldMapTextureSymbolV1 var5 = ((WorldMapTextureSymbolV1)WorldMapSymbolsV1.s_texturePool.alloc()).init(this.m_api, var4);
+               this.m_api.m_symbols.add(var2, var5);
+            } else {
+               throw new RuntimeException("unhandled symbol class " + var1.getClass().getSimpleName());
+            }
+         }
+      }
+
+      public void onBeforeRemove(WorldMapBaseSymbol var1) {
+         int var2 = this.indexOf(var1);
+         WorldMapBaseSymbolV1 var3 = (WorldMapBaseSymbolV1)this.m_api.m_symbols.remove(var2);
+         var3.release();
+      }
+
+      public void onAfterRemove(WorldMapBaseSymbol var1) {
+      }
+
+      public void onBeforeClear() {
+      }
+
+      public void onAfterClear() {
+         this.m_api.reinit();
+      }
+
+      int indexOf(WorldMapBaseSymbol var1) {
+         return this.m_api.m_uiSymbols.indexOf(var1);
+      }
    }
 
    public static class WorldMapTextSymbolV1 extends WorldMapBaseSymbolV1 {

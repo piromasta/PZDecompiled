@@ -50,7 +50,7 @@ public final class IsoRegionWorker {
    private final ConcurrentLinkedQueue<JobChunkUpdate> jobOutgoingQueue = new ConcurrentLinkedQueue();
    private final List<RegionJob> jobBatchedProcessing = new ArrayList();
    private final ConcurrentLinkedQueue<RegionJob> finishedJobQueue = new ConcurrentLinkedQueue();
-   private static final ByteBuffer byteBuffer = ByteBuffer.allocate(1024);
+   private static final ByteBuffer byteBuffer = ByteBuffer.allocate(2076);
 
    protected IsoRegionWorker() {
       instance = this;
@@ -252,7 +252,7 @@ public final class IsoRegionWorker {
 
                            try {
                               DataOutputStream var13 = new DataOutputStream(new FileOutputStream(var12));
-                              var13.writeInt(195);
+                              var13.writeInt(219);
                               var13.writeInt(this.threadDiscoveredChunks.size());
                               Iterator var14 = this.threadDiscoveredChunks.iterator();
 
@@ -370,24 +370,26 @@ public final class IsoRegionWorker {
    }
 
    protected void addSquareChangedJob(int var1, int var2, int var3, boolean var4, byte var5) {
-      int var6 = var1 / 10;
-      int var7 = var2 / 10;
-      int var8 = IsoRegions.hash(var6, var7);
-      if (this.discoveredChunks.contains(var8)) {
-         IsoRegions.log("Update square only, plus any unprocessed chunks in a 7x7 grid.", Colors.Magenta);
-         JobSquareUpdate var9 = RegionJobManager.allocSquareUpdate(var1, var2, var3, var5);
-         this.EnqueueJob(var9);
-         this.readSurroundingChunks(var6, var7, 7, false);
-         this.ApplyChunkChanges();
-      } else {
-         if (var4) {
-            return;
+      if (var3 >= 0) {
+         int var6 = var1 / 8;
+         int var7 = var2 / 8;
+         int var8 = IsoRegions.hash(var6, var7);
+         if (this.discoveredChunks.contains(var8)) {
+            IsoRegions.log("Update square only, plus any unprocessed chunks in a 7x7 grid.", Colors.Magenta);
+            JobSquareUpdate var9 = RegionJobManager.allocSquareUpdate(var1, var2, var3, var5);
+            this.EnqueueJob(var9);
+            this.readSurroundingChunks(var6, var7, 7, false);
+            this.ApplyChunkChanges();
+         } else {
+            if (var4) {
+               return;
+            }
+
+            IsoRegions.log("Adding new chunk, plus any unprocessed chunks in a 7x7 grid.", Colors.Magenta);
+            this.readSurroundingChunks(var6, var7, 7, true);
          }
 
-         IsoRegions.log("Adding new chunk, plus any unprocessed chunks in a 7x7 grid.", Colors.Magenta);
-         this.readSurroundingChunks(var6, var7, 7, true);
       }
-
    }
 
    protected void readSurroundingChunks(int var1, int var2, int var3, boolean var4) {

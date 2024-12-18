@@ -3,7 +3,8 @@ package zombie.iso.objects;
 import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -88,7 +89,7 @@ public class IsoRainSplash extends IsoObject {
       }
 
       for(var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
-         if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+         if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
             this.setAlphaAndTarget(var1, 0.25F);
          } else {
             this.setAlphaAndTarget(var1, 0.6F);

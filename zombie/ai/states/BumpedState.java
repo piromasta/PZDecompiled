@@ -6,6 +6,7 @@ import zombie.audio.parameters.ParameterCharacterMovementSpeed;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
+import zombie.core.math.PZMath;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.util.Type;
 
@@ -67,12 +68,13 @@ public final class BumpedState extends State {
       var1.clearVariable("BumpFallType");
       var1.clearVariable("BumpFallAnimFinished");
       var1.clearVariable("BumpAnimFinished");
+      var1.clearVariable("PlayerVoiceSound");
       var1.setBumpType("");
       var1.setBumpedChr((IsoGameCharacter)null);
       IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (var2 != null) {
          var2.setInitiateAttack(false);
-         var2.attackStarted = false;
+         var2.setAttackStarted(false);
          var2.setAttackType((String)null);
       }
 
@@ -84,12 +86,13 @@ public final class BumpedState extends State {
       var1.setBumpFall(false);
       this.setCharacterBlockMovement(var1, false);
       if (var1 instanceof IsoZombie && ((IsoZombie)var1).target != null) {
-         var1.pathToLocation((int)((IsoZombie)var1).target.getX(), (int)((IsoZombie)var1).target.getY(), (int)((IsoZombie)var1).target.getZ());
+         var1.pathToLocation(PZMath.fastfloor(((IsoZombie)var1).target.getX()), PZMath.fastfloor(((IsoZombie)var1).target.getY()), PZMath.fastfloor(((IsoZombie)var1).target.getZ()));
       }
 
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (var2.m_EventName.equalsIgnoreCase("FallOnFront")) {
          var1.setFallOnFront(Boolean.parseBoolean(var2.m_ParameterValue));
          var1.setOnFloor(var1.isFallOnFront());
@@ -97,6 +100,19 @@ public final class BumpedState extends State {
 
       if (var2.m_EventName.equalsIgnoreCase("FallOnBack")) {
          var1.setOnFloor(Boolean.parseBoolean(var2.m_ParameterValue));
+      }
+
+      if (var2.m_EventName.equalsIgnoreCase("PlayerVoiceSound")) {
+         if (var1.getVariableBoolean("PlayerVoiceSound")) {
+            return;
+         }
+
+         if (var3 == null) {
+            return;
+         }
+
+         var1.setVariable("PlayerVoiceSound", true);
+         var3.playerVoiceSound(var2.m_ParameterValue);
       }
 
    }

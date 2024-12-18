@@ -1,8 +1,10 @@
 package zombie.iso.weather.fx;
 
 import java.util.function.Consumer;
-import zombie.core.Rand;
+import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
+import zombie.core.random.Rand;
 import zombie.core.textures.Texture;
 import zombie.iso.Vector2;
 
@@ -65,9 +67,9 @@ public class RainParticle extends WeatherParticle {
       }
 
       Vector2 var10000 = this.position;
-      var10000.x += this.velocity.x * (1.0F + IsoWeatherFX.instance.windSpeed * 0.1F) * var1;
+      var10000.x += this.velocity.x * (1.0F + IsoWeatherFX.instance.windSpeed * 0.1F) * var1 * Core.getInstance().getOptionPrecipitationSpeedMultiplier();
       var10000 = this.position;
-      var10000.y += this.velocity.y * (1.0F + IsoWeatherFX.instance.windSpeed * 0.1F) * var1;
+      var10000.y += this.velocity.y * (1.0F + IsoWeatherFX.instance.windSpeed * 0.1F) * var1 * Core.getInstance().getOptionPrecipitationSpeedMultiplier();
       --this.life;
       if (this.life < 0.0F) {
          this.setLife();
@@ -110,7 +112,11 @@ public class RainParticle extends WeatherParticle {
    public void render(float var1, float var2) {
       double var3 = (double)(var1 + (float)this.bounds.getX());
       double var5 = (double)(var2 + (float)this.bounds.getY());
-      SpriteRenderer.instance.render(this.texture, var3 + this.rp.getX(0), var5 + this.rp.getY(0), var3 + this.rp.getX(1), var5 + this.rp.getY(1), var3 + this.rp.getX(2), var5 + this.rp.getY(2), var3 + this.rp.getX(3), var5 + this.rp.getY(3), this.color.r, this.color.g, this.color.b, this.renderAlpha, (Consumer)null);
+      if (PerformanceSettings.FBORenderChunk) {
+         IsoWeatherFX.instance.getDrawer(this.parent.id).addParticle(this.texture, (float)(var3 + this.rp.getX(0)), (float)(var5 + this.rp.getY(0)), (float)(var3 + this.rp.getX(1)), (float)(var5 + this.rp.getY(1)), (float)(var3 + this.rp.getX(2)), (float)(var5 + this.rp.getY(2)), (float)(var3 + this.rp.getX(3)), (float)(var5 + this.rp.getY(3)), this.color.r, this.color.g, this.color.b, this.renderAlpha);
+      } else {
+         SpriteRenderer.instance.render(this.texture, var3 + this.rp.getX(0), var5 + this.rp.getY(0), var3 + this.rp.getX(1), var5 + this.rp.getY(1), var3 + this.rp.getX(2), var5 + this.rp.getY(2), var3 + this.rp.getX(3), var5 + this.rp.getY(3), this.color.r, this.color.g, this.color.b, this.renderAlpha, (Consumer)null);
+      }
    }
 
    private class RenderPoints {

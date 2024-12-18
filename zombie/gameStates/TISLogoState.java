@@ -2,13 +2,13 @@ package zombie.gameStates;
 
 import java.util.function.Consumer;
 import zombie.GameTime;
+import zombie.IndieGL;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.input.GameKeyboard;
 import zombie.input.Mouse;
 import zombie.ui.TextManager;
-import zombie.ui.UIFont;
 import zombie.ui.UIManager;
 
 public final class TISLogoState extends GameState {
@@ -19,10 +19,11 @@ public final class TISLogoState extends GameState {
    public int stage = 0;
    public float targetAlpha = 0.0F;
    private boolean bNoRender = false;
-   private final LogoElement logoTIS = new LogoElement("media/ui/TheIndieStoneLogo_Lineart_White.png");
-   private final LogoElement logoFMOD = new LogoElement("media/ui/FMODLogo.png");
-   private final LogoElement logoGA = new LogoElement("media/ui/GA-1280-white.png");
-   private final LogoElement logoNW = new LogoElement("media/ui/NW_Logo_Combined.png");
+   private final LogoElement logoTIS = new LogoElement("media/ui/Logos/TheIndieStoneLogo_Lineart_White.png");
+   private final LogoElement logoFMOD = new LogoElement("media/ui/Logos/FMOD.png");
+   private final LogoElement logoGA = new LogoElement("media/ui/Logos/GeneralArcade.png");
+   private final LogoElement logoFI = new LogoElement("media/ui/Logos/FormosaInteractive.png");
+   private final LogoElement logoVB = new LogoElement("media/ui/Logos/VertexBreak.png");
    private static final int SCREEN_TIS = 1;
    private static final int SCREEN_OTHER = 2;
    private static final int STAGE_FADING_IN_LOGO = 0;
@@ -57,7 +58,7 @@ public final class TISLogoState extends GameState {
          SpriteRenderer.instance.renderi((Texture)null, 0, 0, Core.getInstance().getOffscreenWidth(0), Core.getInstance().getOffscreenHeight(0), 0.0F, 0.0F, 0.0F, 1.0F, (Consumer)null);
          if (this.screenNumber == 1) {
             this.logoTIS.centerOnScreen();
-            this.logoTIS.render(this.alpha);
+            this.logoTIS.render(this.alpha, (String)null);
          }
 
          if (this.screenNumber == 2) {
@@ -72,52 +73,50 @@ public final class TISLogoState extends GameState {
    private void renderAttribution() {
       int var1 = Core.getInstance().getScreenWidth();
       int var2 = Core.getInstance().getScreenHeight();
-      byte var3 = 50;
-      byte var4 = 3;
-      int var5 = (var2 - (var4 + 1) * var3) / 3;
-      Texture var7 = this.logoGA.m_texture;
-      int var9;
-      if (var7 != null && var7.isReady()) {
-         int var8 = (int)((float)(var7.getWidth() * var5) / (float)var7.getHeight());
-         var9 = (var1 - var8) / 2;
-         this.logoGA.setPos(var9, var3);
-         this.logoGA.setSize(var8, var5);
-         this.logoGA.render(this.alpha);
+      int var3 = var1 / 4;
+      int var4 = var3;
+      if (var2 / 3 < var3) {
+         var3 = var2 / 3;
+         var4 = var3;
       }
 
-      int var6 = var3 + var5 + var3;
-      var6 = (int)((float)var6 + (float)var5 * 0.15F);
-      var7 = this.logoNW.m_texture;
+      int var5 = var1 / 2 - var3 / 4 - var3 / 2;
+      int var6 = var1 / 2 + var3 / 4 + var3 / 2;
+      int var7 = var2 / 2 - var4 / 8 - var4 / 2;
+      int var8 = var2 / 2 + var4 / 8 + var4 / 2;
+      Texture var9 = this.logoGA.m_texture;
       int var10;
       int var11;
-      int var12;
-      float var16;
-      if (var7 != null && var7.isReady()) {
-         var16 = 0.5F;
-         var9 = (int)((float)var7.getWidth() * var16 * (float)var5 / (float)var7.getHeight());
-         var10 = (int)((float)var5 * var16);
-         var11 = (var1 - var9) / 2;
-         var12 = (var5 - var10) / 2;
-         this.logoNW.setPos(var11, var6 + var12);
-         this.logoNW.setSize(var9, var10);
-         this.logoNW.render(this.alpha);
+      if (var9 != null && var9.isReady()) {
+         var10 = var5 - var3 / 2;
+         var11 = var7 - var4 / 2;
+         this.logoGA.setBounds(var10, var11, var3, var4);
+         this.logoGA.render(this.alpha, (String)null);
       }
 
-      var6 += var5 + var3;
-      var7 = this.logoFMOD.m_texture;
-      if (var7 != null && var7.isReady()) {
-         var16 = 0.35F;
-         var9 = TextManager.instance.getFontHeight(UIFont.Small);
-         var10 = (int)((float)var5 * var16 - 16.0F - (float)var9);
-         var11 = (int)((float)var7.getWidth() * ((float)var10 / (float)var7.getHeight()));
-         var12 = (var1 - var11) / 2;
-         int var13 = (var5 - var10) / 2;
-         int var14 = var6 + var13 + var10 + 16;
-         this.logoFMOD.setPos(var12, var6 + var13);
-         this.logoFMOD.setSize(var11, var10);
-         this.logoFMOD.render(this.alpha);
-         String var15 = "Made with FMOD Studio by Firelight Technologies Pty Ltd.";
-         TextManager.instance.DrawStringCentre((double)var1 / 2.0, (double)var14, var15, 1.0, 1.0, 1.0, (double)this.alpha);
+      var9 = this.logoVB.m_texture;
+      if (var9 != null && var9.isReady()) {
+         var10 = var5 - var3 / 2;
+         var11 = var8 - var4 / 2;
+         this.logoVB.setBounds(var10, var11, var3, var4);
+         this.logoVB.render(this.alpha, (String)null);
+      }
+
+      var9 = this.logoFI.m_texture;
+      if (var9 != null && var9.isReady()) {
+         var10 = var6 - var3 / 2;
+         var11 = var7 - var4 / 2;
+         this.logoFI.setBounds(var10, var11, var3, var4);
+         this.logoFI.render(this.alpha, (String)null);
+      }
+
+      var9 = this.logoFMOD.m_texture;
+      if (var9 != null && var9.isReady()) {
+         var10 = var6 - var3 / 2;
+         var11 = var8 - var4 / 2;
+         this.logoFMOD.setBounds(var10, var11, var3, var4);
+         String var12 = "Made with FMOD Studio by Firelight Technologies Pty Ltd.";
+         this.logoFMOD.render(this.alpha, var12);
       }
 
    }
@@ -136,7 +135,7 @@ public final class TISLogoState extends GameState {
       }
 
       if (this.stage == 1) {
-         this.logoDisplayTime -= GameTime.getInstance().getMultiplier() / 1.6F;
+         this.logoDisplayTime -= GameTime.getInstance().getThirtyFPSMultiplier();
          if (this.logoDisplayTime <= 0.0F) {
             this.stage = 2;
          }
@@ -202,19 +201,28 @@ public final class TISLogoState extends GameState {
          this.m_y = (Core.getInstance().getScreenHeight() - this.m_height) / 2;
       }
 
-      void setPos(int var1, int var2) {
+      void setBounds(int var1, int var2, int var3, int var4) {
          this.m_x = var1;
          this.m_y = var2;
+         this.m_width = var3;
+         this.m_height = var4;
       }
 
-      void setSize(int var1, int var2) {
-         this.m_width = var1;
-         this.m_height = var2;
-      }
-
-      void render(float var1) {
+      void render(float var1, String var2) {
          if (this.m_texture != null && this.m_texture.isReady()) {
-            SpriteRenderer.instance.renderi(this.m_texture, this.m_x, this.m_y, this.m_width, this.m_height, 1.0F, 1.0F, 1.0F, var1, (Consumer)null);
+            float var3 = (float)this.m_width;
+            float var4 = (float)this.m_height;
+            float var5 = Math.min(var3 / (float)this.m_texture.getWidth(), var4 / (float)this.m_texture.getHeight());
+            var3 = (float)this.m_texture.getWidth() * var5;
+            var4 = (float)this.m_texture.getHeight() * var5;
+            IndieGL.glEnable(3042);
+            IndieGL.glBlendFunc(770, 771);
+            SpriteRenderer.instance.render(this.m_texture, (float)this.m_x + ((float)this.m_width - var3) / 2.0F, (float)this.m_y + ((float)this.m_height - var4) / 2.0F, var3, var4, 1.0F, 1.0F, 1.0F, var1, (Consumer)null);
+            if (var2 != null) {
+               float var6 = (float)this.m_y + ((float)this.m_height - var4) / 2.0F + var4 + 16.0F;
+               TextManager.instance.DrawStringCentre((double)((float)this.m_x + (float)this.m_width / 2.0F), (double)var6, var2, 1.0, 1.0, 1.0, (double)var1);
+            }
+
          }
       }
    }

@@ -4,6 +4,7 @@ public enum ModelFileExtensionType {
    None,
    X,
    Fbx,
+   glTF,
    Txt;
 
    private ModelFileExtensionType() {

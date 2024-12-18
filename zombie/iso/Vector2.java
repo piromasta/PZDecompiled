@@ -1,7 +1,5 @@
 package zombie.iso;
 
-import java.awt.Dimension;
-import java.awt.Point;
 import zombie.core.math.PZMath;
 
 public final class Vector2 implements Cloneable {
@@ -21,10 +19,6 @@ public final class Vector2 implements Cloneable {
    public Vector2(float var1, float var2) {
       this.x = var1;
       this.y = var2;
-   }
-
-   public static Vector2 fromAwtPoint(Point var0) {
-      return new Vector2((float)var0.x, (float)var0.y);
    }
 
    public static Vector2 fromLengthDirection(float var0, float var1) {
@@ -166,14 +160,6 @@ public final class Vector2 implements Cloneable {
       return this;
    }
 
-   public Dimension toAwtDimension() {
-      return new Dimension((int)this.x, (int)this.y);
-   }
-
-   public Point toAwtPoint() {
-      return new Point((int)this.x, (int)this.y);
-   }
-
    public String toString() {
       return String.format("Vector2 (X: %f, Y: %f) (L: %f, D:%f)", this.x, this.y, this.getLength(), this.getDirection());
    }
@@ -194,6 +180,14 @@ public final class Vector2 implements Cloneable {
       this.y = var1;
    }
 
+   public int floorX() {
+      return PZMath.fastfloor(this.getX());
+   }
+
+   public int floorY() {
+      return PZMath.fastfloor(this.getY());
+   }
+
    public void tangent() {
       double var1 = (double)this.x * Math.cos(Math.toRadians(90.0)) - (double)this.y * Math.sin(Math.toRadians(90.0));
       double var3 = (double)this.x * Math.sin(Math.toRadians(90.0)) + (double)this.y * Math.cos(Math.toRadians(90.0));
@@ -209,5 +203,17 @@ public final class Vector2 implements Cloneable {
       var0.x *= var1;
       var0.y *= var1;
       return var0;
+   }
+
+   public static Vector2 moveTowards(Vector2 var0, Vector2 var1, float var2) {
+      float var3 = var1.x - var0.x;
+      float var4 = var1.y - var0.y;
+      float var5 = var3 * var3 + var4 * var4;
+      if (var5 != 0.0F && (!(var2 >= 0.0F) || !(var5 <= var2 * var2))) {
+         float var6 = (float)Math.sqrt((double)var5);
+         return new Vector2(var0.x + var3 / var6 * var2, var0.y + var4 / var6 * var2);
+      } else {
+         return var1;
+      }
    }
 }

@@ -2,8 +2,6 @@ package zombie.audio;
 
 import fmod.fmod.FMOD_STUDIO_EVENT_DESCRIPTION;
 import fmod.fmod.FMOD_STUDIO_PARAMETER_DESCRIPTION;
-import zombie.SoundManager;
-import zombie.core.Core;
 
 public final class GameSoundClip {
    public static short INIT_FLAG_DISTANCE_MIN = 1;
@@ -61,45 +59,11 @@ public final class GameSoundClip {
    }
 
    public float getEffectiveVolume() {
-      float var1 = 1.0F;
-      switch (this.gameSound.master) {
-         case Primary:
-            var1 = SoundManager.instance.getSoundVolume();
-            break;
-         case Ambient:
-            var1 = SoundManager.instance.getAmbientVolume();
-            break;
-         case Music:
-            var1 = SoundManager.instance.getMusicVolume();
-            break;
-         case VehicleEngine:
-            var1 = SoundManager.instance.getVehicleEngineVolume();
-      }
-
-      var1 *= this.volume;
-      var1 *= this.gameSound.getUserVolume();
-      return var1;
+      return this.volume * this.gameSound.getUserVolume();
    }
 
    public float getEffectiveVolumeInMenu() {
-      float var1 = 1.0F;
-      switch (this.gameSound.master) {
-         case Primary:
-            var1 = (float)Core.getInstance().getOptionSoundVolume() / 10.0F;
-            break;
-         case Ambient:
-            var1 = (float)Core.getInstance().getOptionAmbientVolume() / 10.0F;
-            break;
-         case Music:
-            var1 = (float)Core.getInstance().getOptionMusicVolume() / 10.0F;
-            break;
-         case VehicleEngine:
-            var1 = (float)Core.getInstance().getOptionVehicleEngineVolume() / 10.0F;
-      }
-
-      var1 *= this.volume;
-      var1 *= this.gameSound.getUserVolume();
-      return var1;
+      return this.volume * this.gameSound.getUserVolume();
    }
 
    public GameSoundClip checkReloaded() {

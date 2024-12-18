@@ -124,7 +124,7 @@ public final class TableNetworkUtils {
          InventoryItem var2 = null;
 
          try {
-            var2 = InventoryItem.loadItem(var0, 195);
+            var2 = InventoryItem.loadItem(var0, 219);
          } catch (Exception var4) {
             var4.printStackTrace();
          }

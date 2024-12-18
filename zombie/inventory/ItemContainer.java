@@ -18,13 +18,14 @@ import zombie.Lua.LuaManager;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
-import zombie.core.Rand;
-import zombie.core.network.ByteBufferWriter;
-import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
+import zombie.entity.ComponentType;
 import zombie.inventory.types.AlarmClock;
 import zombie.inventory.types.AlarmClockClothing;
+import zombie.inventory.types.AnimalInventoryItem;
 import zombie.inventory.types.Clothing;
 import zombie.inventory.types.Drainable;
 import zombie.inventory.types.DrainableComboItem;
@@ -39,12 +40,15 @@ import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoBarbecue;
 import zombie.iso.objects.IsoCompost;
 import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.objects.IsoFeedingTrough;
 import zombie.iso.objects.IsoFireplace;
+import zombie.iso.objects.IsoLightSwitch;
 import zombie.iso.objects.IsoMannequin;
 import zombie.iso.objects.IsoStove;
-import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.popman.ObjectPool;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
@@ -55,7 +59,7 @@ import zombie.vehicles.VehiclePart;
 
 public final class ItemContainer {
    private static final ArrayList<InventoryItem> tempList = new ArrayList();
-   private static final ArrayList<IsoObject> s_tempObjects = new ArrayList();
+   private static final ThreadLocal<ArrayList<IsoObject>> s_tempObjects = ThreadLocal.withInitial(ArrayList::new);
    public boolean active = false;
    private boolean dirty = true;
    public boolean IsDevice = false;
@@ -83,6 +87,9 @@ public final class ItemContainer {
    private int weightReduction = 0;
    private String containerPosition = null;
    private String freezerPosition = null;
+   private int MAX_CAPACITY = 100;
+   private int MAX_CAPACITY_BAG = 50;
+   private int MAX_CAPACITY_VEHICLE = 1000;
    private static final ThreadLocal<Comparators> TL_comparators = ThreadLocal.withInitial(Comparators::new);
    private static final ThreadLocal<InventoryItemListPool> TL_itemListPool = ThreadLocal.withInitial(InventoryItemListPool::new);
    private static final ThreadLocal<Predicates> TL_predicates = ThreadLocal.withInitial(Predicates::new);
@@ -126,10 +133,22 @@ public final class ItemContainer {
    }
 
    public int getCapacity() {
-      return this.Capacity;
+      if (this.parent instanceof BaseVehicle) {
+         return Math.min(this.Capacity, this.MAX_CAPACITY_VEHICLE);
+      } else {
+         return this.containingItem != null && this.containingItem instanceof InventoryItem ? Math.min(this.Capacity, this.MAX_CAPACITY_BAG) : Math.min(this.Capacity, this.MAX_CAPACITY);
+      }
    }
 
    public void setCapacity(int var1) {
+      if (this.parent instanceof BaseVehicle && this.Capacity > this.MAX_CAPACITY_VEHICLE) {
+         DebugLog.General.warn("Attempting to set capacity of " + this + "over maximum capacity of " + this.MAX_CAPACITY_VEHICLE);
+      } else if (this.containingItem != null && this.containingItem instanceof InventoryItem && this.Capacity > this.MAX_CAPACITY_BAG) {
+         DebugLog.General.warn("Attempting to set capacity of " + this.containingItem + "over maximum capacity of " + this.MAX_CAPACITY_BAG);
+      } else if (var1 > this.MAX_CAPACITY) {
+         DebugLog.General.warn("Attempting to set capacity of " + this + "over maximum capacity of " + this.MAX_CAPACITY);
+      }
+
       this.Capacity = var1;
    }
 
@@ -137,7 +156,7 @@ public final class ItemContainer {
       for(int var2 = 0; var2 < this.getItems().size(); ++var2) {
          InventoryItem var3 = (InventoryItem)this.getItems().get(var2);
          if (var3 instanceof DrainableComboItem var4 && var3.isWaterSource()) {
-            if (var4.getDrainableUsesInt() >= var1) {
+            if (var4.getCurrentUses() >= var1) {
                return var3;
             }
          }
@@ -151,30 +170,55 @@ public final class ItemContainer {
    }
 
    public int getEffectiveCapacity(IsoGameCharacter var1) {
+      int var2;
+      if (this.parent instanceof BaseVehicle) {
+         var2 = Math.min(this.Capacity, this.MAX_CAPACITY_VEHICLE);
+      } else if (this.containingItem != null && this.containingItem instanceof InventoryItem) {
+         var2 = Math.min(this.Capacity, this.MAX_CAPACITY_BAG);
+      } else {
+         var2 = Math.min(this.Capacity, this.MAX_CAPACITY);
+      }
+
       if (var1 != null && !(this.parent instanceof IsoGameCharacter) && !(this.parent instanceof IsoDeadBody) && !"floor".equals(this.getType())) {
          if (var1.Traits.Organized.isSet()) {
-            return (int)Math.max((float)this.Capacity * 1.3F, (float)(this.Capacity + 1));
+            return (int)Math.max((float)var2 * 1.3F, (float)(this.Capacity + 1));
          }
 
          if (var1.Traits.Disorganized.isSet()) {
-            return (int)Math.max((float)this.Capacity * 0.7F, 1.0F);
+            return (int)Math.max((float)var2 * 0.7F, 1.0F);
          }
       }
 
-      return this.Capacity;
+      return var2;
    }
 
    public boolean hasRoomFor(IsoGameCharacter var1, InventoryItem var2) {
-      if (this.vehiclePart != null && this.vehiclePart.getId().contains("Seat") && this.Items.isEmpty() && var2.getUnequippedWeight() <= 50.0F) {
-         return true;
-      } else if (floatingPointCorrection(this.getCapacityWeight()) + var2.getUnequippedWeight() <= (float)this.getEffectiveCapacity(var1)) {
-         if (this.getContainingItem() != null && this.getContainingItem().getEquipParent() != null && this.getContainingItem().getEquipParent().getInventory() != null && !this.getContainingItem().getEquipParent().getInventory().contains(var2)) {
-            return floatingPointCorrection(this.getContainingItem().getEquipParent().getInventory().getCapacityWeight()) + var2.getUnequippedWeight() <= (float)this.getContainingItem().getEquipParent().getInventory().getEffectiveCapacity(var1);
-         } else {
-            return true;
-         }
-      } else {
+      if (this.inventoryContainer != null && this.inventoryContainer.getMaxItemSize() > 0.0F && var2.getUnequippedWeight() > this.inventoryContainer.getMaxItemSize()) {
          return false;
+      } else if (var1.getVehicle() != null && var2.hasTag("HeavyItem") && this.parent instanceof IsoGameCharacter) {
+         return false;
+      } else {
+         if (!this.isInCharacterInventory(var1) && this.containingItem != null && this.containingItem.getWorldItem() != null && this.containingItem.getWorldItem().getSquare() != null) {
+            IsoGridSquare var3 = this.containingItem.getWorldItem().getSquare();
+            float var4 = var3.getTotalWeightOfItemsOnFloor();
+            if (var4 + var2.getUnequippedWeight() > 50.0F) {
+               return false;
+            }
+         }
+
+         if (this.vehiclePart != null && this.vehiclePart.getId().contains("Seat") && this.Items.isEmpty() && floatingPointCorrection(var2.getUnequippedWeight()) <= 50.0F) {
+            return true;
+         } else if (this.containingItem != null && this.containingItem.getContainer() != null && this.containingItem.getContainer().getVehiclePart() != null && floatingPointCorrection(this.containingItem.getContainer().getCapacityWeight() + var2.getUnequippedWeight()) > (float)this.getContainingItem().getContainer().getEffectiveCapacity(var1)) {
+            return false;
+         } else if (floatingPointCorrection(this.getCapacityWeight()) + var2.getUnequippedWeight() <= (float)this.getEffectiveCapacity(var1)) {
+            if (this.getContainingItem() != null && this.getContainingItem().getEquipParent() != null && this.getContainingItem().getEquipParent().getInventory() != null && !this.getContainingItem().getEquipParent().getInventory().contains(var2)) {
+               return floatingPointCorrection(this.getContainingItem().getEquipParent().getInventory().getCapacityWeight()) + var2.getUnequippedWeight() <= (float)this.getContainingItem().getEquipParent().getInventory().getEffectiveCapacity(var1);
+            } else {
+               return true;
+            }
+         } else {
+            return false;
+         }
       }
    }
 
@@ -184,6 +228,10 @@ public final class ItemContainer {
 
    public boolean isItemAllowed(InventoryItem var1) {
       if (var1 == null) {
+         return false;
+      } else if (var1 instanceof AnimalInventoryItem && !"floor".equals(this.type)) {
+         return false;
+      } else if (var1.getType().contains("Corpse") && this.parent instanceof IsoDeadBody) {
          return false;
       } else {
          String var2 = this.getOnlyAcceptCategory();
@@ -203,7 +251,7 @@ public final class ItemContainer {
 
             if (this.parent != null && !this.parent.isItemAllowedInContainer(this, var1)) {
                return false;
-            } else if (this.getType().equals("clothingrack") && !(var1 instanceof Clothing)) {
+            } else if (this.getType().equals("clothingrack") && !(var1 instanceof Clothing) && !var1.hasTag("FitsClothingRack")) {
                return false;
             } else if (this.getParent() != null && this.getParent().getProperties() != null && this.getParent().getProperties().Val("CustomName") != null && this.getParent().getProperties().Val("CustomName").equals("Toaster") && !var1.hasTag("FitsToaster")) {
                return false;
@@ -211,6 +259,13 @@ public final class ItemContainer {
                if (this.getParent() != null && this.getParent().getProperties() != null && this.getParent().getProperties().Val("GroupName") != null) {
                   boolean var6 = this.getParent().getProperties().Val("GroupName").equals("Coffee") || this.getParent().getProperties().Val("GroupName").equals("Espresso");
                   if (var6 && !var1.hasTag("CoffeeMaker")) {
+                     return false;
+                  }
+               }
+
+               if (this.vehiclePart != null && this.vehiclePart.getId().contains("Seat")) {
+                  Boolean var7 = this.vehiclePart.getVehicle().getCharacter(this.vehiclePart.getContainerSeatNumber()) != null;
+                  if (var7 && var1.getWeight() + this.getCapacityWeight() > (float)(this.getCapacity() / 4)) {
                      return false;
                   }
                }
@@ -290,11 +345,19 @@ public final class ItemContainer {
       return var3;
    }
 
-   public void AddItems(InventoryItem var1, int var2) {
-      for(int var3 = 0; var3 < var2; ++var3) {
-         this.AddItem(var1.getFullType());
+   public ArrayList<InventoryItem> AddItems(InventoryItem var1, int var2) {
+      return this.AddItems(var1.getFullType(), var2);
+   }
+
+   public ArrayList<InventoryItem> AddItems(ArrayList<InventoryItem> var1) {
+      Iterator var2 = var1.iterator();
+
+      while(var2.hasNext()) {
+         InventoryItem var3 = (InventoryItem)var2.next();
+         this.AddItem(var3);
       }
 
+      return var1;
    }
 
    public int getNumberOfItem(String var1, boolean var2) {
@@ -373,6 +436,11 @@ public final class ItemContainer {
             IsoWorld.instance.CurrentCell.addToProcessItems(var1);
          }
 
+         if (this.getParent() instanceof IsoFeedingTrough) {
+            ((IsoFeedingTrough)this.getParent()).onFoodAdded();
+         }
+
+         var1.OnAddedToContainer(this);
          return var1;
       }
    }
@@ -405,27 +473,26 @@ public final class ItemContainer {
       } else if (var2.OBSOLETE) {
          return null;
       } else {
-         InventoryItem var3 = null;
-         int var4 = var2.getCount();
-
-         for(int var5 = 0; var5 < var4; ++var5) {
-            var3 = InventoryItemFactory.CreateItem(var1);
-            if (var3 == null) {
-               return null;
-            }
-
+         InventoryItem var3 = InventoryItemFactory.CreateItem(var1);
+         if (var3 == null) {
+            return null;
+         } else {
             var3.container = this;
             this.Items.add(var3);
             if (var3 instanceof Food) {
                ((Food)var3).setHeat(this.getTemprature());
             }
 
+            if (var3.hasComponent(ComponentType.FluidContainer) && var3.isCookable()) {
+               var3.setItemHeat(this.getTemprature());
+            }
+
             if (IsoWorld.instance.CurrentCell != null) {
                IsoWorld.instance.CurrentCell.addToProcessItems(var3);
             }
-         }
 
-         return var3;
+            return var3;
+         }
       }
    }
 
@@ -440,7 +507,7 @@ public final class ItemContainer {
          return false;
       } else {
          if (var3 instanceof Drainable) {
-            ((Drainable)var3).setUsedDelta(var2);
+            var3.setCurrentUses((int)((float)var3.getMaxUses() * var2));
          }
 
          var3.container = this;
@@ -470,7 +537,7 @@ public final class ItemContainer {
          if (var6 == null) {
             this.Items.remove(var5);
             --var5;
-         } else if (var6.type.equals(var3.trim()) && var4.equals(var6.getModule()) && (!var2 || !(var6 instanceof DrainableComboItem) || !(((DrainableComboItem)var6).getUsedDelta() <= 0.0F))) {
+         } else if (var6.type.equals(var3.trim()) && var4.equals(var6.getModule()) && (!var2 || !(var6 instanceof DrainableComboItem) || var6.getCurrentUses() > 0)) {
             return true;
          }
       }
@@ -478,6 +545,8 @@ public final class ItemContainer {
       return false;
    }
 
+   /** @deprecated */
+   @Deprecated
    public void removeItemOnServer(InventoryItem var1) {
       if (GameClient.bClient) {
          if (this.containingItem != null && this.containingItem.getWorldItem() != null) {
@@ -637,6 +706,33 @@ public final class ItemContainer {
 
    public boolean contains(String var1) {
       return this.contains(var1, false);
+   }
+
+   public AnimalInventoryItem getAnimalInventoryItem(IsoAnimal var1) {
+      Iterator var2 = this.Items.iterator();
+
+      AnimalInventoryItem var4;
+      label29:
+      do {
+         do {
+            do {
+               if (!var2.hasNext()) {
+                  return null;
+               }
+
+               InventoryItem var3 = (InventoryItem)var2.next();
+               var4 = (AnimalInventoryItem)Type.tryCastTo(var3, AnimalInventoryItem.class);
+            } while(var4 == null);
+
+            if (!GameServer.bServer && !GameClient.bClient) {
+               continue label29;
+            }
+         } while(var4.getAnimal().getOnlineID() != var1.getOnlineID());
+
+         return var4;
+      } while(var4.getAnimal().getAnimalID() != var1.getAnimalID());
+
+      return var4;
    }
 
    private static InventoryItem getBestOf(InventoryItemList var0, Comparator<InventoryItem> var1) {
@@ -1481,6 +1577,10 @@ public final class ItemContainer {
    }
 
    public ArrayList<InventoryItem> getAllTagEval(String var1, LuaClosure var2, ArrayList<InventoryItem> var3) {
+      if (var3 == null) {
+         var3 = new ArrayList();
+      }
+
       TagEvalPredicate var4 = ((TagEvalPredicate)((Predicates)TL_predicates.get()).tagEval.alloc()).init(var1, var2);
       ArrayList var5 = this.getAll(var4, var3);
       ((Predicates)TL_predicates.get()).tagEval.release((Object)var4);
@@ -1786,15 +1886,15 @@ public final class ItemContainer {
    }
 
    public void Remove(InventoryItem var1) {
+      if (this.getCharacter() != null) {
+         this.getCharacter().removeFromHands(var1);
+      }
+
       for(int var2 = 0; var2 < this.Items.size(); ++var2) {
          InventoryItem var3 = (InventoryItem)this.Items.get(var2);
          if (var3 == var1) {
-            if (var1.uses > 1) {
-               --var1.uses;
-            } else {
-               this.Items.remove(var1);
-            }
-
+            var1.OnBeforeRemoveFromContainer(this);
+            this.Items.remove(var1);
             var1.container = null;
             this.drawDirty = true;
             this.dirty = true;
@@ -1830,6 +1930,10 @@ public final class ItemContainer {
 
       if (this.parent instanceof IsoMannequin) {
          ((IsoMannequin)this.parent).checkClothing(var1);
+      }
+
+      if (this.parent instanceof IsoFeedingTrough) {
+         ((IsoFeedingTrough)this.parent).onRemoveFood();
       }
 
    }
@@ -1876,6 +1980,17 @@ public final class ItemContainer {
       return null;
    }
 
+   public InventoryItem Find(String var1) {
+      for(int var2 = 0; var2 < this.Items.size(); ++var2) {
+         InventoryItem var3 = (InventoryItem)this.Items.get(var2);
+         if (var3.type.equals(var1)) {
+            return var3;
+         }
+      }
+
+      return null;
+   }
+
    public InventoryItem Find(ItemType var1) {
       for(int var2 = 0; var2 < this.Items.size(); ++var2) {
          InventoryItem var3 = (InventoryItem)this.Items.get(var2);
@@ -1887,34 +2002,42 @@ public final class ItemContainer {
       return null;
    }
 
-   public void RemoveAll(String var1) {
+   public ArrayList<InventoryItem> RemoveAll(String var1) {
+      return this.RemoveAll(var1, this.Items.size());
+   }
+
+   public ArrayList<InventoryItem> RemoveAll(String var1, int var2) {
       this.drawDirty = true;
       if (this.parent != null) {
          this.dirty = true;
       }
 
-      ArrayList var2 = new ArrayList();
+      ArrayList var3 = new ArrayList();
 
-      InventoryItem var4;
-      for(int var3 = 0; var3 < this.Items.size(); ++var3) {
-         var4 = (InventoryItem)this.Items.get(var3);
-         if (var4.type.equals(var1)) {
-            var4.container = null;
-            var2.add(var4);
+      InventoryItem var5;
+      for(int var4 = 0; var4 < this.Items.size(); ++var4) {
+         var5 = (InventoryItem)this.Items.get(var4);
+         if (var5.type.equals(var1) || var5.fullType.equals(var1)) {
+            var5.container = null;
+            var3.add(var5);
             this.dirty = true;
+            if (var3.size() >= var2) {
+               break;
+            }
          }
       }
 
-      Iterator var5 = var2.iterator();
+      Iterator var6 = var3.iterator();
 
-      while(var5.hasNext()) {
-         var4 = (InventoryItem)var5.next();
-         this.Items.remove(var4);
+      while(var6.hasNext()) {
+         var5 = (InventoryItem)var6.next();
+         this.Items.remove(var5);
       }
 
+      return var3;
    }
 
-   public boolean RemoveOneOf(String var1, boolean var2) {
+   public InventoryItem RemoveOneOf(String var1, boolean var2) {
       this.drawDirty = true;
       if (this.parent != null && !(this.parent instanceof IsoGameCharacter)) {
          this.dirty = true;
@@ -1933,20 +2056,20 @@ public final class ItemContainer {
             }
 
             this.dirty = true;
-            return true;
+            return var4;
          }
       }
 
       if (var2) {
          for(var3 = 0; var3 < this.Items.size(); ++var3) {
             var4 = (InventoryItem)this.Items.get(var3);
-            if (var4 instanceof InventoryContainer && ((InventoryContainer)var4).getItemContainer() != null && ((InventoryContainer)var4).getItemContainer().RemoveOneOf(var1, var2)) {
-               return true;
+            if (var4 instanceof InventoryContainer && ((InventoryContainer)var4).getItemContainer() != null && ((InventoryContainer)var4).getItemContainer().RemoveOneOf(var1, var2) != null) {
+               return var4;
             }
          }
       }
 
-      return false;
+      return null;
    }
 
    public void RemoveOneOf(String var1) {
@@ -1981,21 +2104,38 @@ public final class ItemContainer {
    }
 
    public float getMaxWeight() {
-      return this.parent instanceof IsoGameCharacter ? (float)((IsoGameCharacter)this.parent).getMaxWeight() : (float)this.Capacity;
+      if (this.parent instanceof IsoGameCharacter) {
+         return (float)((IsoGameCharacter)this.parent).getMaxWeight();
+      } else if (this.parent instanceof BaseVehicle) {
+         return (float)Math.min(this.Capacity, this.MAX_CAPACITY_VEHICLE);
+      } else {
+         return this.containingItem != null && this.containingItem instanceof InventoryItem ? (float)Math.min(this.Capacity, this.MAX_CAPACITY_BAG) : (float)Math.min(this.Capacity, this.MAX_CAPACITY);
+      }
    }
 
    public float getCapacityWeight() {
-      if (this.parent instanceof IsoPlayer) {
-         if (Core.bDebug && ((IsoPlayer)this.parent).isGhostMode() || !((IsoPlayer)this.parent).isAccessLevel("None") && ((IsoPlayer)this.parent).isUnlimitedCarry()) {
+      IsoObject var2 = this.parent;
+      if (var2 instanceof IsoPlayer var1) {
+         if (Core.bDebug && var1.isGhostMode() || !var1.isAccessLevel("None") && var1.isUnlimitedCarry()) {
             return 0.0F;
          }
 
-         if (((IsoPlayer)this.parent).isUnlimitedCarry()) {
+         if (var1.isUnlimitedCarry()) {
             return 0.0F;
          }
       }
 
-      return this.parent instanceof IsoGameCharacter ? ((IsoGameCharacter)this.parent).getInventoryWeight() : this.getContentsWeight();
+      var2 = this.parent;
+      if (var2 instanceof IsoGameCharacter var4) {
+         return var4.getInventoryWeight();
+      } else {
+         var2 = this.parent;
+         if (var2 instanceof IsoDeadBody var3) {
+            return var3.getInventoryWeight();
+         } else {
+            return this.getContentsWeight();
+         }
+      }
    }
 
    public boolean isEmpty() {
@@ -2006,30 +2146,30 @@ public final class ItemContainer {
       return "microwave".equals(this.getType());
    }
 
-   private boolean isSquareInRoom(IsoGridSquare var1) {
-      if (var1 == null) {
+   private static boolean isSquareInRoom(IsoGridSquare var0) {
+      if (var0 == null) {
          return false;
       } else {
-         return var1.getRoom() != null;
+         return var0.getRoom() != null;
       }
    }
 
-   private boolean isSquarePowered(IsoGridSquare var1) {
-      if (var1 == null) {
+   private static boolean isSquarePowered(IsoGridSquare var0) {
+      if (var0 == null) {
          return false;
       } else {
-         boolean var2 = IsoWorld.instance.isHydroPowerOn();
-         if (var2 && var1.getRoom() != null) {
+         boolean var1 = IsoWorld.instance.isHydroPowerOn();
+         if (var1 && var0.getRoom() != null) {
             return true;
-         } else if (var1.haveElectricity()) {
+         } else if (var0.haveElectricity()) {
             return true;
          } else {
-            if (var2 && var1.getRoom() == null) {
-               IsoGridSquare var3 = var1.nav[IsoDirections.N.index()];
-               IsoGridSquare var4 = var1.nav[IsoDirections.S.index()];
-               IsoGridSquare var5 = var1.nav[IsoDirections.W.index()];
-               IsoGridSquare var6 = var1.nav[IsoDirections.E.index()];
-               if (this.isSquareInRoom(var3) || this.isSquareInRoom(var4) || this.isSquareInRoom(var5) || this.isSquareInRoom(var6)) {
+            if (var1 && var0.getRoom() == null) {
+               IsoGridSquare var2 = var0.nav[IsoDirections.N.index()];
+               IsoGridSquare var3 = var0.nav[IsoDirections.S.index()];
+               IsoGridSquare var4 = var0.nav[IsoDirections.W.index()];
+               IsoGridSquare var5 = var0.nav[IsoDirections.E.index()];
+               if (isSquareInRoom(var2) || isSquareInRoom(var3) || isSquareInRoom(var4) || isSquareInRoom(var5)) {
                   return true;
                }
             }
@@ -2040,20 +2180,55 @@ public final class ItemContainer {
    }
 
    public boolean isPowered() {
-      if (this.parent != null && this.parent.getObjectIndex() != -1) {
-         IsoGridSquare var1 = this.parent.getSquare();
-         if (this.isSquarePowered(var1)) {
-            return true;
-         } else {
-            this.parent.getSpriteGridObjects(s_tempObjects);
+      return isObjectPowered(this.parent);
+   }
 
-            for(int var2 = 0; var2 < s_tempObjects.size(); ++var2) {
-               IsoObject var3 = (IsoObject)s_tempObjects.get(var2);
-               if (var3 != this.parent) {
-                  IsoGridSquare var4 = var3.getSquare();
-                  if (this.isSquarePowered(var4)) {
-                     return true;
+   public static boolean isObjectPowered(IsoObject var0) {
+      if (var0 != null && var0.getObjectIndex() != -1) {
+         ArrayList var1 = (ArrayList)s_tempObjects.get();
+         var0.getSpriteGridObjects(var1);
+         IsoLightSwitch var2;
+         if (var1.isEmpty()) {
+            if (var0.getProperties() != null && var0.getProperties().Is("streetlight")) {
+               if (var0 instanceof IsoLightSwitch) {
+                  var2 = (IsoLightSwitch)var0;
+                  if (!var2.isActivated()) {
+                     return false;
                   }
+               }
+
+               return GameTime.getInstance().getNight() >= 0.5F && IsoWorld.instance.isHydroPowerOn();
+            } else {
+               IsoGridSquare var6 = var0.getSquare();
+               return isSquarePowered(var6);
+            }
+         } else {
+            var2 = null;
+
+            int var3;
+            IsoObject var4;
+            for(var3 = 0; var3 < var1.size(); ++var3) {
+               var4 = (IsoObject)var1.get(var3);
+               if (var4 instanceof IsoLightSwitch) {
+                  IsoLightSwitch var5 = (IsoLightSwitch)var4;
+                  var2 = var5;
+                  break;
+               }
+            }
+
+            for(var3 = 0; var3 < var1.size(); ++var3) {
+               var4 = (IsoObject)var1.get(var3);
+               if (var4.getProperties() != null && var4.getProperties().Is("streetlight")) {
+                  if (var2 != null && !var2.isActivated()) {
+                     return false;
+                  }
+
+                  return GameTime.getInstance().getNight() >= 0.5F && IsoWorld.instance.isHydroPowerOn();
+               }
+
+               IsoGridSquare var7 = var4.getSquare();
+               if (isSquarePowered(var7)) {
+                  return true;
                }
             }
 
@@ -2078,18 +2253,16 @@ public final class ItemContainer {
                return 0.2F;
             }
 
-            if (("stove".equals(this.type) || "microwave".equals(this.type)) && this.parent instanceof IsoStove) {
+            if ((this.isStove() || "microwave".equals(this.type)) && this.parent instanceof IsoStove) {
                return ((IsoStove)this.parent).getCurrentTemperature() / 100.0F;
             }
          }
 
-         if ("barbecue".equals(this.type) && this.parent instanceof IsoBarbecue) {
+         if (this.parent instanceof IsoBarbecue) {
             return ((IsoBarbecue)this.parent).getTemperature();
-         } else if ("fireplace".equals(this.type) && this.parent instanceof IsoFireplace) {
+         } else if (this.parent instanceof IsoFireplace) {
             return ((IsoFireplace)this.parent).getTemperature();
-         } else if ("woodstove".equals(this.type) && this.parent instanceof IsoFireplace) {
-            return ((IsoFireplace)this.parent).getTemperature();
-         } else if ((this.type.equals("fridge") || this.type.equals("freezer") || var1) && GameTime.instance.NightsSurvived == SandboxOptions.instance.getElecShutModifier() && GameTime.instance.getTimeOfDay() < 13.0F) {
+         } else if ((this.type.equals("fridge") || this.type.equals("freezer") || var1) && (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) == (float)SandboxOptions.instance.getElecShutModifier() && GameTime.instance.getTimeOfDay() < 13.0F) {
             float var2 = (GameTime.instance.getTimeOfDay() - 7.0F) / 6.0F;
             return GameTime.instance.Lerp(0.2F, 1.0F, var2);
          } else {
@@ -2351,7 +2524,7 @@ public final class ItemContainer {
 
       for(int var2 = 0; var2 < this.Items.size(); ++var2) {
          InventoryItem var3 = (InventoryItem)this.Items.get(var2);
-         if (var3.CanStoreWater) {
+         if (var3.hasComponent(ComponentType.FluidContainer)) {
             ++var1;
          }
       }
@@ -2367,7 +2540,7 @@ public final class ItemContainer {
                return var2;
             }
 
-            if (((Drainable)var2).getUsedDelta() > 0.0F) {
+            if (var2.getCurrentUses() > 0) {
                return var2;
             }
          }
@@ -2381,12 +2554,115 @@ public final class ItemContainer {
 
       for(int var1 = 0; var1 < this.Items.size(); ++var1) {
          InventoryItem var2 = (InventoryItem)this.Items.get(var1);
-         if (var2.CanStoreWater) {
+         if (var2.hasComponent(ComponentType.FluidContainer) && var2.getFluidContainer().isEmpty()) {
             tempList.add(var2);
          }
       }
 
       return tempList;
+   }
+
+   public InventoryItem getFirstWaterFluidSources(boolean var1) {
+      ArrayList var2 = this.getAllWaterFluidSources(var1);
+      return var2.isEmpty() ? null : (InventoryItem)var2.get(0);
+   }
+
+   public InventoryItem getFirstWaterFluidSources(boolean var1, boolean var2) {
+      ArrayList var3 = this.getAllWaterFluidSources(var1);
+      if (var2) {
+         for(int var4 = 0; var4 < var3.size(); ++var4) {
+            InventoryItem var5 = (InventoryItem)var3.get(var4);
+            if (var5.getFluidContainer().getPrimaryFluid().getFluidTypeString().equals("TaintedWater")) {
+               return var5;
+            }
+         }
+      }
+
+      return var3.isEmpty() ? null : (InventoryItem)var3.get(0);
+   }
+
+   public InventoryItem getFirstFluidContainer(String var1) {
+      for(int var2 = 0; var2 < this.Items.size(); ++var2) {
+         InventoryItem var3 = (InventoryItem)this.Items.get(var2);
+         if (var3.hasComponent(ComponentType.FluidContainer)) {
+            if (var3.getFluidContainer().isEmpty()) {
+               return var3;
+            }
+
+            if (!StringUtils.isNullOrEmpty(var1) && var3.getFluidContainer().getPrimaryFluid() != null && var3.getFluidContainer().getPrimaryFluid().getFluidTypeString().equalsIgnoreCase(var1)) {
+               return var3;
+            }
+         }
+      }
+
+      return null;
+   }
+
+   public ArrayList<InventoryItem> getAvailableFluidContainer(String var1) {
+      tempList.clear();
+
+      for(int var2 = 0; var2 < this.Items.size(); ++var2) {
+         InventoryItem var3 = (InventoryItem)this.Items.get(var2);
+         if (var3.hasComponent(ComponentType.FluidContainer)) {
+            if (var3.getFluidContainer().isEmpty()) {
+               tempList.add(var3);
+            }
+
+            if (!StringUtils.isNullOrEmpty(var1) && var3.getFluidContainer().getPrimaryFluid() != null && var3.getFluidContainer().getPrimaryFluid().getFluidTypeString().equalsIgnoreCase(var1) && !var3.getFluidContainer().isFull()) {
+               tempList.add(var3);
+            }
+         }
+      }
+
+      return tempList;
+   }
+
+   public float getAvailableFluidContainersCapacity(String var1) {
+      float var2 = 0.0F;
+      ArrayList var3 = this.getAvailableFluidContainer(var1);
+
+      InventoryItem var5;
+      for(Iterator var4 = var3.iterator(); var4.hasNext(); var2 += var5.getFluidContainer().getFreeCapacity()) {
+         var5 = (InventoryItem)var4.next();
+      }
+
+      return var2;
+   }
+
+   public InventoryItem getFirstAvailableFluidContainer(String var1) {
+      ArrayList var2 = this.getAvailableFluidContainer(var1);
+      return var2.isEmpty() ? null : (InventoryItem)var2.get(0);
+   }
+
+   public ArrayList<InventoryItem> getAllWaterFluidSources(boolean var1) {
+      ArrayList var2 = new ArrayList();
+
+      for(int var3 = 0; var3 < this.Items.size(); ++var3) {
+         InventoryItem var4 = (InventoryItem)this.Items.get(var3);
+         if (var4.hasComponent(ComponentType.FluidContainer) && !var4.getFluidContainer().isEmpty() && (var4.getFluidContainer().getPrimaryFluid().getFluidTypeString().equals("Water") || var4.getFluidContainer().getPrimaryFluid().getFluidTypeString().equals("CarbonatedWater") || var1 && var4.getFluidContainer().getPrimaryFluid().getFluidTypeString().equals("TaintedWater"))) {
+            var2.add(var4);
+         }
+      }
+
+      return var2;
+   }
+
+   public InventoryItem getFirstCleaningFluidSources() {
+      ArrayList var1 = this.getAllCleaningFluidSources();
+      return var1.isEmpty() ? null : (InventoryItem)var1.get(0);
+   }
+
+   public ArrayList<InventoryItem> getAllCleaningFluidSources() {
+      ArrayList var1 = new ArrayList();
+
+      for(int var2 = 0; var2 < this.Items.size(); ++var2) {
+         InventoryItem var3 = (InventoryItem)this.Items.get(var2);
+         if (var3.hasComponent(ComponentType.FluidContainer) && !var3.getFluidContainer().isEmpty() && (var3.getFluidContainer().getPrimaryFluid().getFluidTypeString().equals("Bleach") || var3.getFluidContainer().getPrimaryFluid().getFluidTypeString().equals("CleaningLiquid"))) {
+            var1.add(var3);
+         }
+      }
+
+      return var1;
    }
 
    public int getItemCount(String var1) {
@@ -2407,7 +2683,7 @@ public final class ItemContainer {
       for(int var2 = 0; var2 < var0.size(); ++var2) {
          DrainableComboItem var3 = (DrainableComboItem)Type.tryCastTo((InventoryItem)var0.get(var2), DrainableComboItem.class);
          if (var3 != null) {
-            var1 += var3.getDrainableUsesInt();
+            var1 += var3.getCurrentUses();
          } else {
             ++var1;
          }
@@ -2577,81 +2853,16 @@ public final class ItemContainer {
       return this.getAllCategory(var1);
    }
 
-   public void sendContentsToRemoteContainer() {
-      if (GameClient.bClient) {
-         this.sendContentsToRemoteContainer(GameClient.connection);
-      }
-
-   }
-
    public void requestSync() {
-      if (GameClient.bClient) {
-         if (this.parent == null || this.parent.square == null || this.parent.square.chunk == null) {
-            return;
-         }
-
-         GameClient.instance.worldObjectsSyncReq.putRequestSyncIsoChunk(this.parent.square.chunk);
+      if (GameClient.bClient && (this.parent == null || this.parent.square == null || this.parent.square.chunk == null)) {
+         ;
       }
-
    }
 
    public void requestServerItemsForContainer() {
       if (this.parent != null && this.parent.square != null) {
-         UdpConnection var1 = GameClient.connection;
-         ByteBufferWriter var2 = var1.startPacket();
-         PacketTypes.PacketType.RequestItemsForContainer.doPacket(var2);
-         var2.putShort(IsoPlayer.getInstance().OnlineID);
-         var2.putUTF(this.type);
-         if (this.parent.square.getRoom() != null) {
-            var2.putUTF(this.parent.square.getRoom().getName());
-         } else {
-            var2.putUTF("all");
-         }
-
-         var2.putInt(this.parent.square.getX());
-         var2.putInt(this.parent.square.getY());
-         var2.putInt(this.parent.square.getZ());
-         int var3 = this.parent.square.getObjects().indexOf(this.parent);
-         if (var3 == -1 && this.parent.square.getStaticMovingObjects().indexOf(this.parent) != -1) {
-            var2.putShort((short)0);
-            var3 = this.parent.square.getStaticMovingObjects().indexOf(this.parent);
-            var2.putByte((byte)var3);
-         } else if (this.parent instanceof IsoWorldInventoryObject) {
-            var2.putShort((short)1);
-            var2.putInt(((IsoWorldInventoryObject)this.parent).getItem().id);
-         } else if (this.parent instanceof BaseVehicle) {
-            var2.putShort((short)3);
-            var2.putShort(((BaseVehicle)this.parent).VehicleID);
-            var2.putByte((byte)this.vehiclePart.getIndex());
-         } else {
-            var2.putShort((short)2);
-            var2.putByte((byte)var3);
-            var2.putByte((byte)this.parent.getContainerIndex(this));
-         }
-
-         PacketTypes.PacketType.RequestItemsForContainer.send(var1);
+         INetworkPacket.send(PacketTypes.PacketType.RequestItemsForContainer, this);
       }
-   }
-
-   /** @deprecated */
-   @Deprecated
-   public void sendContentsToRemoteContainer(UdpConnection var1) {
-      ByteBufferWriter var2 = var1.startPacket();
-      PacketTypes.PacketType.AddInventoryItemToContainer.doPacket(var2);
-      var2.putInt(0);
-      boolean var3 = false;
-      var2.putInt(this.parent.square.getX());
-      var2.putInt(this.parent.square.getY());
-      var2.putInt(this.parent.square.getZ());
-      var2.putByte((byte)this.parent.square.getObjects().indexOf(this.parent));
-
-      try {
-         CompressIdenticalItems.save(var2.bb, this.Items, (IsoGameCharacter)null);
-      } catch (Exception var5) {
-         var5.printStackTrace();
-      }
-
-      PacketTypes.PacketType.AddInventoryItemToContainer.send(var1);
    }
 
    public InventoryItem getItemWithIDRecursiv(int var1) {
@@ -2761,7 +2972,7 @@ public final class ItemContainer {
             if (var4.getKeyId() == var1) {
                return var4;
             }
-         } else if (var3.getType().equals("KeyRing") && ((InventoryContainer)var3).getInventory().haveThisKeyId(var1) != null) {
+         } else if ((var3.getType().equals("KeyRing") || var3.hasTag("KeyRing")) && ((InventoryContainer)var3).getInventory().haveThisKeyId(var1) != null) {
             return ((InventoryContainer)var3).getInventory().haveThisKeyId(var1);
          }
       }
@@ -2783,6 +2994,11 @@ public final class ItemContainer {
 
    public void setAcceptItemFunction(String var1) {
       this.AcceptItemFunction = StringUtils.discardNullOrWhitespace(var1);
+   }
+
+   public String toString() {
+      String var10000 = this.getType();
+      return "ItemContainer:[type:" + var10000 + ", parent:" + this.getParent() + "]";
    }
 
    public IsoGameCharacter getCharacter() {
@@ -2809,6 +3025,19 @@ public final class ItemContainer {
             var1.put(var3.getFullType() + Rand.Next(100000), var3);
          } else {
             var1.put(var3.getFullType(), var3);
+         }
+      }
+
+      return var1;
+   }
+
+   public ArrayList<InventoryItem> getAllFoodsForAnimals() {
+      ArrayList var1 = new ArrayList();
+
+      for(int var2 = 0; var2 < this.getItems().size(); ++var2) {
+         InventoryItem var3 = (InventoryItem)this.getItems().get(var2);
+         if (var3.isAnimalFeed() || var3 instanceof Food && (((Food)var3).getFoodType() != null && (((Food)var3).getFoodType().equals("Fruits") || ((Food)var3).getFoodType().equals("Vegetables")) || ((Food)var3).getMilkType() != null) && ((Food)var3).getHungerChange() < 0.0F && !((Food)var3).isRotten() && !((Food)var3).isSpice()) {
+            var1.add(var3);
          }
       }
 
@@ -2843,6 +3072,8 @@ public final class ItemContainer {
       return var1;
    }
 
+   /** @deprecated */
+   @Deprecated
    public InventoryItem getItemById(long var1) {
       for(int var3 = 0; var3 < this.getItems().size(); ++var3) {
          InventoryItem var4 = (InventoryItem)this.getItems().get(var3);
@@ -2918,6 +3149,47 @@ public final class ItemContainer {
 
    public VehiclePart getVehiclePart() {
       return this.vehiclePart;
+   }
+
+   public void reset() {
+      for(int var1 = 0; var1 < this.getItems().size(); ++var1) {
+         ((InventoryItem)this.getItems().get(var1)).reset();
+      }
+
+   }
+
+   public ItemContainer getOutermostContainer() {
+      if (this.getContainingItem() != null && this.getContainingItem().getContainer() != null) {
+         ItemContainer var1;
+         for(var1 = this.getContainingItem().getContainer(); var1.getContainingItem() != null && var1.getContainingItem().getContainer() != null; var1 = var1.getContainingItem().getContainer()) {
+         }
+
+         return var1;
+      } else {
+         return this;
+      }
+   }
+
+   public IsoGridSquare getSquare() {
+      IsoGridSquare var1 = null;
+      ItemContainer var2 = this.getOutermostContainer();
+      if (var2.getVehiclePart() != null && var2.getVehiclePart().getVehicle() != null) {
+         var1 = var2.getVehiclePart().getVehicle().getSquare();
+      }
+
+      if (var1 == null && var2.getSourceGrid() != null) {
+         var1 = var2.getSourceGrid();
+      } else if (var1 == null && var2.getParent() != null && var2.getParent().getSquare() != null) {
+         var1 = var2.getParent().getSquare();
+      } else if (var1 == null && var2.getContainingItem() != null && var2.getContainingItem().getWorldItem() != null && var2.getContainingItem().getWorldItem().getSquare() != null) {
+         var1 = var2.getContainingItem().getWorldItem().getSquare();
+      }
+
+      return var1;
+   }
+
+   public boolean isStove() {
+      return "stove".equals(this.type) || "toaster".equals(this.type) || "coffeemaker".equals(this.type);
    }
 
    private static final class InventoryItemListPool extends ObjectPool<InventoryItemList> {

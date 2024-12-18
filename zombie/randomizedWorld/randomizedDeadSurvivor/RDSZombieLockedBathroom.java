@@ -4,7 +4,7 @@ import zombie.VirtualZombieManager;
 import zombie.ZombieSpawnRecorder;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoDirections;

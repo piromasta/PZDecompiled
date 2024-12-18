@@ -2,9 +2,11 @@ package zombie.iso.objects;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.opengl.Shader;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
@@ -19,6 +21,7 @@ import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
@@ -47,8 +50,11 @@ public class IsoFireplace extends IsoObject {
    public IsoFireplace(IsoCell var1, IsoGridSquare var2, IsoSprite var3) {
       super(var1, var2, var3);
       String var4 = var3 != null && var3.getProperties().Is(IsoFlagType.container) ? var3.getProperties().Val("container") : "fireplace";
-      this.container = new ItemContainer(var4, var2, this);
-      this.container.setExplored(true);
+      if (this.sprite != null && this.sprite.getProperties() != null && this.sprite.getProperties().Val("ContainerCapacity") != null) {
+         this.container = new ItemContainer(var4, var2, this);
+         this.container.Capacity = Integer.parseInt(this.sprite.getProperties().Val("ContainerCapacity"));
+      }
+
    }
 
    public String getObjectName() {
@@ -141,66 +147,110 @@ public class IsoFireplace extends IsoObject {
    }
 
    private void updateFuelSprite() {
-      if (this.container == null || !"woodstove".equals(this.container.getType())) {
-         if (this.hasFuel()) {
-            if (this.FuelSprite == null) {
-               this.FuelSprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-               Texture var1 = this.FuelSprite.LoadFrameExplicit("Item_Logs");
-            }
+      if (!this.getSprite().getProperties().Is("CustomName") || !this.getSprite().getProperties().Val("CustomName").equals("Metal Drum")) {
+         if (this.container == null || !"woodstove".equals(this.container.getType()) && !"campfire".equals(this.container.getType())) {
+            if (this.hasFuel() && !this.isLit() && Objects.equals(this.getSprite().getName(), "crafted_02_42")) {
+               this.setOverlaySprite("crafted_02_43");
+            } else if (!this.hasFuel() || this.container == null || this.getProperties() == null || !this.getProperties().Is(IsoFlagType.collideW) && !this.getProperties().Is(IsoFlagType.collideN)) {
+               if (this.FuelSpriteIndex != -1) {
+                  DebugLog.log(DebugType.Fireplace, "fireplace: removed fuel sprite");
+                  this.AttachedAnimSprite.remove(this.FuelSpriteIndex);
+                  if (this.FireSpriteIndex > this.FuelSpriteIndex) {
+                     --this.FireSpriteIndex;
+                  }
 
-            if (this.FuelSpriteIndex == -1) {
-               DebugLog.log(DebugType.Fireplace, "fireplace: added fuel sprite");
-               this.FuelSpriteIndex = this.AttachedAnimSprite != null ? this.AttachedAnimSprite.size() : 0;
-               if (this.getProperties() != null && this.getProperties().Is(IsoFlagType.collideW)) {
-                  this.AttachExistingAnim(this.FuelSprite, -10 * Core.TileScale, -90 * Core.TileScale, false, 0, false, 0.0F);
-               } else {
-                  this.AttachExistingAnim(this.FuelSprite, -35 * Core.TileScale, -90 * Core.TileScale, false, 0, false, 0.0F);
+                  this.FuelSpriteIndex = -1;
+                  this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+               }
+            } else {
+               if (this.FuelSprite == null) {
+                  this.FuelSprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
+                  Texture var1 = this.FuelSprite.LoadFrameExplicit("Item_Logs");
                }
 
-               if (Core.TileScale == 1) {
-                  ((IsoSpriteInstance)this.AttachedAnimSprite.get(this.FuelSpriteIndex)).setScale(0.5F, 0.5F);
+               if (this.FuelSpriteIndex == -1) {
+                  DebugLog.log(DebugType.Fireplace, "fireplace: added fuel sprite");
+                  this.FuelSpriteIndex = this.AttachedAnimSprite != null ? this.AttachedAnimSprite.size() : 0;
+                  if (this.getProperties() != null && this.getProperties().Is(IsoFlagType.collideW)) {
+                     this.AttachExistingAnim(this.FuelSprite, -10 * Core.TileScale, -90 * Core.TileScale, false, 0, false, 0.0F);
+                  } else if (this.getProperties() != null && this.getProperties().Is(IsoFlagType.collideN)) {
+                     this.AttachExistingAnim(this.FuelSprite, -35 * Core.TileScale, -90 * Core.TileScale, false, 0, false, 0.0F);
+                  }
+
+                  if (Core.TileScale == 1) {
+                     ((IsoSpriteInstance)this.AttachedAnimSprite.get(this.FuelSpriteIndex)).setScale(0.5F, 0.5F);
+                  }
+
+                  this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
                }
             }
-         } else if (this.FuelSpriteIndex != -1) {
-            DebugLog.log(DebugType.Fireplace, "fireplace: removed fuel sprite");
-            this.AttachedAnimSprite.remove(this.FuelSpriteIndex);
-            if (this.FireSpriteIndex > this.FuelSpriteIndex) {
-               --this.FireSpriteIndex;
-            }
 
-            this.FuelSpriteIndex = -1;
          }
-
       }
    }
 
    private void updateFireSprite() {
-      if (this.container == null || !"woodstove".equals(this.container.getType())) {
-         if (this.isLit()) {
-            if (this.FireSpriteIndex == -1) {
-               DebugLog.log(DebugType.Fireplace, "fireplace: added fire sprite");
-               this.FireSpriteIndex = this.AttachedAnimSprite != null ? this.AttachedAnimSprite.size() : 0;
-               if (this.getProperties() != null && this.getProperties().Is(IsoFlagType.collideW)) {
+      if (this.isLit()) {
+         if (this.FireSpriteIndex == -1) {
+            DebugLog.log(DebugType.Fireplace, "fireplace: added fire sprite");
+            this.FireSpriteIndex = this.AttachedAnimSprite != null ? this.AttachedAnimSprite.size() : 0;
+            if (Objects.equals(this.getSprite().getName(), "camping_03_16")) {
+               this.setOverlaySprite("camping_03_17");
+               this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -24 * Core.TileScale, -88 * Core.TileScale, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
+            } else if (Objects.equals(this.getSprite().getName(), "camping_03_19")) {
+               this.setOverlaySprite("camping_03_21");
+               this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -24 * Core.TileScale, -84 * Core.TileScale, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
+            } else if (Objects.equals(this.getSprite().getName(), "crafted_02_42")) {
+               this.setOverlaySprite("crafted_02_44");
+               this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -24 * Core.TileScale, -80 * Core.TileScale, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
+            } else if (Objects.equals(this.getSprite().getName(), "crafted_05_6")) {
+               this.setOverlaySprite("crafted_05_14");
+            } else if (Objects.equals(this.getSprite().getName(), "crafted_05_7")) {
+               this.setOverlaySprite("crafted_05_15");
+            } else {
+               String[] var1;
+               String var2;
+               if (Objects.equals(this.getSprite().getName(), "appliances_cooking_01_16")) {
+                  var1 = this.getSprite().getName().split("_");
+                  var2 = var1[0] + "_" + var1[1] + "_ON_" + var1[2] + "_" + var1[3];
+                  this.setOverlaySprite(var2);
+               } else if (Objects.equals(this.getSprite().getName(), "appliances_cooking_01_17")) {
+                  var1 = this.getSprite().getName().split("_");
+                  var2 = var1[0] + "_" + var1[1] + "_ON_" + var1[2] + "_" + var1[3];
+                  this.setOverlaySprite(var2);
+               } else if (this.getSprite().getProperties().Is("CustomName") && this.getSprite().getProperties().Val("CustomName").equals("Metal Drum")) {
+                  if (Objects.equals(this.getSprite().getName(), "crafted_01_26")) {
+                     this.setOverlaySprite("crafted_01_27");
+                  } else if (Objects.equals(this.getSprite().getName(), "crafted_01_30")) {
+                     this.setOverlaySprite("crafted_01_31");
+                  }
+
+                  this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -24 * Core.TileScale, -68 * Core.TileScale, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
+               } else if (this.getProperties() != null && this.getProperties().Is(IsoFlagType.collideW)) {
                   this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -11 * Core.TileScale, -84 * Core.TileScale, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
-               } else {
+               } else if (this.getProperties() != null && this.getProperties().Is(IsoFlagType.collideN)) {
                   this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -35 * Core.TileScale, -84 * Core.TileScale, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
                }
-
-               if (Core.TileScale == 1) {
-                  ((IsoSpriteInstance)this.AttachedAnimSprite.get(this.FireSpriteIndex)).setScale(0.5F, 0.5F);
-               }
             }
-         } else if (this.FireSpriteIndex != -1) {
-            DebugLog.log(DebugType.Fireplace, "fireplace: removed fire sprite");
+
+            if (Core.TileScale == 1) {
+               ((IsoSpriteInstance)this.AttachedAnimSprite.get(this.FireSpriteIndex)).setScale(0.5F, 0.5F);
+            }
+         }
+      } else if (this.FireSpriteIndex != -1) {
+         DebugLog.log(DebugType.Fireplace, "fireplace: removed fire sprite");
+         if (this.AttachedAnimSprite != null) {
             this.AttachedAnimSprite.remove(this.FireSpriteIndex);
-            if (this.FuelSpriteIndex > this.FireSpriteIndex) {
-               --this.FuelSpriteIndex;
-            }
-
-            this.FireSpriteIndex = -1;
          }
 
+         if (this.FuelSpriteIndex > this.FireSpriteIndex) {
+            --this.FuelSpriteIndex;
+         }
+
+         this.FireSpriteIndex = -1;
+         this.setOverlaySprite((String)null);
       }
+
    }
 
    private int calcLightRadius() {
@@ -216,9 +266,10 @@ public class IsoFireplace extends IsoObject {
          }
 
          if (this.LightSource == null) {
-            this.LightSource = new IsoLightSource(this.square.getX(), this.square.getY(), this.square.getZ(), 1.0F, 0.1F, 0.1F, var1);
+            this.LightSource = new IsoLightSource(this.square.getX(), this.square.getY(), this.square.getZ(), this.fireColor.r, this.fireColor.g, this.fireColor.b, var1);
             IsoWorld.instance.CurrentCell.addLamppost(this.LightSource);
-            IsoGridSquare.RecalcLightTime = -1;
+            IsoGridSquare.RecalcLightTime = -1.0F;
+            ++Core.dirtyGlobalLightsCount;
             GameTime.instance.lightSourceUpdate = 100.0F;
          }
       } else if (this.LightSource != null) {
@@ -325,10 +376,12 @@ public class IsoFireplace extends IsoObject {
             IsoSpriteInstance var9 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var8);
             IsoSprite var10 = var9.parentSprite;
             var9.update();
-            float var11 = GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
-            var9.Frame += var9.AnimFrameIncrease * var11;
-            if ((int)var9.Frame >= var10.CurrentAnim.Frames.size() && var10.Loop && var9.Looped) {
-               var9.Frame = 0.0F;
+            if (var10.hasAnimation()) {
+               float var11 = GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
+               var9.Frame += var9.AnimFrameIncrease * var11;
+               if ((int)var9.Frame >= var10.CurrentAnim.Frames.size() && var10.Loop && var9.Looped) {
+                  var9.Frame = 0.0F;
+               }
             }
          }
       }
@@ -338,7 +391,10 @@ public class IsoFireplace extends IsoObject {
    public void addToWorld() {
       IsoCell var1 = this.getCell();
       var1.addToProcessIsoObject(this);
-      this.container.addItemsToProcessItems();
+      if (this.sprite != null && this.sprite.getProperties() != null && this.sprite.getProperties().Val("ContainerCapacity") != null) {
+         this.container.addItemsToProcessItems();
+      }
+
    }
 
    public void removeFromWorld() {
@@ -360,7 +416,9 @@ public class IsoFireplace extends IsoObject {
       if (this.AttachedAnimSprite != null) {
          for(int var8 = 0; var8 < this.AttachedAnimSprite.size(); ++var8) {
             IsoSpriteInstance var9 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var8);
-            var9.getParentSprite().render(var9, this, var1, var2, var3, this.dir, this.offsetX, this.offsetY, var4, true);
+            if (!PerformanceSettings.FBORenderChunk || !var9.getParentSprite().Animate) {
+               var9.getParentSprite().render(var9, this, var1, var2, var3, this.dir, this.offsetX, this.offsetY, var4, true);
+            }
          }
 
       }
@@ -380,5 +438,21 @@ public class IsoFireplace extends IsoObject {
          this.setLit(var2.get() == 1);
       }
 
+   }
+
+   public boolean hasAnimatedAttachments() {
+      return this.AttachedAnimSprite != null && !this.AttachedAnimSprite.isEmpty();
+   }
+
+   public void renderAnimatedAttachments(float var1, float var2, float var3, ColorInfo var4) {
+      if (this.AttachedAnimSprite != null) {
+         for(int var5 = 0; var5 < this.AttachedAnimSprite.size(); ++var5) {
+            IsoSpriteInstance var6 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var5);
+            if (var6.getParentSprite().Animate) {
+               var6.getParentSprite().render(var6, this, var1, var2, var3, this.dir, this.offsetX, this.offsetY, var4, true);
+            }
+         }
+
+      }
    }
 }

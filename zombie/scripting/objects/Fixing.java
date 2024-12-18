@@ -10,6 +10,7 @@ import zombie.characters.IsoGameCharacter;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.DrainableComboItem;
+import zombie.scripting.ScriptType;
 import zombie.util.Type;
 
 public final class Fixing extends BaseScriptObject {
@@ -22,9 +23,16 @@ public final class Fixing extends BaseScriptObject {
    private static final ArrayList<InventoryItem> s_InventoryItems = new ArrayList();
 
    public Fixing() {
+      super(ScriptType.Fixing);
    }
 
-   public void Load(String var1, String[] var2) {
+   public void Load(String var1, String var2) {
+      String[] var3 = var2.split("[{}]");
+      String[] var4 = var3[1].split(",");
+      this.Load(var1, var4);
+   }
+
+   private void Load(String var1, String[] var2) {
       this.setName(var1);
 
       for(int var3 = 0; var3 < var2.length; ++var3) {
@@ -105,11 +113,11 @@ public final class Fixing extends BaseScriptObject {
          if (var4.getFixerName().equals(var1.getType())) {
             if (var1 instanceof DrainableComboItem) {
                DrainableComboItem var5 = (DrainableComboItem)var1;
-               if (!(var5.getUsedDelta() < 1.0F)) {
+               if (!(var5.getCurrentUsesFloat() < 1.0F)) {
                   return var4;
                }
 
-               if (var5.getDrainableUsesInt() >= var4.getNumberOfUse()) {
+               if (var5.getCurrentUses() >= var4.getNumberOfUse()) {
                   return var4;
                }
             } else {
@@ -146,7 +154,7 @@ public final class Fixing extends BaseScriptObject {
 
    private static int countUses(InventoryItem var0) {
       DrainableComboItem var1 = (DrainableComboItem)Type.tryCastTo(var0, DrainableComboItem.class);
-      return var1 != null ? var1.getDrainableUsesInt() : 1;
+      return var1 != null ? var1.getCurrentUses() : 1;
    }
 
    public ArrayList<InventoryItem> getRequiredFixerItems(IsoGameCharacter var1, Fixer var2, InventoryItem var3, ArrayList<InventoryItem> var4) {

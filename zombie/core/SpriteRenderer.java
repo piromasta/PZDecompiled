@@ -1,5 +1,6 @@
 package zombie.core;
 
+import imgui.ImDrawData;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.ShortBuffer;
@@ -11,7 +12,6 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
-import zombie.GameProfiler;
 import zombie.asset.Asset;
 import zombie.core.Styles.AbstractStyle;
 import zombie.core.Styles.AdditiveStyle;
@@ -22,10 +22,13 @@ import zombie.core.Styles.TransparentStyle;
 import zombie.core.VBO.GLVertexBufferObject;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.GLState;
+import zombie.core.opengl.GLStateRenderThread;
 import zombie.core.opengl.RenderThread;
 import zombie.core.opengl.Shader;
+import zombie.core.profiling.PerformanceProbes;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.model.Model;
 import zombie.core.sprite.SpriteRenderState;
 import zombie.core.sprite.SpriteRendererStates;
 import zombie.core.textures.Texture;
@@ -34,23 +37,29 @@ import zombie.core.textures.TextureDraw;
 import zombie.core.textures.TextureFBO;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
-import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoPuddles;
 import zombie.iso.PlayerCamera;
+import zombie.iso.weather.fx.WeatherFxMask;
+import zombie.util.lambda.Invokers;
 import zombie.util.list.PZArrayUtil;
 
 public final class SpriteRenderer {
    public static final SpriteRenderer instance = new SpriteRenderer();
-   static final int VERTEX_SIZE = 32;
    static final int TEXTURE0_COORD_OFFSET = 8;
-   static final int TEXTURE1_COORD_OFFSET = 16;
-   static final int TEXTURE2_ATTRIB_OFFSET = 24;
-   static final int COLOR_OFFSET = 28;
+   static final int COLOR_OFFSET = 16;
+   static final int TEXTURE1_COORD_OFFSET = 20;
+   static final int TEXTURE2_COORD_OFFSET = 28;
+   static final int VERTEX_SIZE = 36;
    public static final RingBuffer ringBuffer = new RingBuffer();
    public static final int NUM_RENDER_STATES = 3;
    public final SpriteRendererStates m_states = new SpriteRendererStates();
    private volatile boolean m_waitingForRenderState = false;
    public static boolean GL_BLENDFUNC_ENABLED = true;
+   private final PerformanceProbes.Invokable.Params1.IProbe<SpriteRenderState> buildStateDrawBuffer = PerformanceProbes.create("buildStateDrawBuffer", this, (Invokers.Params2.ICallback)(SpriteRenderer::buildStateDrawBuffer));
+   private final PerformanceProbes.Invokable.Params1.IProbe<SpriteRenderState> buildStateUIDrawBuffer = PerformanceProbes.create("buildStateUIDrawBuffer(UI)", this, (Invokers.Params2.ICallback)(SpriteRenderer::buildStateUIDrawBuffer));
+   private static long WaitTime = 0L;
+   private final PerformanceProbes.Invokable.Params1.Boolean.IProbe<BooleanSupplier> waitForReadyState = PerformanceProbes.create("waitForReadyState", this, (Invokers.Params2.Boolean.ICallback)(SpriteRenderer::waitForReadyState));
+   private final PerformanceProbes.Invokable.Params0.IProbe waitForReadySlotToOpen = PerformanceProbes.create("waitForReadySlotToOpen", this, (Invokers.Params1.ICallback)(SpriteRenderer::waitForReadySlotToOpen));
 
    public SpriteRenderer() {
    }
@@ -75,6 +84,18 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().drawModel(var1);
    }
 
+   public void renderQueued() {
+      this.m_states.getPopulatingActiveState().renderQueued();
+   }
+
+   public void beginProfile(PerformanceProfileProbe var1) {
+      this.m_states.getPopulatingActiveState().beginProfile(var1);
+   }
+
+   public void endProfile(PerformanceProfileProbe var1) {
+      this.m_states.getPopulatingActiveState().endProfile(var1);
+   }
+
    public void drawSkyBox(Shader var1, int var2, int var3, int var4) {
       this.m_states.getPopulatingActiveState().drawSkyBox(var1, var2, var3, var4);
    }
@@ -83,7 +104,7 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().drawWater(var1, var2, var3, var4);
    }
 
-   public void drawPuddles(Shader var1, int var2, int var3, int var4) {
+   public void drawPuddles(int var1, int var2, int var3, int var4) {
       this.m_states.getPopulatingActiveState().drawPuddles(var1, var2, var3, var4);
    }
 
@@ -103,6 +124,14 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().glEnable(var1);
    }
 
+   public void NewFrame() {
+      this.m_states.getPopulatingActiveState().NewFrame();
+   }
+
+   public void glDepthFunc(int var1) {
+      this.m_states.getPopulatingActiveState().glDepthFunc(var1);
+   }
+
    public void glStencilMask(int var1) {
       this.m_states.getPopulatingActiveState().glStencilMask(var1);
    }
@@ -111,8 +140,16 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().glClear(var1);
    }
 
+   public void glBindFramebuffer(int var1, int var2) {
+      this.m_states.getPopulatingActiveState().glBindFramebuffer(var1, var2);
+   }
+
    public void glClearColor(int var1, int var2, int var3, int var4) {
       this.m_states.getPopulatingActiveState().glClearColor(var1, var2, var3, var4);
+   }
+
+   public void glClearDepth(float var1) {
+      this.m_states.getPopulatingActiveState().glClearDepth(var1);
    }
 
    public void glStencilFunc(int var1, int var2, int var3) {
@@ -151,11 +188,15 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().render(var1, var2, var4, var6, var8, var10, var12, var14, var16, var18, var19, var20, var21, var22, var23, var24, var25, var26, var27, var28, var29, var30, var31, var32, var33, var34);
    }
 
+   public void render(Texture var1, double var2, double var4, double var6, double var8, double var10, double var12, double var14, double var16, double var18, double var20, double var22, double var24, double var26, double var28, double var30, double var32, float var34, float var35, float var36, float var37) {
+      this.m_states.getPopulatingActiveState().render(var1, var2, var4, var6, var8, var10, var12, var14, var16, var18, var20, var22, var24, var26, var28, var30, var32, var34, var35, var36, var37);
+   }
+
    public void renderdebug(Texture var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, float var11, float var12, float var13, float var14, float var15, float var16, float var17, float var18, float var19, float var20, float var21, float var22, float var23, float var24, float var25, Consumer<TextureDraw> var26) {
       this.m_states.getPopulatingActiveState().renderdebug(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11, var12, var13, var14, var15, var16, var17, var18, var19, var20, var21, var22, var23, var24, var25, var26);
    }
 
-   public void renderline(Texture var1, int var2, int var3, int var4, int var5, float var6, float var7, float var8, float var9, int var10) {
+   public void renderline(Texture var1, int var2, int var3, int var4, int var5, float var6, float var7, float var8, float var9, float var10) {
       this.m_states.getPopulatingActiveState().renderline(var1, (float)var2, (float)var3, (float)var4, (float)var5, var6, var7, var8, var9, var10);
    }
 
@@ -163,16 +204,40 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().renderline(var1, var2, var3, var4, var5, var6, var7, var8, var9);
    }
 
+   public void renderlinef(Texture var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, int var10) {
+      this.m_states.getPopulatingActiveState().renderlinef(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10);
+   }
+
+   public void renderlinef(Texture var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, float var11) {
+      this.m_states.getPopulatingActiveState().renderlinef(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11);
+   }
+
    public void render(Texture var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, int var10, int var11, int var12, int var13) {
       this.m_states.getPopulatingActiveState().render(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11, var12, var13);
    }
 
    public void render(Texture var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, Consumer<TextureDraw> var10) {
-      float var11 = PZMath.floor(var2);
-      float var12 = PZMath.floor(var3);
-      float var13 = PZMath.ceil(var2 + var4);
-      float var14 = PZMath.ceil(var3 + var5);
-      this.m_states.getPopulatingActiveState().render(var1, var11, var12, var13 - var11, var14 - var12, var6, var7, var8, var9, var10);
+      if (PerformanceSettings.FBORenderChunk && !WeatherFxMask.isRenderingMask()) {
+         this.m_states.getPopulatingActiveState().render(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10);
+      } else {
+         float var11 = PZMath.floor(var2);
+         float var12 = PZMath.floor(var3);
+         float var13 = PZMath.ceil(var2 + var4);
+         float var14 = PZMath.ceil(var3 + var5);
+         this.m_states.getPopulatingActiveState().render(var1, var11, var12, var13 - var11, var14 - var12, var6, var7, var8, var9, var10);
+      }
+   }
+
+   public void render(Texture var1, Texture var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, Consumer<TextureDraw> var11) {
+      if (PerformanceSettings.FBORenderChunk && !WeatherFxMask.isRenderingMask()) {
+         this.m_states.getPopulatingActiveState().render(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11);
+      } else {
+         float var12 = PZMath.floor(var3);
+         float var13 = PZMath.floor(var4);
+         float var14 = PZMath.ceil(var3 + var5);
+         float var15 = PZMath.ceil(var4 + var6);
+         this.m_states.getPopulatingActiveState().render(var1, var2, var12, var13, var14 - var12, var15 - var13, var7, var8, var9, var10, var11);
+      }
    }
 
    public void renderi(Texture var1, int var2, int var3, int var4, int var5, float var6, float var7, float var8, float var9, Consumer<TextureDraw> var10) {
@@ -242,16 +307,14 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().render(var1, var2, var3, var4, var5, var6, var7, var8, var9, var10, var11, var12, var13, var14, var15, var16, var17, var18);
    }
 
-   private static void buildDrawBuffer(TextureDraw[] var0, Style[] var1, int var2, RingBuffer var3) {
-      for(int var4 = 0; var4 < var2; ++var4) {
-         TextureDraw var5 = var0[var4];
-         Style var6 = var1[var4];
-         TextureDraw var7 = null;
-         if (var4 > 0) {
-            var7 = var0[var4 - 1];
-         }
+   private void buildDrawBuffer(TextureDraw[] var1, Style[] var2, int var3) {
+      TextureDraw var4 = null;
 
-         var3.add(var5, var7, var6);
+      for(int var5 = 0; var5 < var3; ++var5) {
+         TextureDraw var6 = var1[var5];
+         Style var7 = var2[var5];
+         ringBuffer.add(var6, var4, var7);
+         var4 = var6;
       }
 
    }
@@ -267,27 +330,26 @@ public final class SpriteRenderer {
       } else {
          TextureFBO.reset();
          IsoPuddles.VBOs.startFrame();
-         GameProfiler.getInstance().invokeAndMeasure("buildStateUIDrawBuffer(UI)", this, var1, SpriteRenderer::buildStateUIDrawBuffer);
-         GameProfiler.getInstance().invokeAndMeasure("buildStateDrawBuffer", this, var1, SpriteRenderer::buildStateDrawBuffer);
+         GLStateRenderThread.startFrame();
+         this.buildStateUIDrawBuffer.invoke(var1);
+         this.buildStateDrawBuffer.invoke(var1);
          var1.onRendered();
          Core.getInstance().setLastRenderedFBO(var1.fbo);
          this.notifyRenderStateQueue();
       }
    }
 
-   protected void buildStateDrawBuffer(SpriteRenderState var1) {
+   private void buildStateDrawBuffer(SpriteRenderState var1) {
       ringBuffer.begin();
-      buildDrawBuffer(var1.sprite, var1.style, var1.numSprites, ringBuffer);
-      GameProfiler.getInstance().invokeAndMeasure("ringBuffer.render", () -> {
-         ringBuffer.render();
-      });
+      this.buildDrawBuffer(var1.sprite, var1.style, var1.numSprites);
+      ringBuffer.render();
    }
 
-   protected void buildStateUIDrawBuffer(SpriteRenderState var1) {
+   private void buildStateUIDrawBuffer(SpriteRenderState var1) {
       if (var1.stateUI.numSprites > 0) {
          ringBuffer.begin();
          var1.stateUI.bActive = true;
-         buildDrawBuffer(var1.stateUI.sprite, var1.stateUI.style, var1.stateUI.numSprites, ringBuffer);
+         this.buildDrawBuffer(var1.stateUI.sprite, var1.stateUI.style, var1.stateUI.numSprites);
          ringBuffer.render();
       }
 
@@ -308,8 +370,24 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().glDoStartFrame(var1, var2, var3, var4);
    }
 
+   public void FBORenderChunkStart(int var1, boolean var2) {
+      this.m_states.getPopulatingActiveState().FBORenderChunkStart(var1, var2);
+   }
+
+   public void FBORenderChunkEnd() {
+      this.m_states.getPopulatingActiveState().FBORenderChunkEnd();
+   }
+
    public void glDoStartFrame(int var1, int var2, float var3, int var4, boolean var5) {
       this.m_states.getPopulatingActiveState().glDoStartFrame(var1, var2, var3, var4, var5);
+   }
+
+   public void glDoStartFrameFlipY(int var1, int var2, float var3, int var4) {
+      this.m_states.getPopulatingActiveState().glDoStartFrameFlipY(var1, var2, var3, var4);
+   }
+
+   public void glDoStartFrameNoZoom(int var1, int var2, float var3, int var4) {
+      this.m_states.getPopulatingActiveState().glDoStartFrameNoZoom(var1, var2, var3, var4);
    }
 
    public void glDoStartFrameFx(int var1, int var2, int var3) {
@@ -322,6 +400,14 @@ public final class SpriteRenderer {
 
    public void glDoEndFrame() {
       this.m_states.getPopulatingActiveState().glDoEndFrame();
+   }
+
+   public void pushIsoView(float var1, float var2, float var3, float var4, boolean var5) {
+      this.m_states.getPopulatingActiveState().pushIsoView(var1, var2, var3, var4, var5);
+   }
+
+   public void popIsoView() {
+      this.m_states.getPopulatingActiveState().popIsoView();
    }
 
    public void glDoEndFrameFx(int var1) {
@@ -350,6 +436,10 @@ public final class SpriteRenderer {
 
    public void clearCutawayTexture() {
       this.m_states.getPopulatingActiveState().clearCutawayTexture();
+   }
+
+   public void setCutawayTexture2(Texture var1, int var2, int var3, int var4, int var5) {
+      this.m_states.getPopulatingActiveState().setCutawayTexture2(var1, var2, var3, var4, var5);
    }
 
    public void setUseVertColorsArray(byte var1, int var2, int var3, int var4, int var5) {
@@ -396,8 +486,16 @@ public final class SpriteRenderer {
       this.m_states.getPopulatingActiveState().glBind(var1);
    }
 
+   public void releaseFBORenderChunkLock() {
+      this.m_states.getPopulatingActiveState().releaseFBORenderChunkLock();
+   }
+
    public void glViewport(int var1, int var2, int var3, int var4) {
       this.m_states.getPopulatingActiveState().glViewport(var1, var2, var3, var4);
+   }
+
+   public void render(ImDrawData var1) {
+      this.m_states.getPopulatingActiveState().render(var1);
    }
 
    public void startOffscreenUI() {
@@ -410,9 +508,15 @@ public final class SpriteRenderer {
       this.m_states.getPopulating().stateUI.bActive = false;
    }
 
+   public static long getWaitTime() {
+      return WaitTime;
+   }
+
    public void pushFrameDown() {
       synchronized(this.m_states) {
-         this.waitForReadySlotToOpen();
+         long var2 = System.nanoTime();
+         this.waitForReadySlotToOpen.invoke();
+         WaitTime = System.nanoTime() - var2;
          this.m_states.movePopulatingToReady();
          this.notifyRenderStateQueue();
       }
@@ -420,7 +524,7 @@ public final class SpriteRenderer {
 
    public SpriteRenderState acquireStateForRendering(BooleanSupplier var1) {
       synchronized(this.m_states) {
-         if (!this.waitForReadyState(var1)) {
+         if (!this.waitForReadyState.invoke(var1)) {
             return null;
          } else {
             this.m_states.moveReadyToRendering();
@@ -431,18 +535,6 @@ public final class SpriteRenderer {
    }
 
    private boolean waitForReadyState(BooleanSupplier var1) {
-      boolean var2;
-      try {
-         SpriteRenderer.s_performance.waitForReadyState.start();
-         var2 = this.waitForReadyStateInternal(var1);
-      } finally {
-         SpriteRenderer.s_performance.waitForReadyState.end();
-      }
-
-      return var2;
-   }
-
-   private boolean waitForReadyStateInternal(BooleanSupplier var1) {
       if (RenderThread.isRunning() && this.m_states.getReady() == null) {
          if (!RenderThread.isWaitForRenderState() && !this.isWaitingForRenderState()) {
             return false;
@@ -466,16 +558,6 @@ public final class SpriteRenderer {
    }
 
    private void waitForReadySlotToOpen() {
-      try {
-         SpriteRenderer.s_performance.waitForReadySlotToOpen.start();
-         this.waitForReadySlotToOpenInternal();
-      } finally {
-         SpriteRenderer.s_performance.waitForReadySlotToOpen.end();
-      }
-
-   }
-
-   private void waitForReadySlotToOpenInternal() {
       if (this.m_states.getReady() != null && RenderThread.isRunning()) {
          this.m_waitingForRenderState = true;
 
@@ -581,6 +663,8 @@ public final class SpriteRenderer {
       Texture currentTexture0;
       Texture lastRenderedTexture1;
       Texture currentTexture1;
+      Texture lastRenderedTexture2;
+      Texture currentTexture2;
       boolean shaderChangedTexture1 = false;
       byte lastUseAttribArray;
       byte currentUseAttribArray;
@@ -594,17 +678,20 @@ public final class SpriteRenderer {
       int numRuns;
       StateRun currentRun;
       public static boolean IGNORE_STYLES = false;
+      final PerformanceProbes.Invokable.Params4.IProbe<Integer, Integer, Integer, Integer> drawRangleElements = PerformanceProbes.create("Render Style", this, (Invokers.Params5.ICallback)(RingBuffer::drawElements));
 
       RingBuffer() {
       }
 
       void create() {
-         GL11.glEnableClientState(32884);
-         GL11.glEnableClientState(32886);
-         GL11.glEnableClientState(32888);
+         GL20.glEnableVertexAttribArray(0);
+         GL20.glEnableVertexAttribArray(1);
+         GL20.glEnableVertexAttribArray(2);
+         GL20.glEnableVertexAttribArray(3);
+         GL20.glEnableVertexAttribArray(4);
          this.bufferSize = 65536L;
          this.numBuffers = Core.bDebug ? 256 : 128;
-         this.bufferSizeInVertices = this.bufferSize / 32L;
+         this.bufferSizeInVertices = this.bufferSize / 36L;
          this.indexBufferSize = this.bufferSizeInVertices * 3L;
          this.vertices = new FloatBuffer[this.numBuffers];
          this.verticesBytes = new ByteBuffer[this.numBuffers];
@@ -632,8 +719,8 @@ public final class SpriteRenderer {
       void add(TextureDraw var1, TextureDraw var2, Style var3) {
          if (var3 != null) {
             if ((long)(this.vertexCursor + 4) > this.bufferSizeInVertices || (long)(this.indexCursor + 6) > this.indexBufferSize) {
-               this.render();
-               this.next();
+               SpriteRenderer.ringBuffer.render();
+               SpriteRenderer.ringBuffer.next();
             }
 
             if (this.prepareCurrentRun(var1, var2, var3)) {
@@ -654,6 +741,8 @@ public final class SpriteRenderer {
                   var4.put(var1.v0);
                }
 
+               int var6 = var1.getColor(0);
+               var5.op(var6, 255, var4);
                if (var1.tex1 == null) {
                   var4.put(0.0F);
                   var4.put(0.0F);
@@ -662,9 +751,14 @@ public final class SpriteRenderer {
                   var4.put(var1.tex1_v0);
                }
 
-               var4.put(Float.intBitsToFloat(var1.useAttribArray != -1 ? var1.tex1_col0 : 0));
-               int var6 = var1.getColor(0);
-               var5.op(var6, 255, var4);
+               if (var1.tex2 == null) {
+                  var4.put(0.0F);
+                  var4.put(0.0F);
+               } else {
+                  var4.put(var1.tex2_u0);
+                  var4.put(var1.tex2_v0);
+               }
+
                var4.put(var1.x1);
                var4.put(var1.y1);
                if (var1.tex == null) {
@@ -680,6 +774,8 @@ public final class SpriteRenderer {
                   var4.put(var1.v1);
                }
 
+               var6 = var1.getColor(1);
+               var5.op(var6, 255, var4);
                if (var1.tex1 == null) {
                   var4.put(0.0F);
                   var4.put(0.0F);
@@ -688,9 +784,14 @@ public final class SpriteRenderer {
                   var4.put(var1.tex1_v1);
                }
 
-               var4.put(Float.intBitsToFloat(var1.useAttribArray != -1 ? var1.tex1_col1 : 0));
-               var6 = var1.getColor(1);
-               var5.op(var6, 255, var4);
+               if (var1.tex2 == null) {
+                  var4.put(0.0F);
+                  var4.put(0.0F);
+               } else {
+                  var4.put(var1.tex2_u1);
+                  var4.put(var1.tex2_v1);
+               }
+
                var4.put(var1.x2);
                var4.put(var1.y2);
                if (var1.tex == null) {
@@ -706,6 +807,8 @@ public final class SpriteRenderer {
                   var4.put(var1.v2);
                }
 
+               var6 = var1.getColor(2);
+               var5.op(var6, 255, var4);
                if (var1.tex1 == null) {
                   var4.put(0.0F);
                   var4.put(0.0F);
@@ -714,9 +817,14 @@ public final class SpriteRenderer {
                   var4.put(var1.tex1_v2);
                }
 
-               var4.put(Float.intBitsToFloat(var1.useAttribArray != -1 ? var1.tex1_col2 : 0));
-               var6 = var1.getColor(2);
-               var5.op(var6, 255, var4);
+               if (var1.tex2 == null) {
+                  var4.put(0.0F);
+                  var4.put(0.0F);
+               } else {
+                  var4.put(var1.tex2_u2);
+                  var4.put(var1.tex2_v2);
+               }
+
                var4.put(var1.x3);
                var4.put(var1.y3);
                if (var1.tex == null) {
@@ -732,6 +840,8 @@ public final class SpriteRenderer {
                   var4.put(var1.v3);
                }
 
+               var6 = var1.getColor(3);
+               var5.op(var6, 255, var4);
                if (var1.tex1 == null) {
                   var4.put(0.0F);
                   var4.put(0.0F);
@@ -740,15 +850,30 @@ public final class SpriteRenderer {
                   var4.put(var1.tex1_v3);
                }
 
-               var4.put(Float.intBitsToFloat(var1.useAttribArray != -1 ? var1.tex1_col3 : 0));
-               var6 = var1.getColor(3);
-               var5.op(var6, 255, var4);
-               this.currentIndices.put((short)this.vertexCursor);
-               this.currentIndices.put((short)(this.vertexCursor + 1));
-               this.currentIndices.put((short)(this.vertexCursor + 2));
-               this.currentIndices.put((short)this.vertexCursor);
-               this.currentIndices.put((short)(this.vertexCursor + 2));
-               this.currentIndices.put((short)(this.vertexCursor + 3));
+               if (var1.tex2 == null) {
+                  var4.put(0.0F);
+                  var4.put(0.0F);
+               } else {
+                  var4.put(var1.tex2_u3);
+                  var4.put(var1.tex2_v3);
+               }
+
+               if (var1.getColor(0) == var1.getColor(2)) {
+                  this.currentIndices.put((short)this.vertexCursor);
+                  this.currentIndices.put((short)(this.vertexCursor + 1));
+                  this.currentIndices.put((short)(this.vertexCursor + 2));
+                  this.currentIndices.put((short)this.vertexCursor);
+                  this.currentIndices.put((short)(this.vertexCursor + 2));
+                  this.currentIndices.put((short)(this.vertexCursor + 3));
+               } else {
+                  this.currentIndices.put((short)(this.vertexCursor + 1));
+                  this.currentIndices.put((short)(this.vertexCursor + 2));
+                  this.currentIndices.put((short)(this.vertexCursor + 3));
+                  this.currentIndices.put((short)(this.vertexCursor + 1));
+                  this.currentIndices.put((short)(this.vertexCursor + 3));
+                  this.currentIndices.put((short)(this.vertexCursor + 0));
+               }
+
                this.indexCursor += 6;
                this.vertexCursor += 4;
                StateRun var10000 = this.currentRun;
@@ -762,15 +887,19 @@ public final class SpriteRenderer {
       private boolean prepareCurrentRun(TextureDraw var1, TextureDraw var2, Style var3) {
          Texture var4 = var1.tex;
          Texture var5 = var1.tex1;
-         byte var6 = var1.useAttribArray;
-         if (this.isStateChanged(var1, var2, var3, var4, var5, var6)) {
+         Texture var6 = var1.tex2;
+         byte var7 = var1.useAttribArray;
+         if (this.isStateChanged(var1, var2, var3, var4, var5, var6, var7)) {
             this.currentRun = this.stateRun[this.numRuns];
             this.currentRun.start = this.vertexCursor;
             this.currentRun.length = 0;
             this.currentRun.style = var3;
             this.currentRun.texture0 = var4;
+            this.currentRun.z = var1.z;
+            this.currentRun.chunkDepth = var1.chunkDepth;
             this.currentRun.texture1 = var5;
-            this.currentRun.useAttribArray = var6;
+            this.currentRun.texture2 = var6;
+            this.currentRun.useAttribArray = var7;
             this.currentRun.indices = this.currentIndices;
             this.currentRun.startIndex = this.indexCursor;
             this.currentRun.endIndex = this.indexCursor;
@@ -782,7 +911,8 @@ public final class SpriteRenderer {
             this.currentStyle = var3;
             this.currentTexture0 = var4;
             this.currentTexture1 = var5;
-            this.currentUseAttribArray = var6;
+            this.currentTexture2 = var6;
+            this.currentUseAttribArray = var7;
          }
 
          if (var1.type != TextureDraw.Type.glDraw) {
@@ -793,16 +923,18 @@ public final class SpriteRenderer {
          }
       }
 
-      private boolean isStateChanged(TextureDraw var1, TextureDraw var2, Style var3, Texture var4, Texture var5, byte var6) {
+      private boolean isStateChanged(TextureDraw var1, TextureDraw var2, Style var3, Texture var4, Texture var5, Texture var6, byte var7) {
          if (this.currentRun == null) {
             return true;
          } else if (var1.type == TextureDraw.Type.DrawModel) {
             return true;
-         } else if (var6 != this.currentUseAttribArray) {
+         } else if (var7 != this.currentUseAttribArray) {
             return true;
          } else if (var4 != this.currentTexture0) {
             return true;
          } else if (var5 != this.currentTexture1) {
+            return true;
+         } else if (var6 != this.currentTexture2) {
             return true;
          } else {
             if (var2 != null) {
@@ -885,6 +1017,7 @@ public final class SpriteRenderer {
             this.stateRun[var1].render();
          }
 
+         Model.ModelDrawCounts.clear();
       }
 
       void growStateRuns() {
@@ -907,12 +1040,15 @@ public final class SpriteRenderer {
             this.shaderChangedTexture1 = false;
             this.lastRenderedTexture1 = null;
             GL13.glActiveTexture(33985);
-            GL13.glClientActiveTexture(33985);
             GL11.glDisable(3553);
             GL13.glActiveTexture(33984);
-            GL13.glClientActiveTexture(33984);
          }
 
+      }
+
+      private void drawElements(int var1, int var2, int var3, int var4) {
+         ShaderHelper.setModelViewProjection();
+         GL12.glDrawRangeElements(4, var1, var1 + var2, var4 - var3, 5123, (long)var3 * 2L);
       }
 
       public void debugBoundTexture(Texture var1, int var2) {
@@ -954,8 +1090,11 @@ public final class SpriteRenderer {
       }
 
       private class StateRun {
+         float z;
+         float chunkDepth;
          Texture texture0;
          Texture texture1;
+         Texture texture2;
          byte useAttribArray = -1;
          Style style;
          int start;
@@ -977,9 +1116,8 @@ public final class SpriteRenderer {
          void render() {
             if (this.style != null) {
                int var1 = this.ops.size();
-               int var2;
                if (var1 > 0) {
-                  for(var2 = 0; var2 < var1; ++var2) {
+                  for(int var2 = 0; var2 < var1; ++var2) {
                      ((TextureDraw)this.ops.get(var2)).run();
                   }
 
@@ -1001,6 +1139,7 @@ public final class SpriteRenderer {
                      RingBuffer.this.restoreBoundTextures = true;
                   }
 
+                  DefaultShader var10000;
                   if (RingBuffer.this.restoreBoundTextures) {
                      Texture.lastTextureID = 0;
                      GL11.glBindTexture(3553, 0);
@@ -1008,9 +1147,21 @@ public final class SpriteRenderer {
                         GL11.glDisable(3553);
                      }
 
+                     var10000 = SceneShaderStore.DefaultShader;
+                     if (DefaultShader.isActive) {
+                        SceneShaderStore.DefaultShader.setTextureActive(false);
+                     }
+
                      RingBuffer.this.lastRenderedTexture0 = null;
                      RingBuffer.this.lastRenderedTexture1 = null;
+                     RingBuffer.this.lastRenderedTexture2 = null;
                      RingBuffer.this.restoreBoundTextures = false;
+                  }
+
+                  var10000 = SceneShaderStore.DefaultShader;
+                  if (DefaultShader.isActive) {
+                     SceneShaderStore.DefaultShader.setZ(this.z);
+                     SceneShaderStore.DefaultShader.setChunkDepth(this.chunkDepth);
                   }
 
                   if (this.texture0 != RingBuffer.this.lastRenderedTexture0) {
@@ -1020,10 +1171,18 @@ public final class SpriteRenderer {
                         }
 
                         this.texture0.bind();
+                        var10000 = SceneShaderStore.DefaultShader;
+                        if (DefaultShader.isActive) {
+                           SceneShaderStore.DefaultShader.setTextureActive(true);
+                        }
                      } else {
                         GL11.glDisable(3553);
                         Texture.lastTextureID = 0;
                         GL11.glBindTexture(3553, 0);
+                        var10000 = SceneShaderStore.DefaultShader;
+                        if (DefaultShader.isActive) {
+                           SceneShaderStore.DefaultShader.setTextureActive(false);
+                        }
                      }
 
                      RingBuffer.this.lastRenderedTexture0 = this.texture0;
@@ -1035,7 +1194,6 @@ public final class SpriteRenderer {
 
                   if (this.texture1 != RingBuffer.this.lastRenderedTexture1) {
                      GL13.glActiveTexture(33985);
-                     GL13.glClientActiveTexture(33985);
                      if (this.texture1 != null) {
                         GL11.glBindTexture(3553, this.texture1.getID());
                      } else {
@@ -1043,42 +1201,19 @@ public final class SpriteRenderer {
                      }
 
                      GL13.glActiveTexture(33984);
-                     GL13.glClientActiveTexture(33984);
                      RingBuffer.this.lastRenderedTexture1 = this.texture1;
                   }
 
-                  if (this.useAttribArray != RingBuffer.this.lastUseAttribArray) {
-                     if (this.useAttribArray != -1) {
-                        if (this.useAttribArray == 1) {
-                           var2 = IsoGridSquare.CircleStencilShader.instance.a_wallShadeColor;
-                           if (var2 != -1) {
-                              GL20.glEnableVertexAttribArray(var2);
-                           }
-                        }
-
-                        if (this.useAttribArray == 2) {
-                           var2 = IsoGridSquare.NoCircleStencilShader.instance.a_wallShadeColor;
-                           if (var2 != -1) {
-                              GL20.glEnableVertexAttribArray(var2);
-                           }
-                        }
+                  if (this.texture2 != RingBuffer.this.lastRenderedTexture2) {
+                     GL13.glActiveTexture(33986);
+                     if (this.texture2 != null) {
+                        GL11.glBindTexture(3553, this.texture2.getID());
                      } else {
-                        if (RingBuffer.this.lastUseAttribArray == 1) {
-                           var2 = IsoGridSquare.CircleStencilShader.instance.a_wallShadeColor;
-                           if (var2 != -1) {
-                              GL20.glDisableVertexAttribArray(var2);
-                           }
-                        }
-
-                        if (RingBuffer.this.lastUseAttribArray == 2) {
-                           var2 = IsoGridSquare.NoCircleStencilShader.instance.a_wallShadeColor;
-                           if (var2 != -1) {
-                              GL20.glDisableVertexAttribArray(var2);
-                           }
-                        }
+                        GL11.glDisable(3553);
                      }
 
-                     RingBuffer.this.lastUseAttribArray = this.useAttribArray;
+                     GL13.glActiveTexture(33984);
+                     RingBuffer.this.lastRenderedTexture2 = this.texture2;
                   }
 
                   if (this.length != 0) {
@@ -1089,41 +1224,18 @@ public final class SpriteRenderer {
                            RingBuffer.this.restoreVBOs = false;
                            RingBuffer.this.vbo[RingBuffer.this.sequence].bind();
                            RingBuffer.this.ibo[RingBuffer.this.sequence].bind();
-                           GL11.glVertexPointer(2, 5126, 32, 0L);
-                           GL11.glTexCoordPointer(2, 5126, 32, 8L);
-                           GL11.glColorPointer(4, 5121, 32, 28L);
-                           GL13.glActiveTexture(33985);
-                           GL13.glClientActiveTexture(33985);
-                           GL11.glTexCoordPointer(2, 5126, 32, 16L);
-                           GL11.glEnableClientState(32888);
-                           var2 = IsoGridSquare.CircleStencilShader.instance.a_wallShadeColor;
-                           if (var2 != -1) {
-                              GL20.glVertexAttribPointer(var2, 4, 5121, true, 32, 24L);
-                           }
-
-                           var2 = IsoGridSquare.NoCircleStencilShader.instance.a_wallShadeColor;
-                           if (var2 != -1) {
-                              GL20.glVertexAttribPointer(var2, 4, 5121, true, 32, 24L);
-                           }
-
                            GL13.glActiveTexture(33984);
-                           GL13.glClientActiveTexture(33984);
+                           GL20.glVertexAttribPointer(0, 2, 5126, false, 36, 0L);
+                           GL20.glVertexAttribPointer(1, 2, 5126, false, 36, 8L);
+                           GL20.glVertexAttribPointer(2, 4, 5121, true, 36, 16L);
+                           GL20.glVertexAttribPointer(3, 2, 5126, false, 36, 20L);
+                           GL20.glVertexAttribPointer(4, 2, 5126, false, 36, 28L);
                         }
 
                         assert GL11.glGetInteger(34964) == RingBuffer.this.vbo[RingBuffer.this.sequence].getID();
 
-                        if (this.useAttribArray == 1) {
-                           RingBuffer.this.vbo[RingBuffer.this.sequence].enableVertexAttribArray(IsoGridSquare.CircleStencilShader.instance.a_wallShadeColor);
-
-                           assert GL20.glGetVertexAttribi(IsoGridSquare.CircleStencilShader.instance.a_wallShadeColor, 34975) != 0;
-                        } else if (this.useAttribArray == 2) {
-                           RingBuffer.this.vbo[RingBuffer.this.sequence].enableVertexAttribArray(IsoGridSquare.NoCircleStencilShader.instance.a_wallShadeColor);
-                        } else {
-                           RingBuffer.this.vbo[RingBuffer.this.sequence].disableVertexAttribArray();
-                        }
-
                         if (this.style.getRenderSprite()) {
-                           GL12.glDrawRangeElements(4, this.start, this.start + this.length, this.endIndex - this.startIndex, 5123, (long)this.startIndex * 2L);
+                           RingBuffer.this.drawRangleElements.invoke(this.start, this.length, this.startIndex, this.endIndex);
                         } else {
                            this.style.render(this.start, this.startIndex);
                         }
@@ -1145,9 +1257,11 @@ public final class SpriteRenderer {
       }
    }
 
-   private static class s_performance {
-      private static final PerformanceProfileProbe waitForReadyState = new PerformanceProfileProbe("waitForReadyState");
-      private static final PerformanceProfileProbe waitForReadySlotToOpen = new PerformanceProfileProbe("waitForReadySlotToOpen");
+   private static final class s_performance {
+      static final PerformanceProfileProbe ringBufferBegin = new PerformanceProfileProbe("RingBuffer.begin");
+      static final PerformanceProfileProbe ringBufferNext = new PerformanceProfileProbe("RingBuffer.next");
+      static final PerformanceProfileProbe ringBufferRender = new PerformanceProfileProbe("RingBuffer.render");
+      static final PerformanceProfileProbe spriteRendererBuildDrawBuffer = new PerformanceProfileProbe("SpriteRenderer.buildDrawBuffer");
 
       private s_performance() {
       }

@@ -11,6 +11,7 @@ import zombie.asset.AssetManager;
 import zombie.asset.AssetPath;
 import zombie.asset.AssetType;
 import zombie.core.math.PZMath;
+import zombie.iso.IsoCell;
 
 public final class WorldMapData extends Asset {
    public static final HashMap<String, WorldMapData> s_fileNameToData = new HashMap();
@@ -66,11 +67,11 @@ public final class WorldMapData extends Asset {
    }
 
    public int getWidthInSquares() {
-      return this.getWidthInCells() * 300;
+      return this.getWidthInCells() * IsoCell.CellSizeInSquares;
    }
 
    public int getHeightInSquares() {
-      return this.getHeightInCells() * 300;
+      return this.getHeightInCells() * IsoCell.CellSizeInSquares;
    }
 
    public void onLoaded() {
@@ -102,8 +103,8 @@ public final class WorldMapData extends Asset {
    }
 
    public void hitTest(float var1, float var2, ArrayList<WorldMapFeature> var3) {
-      int var4 = (int)PZMath.floor(var1 / 300.0F);
-      int var5 = (int)PZMath.floor(var2 / 300.0F);
+      int var4 = (int)PZMath.floor(var1 / (float)IsoCell.CellSizeInSquares);
+      int var5 = (int)PZMath.floor(var2 / (float)IsoCell.CellSizeInSquares);
       if (var4 >= this.m_minX && var4 <= this.m_maxX && var5 >= this.m_minY && var5 <= this.m_maxY) {
          WorldMapCell var6 = this.getCell(var4, var5);
          if (var6 != null) {

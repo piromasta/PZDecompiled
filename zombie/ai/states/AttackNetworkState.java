@@ -27,8 +27,8 @@ public class AttackNetworkState extends State {
       HashMap var3 = var1.getStateMachineParams(this);
       var3.clear();
       var3.put(0, Boolean.FALSE);
-      this.attackOutcome = var1.getVariableString("AttackOutcome");
-      var1.setVariable("AttackOutcome", "start");
+      this.attackOutcome = var2.getAttackOutcome();
+      var2.setAttackOutcome("start");
       var1.clearVariable("AttackDidDamage");
       var1.clearVariable("ZombieBiteDone");
       var2.setTargetSeenTime(1.0F);
@@ -43,9 +43,9 @@ public class AttackNetworkState extends State {
       HashMap var3 = var1.getStateMachineParams(this);
       IsoGameCharacter var4 = (IsoGameCharacter)var2.target;
       if (var4 == null || !"Chainsaw".equals(var4.getVariableString("ZombieHitReaction"))) {
-         String var5 = var1.getVariableString("AttackOutcome");
+         String var5 = var2.getAttackOutcome();
          if ("success".equals(var5) && !var1.getVariableBoolean("bAttack") && (var4 == null || !var4.isGodMod()) && !var1.getVariableBoolean("AttackDidDamage") && var1.getVariableString("ZombieBiteDone") != "true") {
-            var1.setVariable("AttackOutcome", "interrupted");
+            var2.setAttackOutcome("interrupted");
          }
 
          if (var4 == null || var4.isDead()) {
@@ -95,7 +95,7 @@ public class AttackNetworkState extends State {
       IsoZombie var3 = (IsoZombie)var1;
       if (GameClient.bClient && var3.isRemoteZombie()) {
          if (var2.m_EventName.equalsIgnoreCase("SetAttackOutcome")) {
-            var3.setVariable("AttackOutcome", "fail".equals(this.attackOutcome) ? "fail" : "success");
+            var3.setAttackOutcome("fail".equals(this.attackOutcome) ? "fail" : "success");
          }
 
          if (var2.m_EventName.equalsIgnoreCase("AttackCollisionCheck") && var3.target instanceof IsoPlayer) {
@@ -105,7 +105,7 @@ public class AttackNetworkState extends State {
             } else if (var3.laceration) {
                var3.getEmitter().playSoundImpl("ZombieScratch", var3);
             } else {
-               var3.getEmitter().playSoundImpl("ZombieBite", var3);
+               var3.getEmitter().playSoundImpl(var3.getBiteSoundName(), var3);
                var4.splatBloodFloorBig();
                var4.splatBloodFloorBig();
                var4.splatBloodFloorBig();

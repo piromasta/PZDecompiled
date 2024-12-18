@@ -105,10 +105,25 @@ public final class ItemVisual {
       ClothingItem.tryGetCombinedMask(this.getClothingItem(), var1);
    }
 
+   public void copyVisualFrom(ItemVisual var1) {
+      this.setHue(var1.getHue());
+      this.setTint(var1.getTint());
+      this.setBaseTexture(var1.getBaseTexture());
+      this.setTextureChoice(var1.getTextureChoice());
+      if (var1.m_Decal != null) {
+         this.setDecal(var1.m_Decal);
+      }
+
+   }
+
    public void setHue(float var1) {
       var1 = Math.max(var1, -1.0F);
       var1 = Math.min(var1, 1.0F);
       this.m_Hue = var1;
+   }
+
+   public float getHue() {
+      return this.m_Hue;
    }
 
    public float getHue(ClothingItem var1) {
@@ -258,6 +273,7 @@ public final class ItemVisual {
          this.m_TextureChoice = var1.m_TextureChoice;
          this.m_Decal = var1.m_Decal;
          this.copyBlood(var1);
+         this.copyDirt(var1);
          this.copyHoles(var1);
          this.copyPatches(var1);
       }
@@ -376,16 +392,9 @@ public final class ItemVisual {
 
    public void load(ByteBuffer var1, int var2) throws IOException {
       int var3 = var1.get() & 255;
-      if (var2 >= 164) {
-         this.m_fullType = GameWindow.ReadString(var1);
-         this.m_alternateModelName = GameWindow.ReadString(var1);
-      }
-
+      this.m_fullType = GameWindow.ReadString(var1);
+      this.m_alternateModelName = GameWindow.ReadString(var1);
       this.m_clothingItemName = GameWindow.ReadString(var1);
-      if (var2 < 164) {
-         this.m_fullType = ScriptManager.instance.getItemTypeForClothingItem(this.m_clothingItemName);
-      }
-
       int var5;
       if ((var3 & 1) != 0) {
          int var4 = var1.get() & 255;
@@ -402,14 +411,12 @@ public final class ItemVisual {
          this.m_TextureChoice = var1.get();
       }
 
-      if (var2 >= 146) {
-         if ((var3 & 8) != 0) {
-            this.m_Hue = var1.getFloat();
-         }
+      if ((var3 & 8) != 0) {
+         this.m_Hue = var1.getFloat();
+      }
 
-         if ((var3 & 16) != 0) {
-            this.m_Decal = GameWindow.ReadString(var1);
-         }
+      if ((var3 & 16) != 0) {
+         this.m_Decal = GameWindow.ReadString(var1);
       }
 
       byte var7 = var1.get();
@@ -425,17 +432,15 @@ public final class ItemVisual {
          }
       }
 
-      if (var2 >= 163) {
-         var7 = var1.get();
-         if (var7 > 0 && this.dirt == null) {
-            this.dirt = new byte[BloodBodyPartType.MAX.index()];
-         }
+      var7 = var1.get();
+      if (var7 > 0 && this.dirt == null) {
+         this.dirt = new byte[BloodBodyPartType.MAX.index()];
+      }
 
-         for(var5 = 0; var5 < var7; ++var5) {
-            var8 = var1.get();
-            if (var5 < this.dirt.length) {
-               this.dirt[var5] = var8;
-            }
+      for(var5 = 0; var5 < var7; ++var5) {
+         var8 = var1.get();
+         if (var5 < this.dirt.length) {
+            this.dirt[var5] = var8;
          }
       }
 
@@ -451,43 +456,39 @@ public final class ItemVisual {
          }
       }
 
-      if (var2 >= 154) {
-         var7 = var1.get();
-         if (var7 > 0 && this.basicPatches == null) {
-            this.basicPatches = new byte[BloodBodyPartType.MAX.index()];
-         }
+      var7 = var1.get();
+      if (var7 > 0 && this.basicPatches == null) {
+         this.basicPatches = new byte[BloodBodyPartType.MAX.index()];
+      }
 
-         for(var5 = 0; var5 < var7; ++var5) {
-            var8 = var1.get();
-            if (var5 < this.basicPatches.length) {
-               this.basicPatches[var5] = var8;
-            }
+      for(var5 = 0; var5 < var7; ++var5) {
+         var8 = var1.get();
+         if (var5 < this.basicPatches.length) {
+            this.basicPatches[var5] = var8;
          }
       }
 
-      if (var2 >= 155) {
-         var7 = var1.get();
-         if (var7 > 0 && this.denimPatches == null) {
-            this.denimPatches = new byte[BloodBodyPartType.MAX.index()];
-         }
+      var7 = var1.get();
+      if (var7 > 0 && this.denimPatches == null) {
+         this.denimPatches = new byte[BloodBodyPartType.MAX.index()];
+      }
 
-         for(var5 = 0; var5 < var7; ++var5) {
-            var8 = var1.get();
-            if (var5 < this.denimPatches.length) {
-               this.denimPatches[var5] = var8;
-            }
+      for(var5 = 0; var5 < var7; ++var5) {
+         var8 = var1.get();
+         if (var5 < this.denimPatches.length) {
+            this.denimPatches[var5] = var8;
          }
+      }
 
-         var7 = var1.get();
-         if (var7 > 0 && this.leatherPatches == null) {
-            this.leatherPatches = new byte[BloodBodyPartType.MAX.index()];
-         }
+      var7 = var1.get();
+      if (var7 > 0 && this.leatherPatches == null) {
+         this.leatherPatches = new byte[BloodBodyPartType.MAX.index()];
+      }
 
-         for(var5 = 0; var5 < var7; ++var5) {
-            var8 = var1.get();
-            if (var5 < this.leatherPatches.length) {
-               this.leatherPatches[var5] = var8;
-            }
+      for(var5 = 0; var5 < var7; ++var5) {
+         var8 = var1.get();
+         if (var5 < this.leatherPatches.length) {
+            this.leatherPatches[var5] = var8;
          }
       }
 
@@ -889,5 +890,10 @@ public final class ItemVisual {
       } else {
          return null;
       }
+   }
+
+   public String getDescription() {
+      String var10000 = this.getItemType();
+      return "{ \"ItemVisual\" : { \"ItemType\" : " + var10000 + " , \"m_clothingItemName\" : \"" + this.m_clothingItemName + "\" } }";
    }
 }

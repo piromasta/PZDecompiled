@@ -16,6 +16,9 @@ public final class ZombieFallingState extends State {
 
    public void enter(IsoGameCharacter var1) {
       var1.setVariable("bHardFall", false);
+      var1.setVariable("bHardFall2", false);
+      var1.setVariable("bLandLight", false);
+      var1.setVariable("bLandLightMask", false);
       var1.clearVariable("bLandAnimFinished");
    }
 
@@ -24,6 +27,9 @@ public final class ZombieFallingState extends State {
 
    public void exit(IsoGameCharacter var1) {
       var1.clearVariable("bHardFall");
+      var1.clearVariable("bHardFall2");
+      var1.clearVariable("bLandLight");
+      var1.clearVariable("bLandLightMask");
       var1.clearVariable("bLandAnimFinished");
    }
 

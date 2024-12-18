@@ -27,7 +27,7 @@ public final class FileTask_LoadImageData extends FileTask {
 
    public Object call() throws Exception {
       TextureIDAssetManager.instance.waitFileTask();
-      if (DebugOptions.instance.AssetSlowLoad.getValue()) {
+      if (DebugOptions.instance.Asset.SlowLoad.getValue()) {
          try {
             Thread.sleep(500L);
          } catch (InterruptedException var9) {

@@ -11,6 +11,7 @@ import zombie.characterTextures.ItemSmartTexture;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.WornItems.BodyLocationGroup;
 import zombie.characters.WornItems.BodyLocations;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
 import zombie.core.ImmutableColor;
 import zombie.core.skinnedmodel.ModelManager;
@@ -18,6 +19,7 @@ import zombie.core.skinnedmodel.population.ClothingDecal;
 import zombie.core.skinnedmodel.population.ClothingDecals;
 import zombie.core.skinnedmodel.population.ClothingItem;
 import zombie.core.skinnedmodel.population.PopTemplateManager;
+import zombie.core.skinnedmodel.visual.AnimalVisual;
 import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.visual.HumanVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
@@ -47,6 +49,7 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
    private boolean bRendered;
    private final ArrayList<Texture> texturesNotReady;
    public int testNotReady;
+   private final ArrayList<ItemData> localItemData;
    private static final ObjectPool<ModelInstanceTextureCreator> pool = new ObjectPool(ModelInstanceTextureCreator::new);
 
    public ModelInstanceTextureCreator() {
@@ -60,34 +63,80 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
       this.bRendered = false;
       this.texturesNotReady = new ArrayList();
       this.testNotReady = -1;
+      this.localItemData = new ArrayList();
    }
 
    public void init(IsoGameCharacter var1) {
       ModelManager.ModelSlot var2 = var1.legsSprite.modelSlot;
-      HumanVisual var3 = ((IHumanVisual)var1).getHumanVisual();
-      var1.getItemVisuals(this.itemVisuals);
-      this.init(var3, this.itemVisuals, var2.model);
-      this.itemVisuals.clear();
+      if (var1 instanceof IsoAnimal) {
+         this.init(((IsoAnimal)var1).getAnimalVisual(), var2.model);
+      } else {
+         HumanVisual var3 = ((IHumanVisual)var1).getHumanVisual();
+         var1.getItemVisuals(this.itemVisuals);
+         this.init(var3, this.itemVisuals, var2.model);
+         this.itemVisuals.clear();
+      }
    }
 
    public void init(BaseVisual var1, ItemVisuals var2, ModelInstance var3) {
-      if (var1 instanceof HumanVisual) {
+      if (var1 instanceof AnimalVisual) {
+         this.init((AnimalVisual)var1, var3);
+      } else if (var1 instanceof HumanVisual) {
          this.init((HumanVisual)var1, var2, var3);
       } else {
          throw new IllegalArgumentException("unhandled BaseVisual " + var1);
       }
    }
 
+   public void init(AnimalVisual var1, ModelInstance var2) {
+      this.chrData.modelInstance = var2;
+      this.bRendered = false;
+      this.bZombie = false;
+      Arrays.fill(this.holeMask, false);
+      synchronized(this.itemData) {
+         ModelInstanceTextureCreator.ItemData.pool.release((List)this.itemData);
+         this.itemData.clear();
+      }
+
+      this.texturesNotReady.clear();
+      this.chrData.mask.setAllVisible(true);
+      this.chrData.maskFolder = "media/textures/Body/Masks";
+      this.chrData.baseTexture = "media/textures/Body/" + var1.getSkinTexture() + ".png";
+      Arrays.fill(this.chrData.blood, 0.0F);
+      Arrays.fill(this.chrData.dirt, 0.0F);
+      Texture var3 = Texture.getSharedTexture(this.chrData.baseTexture);
+      if (var3 != null && !var3.isReady()) {
+         this.texturesNotReady.add(var3);
+      }
+
+      if (!this.chrData.mask.isAllVisible() && !this.chrData.mask.isNothingVisible()) {
+         String var4 = this.chrData.maskFolder;
+         Consumer var5 = Lambda.consumer(var4, this.texturesNotReady, (var0, var1x, var2x) -> {
+            Texture var3 = Texture.getSharedTexture(var1x + "/" + var0 + ".png");
+            if (var3 != null && !var3.isReady()) {
+               var2x.add(var3);
+            }
+
+         });
+         this.chrData.mask.forEachVisible(var5);
+      }
+
+   }
+
    public void init(HumanVisual var1, ItemVisuals var2, ModelInstance var3) {
       boolean var4 = DebugLog.isEnabled(DebugType.Clothing);
+      this.chrData.modelInstance = var3;
       this.bRendered = false;
       this.bZombie = var1.isZombie();
       CharacterMask var5 = this.mask;
       var5.setAllVisible(true);
       String var6 = "media/textures/Body/Masks";
       Arrays.fill(this.holeMask, false);
-      ModelInstanceTextureCreator.ItemData.pool.release((List)this.itemData);
-      this.itemData.clear();
+      synchronized(this.itemData) {
+         ModelInstanceTextureCreator.ItemData.pool.release((List)this.itemData);
+         this.itemData.clear();
+      }
+
       this.texturesNotReady.clear();
       BodyLocationGroup var7 = BodyLocations.getGroup("Human");
 
@@ -118,17 +167,17 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
 
             this.addClothingItem(var11, var9, var10, var5, var6);
 
-            int var27;
-            for(var27 = 0; var27 < BloodBodyPartType.MAX.index(); ++var27) {
-               BloodBodyPartType var13 = BloodBodyPartType.FromIndex(var27);
+            int var28;
+            for(var28 = 0; var28 < BloodBodyPartType.MAX.index(); ++var28) {
+               BloodBodyPartType var13 = BloodBodyPartType.FromIndex(var28);
                if (var9.getHole(var13) > 0.0F && var5.isBloodBodyPartVisible(var13)) {
-                  this.holeMask[var27] = true;
+                  this.holeMask[var28] = true;
                }
             }
 
-            for(var27 = 0; var27 < var10.m_Masks.size(); ++var27) {
-               CharacterMask.Part var28 = CharacterMask.Part.fromInt((Integer)var10.m_Masks.get(var27));
-               BloodBodyPartType[] var14 = var28.getBloodBodyPartTypes();
+            for(var28 = 0; var28 < var10.m_Masks.size(); ++var28) {
+               CharacterMask.Part var29 = CharacterMask.Part.fromInt((Integer)var10.m_Masks.get(var28));
+               BloodBodyPartType[] var14 = var29.getBloodBodyPartTypes();
                int var15 = var14.length;
 
                for(int var16 = 0; var16 < var15; ++var16) {
@@ -146,117 +195,116 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
          }
       }
 
-      this.chrData.modelInstance = var3;
       this.chrData.mask.copyFrom(var5);
       this.chrData.maskFolder = var6;
       this.chrData.baseTexture = "media/textures/Body/" + var1.getSkinTexture() + ".png";
       Arrays.fill(this.chrData.blood, 0.0F);
 
       for(var8 = 0; var8 < BloodBodyPartType.MAX.index(); ++var8) {
-         BloodBodyPartType var19 = BloodBodyPartType.FromIndex(var8);
-         this.chrData.blood[var8] = var1.getBlood(var19);
-         this.chrData.dirt[var8] = var1.getDirt(var19);
+         BloodBodyPartType var20 = BloodBodyPartType.FromIndex(var8);
+         this.chrData.blood[var8] = var1.getBlood(var20);
+         this.chrData.dirt[var8] = var1.getDirt(var20);
       }
 
-      Texture var18 = getTextureWithFlags(this.chrData.baseTexture);
-      if (var18 != null && !var18.isReady()) {
-         this.texturesNotReady.add(var18);
+      Texture var19 = getTextureWithFlags(this.chrData.baseTexture);
+      if (var19 != null && !var19.isReady()) {
+         this.texturesNotReady.add(var19);
       }
 
       if (!this.chrData.mask.isAllVisible() && !this.chrData.mask.isNothingVisible()) {
-         String var20 = this.chrData.maskFolder;
-         Consumer var22 = Lambda.consumer(var20, this.texturesNotReady, (var0, var1x, var2x) -> {
+         String var21 = this.chrData.maskFolder;
+         Consumer var23 = Lambda.consumer(var21, this.texturesNotReady, (var0, var1x, var2x) -> {
             Texture var3 = getTextureWithFlags(var1x + "/" + var0 + ".png");
             if (var3 != null && !var3.isReady()) {
                var2x.add(var3);
             }
 
          });
-         this.chrData.mask.forEachVisible(var22);
+         this.chrData.mask.forEachVisible(var23);
       }
 
-      var18 = getTextureWithFlags("media/textures/BloodTextures/BloodOverlay.png");
-      if (var18 != null && !var18.isReady()) {
-         this.texturesNotReady.add(var18);
+      var19 = getTextureWithFlags("media/textures/BloodTextures/BloodOverlay.png");
+      if (var19 != null && !var19.isReady()) {
+         this.texturesNotReady.add(var19);
       }
 
-      var18 = getTextureWithFlags("media/textures/BloodTextures/GrimeOverlay.png");
-      if (var18 != null && !var18.isReady()) {
-         this.texturesNotReady.add(var18);
+      var19 = getTextureWithFlags("media/textures/BloodTextures/GrimeOverlay.png");
+      if (var19 != null && !var19.isReady()) {
+         this.texturesNotReady.add(var19);
       }
 
-      var18 = getTextureWithFlags("media/textures/patches/patchesmask.png");
-      if (var18 != null && !var18.isReady()) {
-         this.texturesNotReady.add(var18);
+      var19 = getTextureWithFlags("media/textures/patches/patchesmask.png");
+      if (var19 != null && !var19.isReady()) {
+         this.texturesNotReady.add(var19);
       }
 
-      int var21;
-      String var29;
-      for(var21 = 0; var21 < BloodBodyPartType.MAX.index(); ++var21) {
-         BloodBodyPartType var23 = BloodBodyPartType.FromIndex(var21);
+      int var22;
+      String var30;
+      for(var22 = 0; var22 < BloodBodyPartType.MAX.index(); ++var22) {
+         BloodBodyPartType var24 = BloodBodyPartType.FromIndex(var22);
          String[] var10000 = CharacterSmartTexture.MaskFiles;
-         String var25 = "media/textures/BloodTextures/" + var10000[var23.index()] + ".png";
-         var18 = getTextureWithFlags(var25);
-         if (var18 != null && !var18.isReady()) {
-            this.texturesNotReady.add(var18);
+         String var26 = "media/textures/BloodTextures/" + var10000[var24.index()] + ".png";
+         var19 = getTextureWithFlags(var26);
+         if (var19 != null && !var19.isReady()) {
+            this.texturesNotReady.add(var19);
          }
 
          var10000 = CharacterSmartTexture.MaskFiles;
-         var12 = "media/textures/HoleTextures/" + var10000[var23.index()] + ".png";
-         var18 = getTextureWithFlags(var12);
-         if (var18 != null && !var18.isReady()) {
-            this.texturesNotReady.add(var18);
+         var12 = "media/textures/HoleTextures/" + var10000[var24.index()] + ".png";
+         var19 = getTextureWithFlags(var12);
+         if (var19 != null && !var19.isReady()) {
+            this.texturesNotReady.add(var19);
          }
 
          var10000 = CharacterSmartTexture.BasicPatchesMaskFiles;
-         var29 = "media/textures/patches/" + var10000[var23.index()] + ".png";
-         var18 = getTextureWithFlags(var29);
-         if (var18 != null && !var18.isReady()) {
-            this.texturesNotReady.add(var18);
+         var30 = "media/textures/patches/" + var10000[var24.index()] + ".png";
+         var19 = getTextureWithFlags(var30);
+         if (var19 != null && !var19.isReady()) {
+            this.texturesNotReady.add(var19);
          }
 
          var10000 = CharacterSmartTexture.DenimPatchesMaskFiles;
-         String var31 = "media/textures/patches/" + var10000[var23.index()] + ".png";
-         var18 = getTextureWithFlags(var31);
-         if (var18 != null && !var18.isReady()) {
-            this.texturesNotReady.add(var18);
+         String var32 = "media/textures/patches/" + var10000[var24.index()] + ".png";
+         var19 = getTextureWithFlags(var32);
+         if (var19 != null && !var19.isReady()) {
+            this.texturesNotReady.add(var19);
          }
 
          var10000 = CharacterSmartTexture.LeatherPatchesMaskFiles;
-         String var32 = "media/textures/patches/" + var10000[var23.index()] + ".png";
-         var18 = getTextureWithFlags(var32);
-         if (var18 != null && !var18.isReady()) {
-            this.texturesNotReady.add(var18);
+         String var33 = "media/textures/patches/" + var10000[var24.index()] + ".png";
+         var19 = getTextureWithFlags(var33);
+         if (var19 != null && !var19.isReady()) {
+            this.texturesNotReady.add(var19);
          }
       }
 
       var5.setAllVisible(true);
       var6 = "media/textures/Body/Masks";
 
-      for(var21 = var1.getBodyVisuals().size() - 1; var21 >= 0; --var21) {
-         ItemVisual var24 = (ItemVisual)var1.getBodyVisuals().get(var21);
-         ClothingItem var26 = var24.getClothingItem();
-         if (var26 == null) {
+      for(var22 = var1.getBodyVisuals().size() - 1; var22 >= 0; --var22) {
+         ItemVisual var25 = (ItemVisual)var1.getBodyVisuals().get(var22);
+         ClothingItem var27 = var25.getClothingItem();
+         if (var27 == null) {
             if (var4) {
-               DebugLog.Clothing.warn("ClothingItem not found for ItemVisual:" + var24);
+               DebugLog.Clothing.warn("ClothingItem not found for ItemVisual:" + var25);
             }
-         } else if (!var26.isReady()) {
+         } else if (!var27.isReady()) {
             if (var4) {
-               DebugLog.Clothing.warn("ClothingItem not ready for ItemVisual:" + var24);
+               DebugLog.Clothing.warn("ClothingItem not ready for ItemVisual:" + var25);
             }
          } else {
-            ModelInstance var30 = this.findModelInstance(var3.sub, var24);
-            if (var30 == null) {
-               var29 = var26.getModel(var1.isFemale());
-               if (!StringUtils.isNullOrWhitespace(var29)) {
+            ModelInstance var31 = this.findModelInstance(var3.sub, var25);
+            if (var31 == null) {
+               var30 = var27.getModel(var1.isFemale());
+               if (!StringUtils.isNullOrWhitespace(var30)) {
                   if (var4) {
-                     DebugLog.Clothing.warn("ModelInstance not found for ItemVisual:" + var24);
+                     DebugLog.Clothing.warn("ModelInstance not found for ItemVisual:" + var25);
                   }
                   continue;
                }
             }
 
-            this.addClothingItem(var30, var24, var26, var5, var6);
+            this.addClothingItem(var31, var25, var27, var5, var6);
          }
       }
 
@@ -325,17 +373,19 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
       }
 
       if (Core.getInstance().isOptionSimpleClothingTextures(this.bZombie)) {
-         this.itemData.add(var9);
+         synchronized(this.itemData) {
+            this.itemData.add(var9);
+         }
       } else {
          var12 = var2.getDecal(var3);
          if (!StringUtils.isNullOrWhitespace(var12)) {
-            ClothingDecal var16 = ClothingDecals.instance.getDecal(var12);
-            if (var16 != null && var16.isValid()) {
-               var9.decalTexture = var16.texture;
-               var9.decalX = var16.x;
-               var9.decalY = var16.y;
-               var9.decalWidth = var16.width;
-               var9.decalHeight = var16.height;
+            ClothingDecal var19 = ClothingDecals.instance.getDecal(var12);
+            if (var19 != null && var19.isValid()) {
+               var9.decalTexture = var19.texture;
+               var9.decalX = var19.x;
+               var9.decalY = var19.y;
+               var9.decalWidth = var19.width;
+               var9.decalHeight = var19.height;
                var11 = getTextureWithFlags("media/textures/" + var9.decalTexture + ".png");
                if (var11 != null && !var11.isReady()) {
                   this.texturesNotReady.add(var11);
@@ -343,15 +393,15 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
             }
          }
 
-         for(int var17 = 0; var17 < BloodBodyPartType.MAX.index(); ++var17) {
-            BloodBodyPartType var14 = BloodBodyPartType.FromIndex(var17);
-            var9.blood[var17] = var2.getBlood(var14);
-            var9.dirt[var17] = var2.getDirt(var14);
-            var9.basicPatches[var17] = var2.getBasicPatch(var14);
-            var9.denimPatches[var17] = var2.getDenimPatch(var14);
-            var9.leatherPatches[var17] = var2.getLeatherPatch(var14);
-            var9.hole[var17] = var2.getHole(var14);
-            if (var9.hole[var17] > 0.0F) {
+         for(int var20 = 0; var20 < BloodBodyPartType.MAX.index(); ++var20) {
+            BloodBodyPartType var14 = BloodBodyPartType.FromIndex(var20);
+            var9.blood[var20] = var2.getBlood(var14);
+            var9.dirt[var20] = var2.getDirt(var14);
+            var9.basicPatches[var20] = var2.getBasicPatch(var14);
+            var9.denimPatches[var20] = var2.getDenimPatch(var14);
+            var9.leatherPatches[var20] = var2.getLeatherPatch(var14);
+            var9.hole[var20] = var2.getHole(var14);
+            if (var9.hole[var20] > 0.0F) {
                String[] var10000 = CharacterSmartTexture.MaskFiles;
                String var15 = "media/textures/HoleTextures/" + var10000[var14.index()] + ".png";
                var11 = getTextureWithFlags(var15);
@@ -360,107 +410,116 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
                }
             }
 
-            if (var9.hole[var17] == 0.0F && this.holeMask[var17]) {
-               var9.hole[var17] = -1.0F;
+            if (var9.hole[var20] == 0.0F && this.holeMask[var20]) {
+               var9.hole[var20] = -1.0F;
                if (var9.mask.isBloodBodyPartVisible(var14)) {
                }
             }
          }
 
-         this.itemData.add(var9);
+         synchronized(this.itemData) {
+            this.itemData.add(var9);
+         }
       }
    }
 
    public void render() {
       if (!this.bRendered) {
-         for(int var1 = 0; var1 < this.texturesNotReady.size(); ++var1) {
-            Texture var2 = (Texture)this.texturesNotReady.get(var1);
-            if (!var2.isReady()) {
-               return;
-            }
-         }
-
-         GL11.glPushAttrib(2048);
-
-         try {
-            this.tempTextures.clear();
-            CharacterSmartTexture var9 = this.createFullCharacterTexture();
-
-            assert var9 == this.characterSmartTexture;
-
-            if (!(this.chrData.modelInstance.tex instanceof CharacterSmartTexture)) {
-               this.chrData.modelInstance.tex = new CharacterSmartTexture();
+         if (this.chrData.modelInstance != null) {
+            for(int var1 = 0; var1 < this.texturesNotReady.size(); ++var1) {
+               Texture var2 = (Texture)this.texturesNotReady.get(var1);
+               if (!var2.isReady()) {
+                  return;
+               }
             }
 
-            ((CharacterSmartTexture)this.chrData.modelInstance.tex).clear();
-            this.applyCharacterTexture(var9.result, (CharacterSmartTexture)this.chrData.modelInstance.tex);
-            var9.clear();
-            this.tempTextures.add(var9.result);
-            var9.result = null;
-            var9 = (CharacterSmartTexture)this.chrData.modelInstance.tex;
-            int var10 = this.itemData.size() - 1;
+            GL11.glPushAttrib(2048);
 
-            while(true) {
-               if (var10 < 0) {
-                  var9.calculate();
-                  var9.clear();
-                  this.itemSmartTexture.clear();
+            try {
+               this.tempTextures.clear();
+               CharacterSmartTexture var11 = this.createFullCharacterTexture();
 
-                  for(var10 = 0; var10 < this.tempTextures.size(); ++var10) {
-                     for(int var11 = 0; var11 < this.itemData.size(); ++var11) {
-                        ModelInstance var13 = ((ItemData)this.itemData.get(var11)).modelInstance;
+               assert var11 == this.characterSmartTexture;
 
-                        assert var13 == null || this.tempTextures.get(var10) != var13.tex;
-                     }
-
-                     TextureCombiner.instance.releaseTexture((Texture)this.tempTextures.get(var10));
-                  }
-
-                  this.tempTextures.clear();
-                  break;
+               if (!(this.chrData.modelInstance.tex instanceof CharacterSmartTexture)) {
+                  this.chrData.modelInstance.tex = new CharacterSmartTexture();
                }
 
-               label184: {
-                  ItemData var3 = (ItemData)this.itemData.get(var10);
-                  Texture var4;
-                  if (this.isSimpleTexture(var3)) {
-                     int var5 = ModelManager.instance.getTextureFlags();
-                     var4 = Texture.getSharedTexture(var3.baseTexture, var5);
-                     if (!this.isItemSmartTextureRequired(var3)) {
-                        var3.modelInstance.tex = var4;
-                        break label184;
-                     }
-                  } else {
-                     ItemSmartTexture var12 = this.createFullItemTexture(var3);
-
-                     assert var12 == this.itemSmartTexture;
-
-                     var4 = var12.result;
-                     this.tempTextures.add(var12.result);
-                     var12.result = null;
-                  }
-
-                  if (var3.modelInstance == null) {
-                     this.applyItemTexture(var3, var4, var9);
-                  } else {
-                     if (!(var3.modelInstance.tex instanceof ItemSmartTexture)) {
-                        var3.modelInstance.tex = new ItemSmartTexture((String)null);
-                     }
-
-                     ((ItemSmartTexture)var3.modelInstance.tex).clear();
-                     this.applyItemTexture(var3, var4, (ItemSmartTexture)var3.modelInstance.tex);
-                     ((ItemSmartTexture)var3.modelInstance.tex).calculate();
-                     ((ItemSmartTexture)var3.modelInstance.tex).clear();
-                  }
+               ((CharacterSmartTexture)this.chrData.modelInstance.tex).clear();
+               this.applyCharacterTexture(var11.result, (CharacterSmartTexture)this.chrData.modelInstance.tex);
+               var11.clear();
+               this.tempTextures.add(var11.result);
+               var11.result = null;
+               var11 = (CharacterSmartTexture)this.chrData.modelInstance.tex;
+               this.localItemData.clear();
+               synchronized(this.itemData) {
+                  this.localItemData.addAll(this.itemData);
                }
 
-               --var10;
-            }
-         } finally {
-            GL11.glPopAttrib();
-         }
+               int var12 = this.localItemData.size() - 1;
 
-         this.bRendered = true;
+               while(true) {
+                  if (var12 < 0) {
+                     var11.calculate();
+                     var11.clear();
+                     this.itemSmartTexture.clear();
+
+                     for(var12 = 0; var12 < this.tempTextures.size(); ++var12) {
+                        for(int var13 = 0; var13 < this.localItemData.size(); ++var13) {
+                           ModelInstance var15 = ((ItemData)this.localItemData.get(var13)).modelInstance;
+
+                           assert var15 == null || this.tempTextures.get(var12) != var15.tex;
+                        }
+
+                        TextureCombiner.instance.releaseTexture((Texture)this.tempTextures.get(var12));
+                     }
+
+                     this.tempTextures.clear();
+                     break;
+                  }
+
+                  label208: {
+                     ItemData var3 = (ItemData)this.localItemData.get(var12);
+                     Texture var4;
+                     if (this.isSimpleTexture(var3)) {
+                        int var5 = ModelManager.instance.getTextureFlags();
+                        var4 = Texture.getSharedTexture(var3.baseTexture, var5);
+                        if (!this.isItemSmartTextureRequired(var3)) {
+                           var3.modelInstance.tex = var4;
+                           break label208;
+                        }
+                     } else {
+                        ItemSmartTexture var14 = this.createFullItemTexture(var3);
+
+                        assert var14 == this.itemSmartTexture;
+
+                        var4 = var14.result;
+                        this.tempTextures.add(var14.result);
+                        var14.result = null;
+                     }
+
+                     if (var3.modelInstance == null) {
+                        this.applyItemTexture(var3, var4, var11);
+                     } else {
+                        if (!(var3.modelInstance.tex instanceof ItemSmartTexture)) {
+                           var3.modelInstance.tex = new ItemSmartTexture((String)null);
+                        }
+
+                        ((ItemSmartTexture)var3.modelInstance.tex).clear();
+                        this.applyItemTexture(var3, var4, (ItemSmartTexture)var3.modelInstance.tex);
+                        ((ItemSmartTexture)var3.modelInstance.tex).calculate();
+                        ((ItemSmartTexture)var3.modelInstance.tex).clear();
+                     }
+                  }
+
+                  --var12;
+               }
+            } finally {
+               GL11.glPopAttrib();
+            }
+
+            this.bRendered = true;
+         }
       }
    }
 
@@ -636,14 +695,23 @@ public final class ModelInstanceTextureCreator extends TextureDraw.GenericDrawer
          }
       }
 
-      for(int var2 = 0; var2 < this.itemData.size(); ++var2) {
-         ((ItemData)this.itemData.get(var2)).modelInstance = null;
+      synchronized(this.itemData) {
+         int var2 = 0;
+
+         while(true) {
+            if (var2 >= this.itemData.size()) {
+               this.chrData.modelInstance = null;
+               this.texturesNotReady.clear();
+               ModelInstanceTextureCreator.ItemData.pool.release((List)this.itemData);
+               this.itemData.clear();
+               break;
+            }
+
+            ((ItemData)this.itemData.get(var2)).modelInstance = null;
+            ++var2;
+         }
       }
 
-      this.chrData.modelInstance = null;
-      this.texturesNotReady.clear();
-      ModelInstanceTextureCreator.ItemData.pool.release((List)this.itemData);
-      this.itemData.clear();
       pool.release((Object)this);
    }
 

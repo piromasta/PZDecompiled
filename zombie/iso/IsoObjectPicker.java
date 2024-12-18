@@ -7,21 +7,23 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.logger.ExceptionLogger;
-import zombie.core.textures.Texture;
+import zombie.core.math.PZMath;
 import zombie.input.Mouse;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.fboRenderChunk.FBORenderObjectPicker;
 import zombie.iso.objects.IsoCurtain;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.IsoGenerator;
 import zombie.iso.objects.IsoLightSwitch;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoWaveSignal;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
-import zombie.iso.sprite.IsoDirectionFrame;
 import zombie.iso.sprite.IsoSprite;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
@@ -31,7 +33,7 @@ public final class IsoObjectPicker {
    static final ArrayList<ClickObject> choices = new ArrayList();
    static final Vector2 tempo = new Vector2();
    static final Vector2 tempo2 = new Vector2();
-   static final Comparator<ClickObject> comp = new Comparator<ClickObject>() {
+   public static final Comparator<ClickObject> comp = new Comparator<ClickObject>() {
       public int compare(ClickObject var1, ClickObject var2) {
          int var3 = var1.getScore();
          int var4 = var2.getScore();
@@ -121,96 +123,73 @@ public final class IsoObjectPicker {
    }
 
    public ClickObject ContextPick(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
-      choices.clear();
-      ++this.counter;
-
-      int var5;
-      ClickObject var6;
-      for(var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         var6 = (ClickObject)this.ThisFrame.get(var5);
-         if ((!(var6.tile instanceof IsoPlayer) || var6.tile != IsoPlayer.players[0]) && (var6.tile.sprite == null || var6.tile.getTargetAlpha(0) != 0.0F && (!var6.tile.sprite.Properties.Is(IsoFlagType.cutW) && !var6.tile.sprite.Properties.Is(IsoFlagType.cutN) || var6.tile instanceof IsoWindow || !(var6.tile.getTargetAlpha(0) < 1.0F)))) {
-            if (var6.tile != null && var6.tile.sprite != null) {
-            }
-
-            if (var3 > (float)var6.x && var4 > (float)var6.y && var3 <= (float)(var6.x + var6.width) && var4 <= (float)(var6.y + var6.height)) {
-               if (var6.tile instanceof IsoPlayer) {
-                  if (var6.tile.sprite == null || var6.tile.sprite.def == null || var6.tile.sprite.CurrentAnim == null || var6.tile.sprite.CurrentAnim.Frames == null || var6.tile.sprite.def.Frame < 0.0F || var6.tile.sprite.def.Frame >= (float)var6.tile.sprite.CurrentAnim.Frames.size()) {
-                     continue;
-                  }
-
-                  int var7 = (int)(var3 - (float)var6.x);
-                  int var8 = (int)(var4 - (float)var6.y);
-                  Texture var9 = ((IsoDirectionFrame)var6.tile.sprite.CurrentAnim.Frames.get((int)var6.tile.sprite.def.Frame)).directions[var6.tile.dir.index()];
-                  int var10 = Core.TileScale;
-                  if (var6.flip) {
-                     var8 = (int)((float)var8 - var9.offsetY);
-                     var7 = var9.getWidth() - var8;
-                  } else {
-                     var7 = (int)((float)var7 - var9.offsetX * (float)var10);
-                     var8 = (int)((float)var8 - var9.offsetY * (float)var10);
-                  }
-
-                  if (var7 >= 0 && var8 >= 0 && var7 <= var9.getWidth() * var10 && var8 <= var9.getHeight() * var10) {
-                     var6.lx = (int)var3 - var6.x;
-                     var6.ly = (int)var4 - var6.y;
-                     this.LastPickObject = var6;
-                     choices.clear();
-                     choices.add(var6);
-                     break;
-                  }
-               }
-
-               if (var6.scaleX == 1.0F && var6.scaleY == 1.0F) {
-                  if (var6.tile.isMaskClicked((int)(var3 - (float)var6.x), (int)(var4 - (float)var6.y), var6.flip)) {
-                     if (var6.tile.rerouteMask != null) {
-                        var6.tile = var6.tile.rerouteMask;
-                     }
-
-                     var6.lx = (int)var3 - var6.x;
-                     var6.ly = (int)var4 - var6.y;
-                     this.LastPickObject = var6;
-                     choices.add(var6);
-                  }
-               } else {
-                  float var13 = (float)var6.x + (var3 - (float)var6.x) / var6.scaleX;
-                  float var14 = (float)var6.y + (var4 - (float)var6.y) / var6.scaleY;
-                  if (var6.tile.isMaskClicked((int)(var13 - (float)var6.x), (int)(var14 - (float)var6.y), var6.flip)) {
-                     if (var6.tile.rerouteMask != null) {
-                        var6.tile = var6.tile.rerouteMask;
-                     }
-
-                     var6.lx = (int)var3 - var6.x;
-                     var6.ly = (int)var4 - var6.y;
-                     this.LastPickObject = var6;
-                     choices.add(var6);
-                  }
-               }
-            }
-         }
-      }
-
-      if (choices.isEmpty()) {
-         return null;
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().ContextPick(var1, var2);
       } else {
-         for(var5 = 0; var5 < choices.size(); ++var5) {
-            var6 = (ClickObject)choices.get(var5);
-            var6.score = var6.calculateScore();
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
+         choices.clear();
+         ++this.counter;
+
+         int var5;
+         ClickObject var6;
+         for(var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            var6 = (ClickObject)this.ThisFrame.get(var5);
+            if ((!(var6.tile instanceof IsoPlayer) || var6.tile != IsoPlayer.players[0]) && (var6.tile.sprite == null || var6.tile.getTargetAlpha(0) != 0.0F && (!var6.tile.sprite.Properties.Is(IsoFlagType.cutW) && !var6.tile.sprite.Properties.Is(IsoFlagType.cutN) || var6.tile instanceof IsoWindow || var6.tile instanceof IsoThumpable && ((IsoThumpable)var6.tile).isDoor() || !(var6.tile.getTargetAlpha(0) < 1.0F)))) {
+               if (var6.tile != null && var6.tile.sprite != null) {
+               }
+
+               if (var3 > (float)var6.x && var4 > (float)var6.y && var3 <= (float)(var6.x + var6.width) && var4 <= (float)(var6.y + var6.height) && !(var6.tile instanceof IsoPlayer)) {
+                  if (var6.scaleX == 1.0F && var6.scaleY == 1.0F) {
+                     if (var6.tile.isMaskClicked((int)(var3 - (float)var6.x), (int)(var4 - (float)var6.y), var6.flip)) {
+                        if (var6.tile.rerouteMask != null) {
+                           var6.tile = var6.tile.rerouteMask;
+                        }
+
+                        var6.lx = PZMath.fastfloor(var3) - var6.x;
+                        var6.ly = PZMath.fastfloor(var4) - var6.y;
+                        this.LastPickObject = var6;
+                        choices.add(var6);
+                     }
+                  } else {
+                     float var7 = (float)var6.x + (var3 - (float)var6.x) / var6.scaleX;
+                     float var8 = (float)var6.y + (var4 - (float)var6.y) / var6.scaleY;
+                     if (var6.tile.isMaskClicked((int)(var7 - (float)var6.x), (int)(var8 - (float)var6.y), var6.flip)) {
+                        if (var6.tile.rerouteMask != null) {
+                           var6.tile = var6.tile.rerouteMask;
+                        }
+
+                        var6.lx = PZMath.fastfloor(var3) - var6.x;
+                        var6.ly = PZMath.fastfloor(var4) - var6.y;
+                        this.LastPickObject = var6;
+                        choices.add(var6);
+                     }
+                  }
+               }
+            }
          }
 
-         try {
-            Collections.sort(choices, comp);
-         } catch (IllegalArgumentException var11) {
-            if (Core.bDebug) {
-               ExceptionLogger.logException(var11);
+         if (choices.isEmpty()) {
+            return null;
+         } else {
+            for(var5 = 0; var5 < choices.size(); ++var5) {
+               var6 = (ClickObject)choices.get(var5);
+               var6.score = var6.calculateScore();
             }
 
-            return null;
-         }
+            try {
+               Collections.sort(choices, comp);
+            } catch (IllegalArgumentException var9) {
+               if (Core.bDebug) {
+                  ExceptionLogger.logException(var9);
+               }
 
-         ClickObject var12 = (ClickObject)choices.get(choices.size() - 1);
-         return var12;
+               return null;
+            }
+
+            ClickObject var10 = (ClickObject)choices.get(choices.size() - 1);
+            return var10;
+         }
       }
    }
 
@@ -250,8 +229,8 @@ public final class IsoObjectPicker {
                      var14.tile = var14.tile.rerouteMask;
                   }
 
-                  var14.lx = (int)var3 - var14.x;
-                  var14.ly = (int)var4 - var14.y;
+                  var14.lx = PZMath.fastfloor(var3) - var14.x;
+                  var14.ly = PZMath.fastfloor(var4) - var14.y;
                   this.LastPickObject = var14;
                   return var14;
                }
@@ -312,12 +291,12 @@ public final class IsoObjectPicker {
             if (var14.tile != null && var14.tile.sprite != null) {
             }
 
-            if (var3 > (float)var14.x && var4 > (float)var14.y && var3 <= (float)(var14.x + var14.width) && var4 <= (float)(var14.y + var14.height) && var14.tile instanceof IsoMovingObject && var14.tile.isMaskClicked((int)(var3 - (float)var14.x), (int)(var4 - (float)var14.y), var14.flip)) {
+            if (var3 > (float)var14.x && var4 > (float)var14.y && var3 <= (float)(var14.x + var14.width) && var4 <= (float)(var14.y + var14.height) && var14.tile instanceof IsoMovingObject && var14.tile.isMaskClicked(PZMath.fastfloor(var3 - (float)var14.x), PZMath.fastfloor(var4 - (float)var14.y), var14.flip)) {
                if (var14.tile.rerouteMask != null) {
                }
 
-               var14.lx = (int)(var3 - (float)var14.x);
-               var14.ly = (int)(var4 - (float)var14.y);
+               var14.lx = PZMath.fastfloor(var3 - (float)var14.x);
+               var14.ly = PZMath.fastfloor(var4 - (float)var14.y);
                this.LastPickObject = var14;
                return (IsoMovingObject)var14.tile;
             }
@@ -328,38 +307,90 @@ public final class IsoObjectPicker {
    }
 
    public IsoObject PickDoor(int var1, int var2, boolean var3) {
-      float var4 = (float)var1 * Core.getInstance().getZoom(0);
-      float var5 = (float)var2 * Core.getInstance().getZoom(0);
-      int var6 = IsoPlayer.getPlayerIndex();
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickDoor(var1, var2, var3);
+      } else {
+         float var4 = (float)var1 * Core.getInstance().getZoom(0);
+         float var5 = (float)var2 * Core.getInstance().getZoom(0);
+         int var6 = IsoPlayer.getPlayerIndex();
 
-      for(int var7 = this.ThisFrame.size() - 1; var7 >= 0; --var7) {
-         ClickObject var8 = (ClickObject)this.ThisFrame.get(var7);
-         if (var8.tile instanceof IsoDoor && var8.tile.getTargetAlpha(var6) != 0.0F && var3 == var8.tile.getTargetAlpha(var6) < 1.0F && var4 >= (float)var8.x && var5 >= (float)var8.y && var4 < (float)(var8.x + var8.width) && var5 < (float)(var8.y + var8.height)) {
-            int var9 = (int)(var4 - (float)var8.x);
-            int var10 = (int)(var5 - (float)var8.y);
-            if (var8.tile.isMaskClicked(var9, var10, var8.flip)) {
-               return var8.tile;
+         for(int var7 = this.ThisFrame.size() - 1; var7 >= 0; --var7) {
+            ClickObject var8 = (ClickObject)this.ThisFrame.get(var7);
+            if (var8.tile instanceof IsoDoor && var8.tile.getTargetAlpha(var6) != 0.0F && var3 == var8.tile.getTargetAlpha(var6) < 1.0F && var4 >= (float)var8.x && var5 >= (float)var8.y && var4 < (float)(var8.x + var8.width) && var5 < (float)(var8.y + var8.height)) {
+               int var9 = PZMath.fastfloor(var4 - (float)var8.x);
+               int var10 = PZMath.fastfloor(var5 - (float)var8.y);
+               if (var8.tile.isMaskClicked(var9, var10, var8.flip)) {
+                  return var8.tile;
+               }
             }
          }
-      }
 
-      return null;
+         return null;
+      }
    }
 
    public IsoObject PickWindow(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickWindow(var1, var2);
+      } else {
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
 
-      for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
-         if ((var6.tile instanceof IsoWindow || var6.tile instanceof IsoCurtain) && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
-            int var7 = (int)(var3 - (float)var6.x);
-            int var8 = (int)(var4 - (float)var6.y);
-            if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
-               return var6.tile;
+         for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
+            if ((var6.tile instanceof IsoWindow || var6.tile instanceof IsoCurtain) && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
+               int var7 = PZMath.fastfloor(var3 - (float)var6.x);
+               int var8 = PZMath.fastfloor(var4 - (float)var6.y);
+               if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
+                  return var6.tile;
+               }
+
+               if (var6.tile instanceof IsoWindow) {
+                  boolean var9 = false;
+                  boolean var10 = false;
+
+                  int var11;
+                  for(var11 = var8; var11 >= 0; --var11) {
+                     if (var6.tile.isMaskClicked(var7, var11)) {
+                        var9 = true;
+                        break;
+                     }
+                  }
+
+                  for(var11 = var8; var11 < var6.height; ++var11) {
+                     if (var6.tile.isMaskClicked(var7, var11)) {
+                        var10 = true;
+                        break;
+                     }
+                  }
+
+                  if (var9 && var10) {
+                     return var6.tile;
+                  }
+               }
             }
+         }
 
-            if (var6.tile instanceof IsoWindow) {
+         return null;
+      }
+   }
+
+   public IsoObject PickWindowFrame(int var1, int var2) {
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickWindowFrame(var1, var2);
+      } else {
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
+
+         for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
+            if (var6.tile instanceof IsoWindowFrame && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
+               int var7 = PZMath.fastfloor(var3 - (float)var6.x);
+               int var8 = PZMath.fastfloor(var4 - (float)var6.y);
+               if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
+                  return var6.tile;
+               }
+
                boolean var9 = false;
                boolean var10 = false;
 
@@ -383,136 +414,113 @@ public final class IsoObjectPicker {
                }
             }
          }
+
+         return null;
       }
-
-      return null;
-   }
-
-   public IsoObject PickWindowFrame(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
-
-      for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
-         if (IsoWindowFrame.isWindowFrame(var6.tile) && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
-            int var7 = (int)(var3 - (float)var6.x);
-            int var8 = (int)(var4 - (float)var6.y);
-            if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
-               return var6.tile;
-            }
-
-            boolean var9 = false;
-            boolean var10 = false;
-
-            int var11;
-            for(var11 = var8; var11 >= 0; --var11) {
-               if (var6.tile.isMaskClicked(var7, var11)) {
-                  var9 = true;
-                  break;
-               }
-            }
-
-            for(var11 = var8; var11 < var6.height; ++var11) {
-               if (var6.tile.isMaskClicked(var7, var11)) {
-                  var10 = true;
-                  break;
-               }
-            }
-
-            if (var9 && var10) {
-               return var6.tile;
-            }
-         }
-      }
-
-      return null;
    }
 
    public IsoObject PickThumpable(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickThumpable(var1, var2);
+      } else {
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
 
-      for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
-         if (var6.tile instanceof IsoThumpable) {
-            IsoThumpable var7 = (IsoThumpable)var6.tile;
-            if ((var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
-               int var8 = (int)(var3 - (float)var6.x);
-               int var9 = (int)(var4 - (float)var6.y);
-               if (var6.tile.isMaskClicked(var8, var9, var6.flip)) {
+         for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
+            if (var6.tile instanceof IsoThumpable) {
+               IsoThumpable var7 = (IsoThumpable)var6.tile;
+               if ((var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
+                  int var8 = (int)(var3 - (float)var6.x);
+                  int var9 = (int)(var4 - (float)var6.y);
+                  if (var6.tile.isMaskClicked(var8, var9, var6.flip)) {
+                     return var6.tile;
+                  }
+               }
+            }
+         }
+
+         return null;
+      }
+   }
+
+   public IsoObject PickHoppable(int var1, int var2) {
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickHoppable(var1, var2);
+      } else {
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
+
+         for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
+            if (var6.tile.isHoppable() && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
+               int var7 = (int)(var3 - (float)var6.x);
+               int var8 = (int)(var4 - (float)var6.y);
+               if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
                   return var6.tile;
                }
             }
          }
+
+         return null;
       }
-
-      return null;
-   }
-
-   public IsoObject PickHoppable(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
-
-      for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
-         if (var6.tile.isHoppable() && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
-            int var7 = (int)(var3 - (float)var6.x);
-            int var8 = (int)(var4 - (float)var6.y);
-            if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
-               return var6.tile;
-            }
-         }
-      }
-
-      return null;
    }
 
    public IsoObject PickCorpse(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickCorpse(var1, var2);
+      } else {
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
 
-      for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
-         if (var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height) && !(var6.tile.getTargetAlpha() < 1.0F)) {
-            if (var6.tile.isMaskClicked((int)(var3 - (float)var6.x), (int)(var4 - (float)var6.y), var6.flip) && !(var6.tile instanceof IsoWindow)) {
-               return null;
-            }
+         for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
+            if (var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height) && !(var6.tile.getTargetAlpha() < 1.0F)) {
+               if (var6.tile.isMaskClicked((int)(var3 - (float)var6.x), (int)(var4 - (float)var6.y), var6.flip) && !(var6.tile instanceof IsoWindow)) {
+                  return null;
+               }
 
-            if (var6.tile instanceof IsoDeadBody && ((IsoDeadBody)var6.tile).isMouseOver(var3, var4)) {
-               return var6.tile;
+               if (var6.tile instanceof IsoDeadBody && ((IsoDeadBody)var6.tile).isMouseOver(var3, var4)) {
+                  return var6.tile;
+               }
             }
          }
-      }
 
-      return null;
+         return null;
+      }
    }
 
    public IsoObject PickTree(int var1, int var2) {
-      float var3 = (float)var1 * Core.getInstance().getZoom(0);
-      float var4 = (float)var2 * Core.getInstance().getZoom(0);
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderObjectPicker.getInstance().PickTree(var1, var2);
+      } else {
+         float var3 = (float)var1 * Core.getInstance().getZoom(0);
+         float var4 = (float)var2 * Core.getInstance().getZoom(0);
 
-      for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
-         ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
-         if (var6.tile instanceof IsoTree && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
-            int var7 = (int)(var3 - (float)var6.x);
-            int var8 = (int)(var4 - (float)var6.y);
-            if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
-               return var6.tile;
+         for(int var5 = this.ThisFrame.size() - 1; var5 >= 0; --var5) {
+            ClickObject var6 = (ClickObject)this.ThisFrame.get(var5);
+            if (var6.tile instanceof IsoTree && (var6.tile.sprite == null || var6.tile.getTargetAlpha() != 0.0F) && var3 >= (float)var6.x && var4 >= (float)var6.y && var3 < (float)(var6.x + var6.width) && var4 < (float)(var6.y + var6.height)) {
+               int var7 = (int)(var3 - (float)var6.x);
+               int var8 = (int)(var4 - (float)var6.y);
+               if (var6.tile.isMaskClicked(var7, var8, var6.flip)) {
+                  return var6.tile;
+               }
             }
          }
-      }
 
-      return null;
+         return null;
+      }
    }
 
    public BaseVehicle PickVehicle(int var1, int var2) {
-      float var3 = IsoUtils.XToIso((float)var1, (float)var2, 0.0F);
-      float var4 = IsoUtils.YToIso((float)var1, (float)var2, 0.0F);
+      int var3 = PZMath.fastfloor(IsoPlayer.players[0].getZ());
+      float var4 = IsoUtils.XToIso((float)var1, (float)var2, (float)var3);
+      float var5 = IsoUtils.YToIso((float)var1, (float)var2, (float)var3);
 
-      for(int var5 = 0; var5 < IsoWorld.instance.CurrentCell.getVehicles().size(); ++var5) {
-         BaseVehicle var6 = (BaseVehicle)IsoWorld.instance.CurrentCell.getVehicles().get(var5);
-         if (var6.isInBounds(var3, var4)) {
-            return var6;
+      for(int var6 = 0; var6 < IsoWorld.instance.CurrentCell.getVehicles().size(); ++var6) {
+         BaseVehicle var7 = (BaseVehicle)IsoWorld.instance.CurrentCell.getVehicles().get(var6);
+         if (var7.isInBounds(var4, var5)) {
+            return var7;
          }
       }
 
@@ -530,8 +538,8 @@ public final class IsoObjectPicker {
       public int ly;
       public float scaleX;
       public float scaleY;
-      private boolean flip;
-      private int score;
+      public boolean flip;
+      public int score;
 
       public ClickObject() {
       }
@@ -586,6 +594,8 @@ public final class IsoObjectPicker {
                   var1 += 2.0F;
                } else if (var7.container != null) {
                   var1 += 10.0F;
+               } else if (var7 instanceof IsoGenerator) {
+                  var1 += 11.0F;
                } else if (var7 instanceof IsoWaveSignal) {
                   var1 += 20.0F;
                } else if (var10 != null && var10.getLightSource() != null) {
@@ -622,6 +632,10 @@ public final class IsoObjectPicker {
 
       public int getScore() {
          return this.score;
+      }
+
+      public boolean contains(float var1, float var2) {
+         return var1 >= (float)this.x && var2 >= (float)this.y && var1 < (float)(this.x + this.width) && var2 < (float)(this.y + this.height);
       }
    }
 }

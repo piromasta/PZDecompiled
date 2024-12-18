@@ -8,10 +8,12 @@ import zombie.GameTime;
 import zombie.SandboxOptions;
 import zombie.Lua.LuaEventManager;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoHeatSource;
@@ -30,6 +32,7 @@ import zombie.network.ServerOptions;
 import zombie.ui.TutorialManager;
 
 public class IsoFire extends IsoObject {
+   private static final ColorInfo tempColorInfo = new ColorInfo();
    public int Age;
    public int Energy;
    public int Life;
@@ -117,10 +120,7 @@ public class IsoFire extends IsoObject {
       this.Age = var1.getInt();
       this.perm = var1.get() == 1;
       this.LightRadius = var1.get() & 255;
-      if (var2 >= 89) {
-         this.bSmoke = var1.get() == 1;
-      }
-
+      this.bSmoke = var1.get() == 1;
       if (this.perm) {
          this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -16, -78, true, 0, false, 0.7F, IsoFireManager.FireTintMod);
       } else {
@@ -128,7 +128,7 @@ public class IsoFire extends IsoObject {
             this.numFlameParticles = 1;
          }
 
-         label48:
+         label44:
          switch (this.LifeStage) {
             case -1:
                this.LifeStage = 0;
@@ -136,7 +136,7 @@ public class IsoFire extends IsoObject {
 
                while(true) {
                   if (var4 >= this.numFlameParticles) {
-                     break label48;
+                     break label44;
                   }
 
                   this.AttachAnim("Fire", "01", 4, IsoFireManager.FireAnimDelay, -16 + -16 + Rand.Next(32), -85 + -16 + Rand.Next(32), true, 0, false, 0.7F, IsoFireManager.FireTintMod);
@@ -423,10 +423,12 @@ public class IsoFire extends IsoObject {
             IsoSpriteInstance var3 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var2);
             IsoSprite var4 = var3.parentSprite;
             var3.update();
-            float var5 = GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
-            var3.Frame += var3.AnimFrameIncrease * var5;
-            if ((int)var3.Frame >= var4.CurrentAnim.Frames.size() && var4.Loop && var3.Looped) {
-               var3.Frame = 0.0F;
+            if (var4.hasAnimation()) {
+               float var5 = GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
+               var3.Frame += var3.AnimFrameIncrease * var5;
+               if ((int)var3.Frame >= var4.CurrentAnim.Frames.size() && var4.Loop && var3.Looped) {
+                  var3.Frame = 0.0F;
+               }
             }
          }
 
@@ -444,7 +446,7 @@ public class IsoFire extends IsoObject {
             }
 
          } else {
-            this.accum += GameTime.getInstance().getMultiplier() / 1.6F;
+            this.accum += GameTime.getInstance().getThirtyFPSMultiplier();
 
             while(this.accum > 1.0F) {
                --this.accum;
@@ -537,6 +539,7 @@ public class IsoFire extends IsoObject {
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       var1 += 0.5F;
       var2 += 0.5F;
+      this.setAlphaToTarget(IsoCamera.frameState.playerIndex);
       this.sx = 0.0F;
       this.offsetX = 0.0F;
       this.offsetY = 0.0F;
@@ -552,6 +555,10 @@ public class IsoFire extends IsoObject {
                ((IsoSpriteInstance)this.AttachedAnimSprite.get(var9)).setScale(var8, var8);
             }
          }
+      }
+
+      if (PerformanceSettings.FBORenderChunk) {
+         var5 = false;
       }
 
       super.render(var1, var2, var3, var4, var5, var6, var7);
@@ -641,9 +648,10 @@ public class IsoFire extends IsoObject {
       this.LightRadius = var1;
       if (this.LightSource != null && var1 != this.LightSource.getRadius()) {
          this.getCell().removeLamppost(this.LightSource);
-         this.LightSource = new IsoLightSource(this.square.getX(), this.square.getY(), this.square.getZ(), 0.61F, 0.165F, 0.0F, this.LightRadius);
+         this.LightSource = new IsoLightSource(this.square.getX(), this.square.getY(), this.square.getZ(), this.fireColor.r, this.fireColor.g, this.fireColor.b, this.LightRadius);
          this.getCell().getLamppostPositions().add(this.LightSource);
-         IsoGridSquare.RecalcLightTime = -1;
+         IsoGridSquare.RecalcLightTime = -1.0F;
+         ++Core.dirtyGlobalLightsCount;
          GameTime.instance.lightSourceUpdate = 100.0F;
       }
 
@@ -719,6 +727,35 @@ public class IsoFire extends IsoObject {
          }
 
          return false;
+      }
+   }
+
+   public boolean hasAnimatedAttachments() {
+      return this.AttachedAnimSprite != null && !this.AttachedAnimSprite.isEmpty();
+   }
+
+   public void renderAnimatedAttachments(float var1, float var2, float var3, ColorInfo var4) {
+      if (this.AttachedAnimSprite != null) {
+         this.sx = 0.0F;
+         this.offsetX = 0.0F;
+         this.offsetY = 0.0F;
+         float var5 = (float)Core.TileScale;
+         tempColorInfo.set(var4);
+
+         for(int var6 = 0; var6 < this.AttachedAnimSprite.size(); ++var6) {
+            IsoSpriteInstance var7 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var6);
+            IsoSprite var8 = var7.parentSprite;
+            if (var8 != null && var8.def != null) {
+               Texture var9 = var8.getTextureForCurrentFrame(this.dir);
+               if (var9 != null) {
+                  var8.soffX = (short)((int)(-((float)var9.getWidthOrig() * var5 / 2.0F)));
+                  var8.soffY = (short)((int)(-((float)var9.getHeightOrig() * var5)));
+                  var7.setScale(var5, var5);
+                  var7.getParentSprite().render(var7, this, var1 + 0.5F, var2 + 0.5F, var3, this.dir, this.offsetX, this.offsetY, tempColorInfo, true);
+               }
+            }
+         }
+
       }
    }
 }

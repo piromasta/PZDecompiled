@@ -1,20 +1,74 @@
 package zombie.core.skinnedmodel.advancedanimation;
 
-import java.util.List;
+import javax.xml.bind.annotation.XmlTransient;
+import zombie.core.math.PZMath;
+import zombie.debug.DebugLog;
+import zombie.util.StringUtils;
 
 public final class AnimCondition {
    public String m_Name = "";
    public Type m_Type;
+   public String m_Value;
    public float m_FloatValue;
    public boolean m_BoolValue;
    public String m_StringValue;
-   private AnimationVariableHandle m_variableHandle;
+   @XmlTransient
+   AnimationVariableReference m_variableReference;
 
    public AnimCondition() {
       this.m_Type = AnimCondition.Type.STRING;
+      this.m_Value = "";
       this.m_FloatValue = 0.0F;
       this.m_BoolValue = false;
       this.m_StringValue = "";
+      this.m_variableReference = null;
+   }
+
+   public void parse(AnimNode var1, AnimNode var2) {
+      this.parseValue();
+      this.m_variableReference = AnimationVariableReference.fromRawVariableName(this.m_Name);
+      if (this.isTypeString()) {
+         if (this.m_StringValue.contains("$this")) {
+            this.m_StringValue = this.m_StringValue.replaceAll("\\$this", var1.m_Name);
+         }
+
+         if (this.m_StringValue.contains("$source")) {
+            this.m_StringValue = this.m_StringValue.replaceAll("\\$source", var1.m_Name);
+         }
+
+         if (this.m_StringValue.contains("$target")) {
+            if (var2 != null) {
+               this.m_StringValue = this.m_StringValue.replaceAll("\\$target", var2.m_Name);
+            } else {
+               DebugLog.Animation.error("$target not supported in conditions that have no toNode specified. Only allowed in AnimTransition. FromNode: %s, ToNode: %s", var1, var2);
+            }
+         }
+      }
+
+   }
+
+   public void parseValue() {
+      if (!this.m_Value.isEmpty()) {
+         Type var1 = this.m_Type;
+         switch (var1) {
+            case STRING:
+            case STRNEQ:
+               this.m_StringValue = this.m_Value;
+               break;
+            case BOOL:
+               this.m_BoolValue = StringUtils.tryParseBoolean(this.m_Value);
+               break;
+            case EQU:
+            case NEQ:
+            case LESS:
+            case GTR:
+            case ABSLESS:
+            case ABSGTR:
+               this.m_FloatValue = StringUtils.tryParseFloat(this.m_Value);
+            case OR:
+         }
+
+      }
    }
 
    public String toString() {
@@ -27,16 +81,18 @@ public final class AnimCondition {
 
    public String getValueString() {
       switch (this.m_Type) {
+         case STRING:
+         case STRNEQ:
+            return this.m_StringValue;
+         case BOOL:
+            return this.m_BoolValue ? "true" : "false";
          case EQU:
          case NEQ:
          case LESS:
          case GTR:
+         case ABSLESS:
+         case ABSGTR:
             return String.valueOf(this.m_FloatValue);
-         case BOOL:
-            return this.m_BoolValue ? "true" : "false";
-         case STRING:
-         case STRNEQ:
-            return this.m_StringValue;
          case OR:
             return " -- OR -- ";
          default:
@@ -44,35 +100,56 @@ public final class AnimCondition {
       }
    }
 
-   public boolean check(IAnimationVariableSource var1) {
-      return this.checkInternal(var1);
+   public boolean isTypeString() {
+      return this.m_Type == AnimCondition.Type.STRING || this.m_Type == AnimCondition.Type.STRNEQ;
    }
 
-   private boolean checkInternal(IAnimationVariableSource var1) {
+   public boolean check(IAnimationVariableSource var1) {
       Type var2 = this.m_Type;
       if (var2 == AnimCondition.Type.OR) {
          return false;
       } else {
-         if (this.m_variableHandle == null) {
-            this.m_variableHandle = AnimationVariableHandle.alloc(this.m_Name);
+         IAnimationVariableSlot var3 = this.m_variableReference.getVariable(var1);
+         if (var3 == null) {
+            switch (var2) {
+               case STRING:
+                  return this.m_StringValue.equalsIgnoreCase("");
+               case STRNEQ:
+                  return !this.m_StringValue.equalsIgnoreCase("");
+               case BOOL:
+                  return !this.m_BoolValue;
+               case EQU:
+               case NEQ:
+               case LESS:
+               case GTR:
+               case ABSLESS:
+               case ABSGTR:
+                  DebugLog.Animation.warnOnce("Variable \"%s\" not found in %s", this.m_variableReference, var1);
+                  return false;
+               case OR:
+                  return false;
+            }
          }
 
-         IAnimationVariableSlot var3 = var1.getVariable(this.m_variableHandle);
          switch (var2) {
-            case EQU:
-               return var3 != null && this.m_FloatValue == var3.getValueFloat();
-            case NEQ:
-               return var3 != null && this.m_FloatValue != var3.getValueFloat();
-            case LESS:
-               return var3 != null && var3.getValueFloat() < this.m_FloatValue;
-            case GTR:
-               return var3 != null && var3.getValueFloat() > this.m_FloatValue;
-            case BOOL:
-               return (var3 != null && var3.getValueBool()) == this.m_BoolValue;
             case STRING:
-               return this.m_StringValue.equalsIgnoreCase(var3 != null ? var3.getValueString() : "");
+               return this.m_StringValue.equalsIgnoreCase(var3.getValueString());
             case STRNEQ:
-               return !this.m_StringValue.equalsIgnoreCase(var3 != null ? var3.getValueString() : "");
+               return !this.m_StringValue.equalsIgnoreCase(var3.getValueString());
+            case BOOL:
+               return var3.getValueBool() == this.m_BoolValue;
+            case EQU:
+               return this.m_FloatValue == var3.getValueFloat();
+            case NEQ:
+               return this.m_FloatValue != var3.getValueFloat();
+            case LESS:
+               return var3.getValueFloat() < this.m_FloatValue;
+            case GTR:
+               return var3.getValueFloat() > this.m_FloatValue;
+            case ABSLESS:
+               return PZMath.abs(var3.getValueFloat()) < this.m_FloatValue;
+            case ABSGTR:
+               return PZMath.abs(var3.getValueFloat()) > this.m_FloatValue;
             case OR:
                return false;
             default:
@@ -81,19 +158,21 @@ public final class AnimCondition {
       }
    }
 
-   public static boolean pass(IAnimationVariableSource var0, List<AnimCondition> var1) {
+   public static boolean pass(IAnimationVariableSource var0, AnimCondition[] var1) {
       boolean var2 = true;
+      AnimCondition[] var3 = var1;
+      int var4 = var1.length;
 
-      for(int var3 = 0; var3 < var1.size(); ++var3) {
-         AnimCondition var4 = (AnimCondition)var1.get(var3);
-         if (var4.m_Type == AnimCondition.Type.OR) {
+      for(int var5 = 0; var5 < var4; ++var5) {
+         AnimCondition var6 = var3[var5];
+         if (var6.m_Type == AnimCondition.Type.OR) {
             if (var2) {
                break;
             }
 
             var2 = true;
          } else {
-            var2 = var2 && var4.check(var0);
+            var2 = var2 && var6.check(var0);
          }
       }
 
@@ -108,6 +187,8 @@ public final class AnimCondition {
       NEQ,
       LESS,
       GTR,
+      ABSLESS,
+      ABSGTR,
       OR;
 
       private Type() {

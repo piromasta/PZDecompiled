@@ -37,7 +37,14 @@ public class NetworkVariables {
       WalkTowardNetwork("walktoward-network"),
       FakeZombieStay("fakezombie-stay"),
       FakeZombieNormal("fakezombie-normal"),
-      FakeZombieAttack("fakezombie-attack");
+      FakeZombieAttack("fakezombie-attack"),
+      AnimalAlerted("alerted"),
+      AnimalDeath("death"),
+      AnimalEating("eating"),
+      AnimalHutch("hutch"),
+      AnimalTrailer("trailer"),
+      AnimalWalk("walk"),
+      AnimalZone("zone");
 
       private final String zombieState;
 
@@ -75,6 +82,10 @@ public class NetworkVariables {
          }
 
          return Idle;
+      }
+
+      public byte toByte() {
+         return (byte)this.ordinal();
       }
    }
 

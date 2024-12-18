@@ -3,6 +3,7 @@ package zombie.ui;
 import java.util.Iterator;
 import java.util.Stack;
 import org.lwjgl.util.Rectangle;
+import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
 
 public class NewWindow extends UIElement {
@@ -52,7 +53,9 @@ public class NewWindow extends UIElement {
       this.dialogBottomMiddle = Texture.getSharedTexture("media/ui/Dialog_Bottom_Middle.png");
       this.dialogBottomRight = Texture.getSharedTexture("media/ui/Dialog_Bottom_Right.png");
       if (var5) {
-         this.closeButton = new HUDButton("close", (float)(var3 - 16), 2.0F, "media/ui/Dialog_Titlebar_CloseIcon.png", "media/ui/Dialog_Titlebar_CloseIcon.png", "media/ui/Dialog_Titlebar_CloseIcon.png", this);
+         this.closeButton = new HUDButton("close", (double)(var3 - 16), 2.0, "media/ui/inventoryPanes/Button_Close.png", "media/ui/inventoryPanes/Button_Close.png", this);
+         this.closeButton.setWidth(14.0);
+         this.closeButton.setHeight(14.0);
          this.AddChild(this.closeButton);
       }
 
@@ -136,12 +139,14 @@ public class NewWindow extends UIElement {
    }
 
    public void render() {
+      this.dialogRight.getTextureId().setMinFilter(9728);
       float var1 = 0.8F * this.alpha;
       byte var2 = 0;
       int var3 = 0;
+      int var4 = PZMath.max(this.titleMiddle.getHeight(), TextManager.instance.getFontHeight(UIFont.Small));
       this.DrawTexture(this.titleLeft, (double)var2, (double)var3, (double)var1);
       this.DrawTexture(this.titleRight, this.getWidth() - (double)this.titleRight.getWidth(), (double)var3, (double)var1);
-      this.DrawTextureScaled(this.titleMiddle, (double)this.titleLeft.getWidth(), (double)var3, this.getWidth() - (double)(this.titleLeft.getWidth() * 2), (double)this.titleMiddle.getHeight(), (double)var1);
+      this.DrawTextureScaled(this.titleMiddle, (double)this.titleLeft.getWidth(), (double)var3, this.getWidth() - (double)(this.titleLeft.getWidth() * 2), (double)var4, (double)var1);
       var3 += this.titleRight.getHeight();
       this.DrawTextureScaled(this.dialogLeft, (double)var2, (double)var3, (double)this.dialogLeft.getWidth(), this.getHeight() - (double)this.titleLeft.getHeight() - (double)this.dialogBottomLeft.getHeight(), (double)var1);
       this.DrawTextureScaled(this.dialogMiddle, (double)this.dialogLeft.getWidth(), (double)var3, this.getWidth() - (double)(this.dialogRight.getWidth() * 2), this.getHeight() - (double)this.titleLeft.getHeight() - (double)this.dialogBottomLeft.getHeight(), (double)var1);
@@ -156,8 +161,10 @@ public class NewWindow extends UIElement {
    public void update() {
       super.update();
       if (this.closeButton != null) {
-         this.closeButton.setX(4.0);
+         this.closeButton.setX(3.0);
          this.closeButton.setY(3.0);
+         this.closeButton.setWidth(15.0);
+         this.closeButton.setHeight(15.0);
       }
 
       int var1 = 0;

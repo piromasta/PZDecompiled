@@ -7,6 +7,58 @@ public class Invokers {
    public Invokers() {
    }
 
+   public static final class Params5 {
+      public Params5() {
+      }
+
+      public static final class CallbackStackItem<T1, T2, T3, T4, T5> extends StackItem<T1, T2, T3, T4, T5> implements Runnable {
+         private ICallback<T1, T2, T3, T4, T5> invoker;
+         private static final Pool<CallbackStackItem<Object, Object, Object, Object, Object>> s_pool = new Pool(CallbackStackItem::new);
+
+         public CallbackStackItem() {
+         }
+
+         public void run() {
+            this.invoker.accept(this.val1, this.val2, this.val3, this.val4, this.val5);
+         }
+
+         public static <T1, T2, T3, T4, T5> CallbackStackItem<T1, T2, T3, T4, T5> alloc(T1 var0, T2 var1, T3 var2, T4 var3, T5 var4, ICallback<T1, T2, T3, T4, T5> var5) {
+            CallbackStackItem var6 = (CallbackStackItem)s_pool.alloc();
+            var6.val1 = var0;
+            var6.val2 = var1;
+            var6.val3 = var2;
+            var6.val4 = var3;
+            var6.val5 = var4;
+            var6.invoker = var5;
+            return var6;
+         }
+
+         public void onReleased() {
+            this.val1 = null;
+            this.val2 = null;
+            this.val3 = null;
+            this.val4 = null;
+            this.val5 = null;
+            this.invoker = null;
+         }
+      }
+
+      private static class StackItem<T1, T2, T3, T4, T5> extends PooledObject {
+         T1 val1;
+         T2 val2;
+         T3 val3;
+         T4 val4;
+         T5 val5;
+
+         private StackItem() {
+         }
+      }
+
+      public interface ICallback<T1, T2, T3, T4, T5> {
+         void accept(T1 var1, T2 var2, T3 var3, T4 var4, T5 var5);
+      }
+   }
+
    public static final class Params4 {
       public Params4() {
       }
@@ -106,6 +158,15 @@ public class Invokers {
       public Params2() {
       }
 
+      public static final class Boolean {
+         public Boolean() {
+         }
+
+         public interface ICallback<T1, T2> {
+            boolean accept(T1 var1, T2 var2);
+         }
+      }
+
       public static final class CallbackStackItem<T1, T2> extends StackItem<T1, T2> implements Runnable {
          private ICallback<T1, T2> invoker;
          private static final Pool<CallbackStackItem<Object, Object>> s_pool = new Pool(CallbackStackItem::new);
@@ -149,6 +210,15 @@ public class Invokers {
       public Params1() {
       }
 
+      public static final class Boolean {
+         public Boolean() {
+         }
+
+         public interface ICallback<T1> {
+            boolean accept(T1 var1);
+         }
+      }
+
       public static final class CallbackStackItem<T1> extends StackItem<T1> implements Runnable {
          private ICallback<T1> invoker;
          private static final Pool<CallbackStackItem<Object>> s_pool = new Pool(CallbackStackItem::new);
@@ -182,6 +252,24 @@ public class Invokers {
 
       public interface ICallback<T1> {
          void accept(T1 var1);
+      }
+   }
+
+   public static final class Params0 {
+      public Params0() {
+      }
+
+      public static final class Boolean {
+         public Boolean() {
+         }
+
+         public interface ICallback {
+            boolean accept();
+         }
+      }
+
+      public interface ICallback {
+         void accept();
       }
    }
 }

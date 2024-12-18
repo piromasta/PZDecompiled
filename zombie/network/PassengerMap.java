@@ -123,7 +123,7 @@ public final class PassengerMap {
          if (var1 != null && var1.getVehicle() != null) {
             BaseVehicle var2 = var1.getVehicle();
             int var3 = Core.TileScale;
-            byte var4 = 10;
+            byte var4 = 8;
             float var5 = 0.1F;
             float var6 = 0.1F;
             float var7 = 0.1F;

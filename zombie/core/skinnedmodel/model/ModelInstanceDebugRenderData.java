@@ -2,6 +2,7 @@ package zombie.core.skinnedmodel.model;
 
 import java.util.ArrayList;
 import org.joml.Matrix4f;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.PZGLUtil;
 import zombie.debug.DebugOptions;
@@ -29,7 +30,7 @@ public final class ModelInstanceDebugRenderData extends PooledObject {
 
    public void render() {
       this.renderAttachments();
-      if (DebugOptions.instance.ModelRenderAxis.getValue()) {
+      if (DebugOptions.instance.Model.Render.Axis.getValue()) {
          Model.debugDrawAxis(0.0F, 0.0F, 0.0F, 1.0F, 1.0F);
       }
 
@@ -39,10 +40,14 @@ public final class ModelInstanceDebugRenderData extends PooledObject {
       BaseVehicle.Matrix4fObjectPool var3 = (BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get();
       var3.release(this.m_attachmentMatrices);
       this.m_attachmentMatrices.clear();
-      if (DebugOptions.instance.ModelRenderAttachments.getValue()) {
+      if (DebugOptions.instance.Model.Render.Attachments.getValue()) {
          ModelScript var4 = var2.modelInstance.m_modelScript;
          if (var4 != null) {
             Matrix4f var5 = ((Matrix4f)var3.alloc()).set(var2.xfrm);
+            if (var1.character instanceof IsoAnimal) {
+               var5.scale(((IsoAnimal)var1.character).getAnimalSize());
+            }
+
             Matrix4f var6 = (Matrix4f)var3.alloc();
             var5.transpose();
 
@@ -53,7 +58,7 @@ public final class ModelInstanceDebugRenderData extends PooledObject {
                if (!var2.model.bStatic && var8.getBone() != null) {
                   if (var1.animPlayer != null && var1.animPlayer.hasSkinningData()) {
                      int var10 = var1.animPlayer.getSkinningBoneIndex(var8.getBone(), 0);
-                     org.lwjgl.util.vector.Matrix4f var11 = var1.animPlayer.modelTransforms[var10];
+                     org.lwjgl.util.vector.Matrix4f var11 = var1.animPlayer.getModelTransformAt(var10);
                      PZMath.convertMatrix(var11, var6);
                      var6.transpose();
                      var6.mul(var9, var9);

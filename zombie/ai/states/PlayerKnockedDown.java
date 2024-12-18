@@ -30,7 +30,7 @@ public final class PlayerKnockedDown extends State {
             var1.Kill((IsoGameCharacter)null);
          }
       } else {
-         var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getMultiplier() / 1.6F);
+         var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getThirtyFPSMultiplier());
       }
 
    }

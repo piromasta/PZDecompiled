@@ -1,7 +1,7 @@
 package zombie.core.opengl;
 
 public abstract class IOpenGLState<T extends Value> {
-   protected T currentValue = this.defaultValue();
+   protected final T currentValue = this.defaultValue();
    private boolean dirty = true;
 
    public IOpenGLState() {
@@ -22,6 +22,11 @@ public abstract class IOpenGLState<T extends Value> {
 
    public void setDirty() {
       this.dirty = true;
+   }
+
+   public void restore() {
+      this.dirty = false;
+      this.Set(this.getCurrentValue());
    }
 
    T getCurrentValue() {

@@ -18,7 +18,7 @@ import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.network.GameClient;
 import zombie.world.WorldDictionary;
@@ -275,7 +275,7 @@ public class RecordedMedia {
                FileInputStream var3 = new FileInputStream(var2);
 
                try {
-                  DebugLog.log("Loading Recorded Media:" + var1);
+                  DebugLog.DetailedInfo.trace("Loading Recorded Media:" + var1);
                   ByteBuffer var4 = ByteBuffer.allocate((int)var2.length());
                   var4.clear();
                   int var5 = var3.read(var4.array());
@@ -351,7 +351,7 @@ public class RecordedMedia {
             var3.flip();
             String var10 = ZomboidFileSystem.instance.getFileNameInCurrentSave("recorded_media.bin");
             File var6 = new File(var10);
-            DebugLog.log("Saving Recorded Media:" + var10);
+            DebugLog.DetailedInfo.trace("Saving Recorded Media:" + var10);
             FileOutputStream var7 = new FileOutputStream(var6);
             var7.getChannel().truncate(0L);
             var7.write(var3.array(), 0, var3.limit());

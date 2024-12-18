@@ -10,7 +10,7 @@ import java.util.Iterator;
 import zombie.GameTime;
 import zombie.SandboxOptions;
 import zombie.ZomboidFileSystem;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.erosion.season.ErosionSeason;
 import zombie.iso.weather.ClimateManager;

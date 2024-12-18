@@ -1,6 +1,7 @@
 package zombie.core;
 
 import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 
 public final class ImmutableColor {
    public static final ImmutableColor transparent = new ImmutableColor(0.0F, 0.0F, 0.0F, 0.0F);

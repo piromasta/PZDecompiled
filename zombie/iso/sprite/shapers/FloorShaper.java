@@ -2,6 +2,7 @@ package zombie.iso.sprite.shapers;
 
 import java.util.function.Consumer;
 import zombie.core.Color;
+import zombie.core.PerformanceSettings;
 import zombie.core.textures.TextureDraw;
 import zombie.debug.DebugOptions;
 
@@ -52,6 +53,13 @@ public class FloorShaper implements Consumer<TextureDraw> {
          var1.col3 = Color.blendBGR(var1.col3, this.col[3]);
       }
 
+      if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+         var1.col0 = -1;
+         var1.col1 = -1;
+         var1.col2 = -1;
+         var1.col3 = -1;
+      }
+
       if (this.isShore && DebugOptions.instance.Terrain.RenderTiles.IsoGridSquare.ShoreFade.getValue()) {
          var1.col0 = Color.setAlphaChannelToABGR(var1.col0, 1.0F - this.waterDepth[0]);
          var1.col1 = Color.setAlphaChannelToABGR(var1.col1, 1.0F - this.waterDepth[1]);
@@ -66,7 +74,9 @@ public class FloorShaper implements Consumer<TextureDraw> {
          var1.col3 = Color.tintABGR(var1.col3, this.colTint);
       }
 
-      SpritePadding.applyIsoPadding(var1, this.getIsoPaddingSettings());
+      if (!PerformanceSettings.FBORenderChunk) {
+         SpritePadding.applyIsoPadding(var1, this.getIsoPaddingSettings());
+      }
    }
 
    private SpritePadding.IsoPaddingSettings getIsoPaddingSettings() {

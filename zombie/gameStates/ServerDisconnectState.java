@@ -48,7 +48,7 @@ public final class ServerDisconnectState extends GameState {
             }
          } else {
             IsoPlayer.setInstance(IsoPlayer.players[var2]);
-            IsoCamera.CamCharacter = IsoPlayer.players[var2];
+            IsoCamera.setCameraCharacter(IsoPlayer.players[var2]);
             Core.getInstance().StartFrame(var2, var1);
             IsoCamera.frameState.set(var2);
             var1 = false;
@@ -64,7 +64,7 @@ public final class ServerDisconnectState extends GameState {
          if (IsoPlayer.players[var2] != null) {
             Core.getInstance().StartFrameText(var2);
             IndieGL.disableAlphaTest();
-            IndieGL.glDisable(2929);
+            IndieGL.disableDepthTest();
             TextDrawObject.RenderBatch(var2);
             ChatElement.RenderBatch(var2);
 

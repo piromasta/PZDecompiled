@@ -28,11 +28,7 @@ public final class LungeState extends State {
       IsoZombie var2 = (IsoZombie)var1;
       HashMap var3 = var1.getStateMachineParams(this);
       if (System.currentTimeMillis() - var2.LungeSoundTime > 5000L) {
-         String var4 = "MaleZombieAttack";
-         if (var2.isFemale()) {
-            var4 = "FemaleZombieAttack";
-         }
-
+         String var4 = var2.getDescriptor().getVoicePrefix() + "Attack";
          if (GameServer.bServer) {
             GameServer.sendZombieSound(IsoZombie.ZombieSound.Lunge, var2);
          }
@@ -53,7 +49,7 @@ public final class LungeState extends State {
          var2.walkVariantUse = "ZombieWalk3";
       }
 
-      var2.LungeTimer -= GameTime.getInstance().getMultiplier() / 1.6F;
+      var2.LungeTimer -= GameTime.getInstance().getThirtyFPSMultiplier();
       IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var2.getTarget(), IsoPlayer.class);
       if (var4 != null && var4.isGhostMode()) {
          var2.LungeTimer = 0.0F;

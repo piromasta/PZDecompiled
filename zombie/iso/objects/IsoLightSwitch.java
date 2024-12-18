@@ -8,17 +8,19 @@ import java.util.Iterator;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.SandboxOptions;
-import zombie.SystemDisabler;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
+import zombie.core.textures.ColorInfo;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.types.DrainableComboItem;
 import zombie.inventory.types.Moveable;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
@@ -26,17 +28,20 @@ import zombie.iso.IsoLightSource;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoRoomLight;
 import zombie.iso.IsoWorld;
+import zombie.iso.LightingJNI;
+import zombie.iso.RoomID;
 import zombie.iso.areas.IsoRoom;
 import zombie.iso.sprite.IsoSprite;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 
 public class IsoLightSwitch extends IsoObject {
    boolean Activated = false;
    public final ArrayList<IsoLightSource> lights = new ArrayList();
    public boolean lightRoom = false;
-   public int RoomID = -1;
+   public long RoomID = -1L;
    public boolean bStreetLight = false;
    private boolean canBeModified = false;
    private boolean useBattery = false;
@@ -47,6 +52,7 @@ public class IsoLightSwitch extends IsoObject {
    private float primaryR = 1.0F;
    private float primaryG = 1.0F;
    private float primaryB = 1.0F;
+   private static final ArrayList<IsoObject> s_tempObjects = new ArrayList();
    protected long lastMinuteStamp = -1L;
    protected int bulbBurnMinutes = -1;
    protected int lastMin = 0;
@@ -60,7 +66,7 @@ public class IsoLightSwitch extends IsoObject {
       super(var1);
    }
 
-   public IsoLightSwitch(IsoCell var1, IsoGridSquare var2, IsoSprite var3, int var4) {
+   public IsoLightSwitch(IsoCell var1, IsoGridSquare var2, IsoSprite var3, long var4) {
       super(var1, var2, var3);
       this.RoomID = var4;
       if (var3 != null && var3.getProperties().Is("lightR")) {
@@ -76,14 +82,14 @@ public class IsoLightSwitch extends IsoObject {
       }
 
       this.bStreetLight = var3 != null && var3.getProperties().Is("streetlight");
-      IsoRoom var5 = this.square.getRoom();
-      if (var5 != null && this.lightRoom) {
+      IsoRoom var6 = this.square.getRoom();
+      if (var6 != null && this.lightRoom) {
          if (!var2.haveElectricity() && !IsoWorld.instance.isHydroPowerOn()) {
-            var5.def.bLightsActive = false;
+            var6.def.bLightsActive = false;
          }
 
-         this.Activated = var5.def.bLightsActive;
-         var5.lightSwitches.add(this);
+         this.Activated = var6.def.bLightsActive;
+         var6.lightSwitches.add(this);
       } else {
          this.Activated = true;
       }
@@ -115,6 +121,10 @@ public class IsoLightSwitch extends IsoObject {
       return this.canBeModified;
    }
 
+   public void setCanBeModified(boolean var1) {
+      this.canBeModified = var1;
+   }
+
    public float getPower() {
       return this.power;
    }
@@ -134,10 +144,14 @@ public class IsoLightSwitch extends IsoObject {
    public void setUseBattery(boolean var1) {
       this.setActive(false);
       this.useBattery = var1;
-      if (GameClient.bClient) {
+      if (GameServer.bServer) {
          this.syncCustomizedSettings((UdpConnection)null);
       }
 
+   }
+
+   public void setUseBatteryDirect(boolean var1) {
+      this.useBattery = var1;
    }
 
    public boolean getUseBattery() {
@@ -148,17 +162,22 @@ public class IsoLightSwitch extends IsoObject {
       return this.hasBattery;
    }
 
+   public void setHasBattery(boolean var1) {
+      this.hasBattery = var1;
+   }
+
    public void setHasBatteryRaw(boolean var1) {
       this.hasBattery = var1;
    }
 
    public void addBattery(IsoGameCharacter var1, InventoryItem var2) {
       if (this.canBeModified && this.useBattery && !this.hasBattery && var2 != null && var2.getFullType().equals("Base.Battery")) {
-         this.power = ((DrainableComboItem)var2).getUsedDelta();
+         this.power = ((DrainableComboItem)var2).getCurrentUsesFloat();
          this.hasBattery = true;
          var1.removeFromHands(var2);
          var1.getInventory().Remove(var2);
-         if (GameClient.bClient) {
+         if (GameServer.bServer) {
+            GameServer.sendRemoveItemFromContainer(var1.getInventory(), var2);
             this.syncCustomizedSettings((UdpConnection)null);
          }
       }
@@ -170,11 +189,12 @@ public class IsoLightSwitch extends IsoObject {
          DrainableComboItem var2 = (DrainableComboItem)InventoryItemFactory.CreateItem("Base.Battery");
          if (var2 != null) {
             this.hasBattery = false;
-            var2.setUsedDelta(this.power >= 0.0F ? this.power : 0.0F);
+            var2.setCurrentUses(this.power >= 0.0F ? (int)((float)var2.getMaxUses() * this.power) : 0);
             this.power = 0.0F;
             this.setActive(false, false, true);
             var1.getInventory().AddItem((InventoryItem)var2);
-            if (GameClient.bClient) {
+            if (GameServer.bServer) {
+               GameServer.sendAddItemToContainer(var1.getInventory(), var2);
                this.syncCustomizedSettings((UdpConnection)null);
             }
 
@@ -207,7 +227,8 @@ public class IsoLightSwitch extends IsoObject {
             this.bulbItem = var2.getFullType();
             var1.removeFromHands(var2);
             var1.getInventory().Remove(var2);
-            if (GameClient.bClient) {
+            if (GameServer.bServer) {
+               GameServer.sendRemoveItemFromContainer(var1.getInventory(), var2);
                this.syncCustomizedSettings((UdpConnection)null);
             }
          }
@@ -226,8 +247,12 @@ public class IsoLightSwitch extends IsoObject {
             var3.setColor(new Color(var2.r, var2.g, var2.b));
             this.bulbItem = null;
             var1.getInventory().AddItem(var3);
+            if (GameServer.bServer) {
+               GameServer.sendAddItemToContainer(var1.getInventory(), var3);
+            }
+
             this.setActive(false, false, true);
-            if (GameClient.bClient) {
+            if (GameServer.bServer) {
                this.syncCustomizedSettings((UdpConnection)null);
             }
 
@@ -281,44 +306,45 @@ public class IsoLightSwitch extends IsoObject {
    public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
       super.load(var1, var2, var3);
       this.lightRoom = var1.get() == 1;
-      this.RoomID = var1.getInt();
+      if (var2 >= 206) {
+         this.RoomID = var1.getLong();
+      } else {
+         int var4 = var1.getInt();
+         this.RoomID = zombie.iso.RoomID.makeID(this.square.x / IsoCell.CellSizeInSquares, this.square.y / IsoCell.CellSizeInSquares, var4);
+      }
+
       this.Activated = var1.get() == 1;
-      if (var2 >= 76) {
-         this.canBeModified = var1.get() == 1;
-         if (this.canBeModified) {
-            this.useBattery = var1.get() == 1;
-            this.hasBattery = var1.get() == 1;
-            if (var1.get() == 1) {
-               this.bulbItem = GameWindow.ReadString(var1);
-            } else {
-               this.bulbItem = null;
-            }
-
-            this.power = var1.getFloat();
-            this.delta = var1.getFloat();
-            this.setPrimaryR(var1.getFloat());
-            this.setPrimaryG(var1.getFloat());
-            this.setPrimaryB(var1.getFloat());
+      this.canBeModified = var1.get() == 1;
+      if (this.canBeModified) {
+         this.useBattery = var1.get() == 1;
+         this.hasBattery = var1.get() == 1;
+         if (var1.get() == 1) {
+            this.bulbItem = GameWindow.ReadString(var1);
+         } else {
+            this.bulbItem = null;
          }
+
+         this.power = var1.getFloat();
+         this.delta = var1.getFloat();
+         this.setPrimaryR(var1.getFloat());
+         this.setPrimaryG(var1.getFloat());
+         this.setPrimaryB(var1.getFloat());
       }
 
-      if (var2 >= 79) {
-         this.lastMinuteStamp = var1.getLong();
-         this.bulbBurnMinutes = var1.getInt();
-      }
-
+      this.lastMinuteStamp = var1.getLong();
+      this.bulbBurnMinutes = var1.getInt();
       this.bStreetLight = this.sprite != null && this.sprite.getProperties().Is("streetlight");
       if (this.square != null) {
-         IsoRoom var4 = this.square.getRoom();
-         if (var4 != null && this.lightRoom) {
-            this.Activated = var4.def.bLightsActive;
-            var4.lightSwitches.add(this);
+         IsoRoom var10 = this.square.getRoom();
+         if (var10 != null && this.lightRoom) {
+            this.Activated = var10.def.bLightsActive;
+            var10.lightSwitches.add(this);
          } else {
             float var5 = 0.9F;
             float var6 = 0.8F;
             float var7 = 0.7F;
             if (this.sprite != null && this.sprite.getProperties().Is("lightR")) {
-               if (var2 >= 76 && this.canBeModified) {
+               if (this.canBeModified) {
                   var5 = this.primaryR;
                   var6 = this.primaryG;
                   var7 = this.primaryB;
@@ -345,17 +371,13 @@ public class IsoLightSwitch extends IsoObject {
             this.lights.add(var9);
          }
 
-         if (SystemDisabler.doObjectStateSyncEnable && GameClient.bClient) {
-            GameClient.instance.objectSyncReq.putRequestLoad(this.square);
-         }
-
       }
    }
 
    public void save(ByteBuffer var1, boolean var2) throws IOException {
       super.save(var1, var2);
       var1.put((byte)(this.lightRoom ? 1 : 0));
-      var1.putInt(this.RoomID);
+      var1.putLong(this.RoomID);
       var1.put((byte)(this.Activated ? 1 : 0));
       var1.put((byte)(this.canBeModified ? 1 : 0));
       if (this.canBeModified) {
@@ -383,30 +405,65 @@ public class IsoLightSwitch extends IsoObject {
 
    public boolean canSwitchLight() {
       if (this.bulbItem != null) {
+         boolean var1 = this.hasElectricityAround();
+         if (!this.useBattery && var1 || this.canBeModified && this.useBattery && this.hasBattery && this.power > 0.0F) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   private boolean hasElectricityAround() {
+      if (this.getObjectIndex() == -1) {
+         return false;
+      } else {
          boolean var1 = IsoWorld.instance.isHydroPowerOn();
-         boolean var2 = var1 ? this.square.getRoom() != null || this.bStreetLight : this.square.haveElectricity();
+         boolean var2 = var1 ? this.isBuildingSquare(this.square) || this.hasFasciaAdjacentToBuildingSquare(this.square) || this.bStreetLight : this.square.haveElectricity();
          if (!var2 && this.getCell() != null) {
             for(int var3 = 0; var3 >= (this.getZ() >= 1.0F ? -1 : 0); --var3) {
                for(int var4 = -1; var4 < 2; ++var4) {
                   for(int var5 = -1; var5 < 2; ++var5) {
                      if (var4 != 0 || var5 != 0 || var3 != 0) {
                         IsoGridSquare var6 = this.getCell().getGridSquare((double)(this.getX() + (float)var4), (double)(this.getY() + (float)var5), (double)(this.getZ() + (float)var3));
-                        if (var6 != null && (var1 && var6.getRoom() != null || var6.haveElectricity())) {
-                           var2 = true;
-                           break;
+                        if (var6 != null) {
+                           if (var1 && (this.isBuildingSquare(var6) || this.hasFasciaAdjacentToBuildingSquare(var6))) {
+                              return true;
+                           }
+
+                           if (var6.haveElectricity()) {
+                              return true;
+                           }
                         }
                      }
-                  }
-
-                  if (var2) {
-                     break;
                   }
                }
             }
          }
 
-         if (!this.useBattery && var2 || this.canBeModified && this.useBattery && this.hasBattery && this.power > 0.0F) {
-            return true;
+         return var2;
+      }
+   }
+
+   private boolean isBuildingSquare(IsoGridSquare var1) {
+      if (var1 == null) {
+         return false;
+      } else if (var1.getRoom() != null) {
+         return true;
+      } else {
+         return var1.getRoofHideBuilding() != null;
+      }
+   }
+
+   private boolean hasFasciaAdjacentToBuildingSquare(IsoGridSquare var1) {
+      IsoObject[] var2 = (IsoObject[])var1.getObjects().getElements();
+      int var3 = 0;
+
+      for(int var4 = var1.getObjects().size(); var3 < var4; ++var3) {
+         IsoObject var5 = var2[var3];
+         if (var5.isFascia()) {
+            IsoGridSquare var6 = var5.getFasciaAttachedSquare();
+            return this.isBuildingSquare(var6);
          }
       }
 
@@ -434,8 +491,8 @@ public class IsoLightSwitch extends IsoObject {
          if (var3 || this.canSwitchLight()) {
             this.Activated = var1;
             if (!var2) {
-               IsoWorld.instance.getFreeEmitter().playSound("LightSwitch", this.square);
                this.switchLight(this.Activated);
+               LightingJNI.doInvalidateGlobalLights(IsoPlayer.getPlayerIndex());
                this.syncIsoObject(false, (byte)(this.Activated ? 1 : 0), (UdpConnection)null);
             }
          }
@@ -458,20 +515,39 @@ public class IsoLightSwitch extends IsoObject {
          }
 
          if (GameServer.bServer) {
-            var2 = this.square.getX() / 300;
-            int var3 = this.square.getY() / 300;
-            int var4 = this.square.getRoom().def.ID;
-            GameServer.sendMetaGrid(var2, var3, var4);
+            var2 = this.square.getX() / IsoCell.CellSizeInSquares;
+            int var3 = this.square.getY() / IsoCell.CellSizeInSquares;
+            long var4 = this.square.getRoom().def.ID;
+            GameServer.sendMetaGrid(var2, var3, zombie.iso.RoomID.getIndex(var4));
          }
       }
 
       for(var2 = 0; var2 < this.lights.size(); ++var2) {
-         IsoLightSource var5 = (IsoLightSource)this.lights.get(var2);
-         var5.bActive = var1;
+         IsoLightSource var6 = (IsoLightSource)this.lights.get(var2);
+         var6.bActive = var1;
       }
 
-      IsoGridSquare.RecalcLightTime = -1;
+      this.getSpriteGridObjects(s_tempObjects);
+      if (!s_tempObjects.isEmpty()) {
+         for(var2 = 0; var2 < s_tempObjects.size(); ++var2) {
+            IsoObject var7 = (IsoObject)s_tempObjects.get(var2);
+            if (var7 != this) {
+               if (var7 instanceof IsoLightSwitch) {
+                  IsoLightSwitch var8 = (IsoLightSwitch)var7;
+                  if (var8.isActivated() != var1) {
+                     var8.setActive(var1);
+                  }
+               } else if (var7.getLightSource() != null) {
+                  var7.checkLightSourceActive();
+               }
+            }
+         }
+      }
+
+      IsoGridSquare.RecalcLightTime = -1.0F;
+      ++Core.dirtyGlobalLightsCount;
       GameTime.instance.lightSourceUpdate = 100.0F;
+      LightingJNI.doInvalidateGlobalLights(IsoPlayer.getPlayerIndex());
       IsoGenerator.updateGenerator(this.getSquare());
    }
 
@@ -507,84 +583,11 @@ public class IsoLightSwitch extends IsoObject {
 
    public void syncCustomizedSettings(UdpConnection var1) {
       if (GameClient.bClient) {
-         this.writeCustomizedSettingsPacket(GameClient.connection);
+         INetworkPacket.send(PacketTypes.PacketType.SyncCustomLightSettings, this);
       } else if (GameServer.bServer) {
-         Iterator var2 = GameServer.udpEngine.connections.iterator();
-
-         while(true) {
-            UdpConnection var3;
-            do {
-               if (!var2.hasNext()) {
-                  return;
-               }
-
-               var3 = (UdpConnection)var2.next();
-            } while(var1 != null && var3.getConnectedGUID() == var1.getConnectedGUID());
-
-            this.writeCustomizedSettingsPacket(var3);
-         }
+         INetworkPacket.sendToAll(PacketTypes.PacketType.SyncCustomLightSettings, var1, this);
       }
 
-   }
-
-   private void writeCustomizedSettingsPacket(UdpConnection var1) {
-      if (var1 != null) {
-         ByteBufferWriter var2 = var1.startPacket();
-         PacketTypes.PacketType.SyncCustomLightSettings.doPacket(var2);
-         this.writeLightSwitchObjectHeader(var2, (byte)(this.Activated ? 1 : 0));
-         var2.putBoolean(this.canBeModified);
-         var2.putBoolean(this.useBattery);
-         var2.putBoolean(this.hasBattery);
-         var2.putByte((byte)(this.bulbItem != null ? 1 : 0));
-         if (this.bulbItem != null) {
-            GameWindow.WriteString(var2.bb, this.bulbItem);
-         }
-
-         var2.putFloat(this.power);
-         var2.putFloat(this.delta);
-         var2.putFloat(this.primaryR);
-         var2.putFloat(this.primaryG);
-         var2.putFloat(this.primaryB);
-         PacketTypes.PacketType.SyncCustomLightSettings.send(var1);
-      }
-
-   }
-
-   private void readCustomizedSettingsPacket(ByteBuffer var1) {
-      this.Activated = var1.get() == 1;
-      this.canBeModified = var1.get() == 1;
-      this.useBattery = var1.get() == 1;
-      this.hasBattery = var1.get() == 1;
-      if (var1.get() == 1) {
-         this.bulbItem = GameWindow.ReadString(var1);
-      } else {
-         this.bulbItem = null;
-      }
-
-      this.power = var1.getFloat();
-      this.delta = var1.getFloat();
-      this.setPrimaryR(var1.getFloat());
-      this.setPrimaryG(var1.getFloat());
-      this.setPrimaryB(var1.getFloat());
-   }
-
-   public void receiveSyncCustomizedSettings(ByteBuffer var1, UdpConnection var2) {
-      if (GameClient.bClient) {
-         this.readCustomizedSettingsPacket(var1);
-      } else if (GameServer.bServer) {
-         this.readCustomizedSettingsPacket(var1);
-         this.syncCustomizedSettings(var2);
-      }
-
-      this.switchLight(this.Activated);
-   }
-
-   private void writeLightSwitchObjectHeader(ByteBufferWriter var1, byte var2) {
-      var1.putInt(this.square.getX());
-      var1.putInt(this.square.getY());
-      var1.putInt(this.square.getZ());
-      var1.putByte((byte)this.square.getObjects().indexOf(this));
-      var1.putByte(var2);
    }
 
    public void syncIsoObjectSend(ByteBufferWriter var1) {
@@ -609,7 +612,38 @@ public class IsoLightSwitch extends IsoObject {
          String var10001 = this.getClass().getSimpleName();
          var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
       } else {
-         if (GameClient.bClient && !var1) {
+         if (GameServer.bServer) {
+            Iterator var4 = GameServer.udpEngine.connections.iterator();
+
+            while(var4.hasNext()) {
+               UdpConnection var5 = (UdpConnection)var4.next();
+               ByteBufferWriter var6;
+               if (var3 != null) {
+                  if (var5.getConnectedGUID() != var3.getConnectedGUID()) {
+                     var6 = var5.startPacket();
+                     PacketTypes.PacketType.SyncIsoObject.doPacket(var6);
+                     this.syncIsoObjectSend(var6);
+                     PacketTypes.PacketType.SyncIsoObject.send(var5);
+                  }
+               } else if (var5.RelevantTo((float)this.square.x, (float)this.square.y)) {
+                  var6 = var5.startPacket();
+                  PacketTypes.PacketType.SyncIsoObject.doPacket(var6);
+                  var6.putInt(this.square.getX());
+                  var6.putInt(this.square.getY());
+                  var6.putInt(this.square.getZ());
+                  byte var7 = (byte)this.square.getObjects().indexOf(this);
+                  if (var7 != -1) {
+                     var6.putByte(var7);
+                  } else {
+                     var6.putByte((byte)this.square.getObjects().size());
+                  }
+
+                  var6.putByte((byte)1);
+                  var6.putByte((byte)(this.Activated ? 1 : 0));
+                  PacketTypes.PacketType.SyncIsoObject.send(var5);
+               }
+            }
+         } else if (GameClient.bClient && !var1) {
             ByteBufferWriter var8 = GameClient.connection.startPacket();
             PacketTypes.PacketType.SyncIsoObject.doPacket(var8);
             this.syncIsoObjectSend(var8);
@@ -621,39 +655,6 @@ public class IsoLightSwitch extends IsoObject {
             } else {
                this.switchLight(false);
                this.Activated = false;
-            }
-
-            if (GameServer.bServer) {
-               Iterator var4 = GameServer.udpEngine.connections.iterator();
-
-               while(var4.hasNext()) {
-                  UdpConnection var5 = (UdpConnection)var4.next();
-                  ByteBufferWriter var6;
-                  if (var3 != null) {
-                     if (var5.getConnectedGUID() != var3.getConnectedGUID()) {
-                        var6 = var5.startPacket();
-                        PacketTypes.PacketType.SyncIsoObject.doPacket(var6);
-                        this.syncIsoObjectSend(var6);
-                        PacketTypes.PacketType.SyncIsoObject.send(var5);
-                     }
-                  } else if (var5.RelevantTo((float)this.square.x, (float)this.square.y)) {
-                     var6 = var5.startPacket();
-                     PacketTypes.PacketType.SyncIsoObject.doPacket(var6);
-                     var6.putInt(this.square.getX());
-                     var6.putInt(this.square.getY());
-                     var6.putInt(this.square.getZ());
-                     byte var7 = (byte)this.square.getObjects().indexOf(this);
-                     if (var7 != -1) {
-                        var6.putByte(var7);
-                     } else {
-                        var6.putByte((byte)this.square.getObjects().size());
-                     }
-
-                     var6.putByte((byte)1);
-                     var6.putByte((byte)(this.Activated ? 1 : 0));
-                     PacketTypes.PacketType.SyncIsoObject.send(var5);
-                  }
-               }
             }
          }
 
@@ -682,36 +683,35 @@ public class IsoLightSwitch extends IsoObject {
                   }
                }
 
-               long var13 = GameTime.instance.getMinutesStamp() - this.lastMinuteStamp;
+               long var12 = GameTime.instance.getMinutesStamp() - this.lastMinuteStamp;
                this.lastMinuteStamp = GameTime.instance.getMinutesStamp();
                boolean var4 = false;
-               boolean var5 = IsoWorld.instance.isHydroPowerOn();
-               boolean var6 = var5 ? this.square.getRoom() != null : this.square.haveElectricity();
-               boolean var7 = this.useBattery && this.hasBattery && this.power > 0.0F;
-               if (var7 || !this.useBattery && var6) {
+               boolean var5 = this.hasElectricityAround();
+               boolean var6 = this.useBattery && this.hasBattery && this.power > 0.0F;
+               if (var6 || !this.useBattery && var5) {
                   var4 = true;
                }
 
-               double var8 = SandboxOptions.instance.LightBulbLifespan.getValue();
-               if (var8 <= 0.0) {
+               double var7 = SandboxOptions.instance.LightBulbLifespan.getValue();
+               if (var7 <= 0.0) {
                   var4 = false;
                }
 
                if (this.Activated && this.hasLightBulb() && var4) {
-                  this.bulbBurnMinutes = (int)((long)this.bulbBurnMinutes + var13);
+                  this.bulbBurnMinutes = (int)((long)this.bulbBurnMinutes + var12);
                }
 
-               this.nextBreakUpdate = (int)((long)this.nextBreakUpdate - var13);
+               this.nextBreakUpdate = (int)((long)this.nextBreakUpdate - var12);
                if (this.nextBreakUpdate <= 0) {
                   if (this.Activated && this.hasLightBulb() && var4) {
-                     int var10 = (int)(1000.0 * var8);
-                     if (var10 < 1) {
-                        var10 = 1;
+                     int var9 = (int)(1000.0 * var7);
+                     if (var9 < 1) {
+                        var9 = 1;
                      }
 
-                     int var11 = Rand.Next(0, var10);
-                     int var12 = this.bulbBurnMinutes / 10000;
-                     if (var11 < var12) {
+                     int var10 = Rand.Next(0, var9);
+                     int var11 = this.bulbBurnMinutes / 10000;
+                     if (var10 < var11) {
                         this.bulbBurnMinutes = 0;
                         this.setActive(false, true, true);
                         this.bulbItem = null;
@@ -728,14 +728,14 @@ public class IsoLightSwitch extends IsoObject {
                   this.nextBreakUpdate = 60;
                }
 
-               if (this.Activated && var7 && this.hasLightBulb()) {
-                  float var14 = this.power - this.power % 0.01F;
-                  this.power -= this.delta * (float)var13;
+               if (this.Activated && var6 && this.hasLightBulb()) {
+                  float var13 = this.power - this.power % 0.01F;
+                  this.power -= this.delta * (float)var12;
                   if (this.power < 0.0F) {
                      this.power = 0.0F;
                   }
 
-                  if (var13 == 1L || this.power < var14) {
+                  if (var12 == 1L || this.power < var13) {
                      var1 = true;
                   }
                }
@@ -760,8 +760,20 @@ public class IsoLightSwitch extends IsoObject {
 
    }
 
+   public boolean hasAnimatedAttachments() {
+      return super.hasAnimatedAttachments();
+   }
+
+   public void renderAnimatedAttachments(float var1, float var2, float var3, ColorInfo var4) {
+      super.renderAnimatedAttachments(var1, var2, var3, var4);
+   }
+
    public boolean isActivated() {
       return this.Activated;
+   }
+
+   public void setActivated(boolean var1) {
+      this.Activated = var1;
    }
 
    public void addToWorld() {
@@ -799,6 +811,7 @@ public class IsoLightSwitch extends IsoObject {
          }
       }
 
+      this.clearOnOverlay();
       super.removeFromWorld();
    }
 
@@ -807,9 +820,9 @@ public class IsoLightSwitch extends IsoObject {
 
       int var2;
       int var4;
-      for(var2 = 0; var2 < 10; ++var2) {
-         for(int var3 = 0; var3 < 10; ++var3) {
-            for(var4 = 0; var4 < 8; ++var4) {
+      for(var2 = 0; var2 < 8; ++var2) {
+         for(int var3 = 0; var3 < 8; ++var3) {
+            for(var4 = var0.minLevel; var4 <= var0.maxLevel; ++var4) {
                IsoGridSquare var5 = var0.getGridSquare(var2, var3, var4);
                if (var5 != null) {
                   IsoRoom var6 = var5.getRoom();
@@ -837,5 +850,25 @@ public class IsoLightSwitch extends IsoObject {
 
    public ArrayList<IsoLightSource> getLights() {
       return this.lights;
+   }
+
+   public boolean shouldShowOnOverlay() {
+      int var1 = IsoCamera.frameState.playerIndex;
+      if (this.getSquare() != null && this.getSquare().isSeen(var1)) {
+         boolean var2 = this.hasElectricityAround();
+         boolean var3 = this.useBattery && this.hasBattery && this.power > 0.0F;
+         boolean var4 = this.isActivated() && (var3 || !this.useBattery && var2);
+         if (this.lightRoom) {
+            var4 = !var4 && IsoWorld.instance.isHydroPowerOn();
+         }
+
+         if (this.bStreetLight && (GameTime.getInstance().getNight() < 0.5F || !IsoWorld.instance.isHydroPowerOn())) {
+            var4 = false;
+         }
+
+         return var4;
+      } else {
+         return false;
+      }
    }
 }

@@ -1,6 +1,6 @@
 package zombie.iso.weather;
 
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.lwjgl.opengl.GL20;
 import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
@@ -33,9 +33,13 @@ public class WeatherShader extends Shader {
    private int ScreenInfo;
    private int ParamInfo;
    private int VarInfo;
+   private int DrunkFactor;
+   private int BlurFactor;
    private int timerVal;
+   private int timerWrap;
+   private float timerWrapVal = -1.0F;
    private boolean bAlt = false;
-   private static final int texdVarsSize = 22;
+   public static final int texdVarsSize = 25;
    private static float[][] floatArrs = new float[5][];
 
    public WeatherShader(String var1) {
@@ -57,7 +61,7 @@ public class WeatherShader extends Shader {
          if (var1.vars == null) {
             var1.vars = getFreeFloatArray();
             if (var1.vars == null) {
-               var1.vars = new float[22];
+               var1.vars = new float[25];
             }
          }
 
@@ -83,6 +87,8 @@ public class WeatherShader extends Shader {
          var1.vars[17] = var9.getShaderDesat();
          var1.vars[18] = var9.isShaderEnabled() ? 1.0F : 0.0F;
          var1.vars[19] = var9.getShaderDarkness();
+         var1.vars[22] = var3.getDrunkFactor();
+         var1.vars[23] = var3.getBlurFactor();
          var1.flipped = var3.isExterior();
          var1.f1 = var3.getDarkness();
          var1.col0 = var7;
@@ -101,15 +107,19 @@ public class WeatherShader extends Shader {
       int var6 = var1.col2;
       int var7 = var1.col3;
       float var8 = var1.bSingleCol ? 1.0F : 0.0F;
-      ARBShaderObjects.glUniform1fARB(this.width, (float)var4);
-      ARBShaderObjects.glUniform1fARB(this.height, (float)var5);
-      ARBShaderObjects.glUniform3fARB(this.Light, var1.vars[0], var1.vars[1], var1.vars[2]);
-      ARBShaderObjects.glUniform1fARB(this.LightIntensity, var1.vars[3]);
-      ARBShaderObjects.glUniform1fARB(this.NightValue, var2);
-      ARBShaderObjects.glUniform1fARB(this.DesaturationVal, var1.vars[4]);
-      ARBShaderObjects.glUniform1fARB(this.NightVisionGoggles, var1.vars[5]);
-      ARBShaderObjects.glUniform1fARB(this.Exterior, var3 ? 1.0F : 0.0F);
-      ARBShaderObjects.glUniform1fARB(this.timer, (float)(this.timerVal / 2));
+      GL20.glUniform1f(this.getWidth(), (float)var4);
+      GL20.glUniform1f(this.getHeight(), (float)var5);
+      GL20.glUniform1f(this.NightValue, var2);
+      if (var1.vars != null) {
+         GL20.glUniform3f(this.Light, var1.vars[0], var1.vars[1], var1.vars[2]);
+         GL20.glUniform1f(this.LightIntensity, var1.vars[3]);
+         GL20.glUniform1f(this.DesaturationVal, var1.vars[4]);
+         GL20.glUniform1f(this.NightVisionGoggles, var1.vars[5]);
+      }
+
+      GL20.glUniform1f(this.Exterior, var3 ? 1.0F : 0.0F);
+      GL20.glUniform1f(this.timer, (float)(this.timerVal / 2));
+      GL20.glUniform1f(this.timerWrap, this.timerWrapVal);
       if (PerformanceSettings.getLockFPS() >= 60) {
          if (this.bAlt) {
             ++this.timerVal;
@@ -120,41 +130,47 @@ public class WeatherShader extends Shader {
          this.timerVal += 2;
       }
 
+      this.timerWrapVal = 1.0F - 2.0F * ((float)this.timerVal / 2.14748365E9F);
       float var9 = 0.0F;
       float var10 = 0.0F;
       float var11 = 1.0F / (float)var4;
       float var12 = 1.0F / (float)var5;
-      ARBShaderObjects.glUniform2fARB(this.TextureSize, (float)var6, (float)var7);
-      ARBShaderObjects.glUniform1fARB(this.Zoom, var8);
-      ARBShaderObjects.glUniform4fARB(this.SearchModeID, var1.vars[6], var1.vars[7], var1.vars[8], var1.vars[9]);
-      ARBShaderObjects.glUniform4fARB(this.ScreenInfo, var1.vars[10], var1.vars[11], var1.vars[12], var1.vars[13]);
-      ARBShaderObjects.glUniform4fARB(this.ParamInfo, var1.vars[14], var1.vars[15], var1.vars[16], var1.vars[17]);
-      ARBShaderObjects.glUniform4fARB(this.VarInfo, var1.vars[18], var1.vars[19], var1.vars[20], var1.vars[21]);
+      GL20.glUniform2f(this.TextureSize, (float)var6, (float)var7);
+      GL20.glUniform1f(this.Zoom, var8);
+      GL20.glUniform4f(this.SearchModeID, var1.vars[6], var1.vars[7], var1.vars[8], var1.vars[9]);
+      GL20.glUniform4f(this.ScreenInfo, var1.vars[10], var1.vars[11], var1.vars[12], var1.vars[13]);
+      GL20.glUniform4f(this.ParamInfo, var1.vars[14], var1.vars[15], var1.vars[16], var1.vars[17]);
+      GL20.glUniform4f(this.VarInfo, var1.vars[18], var1.vars[19], var1.vars[20], var1.vars[21]);
+      GL20.glUniform1f(this.DrunkFactor, var1.vars[22]);
+      GL20.glUniform1f(this.BlurFactor, var1.vars[23]);
    }
 
    public void onCompileSuccess(ShaderProgram var1) {
       int var2 = this.getID();
-      this.timeOfDay = ARBShaderObjects.glGetUniformLocationARB(var2, "TimeOfDay");
-      this.bloom = ARBShaderObjects.glGetUniformLocationARB(var2, "BloomVal");
-      this.PixelOffset = ARBShaderObjects.glGetUniformLocationARB(var2, "PixelOffset");
-      this.PixelSize = ARBShaderObjects.glGetUniformLocationARB(var2, "PixelSize");
-      this.BlurStrength = ARBShaderObjects.glGetUniformLocationARB(var2, "BlurStrength");
-      this.width = ARBShaderObjects.glGetUniformLocationARB(var2, "bgl_RenderedTextureWidth");
-      this.height = ARBShaderObjects.glGetUniformLocationARB(var2, "bgl_RenderedTextureHeight");
-      this.timer = ARBShaderObjects.glGetUniformLocationARB(var2, "timer");
-      this.TextureSize = ARBShaderObjects.glGetUniformLocationARB(var2, "TextureSize");
-      this.Zoom = ARBShaderObjects.glGetUniformLocationARB(var2, "Zoom");
-      this.Light = ARBShaderObjects.glGetUniformLocationARB(var2, "Light");
-      this.LightIntensity = ARBShaderObjects.glGetUniformLocationARB(var2, "LightIntensity");
-      this.NightValue = ARBShaderObjects.glGetUniformLocationARB(var2, "NightValue");
-      this.Exterior = ARBShaderObjects.glGetUniformLocationARB(var2, "Exterior");
-      this.NightVisionGoggles = ARBShaderObjects.glGetUniformLocationARB(var2, "NightVisionGoggles");
-      this.DesaturationVal = ARBShaderObjects.glGetUniformLocationARB(var2, "DesaturationVal");
-      this.FogMod = ARBShaderObjects.glGetUniformLocationARB(var2, "FogMod");
-      this.SearchModeID = ARBShaderObjects.glGetUniformLocationARB(var2, "SearchMode");
-      this.ScreenInfo = ARBShaderObjects.glGetUniformLocationARB(var2, "ScreenInfo");
-      this.ParamInfo = ARBShaderObjects.glGetUniformLocationARB(var2, "ParamInfo");
-      this.VarInfo = ARBShaderObjects.glGetUniformLocationARB(var2, "VarInfo");
+      this.timeOfDay = GL20.glGetUniformLocation(var2, "TimeOfDay");
+      this.bloom = GL20.glGetUniformLocation(var2, "BloomVal");
+      this.PixelOffset = GL20.glGetUniformLocation(var2, "PixelOffset");
+      this.PixelSize = GL20.glGetUniformLocation(var2, "PixelSize");
+      this.BlurStrength = GL20.glGetUniformLocation(var2, "BlurStrength");
+      this.setWidth(GL20.glGetUniformLocation(var2, "bgl_RenderedTextureWidth"));
+      this.setHeight(GL20.glGetUniformLocation(var2, "bgl_RenderedTextureHeight"));
+      this.timer = GL20.glGetUniformLocation(var2, "timer");
+      this.TextureSize = GL20.glGetUniformLocation(var2, "TextureSize");
+      this.Zoom = GL20.glGetUniformLocation(var2, "Zoom");
+      this.Light = GL20.glGetUniformLocation(var2, "Light");
+      this.LightIntensity = GL20.glGetUniformLocation(var2, "LightIntensity");
+      this.NightValue = GL20.glGetUniformLocation(var2, "NightValue");
+      this.Exterior = GL20.glGetUniformLocation(var2, "Exterior");
+      this.NightVisionGoggles = GL20.glGetUniformLocation(var2, "NightVisionGoggles");
+      this.DesaturationVal = GL20.glGetUniformLocation(var2, "DesaturationVal");
+      this.FogMod = GL20.glGetUniformLocation(var2, "FogMod");
+      this.SearchModeID = GL20.glGetUniformLocation(var2, "SearchMode");
+      this.ScreenInfo = GL20.glGetUniformLocation(var2, "ScreenInfo");
+      this.ParamInfo = GL20.glGetUniformLocation(var2, "ParamInfo");
+      this.VarInfo = GL20.glGetUniformLocation(var2, "VarInfo");
+      this.DrunkFactor = GL20.glGetUniformLocation(var2, "DrunkFactor");
+      this.BlurFactor = GL20.glGetUniformLocation(var2, "BlurFactor");
+      this.timerWrap = GL20.glGetUniformLocation(var2, "timerWrap");
    }
 
    public void postRender(TextureDraw var1) {
@@ -174,7 +190,7 @@ public class WeatherShader extends Shader {
          }
       }
 
-      return new float[22];
+      return new float[25];
    }
 
    private static void returnFloatArray(float[] var0) {

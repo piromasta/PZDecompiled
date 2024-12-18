@@ -1,7 +1,7 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
 import zombie.VirtualZombieManager;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoWorld;
 import zombie.iso.RoomDef;

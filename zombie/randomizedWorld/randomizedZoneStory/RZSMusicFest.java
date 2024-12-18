@@ -1,7 +1,7 @@
 package zombie.randomizedWorld.randomizedZoneStory;
 
-import zombie.core.Rand;
-import zombie.iso.IsoMetaGrid;
+import zombie.core.random.Rand;
+import zombie.iso.zones.Zone;
 
 public class RZSMusicFest extends RandomizedZoneStoryBase {
    public RZSMusicFest() {
@@ -11,7 +11,7 @@ public class RZSMusicFest extends RandomizedZoneStoryBase {
       this.alwaysDo = true;
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
       int var2 = Rand.Next(20, 50);
 
       for(int var3 = 0; var3 < var2; ++var3) {

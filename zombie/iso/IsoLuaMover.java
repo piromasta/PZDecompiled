@@ -54,7 +54,7 @@ public class IsoLuaMover extends IsoGameCharacter {
       var8 -= 100.0F;
       float var9 = this.offsetX;
       var9 -= 34.0F;
-      this.sprite.render(this.def, this, this.x, this.y, this.z, this.dir, var9, var8, var4, true);
+      this.sprite.render(this.def, this, this.getX(), this.getY(), this.getZ(), this.dir, var9, var8, var4, true);
 
       try {
          LuaManager.caller.pcallvoid(UIManager.getDefaultThread(), this.luaMoverTable.rawget("postrender"), this.luaMoverTable, var4, var5);

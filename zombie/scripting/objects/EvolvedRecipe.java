@@ -10,14 +10,23 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Stack;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Translator;
+import zombie.core.logger.LoggerManager;
+import zombie.debug.DebugLog;
+import zombie.entity.components.fluids.Fluid;
+import zombie.entity.components.fluids.FluidContainer;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.Food;
 import zombie.inventory.types.HandWeapon;
+import zombie.network.GameServer;
+import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.scripting.ScriptManager;
+import zombie.scripting.ScriptType;
 import zombie.util.StringUtils;
 
 public final class EvolvedRecipe extends BaseScriptObject {
@@ -35,12 +44,22 @@ public final class EvolvedRecipe extends BaseScriptObject {
    public String addIngredientSound = null;
    public boolean hidden = false;
    public boolean allowFrozenItem = false;
+   public String template = null;
+   public Float minimumWater = 0.0F;
 
    public EvolvedRecipe(String var1) {
+      super(ScriptType.EvolvedRecipe);
       this.name = var1;
    }
 
-   public void Load(String var1, String[] var2) {
+   public void Load(String var1, String var2) throws Exception {
+      String[] var3 = var2.split("[{}]");
+      String[] var4 = var3[1].split(",");
+      super.LoadCommonBlock(var2);
+      this.Load(var1, var4);
+   }
+
+   private void Load(String var1, String[] var2) {
       this.DisplayName = Translator.getRecipeName(var1);
       this.originalname = var1;
 
@@ -73,8 +92,16 @@ public final class EvolvedRecipe extends BaseScriptObject {
                this.hidden = Boolean.parseBoolean(var6);
             } else if (var5.equals("AllowFrozenItem")) {
                this.allowFrozenItem = Boolean.parseBoolean(var6);
+            } else if (var5.equals("Template")) {
+               this.template = var6;
+            } else if (var5.equals("MinimumWater")) {
+               this.minimumWater = Float.parseFloat(var6);
             }
          }
+      }
+
+      if (this.template == null) {
+         this.template = var1;
       }
 
    }
@@ -95,35 +122,39 @@ public final class EvolvedRecipe extends BaseScriptObject {
       }
 
       ArrayList var5 = new ArrayList();
-      Iterator var6 = this.itemsList.keySet().iterator();
-      if (!var3.contains(var1.getInventory())) {
-         var3.add(var1.getInventory());
-      }
-
-      while(var6.hasNext()) {
-         String var7 = (String)var6.next();
-         Iterator var8 = var3.iterator();
-
-         while(var8.hasNext()) {
-            ItemContainer var9 = (ItemContainer)var8.next();
-            this.checkItemCanBeUse(var9, var7, var2, var4, var5);
+      if (!var2.haveExtraItems() && this.getMinimumWater() > 0.0F && !this.hasMinimumWater(var2)) {
+         return var5;
+      } else {
+         Iterator var6 = this.itemsList.keySet().iterator();
+         if (!var3.contains(var1.getInventory())) {
+            var3.add(var1.getInventory());
          }
-      }
 
-      if (var2.haveExtraItems() && var2.getExtraItems().size() >= 3) {
-         for(int var11 = 0; var11 < var3.size(); ++var11) {
-            ItemContainer var12 = (ItemContainer)var3.get(var11);
+         while(var6.hasNext()) {
+            String var7 = (String)var6.next();
+            Iterator var8 = var3.iterator();
 
-            for(int var13 = 0; var13 < var12.getItems().size(); ++var13) {
-               InventoryItem var10 = (InventoryItem)var12.getItems().get(var13);
-               if (var10 instanceof Food && ((Food)var10).getPoisonLevelForRecipe() != null && var1.isKnownPoison(var10) && !var5.contains(var10)) {
-                  var5.add(var10);
+            while(var8.hasNext()) {
+               ItemContainer var9 = (ItemContainer)var8.next();
+               this.checkItemCanBeUse(var9, var7, var2, var4, var5);
+            }
+         }
+
+         if (var2.haveExtraItems() && var2.getExtraItems().size() >= 3) {
+            for(int var11 = 0; var11 < var3.size(); ++var11) {
+               ItemContainer var12 = (ItemContainer)var3.get(var11);
+
+               for(int var13 = 0; var13 < var12.getItems().size(); ++var13) {
+                  InventoryItem var10 = (InventoryItem)var12.getItems().get(var13);
+                  if (var10 instanceof Food && ((Food)var10).getPoisonLevelForRecipe() != null && var1.isKnownPoison(var10) && !var5.contains(var10)) {
+                     var5.add(var10);
+                  }
                }
             }
          }
-      }
 
-      return var5;
+         return var5;
+      }
    }
 
    private void checkItemCanBeUse(ItemContainer var1, String var2, InventoryItem var3, int var4, ArrayList<InventoryItem> var5) {
@@ -140,15 +171,24 @@ public final class EvolvedRecipe extends BaseScriptObject {
                   var9 = true;
                }
 
-               if (var10.isRotten() && var4 < 7) {
+               if (var10.isBurnt()) {
+                  var9 = false;
+               } else if (var10.isRotten() && var4 < 7) {
                   var9 = false;
                }
-            } else if ((!var3.haveExtraItems() || var3.extraItems.size() < this.maxItems) && (!var10.isRotten() || var4 >= 7)) {
-               var9 = true;
+            } else if (!var3.haveExtraItems() || var3.extraItems.size() < this.maxItems) {
+               if (var10.isBurnt()) {
+                  var9 = false;
+               } else if (!var10.isRotten() || var4 >= 7 || var8.hasTag("ProduceSack")) {
+                  var9 = true;
+               }
             }
 
             if (var10.isFrozen() && !this.allowFrozenItem) {
                var9 = false;
+            }
+
+            if (var10.isbDangerousUncooked() && !var10.isCooked() && !InventoryItemFactory.CreateItem(this.resultItem).isCookable()) {
             }
          } else {
             var9 = true;
@@ -169,11 +209,10 @@ public final class EvolvedRecipe extends BaseScriptObject {
          InventoryItem var6 = InventoryItemFactory.CreateItem(this.resultItem);
          if (var6 != null) {
             if (var1 instanceof HandWeapon) {
+               var6.setConditionFrom(var1);
                var6.getModData().rawset("condition:" + var1.getType(), (double)var1.getCondition() / (double)var1.getConditionMax());
             }
 
-            var3.getInventory().Remove(var1);
-            var3.getInventory().AddItem(var6);
             InventoryItem var7 = var1;
             var1 = var6;
             if (var6 instanceof Food) {
@@ -194,16 +233,13 @@ public final class EvolvedRecipe extends BaseScriptObject {
                   ((Food)var6).setBaseHunger(0.0F);
                }
 
-               if (var7.isTaintedWater()) {
-                  var6.setTaintedWater(true);
-               }
-
                if (var7 instanceof Food && var7.getOffAgeMax() != 1000000000 && var6.getOffAgeMax() != 1000000000) {
                   float var8 = var7.getAge() / (float)var7.getOffAgeMax();
                   var6.setAge((float)var6.getOffAgeMax() * var8);
                }
 
                if (var5 instanceof Food) {
+                  ((Food)var6).setTainted(((Food)var5).isTainted());
                   ((Food)var6).setCalories(((Food)var5).getCalories());
                   ((Food)var6).setProteins(((Food)var5).getProteins());
                   ((Food)var6).setLipids(((Food)var5).getLipids());
@@ -214,12 +250,19 @@ public final class EvolvedRecipe extends BaseScriptObject {
 
             var6.setUnhappyChange(0.0F);
             var6.setBoredomChange(0.0F);
+            var6.setCondition(var7.getCondition(), false);
+            var6.setFavorite(var7.isFavorite());
+            var3.getInventory().Remove(var7);
+            var3.getInventory().AddItem(var6);
+            if (GameServer.bServer) {
+               GameServer.sendReplaceItemInContainer(var3.getInventory(), var7, var6);
+            }
          }
       }
 
       if (this.itemsList.get(var2.getType()) != null && ((ItemRecipe)this.itemsList.get(var2.getType())).use > -1) {
          if (!(var2 instanceof Food)) {
-            var2.Use();
+            var2.UseAndSync();
          } else {
             float var15 = (float)((ItemRecipe)this.itemsList.get(var2.getType())).use / 100.0F;
             Food var16 = (Food)var2;
@@ -230,6 +273,8 @@ public final class EvolvedRecipe extends BaseScriptObject {
                   var17.setReduceFoodSickness(var17.getReduceFoodSickness() + var16.getReduceFoodSickness());
                   var17.setPainReduction(var17.getPainReduction() + var16.getPainReduction());
                   var17.setFluReduction(var17.getFluReduction() + var16.getFluReduction());
+                  var17.setStressChange(var17.getStressChange() + var16.getStressChange());
+                  var17.setReduceInfectionPower(var17.getReduceInfectionPower() + var16.getReduceInfectionPower());
                   if (var16.getEnduranceChange() > 0.0F) {
                      var17.setEnduranceChange(var17.getEnduranceChange() + var16.getEnduranceChange());
                   }
@@ -239,7 +284,7 @@ public final class EvolvedRecipe extends BaseScriptObject {
                   }
                }
 
-               this.useSpice(var16, (Food)var1, var15, var4);
+               this.useSpice(var16, (Food)var1, var15, var4, var3);
                return var1;
             }
 
@@ -273,7 +318,7 @@ public final class EvolvedRecipe extends BaseScriptObject {
 
                var17.setHungChange(var17.getHungChange() - var15);
                var17.setBaseHunger(var17.getBaseHunger() - var15);
-               if (var16.isbDangerousUncooked() && !var16.isCooked()) {
+               if (var16.isbDangerousUncooked() && !var16.isCooked() && !var16.isBurnt()) {
                   var17.setbDangerousUncooked(true);
                }
 
@@ -318,6 +363,7 @@ public final class EvolvedRecipe extends BaseScriptObject {
                var16.setHungChange(var16.getHungChange() + var20);
                var16.setBaseHunger(var16.getBaseHunger() + var20);
                var16.setThirstChange(var16.getThirstChange() - var14);
+               var16.setUnhappyChange(var16.getUnhappyChange() - var16.getUnhappyChange() * var12);
                var16.setCalories(var16.getCalories() - var16.getCalories() * var12);
                var16.setProteins(var16.getProteins() - var16.getProteins() * var12);
                var16.setCarbohydrates(var16.getCarbohydrates() - var16.getCarbohydrates() * var12);
@@ -330,13 +376,15 @@ public final class EvolvedRecipe extends BaseScriptObject {
                   var17.setReduceFoodSickness(var17.getReduceFoodSickness() + var16.getReduceFoodSickness());
                   var17.setPainReduction(var17.getPainReduction() + var16.getPainReduction());
                   var17.setFluReduction(var17.getFluReduction() + var16.getFluReduction());
+                  var17.setStressChange(var17.getStressChange() + var16.getStressChange());
+                  var17.setReduceInfectionPower(var17.getReduceInfectionPower() + var16.getReduceInfectionPower());
                   if (var17.getReduceFoodSickness() > 12) {
                      var17.setReduceFoodSickness(12);
                   }
                }
 
                if ((double)var16.getHungerChange() >= -0.02 || var9) {
-                  var2.Use();
+                  var2.UseAndSync();
                }
 
                if (var16.getFatigueChange() < 0.0F) {
@@ -352,6 +400,13 @@ public final class EvolvedRecipe extends BaseScriptObject {
          }
 
          var1.addExtraItem(var2.getFullType());
+         if (GameServer.bServer) {
+            if (var1.getContainer().getParent() instanceof IsoPlayer) {
+               INetworkPacket.send((IsoPlayer)var1.getContainer().getParent(), PacketTypes.PacketType.ItemStats, var1.getContainer(), var1);
+            } else {
+               INetworkPacket.sendToRelative(PacketTypes.PacketType.ItemStats, var3.getX(), var3.getY(), var1.getContainer(), this);
+            }
+         }
       } else if (var2 instanceof Food && ((Food)var2).getPoisonLevelForRecipe() != null) {
          this.addPoison(var2, var1, var3);
       }
@@ -423,10 +478,10 @@ public final class EvolvedRecipe extends BaseScriptObject {
             }
 
             var7 = Math.abs(var8 / var4.getThirstChange());
-            var7 = new Float((double)Math.round(var7.doubleValue() * 100.0) / 100.0);
+            var7 = (float)((double)Math.round(var7.doubleValue() * 100.0) / 100.0);
             var4.setThirstChange(var4.getThirstChange() + var8);
             if ((double)var4.getThirstChange() > -0.01) {
-               var4.Use();
+               var4.UseAndSync();
             }
          } else if (var4.getBaseHunger() <= -0.01F) {
             var8 = (float)var4.getUseForPoison() / 100.0F;
@@ -435,7 +490,7 @@ public final class EvolvedRecipe extends BaseScriptObject {
             }
 
             var7 = Math.abs(var8 / var4.getBaseHunger());
-            var7 = new Float((double)Math.round(var7.doubleValue() * 100.0) / 100.0);
+            var7 = (float)((double)Math.round(var7.doubleValue() * 100.0) / 100.0);
          }
 
          if (var5.getPoisonDetectionLevel() == -1) {
@@ -447,57 +502,82 @@ public final class EvolvedRecipe extends BaseScriptObject {
             var5.setPoisonDetectionLevel(10);
          }
 
-         int var9 = (new Float(var7 * ((float)var4.getPoisonPower() / 100.0F) * 100.0F)).intValue();
-         var5.setPoisonPower(var5.getPoisonPower() + var9);
-         var4.setPoisonPower(var4.getPoisonPower() - var9);
+         int var11 = (int)(var7 * ((float)var4.getPoisonPower() / 100.0F) * 100.0F);
+         int var9 = var5.getPoisonPower() + var11;
+         var5.setPoisonPower(var5.getPoisonPower() + var11);
+         var4.setPoisonPower(var4.getPoisonPower() - var11);
+         String var10 = String.format("Char %s poisoned item %s with power %d", var3.getName(), var2.getDisplayName(), var9);
+         DebugLog.Objects.debugln(var10);
+         LoggerManager.getLogger("user").write(var10);
+         if (GameServer.bServer) {
+            if (var2.getContainer().getParent() instanceof IsoPlayer) {
+               INetworkPacket.send((IsoPlayer)var2.getContainer().getParent(), PacketTypes.PacketType.ItemStats, var2.getContainer(), var2);
+            } else {
+               INetworkPacket.sendToRelative(PacketTypes.PacketType.ItemStats, var3.getX(), var3.getY(), var2.getContainer(), var2);
+            }
+
+            if (var1.getContainer().getParent() instanceof IsoPlayer) {
+               INetworkPacket.send((IsoPlayer)var1.getContainer().getParent(), PacketTypes.PacketType.ItemStats, var1.getContainer(), var1);
+            } else {
+               INetworkPacket.sendToRelative(PacketTypes.PacketType.ItemStats, var3.getX(), var3.getY(), var1.getContainer(), var1);
+            }
+         }
       }
 
    }
 
-   private void useSpice(Food var1, Food var2, float var3, int var4) {
+   private void useSpice(Food var1, Food var2, float var3, int var4, IsoGameCharacter var5) {
       if (!this.isSpiceAdded(var2, var1)) {
          if (var2.spices == null) {
             var2.spices = new ArrayList();
          }
 
          var2.spices.add(var1.getFullType());
-         float var5 = var3;
+         float var6 = var3;
          if (var1.isRotten()) {
-            DecimalFormat var6 = DECIMAL_FORMAT;
-            var6.setRoundingMode(RoundingMode.HALF_EVEN);
+            DecimalFormat var7 = DECIMAL_FORMAT;
+            var7.setRoundingMode(RoundingMode.HALF_EVEN);
             if (var4 != 7 && var4 != 8) {
                if (var4 == 9 || var4 == 10) {
-                  var3 = Float.parseFloat(var6.format((double)Math.abs(var1.getBaseHunger() - (var1.getBaseHunger() - 0.1F * var1.getBaseHunger()))).replace(",", "."));
+                  var3 = Float.parseFloat(var7.format((double)Math.abs(var1.getBaseHunger() - (var1.getBaseHunger() - 0.1F * var1.getBaseHunger()))).replace(",", "."));
                }
             } else {
-               var3 = Float.parseFloat(var6.format((double)Math.abs(var1.getBaseHunger() - (var1.getBaseHunger() - 0.05F * var1.getBaseHunger()))).replace(",", "."));
+               var3 = Float.parseFloat(var7.format((double)Math.abs(var1.getBaseHunger() - (var1.getBaseHunger() - 0.05F * var1.getBaseHunger()))).replace(",", "."));
             }
          }
 
-         float var8 = Math.abs(var3 / var1.getHungChange());
-         if (var8 > 1.0F) {
-            var8 = 1.0F;
+         float var9 = Math.abs(var3 / var1.getHungChange());
+         if (var9 > 1.0F) {
+            var9 = 1.0F;
          }
 
-         float var7 = (float)var4 / 15.0F + 1.0F;
+         float var8 = (float)var4 / 15.0F + 1.0F;
          var2.setUnhappyChange(var2.getUnhappyChangeUnmodified() - var3 * 200.0F);
          var2.setBoredomChange(var2.getBoredomChangeUnmodified() - var3 * 200.0F);
-         var2.setCalories(var2.getCalories() + var1.getCalories() * var7 * var8);
-         var2.setProteins(var2.getProteins() + var1.getProteins() * var7 * var8);
-         var2.setCarbohydrates(var2.getCarbohydrates() + var1.getCarbohydrates() * var7 * var8);
-         var2.setLipids(var2.getLipids() + var1.getLipids() * var7 * var8);
-         var8 = Math.abs(var5 / var1.getHungChange());
-         if (var8 > 1.0F) {
-            var8 = 1.0F;
+         var2.setCalories(var2.getCalories() + var1.getCalories() * var8 * var9);
+         var2.setProteins(var2.getProteins() + var1.getProteins() * var8 * var9);
+         var2.setCarbohydrates(var2.getCarbohydrates() + var1.getCarbohydrates() * var8 * var9);
+         var2.setLipids(var2.getLipids() + var1.getLipids() * var8 * var9);
+         var9 = Math.abs(var6 / var1.getHungChange());
+         if (var9 > 1.0F) {
+            var9 = 1.0F;
          }
 
-         var1.setCalories(var1.getCalories() - var1.getCalories() * var8);
-         var1.setProteins(var1.getProteins() - var1.getProteins() * var8);
-         var1.setCarbohydrates(var1.getCarbohydrates() - var1.getCarbohydrates() * var8);
-         var1.setLipids(var1.getLipids() - var1.getLipids() * var8);
-         var1.setHungChange(var1.getHungChange() + var5);
+         var1.setCalories(var1.getCalories() - var1.getCalories() * var9);
+         var1.setProteins(var1.getProteins() - var1.getProteins() * var9);
+         var1.setCarbohydrates(var1.getCarbohydrates() - var1.getCarbohydrates() * var9);
+         var1.setLipids(var1.getLipids() - var1.getLipids() * var9);
+         var1.setHungChange(var1.getHungChange() + var6);
          if ((double)var1.getHungerChange() > -0.01) {
-            var1.Use();
+            var1.UseAndSync();
+         }
+
+         if (GameServer.bServer) {
+            if (var2.getContainer().getParent() instanceof IsoPlayer) {
+               INetworkPacket.send((IsoPlayer)var2.getContainer().getParent(), PacketTypes.PacketType.ItemStats, var2.getContainer(), var2);
+            } else {
+               INetworkPacket.sendToRelative(PacketTypes.PacketType.ItemStats, var5.getX(), var5.getY(), var2.getContainer(), var2);
+            }
          }
       }
 
@@ -521,6 +601,23 @@ public final class EvolvedRecipe extends BaseScriptObject {
 
    public String getBaseItem() {
       return this.baseItem;
+   }
+
+   public float getMinimumWater() {
+      return this.minimumWater;
+   }
+
+   public boolean hasMinimumWater(InventoryItem var1) {
+      if (this.getMinimumWater() <= 0.0F) {
+         return true;
+      } else if (var1.getFluidContainer() == null) {
+         return false;
+      } else {
+         FluidContainer var2 = var1.getFluidContainer();
+         float var3 = var2.getCapacity();
+         float var4 = var2.getSpecificFluidAmount(Fluid.Water);
+         return !(var4 / var3 < this.getMinimumWater());
+      }
    }
 
    public Map<String, ItemRecipe> getItemsList() {

@@ -10,7 +10,7 @@ import org.lwjgl.util.vector.Vector4f;
 import zombie.core.skinnedmodel.model.jassimp.JAssImpImporter;
 import zombie.core.skinnedmodel.model.jassimp.ProcessedAiScene;
 import zombie.core.skinnedmodel.model.jassimp.ProcessedAiSceneParams;
-import zombie.debug.DebugLog;
+import zombie.debug.DebugType;
 import zombie.fileSystem.FileSystem;
 import zombie.fileSystem.IFileTaskCallback;
 
@@ -34,7 +34,7 @@ public class FileTask_LoadAnimation extends FileTask_AbstractLoadModel {
    }
 
    public ProcessedAiScene loadX() throws IOException {
-      DebugLog.Animation.debugln("Loading: %s", this.m_fileName);
+      DebugType.LoadAnimation.debugln("Loading: %s", this.m_fileName);
       EnumSet var1 = EnumSet.of(AiPostProcessSteps.MAKE_LEFT_HANDED, AiPostProcessSteps.REMOVE_REDUNDANT_MATERIALS);
       AiScene var2 = Jassimp.importFile(this.m_fileName, var1);
       JAssImpImporter.LoadMode var3 = JAssImpImporter.LoadMode.AnimationOnly;
@@ -50,7 +50,28 @@ public class FileTask_LoadAnimation extends FileTask_AbstractLoadModel {
    }
 
    public ProcessedAiScene loadFBX() throws IOException {
-      DebugLog.Animation.debugln("Loading: %s", this.m_fileName);
+      DebugType.LoadAnimation.debugln("Loading: %s", this.m_fileName);
+      EnumSet var1 = EnumSet.of(AiPostProcessSteps.MAKE_LEFT_HANDED, AiPostProcessSteps.REMOVE_REDUNDANT_MATERIALS);
+      AiScene var2 = Jassimp.importFile(this.m_fileName, var1);
+      JAssImpImporter.LoadMode var3 = JAssImpImporter.LoadMode.AnimationOnly;
+      ModelMesh var4 = this.m_anim.assetParams.animationsMesh;
+      SkinningData var5 = var4 == null ? null : var4.skinningData;
+      Quaternion var6 = new Quaternion();
+      Vector4f var7 = new Vector4f(1.0F, 0.0F, 0.0F, -1.5707964F);
+      var6.setFromAxisAngle(var7);
+      ProcessedAiSceneParams var8 = ProcessedAiSceneParams.create();
+      var8.scene = var2;
+      var8.mode = var3;
+      var8.skinnedTo = var5;
+      var8.animBonesScaleModifier = 0.01F;
+      var8.animBonesRotateModifier = var6;
+      ProcessedAiScene var9 = ProcessedAiScene.process(var8);
+      JAssImpImporter.takeOutTheTrash(var2);
+      return var9;
+   }
+
+   public ProcessedAiScene loadGLTF() throws IOException {
+      DebugType.LoadAnimation.debugln("Loading: %s", this.m_fileName);
       EnumSet var1 = EnumSet.of(AiPostProcessSteps.MAKE_LEFT_HANDED, AiPostProcessSteps.REMOVE_REDUNDANT_MATERIALS);
       AiScene var2 = Jassimp.importFile(this.m_fileName, var1);
       JAssImpImporter.LoadMode var3 = JAssImpImporter.LoadMode.AnimationOnly;

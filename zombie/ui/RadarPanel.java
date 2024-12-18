@@ -14,7 +14,7 @@ import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCamera;
-import zombie.iso.IsoMetaCell;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
@@ -109,30 +109,31 @@ public final class RadarPanel extends UIElement {
 
    private void renderBuildings() {
       IsoMetaGrid var1 = IsoWorld.instance.MetaGrid;
-      IsoMetaCell[][] var2 = var1.Grid;
-      int var3 = (int)((this.xPos - 100.0F) / 300.0F) - var1.minX;
-      int var4 = (int)((this.yPos - 100.0F) / 300.0F) - var1.minY;
-      int var5 = (int)((this.xPos + 100.0F) / 300.0F) - var1.minX;
-      int var6 = (int)((this.yPos + 100.0F) / 300.0F) - var1.minY;
+      int var2 = (int)((this.xPos - 100.0F) / (float)IsoCell.CellSizeInSquares) - var1.minX;
+      int var3 = (int)((this.yPos - 100.0F) / (float)IsoCell.CellSizeInSquares) - var1.minY;
+      int var4 = (int)((this.xPos + 100.0F) / (float)IsoCell.CellSizeInSquares) - var1.minX;
+      int var5 = (int)((this.yPos + 100.0F) / (float)IsoCell.CellSizeInSquares) - var1.minY;
+      var2 = Math.max(var2, 0);
       var3 = Math.max(var3, 0);
-      var4 = Math.max(var4, 0);
-      var5 = Math.min(var5, var2.length - 1);
-      var6 = Math.min(var6, var2[0].length - 1);
+      var4 = Math.min(var4, var1.gridX() - 1);
+      var5 = Math.min(var5, var1.gridY() - 1);
 
-      for(int var7 = var3; var7 <= var5; ++var7) {
-         for(int var8 = var4; var8 <= var6; ++var8) {
-            LotHeader var9 = var2[var7][var8].info;
-            if (var9 != null) {
-               for(int var10 = 0; var10 < var9.Buildings.size(); ++var10) {
-                  BuildingDef var11 = (BuildingDef)var9.Buildings.get(var10);
+      for(int var6 = var2; var6 <= var4; ++var6) {
+         for(int var7 = var3; var7 <= var5; ++var7) {
+            if (var1.hasCell(var6, var7)) {
+               LotHeader var8 = var1.getCell(var6, var7).info;
+               if (var8 != null) {
+                  for(int var9 = 0; var9 < var8.Buildings.size(); ++var9) {
+                     BuildingDef var10 = (BuildingDef)var8.Buildings.get(var9);
 
-                  for(int var12 = 0; var12 < var11.rooms.size(); ++var12) {
-                     if (((RoomDef)var11.rooms.get(var12)).level <= 0) {
-                        ArrayList var13 = ((RoomDef)var11.rooms.get(var12)).getRects();
+                     for(int var11 = 0; var11 < var10.rooms.size(); ++var11) {
+                        if (((RoomDef)var10.rooms.get(var11)).level <= 0) {
+                           ArrayList var12 = ((RoomDef)var10.rooms.get(var11)).getRects();
 
-                        for(int var14 = 0; var14 < var13.size(); ++var14) {
-                           RoomDef.RoomRect var15 = (RoomDef.RoomRect)var13.get(var14);
-                           this.renderRect((float)var15.getX(), (float)var15.getY(), (float)var15.getW(), (float)var15.getH(), 0.5F, 0.5F, 0.8F, 0.3F);
+                           for(int var13 = 0; var13 < var12.size(); ++var13) {
+                              RoomDef.RoomRect var14 = (RoomDef.RoomRect)var12.get(var13);
+                              this.renderRect((float)var14.getX(), (float)var14.getY(), (float)var14.getW(), (float)var14.getH(), 0.5F, 0.5F, 0.8F, 0.3F);
+                           }
                         }
                      }
                   }
@@ -168,7 +169,7 @@ public final class RadarPanel extends UIElement {
                double var13 = (Math.toDegrees(var11) + 180.0) % 360.0;
                this.zombiePosOccupied[(int)var13] = true;
             } else {
-               this.zombiePos.add(this.zombiePosPool.alloc(var7.x, var7.y));
+               this.zombiePos.add(this.zombiePosPool.alloc(var7.getX(), var7.getY()));
             }
          }
 

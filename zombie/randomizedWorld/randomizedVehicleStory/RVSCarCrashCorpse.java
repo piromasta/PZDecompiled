@@ -1,11 +1,11 @@
 package zombie.randomizedWorld.randomizedVehicleStory;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.Vector2;
+import zombie.iso.zones.Zone;
 import zombie.vehicles.BaseVehicle;
 
 public final class RVSCarCrashCorpse extends RandomizedVehicleStoryBase {
@@ -13,15 +13,15 @@ public final class RVSCarCrashCorpse extends RandomizedVehicleStoryBase {
       this.name = "Basic Car Crash Corpse";
       this.minZoneWidth = 6;
       this.minZoneHeight = 11;
-      this.setChance(10);
+      this.setChance(100);
    }
 
-   public void randomizeVehicleStory(IsoMetaGrid.Zone var1, IsoChunk var2) {
+   public void randomizeVehicleStory(Zone var1, IsoChunk var2) {
       float var3 = 0.5235988F;
       this.callVehicleStorySpawner(var1, var2, Rand.Next(-var3, var3));
    }
 
-   public boolean initVehicleStorySpawner(IsoMetaGrid.Zone var1, IsoChunk var2, boolean var3) {
+   public boolean initVehicleStorySpawner(Zone var1, IsoChunk var2, boolean var3) {
       VehicleStorySpawner var4 = VehicleStorySpawner.getInstance();
       var4.clear();
       Vector2 var5 = IsoDirections.N.ToVector();
@@ -36,7 +36,7 @@ public final class RVSCarCrashCorpse extends RandomizedVehicleStoryBase {
       IsoGridSquare var3 = var2.square;
       if (var3 != null) {
          float var4 = var2.z;
-         IsoMetaGrid.Zone var5 = (IsoMetaGrid.Zone)var1.getParameter("zone", IsoMetaGrid.Zone.class);
+         Zone var5 = (Zone)var1.getParameter("zone", Zone.class);
          BaseVehicle var6 = (BaseVehicle)var1.getParameter("vehicle1", BaseVehicle.class);
          switch (var2.id) {
             case "corpse":
@@ -48,6 +48,7 @@ public final class RVSCarCrashCorpse extends RandomizedVehicleStoryBase {
             case "vehicle1":
                var6 = this.addVehicle(var5, var2.position.x, var2.position.y, var4, var2.direction, "bad", (String)null, (Integer)null, (String)null);
                if (var6 != null) {
+                  var6.setAlarmed(false);
                   var6 = var6.setSmashed("Front");
                   var6.setBloodIntensity("Front", 1.0F);
                   var1.setParameter("vehicle1", var6);

@@ -4,7 +4,9 @@ import java.io.PrintStream;
 import java.util.Comparator;
 import org.junit.Assert;
 import org.junit.Test;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.random.RandLua;
+import zombie.core.random.RandStandard;
 
 public class test_ParticlesArray extends Assert {
    public test_ParticlesArray() {
@@ -13,15 +15,15 @@ public class test_ParticlesArray extends Assert {
    @Test
    public void test_ParticlesArray_functional() {
       ParticlesArray var1 = new ParticlesArray();
-      var1.addParticle(new Integer(1));
-      var1.addParticle(new Integer(2));
-      var1.addParticle(new Integer(3));
-      var1.addParticle(new Integer(4));
-      var1.addParticle(new Integer(5));
-      var1.addParticle(new Integer(6));
-      var1.addParticle(new Integer(7));
-      var1.addParticle(new Integer(8));
-      var1.addParticle(new Integer(9));
+      var1.addParticle(1);
+      var1.addParticle(2);
+      var1.addParticle(3);
+      var1.addParticle(4);
+      var1.addParticle(5);
+      var1.addParticle(6);
+      var1.addParticle(7);
+      var1.addParticle(8);
+      var1.addParticle(9);
       assertEquals(9L, (long)var1.size());
       assertEquals(9L, (long)var1.getCount());
 
@@ -57,12 +59,12 @@ public class test_ParticlesArray extends Assert {
       assertEquals((Object)null, var1.get(6));
       assertEquals((Object)null, var1.get(7));
       assertEquals((Object)null, var1.get(8));
-      var1.addParticle(new Integer(11));
-      var1.addParticle(new Integer(12));
-      var1.addParticle(new Integer(13));
-      var1.addParticle(new Integer(14));
-      var1.addParticle(new Integer(15));
-      var1.addParticle(new Integer(16));
+      var1.addParticle(11);
+      var1.addParticle(12);
+      var1.addParticle(13);
+      var1.addParticle(14);
+      var1.addParticle(15);
+      var1.addParticle(16);
       assertEquals(10L, (long)var1.size());
       assertEquals(10L, (long)var1.getCount());
       assertEquals(7L, (long)(Integer)var1.get(0));
@@ -106,8 +108,8 @@ public class test_ParticlesArray extends Assert {
       assertEquals((Object)null, var1.get(7));
       assertEquals((Object)null, var1.get(8));
       assertEquals((Object)null, var1.get(9));
-      var1.addParticle(new Integer(21));
-      var1.addParticle(new Integer(22));
+      var1.addParticle(21);
+      var1.addParticle(22);
       assertEquals(10L, (long)var1.size());
       assertEquals(6L, (long)var1.getCount());
       assertEquals(13L, (long)(Integer)var1.get(0));
@@ -120,31 +122,31 @@ public class test_ParticlesArray extends Assert {
       assertEquals((Object)null, var1.get(7));
       assertEquals((Object)null, var1.get(8));
       assertEquals((Object)null, var1.get(9));
-      assertEquals(6L, (long)var1.addParticle(new Integer(31)));
-      assertEquals(7L, (long)var1.addParticle(new Integer(32)));
-      assertEquals(8L, (long)var1.addParticle(new Integer(33)));
-      assertEquals(9L, (long)var1.addParticle(new Integer(34)));
-      assertEquals(10L, (long)var1.addParticle(new Integer(35)));
+      assertEquals(6L, (long)var1.addParticle(31));
+      assertEquals(7L, (long)var1.addParticle(32));
+      assertEquals(8L, (long)var1.addParticle(33));
+      assertEquals(9L, (long)var1.addParticle(34));
+      assertEquals(10L, (long)var1.addParticle(35));
       assertEquals(11L, (long)var1.size());
       assertEquals(11L, (long)var1.getCount());
       var1.deleteParticle(4);
       assertEquals(11L, (long)var1.size());
       assertEquals(10L, (long)var1.getCount());
-      assertEquals(4L, (long)var1.addParticle(new Integer(36)));
+      assertEquals(4L, (long)var1.addParticle(36));
    }
 
    @Test
    public void test_ParticlesArray_Failure() {
       ParticlesArray var1 = new ParticlesArray();
-      var1.addParticle(new Integer(1));
-      var1.addParticle(new Integer(2));
-      var1.addParticle(new Integer(3));
-      var1.addParticle(new Integer(4));
-      var1.addParticle(new Integer(5));
-      var1.addParticle(new Integer(6));
-      var1.addParticle(new Integer(7));
-      var1.addParticle(new Integer(8));
-      var1.addParticle(new Integer(9));
+      var1.addParticle(1);
+      var1.addParticle(2);
+      var1.addParticle(3);
+      var1.addParticle(4);
+      var1.addParticle(5);
+      var1.addParticle(6);
+      var1.addParticle(7);
+      var1.addParticle(8);
+      var1.addParticle(9);
       assertEquals(9L, (long)var1.size());
       assertEquals(9L, (long)var1.getCount());
 
@@ -174,7 +176,7 @@ public class test_ParticlesArray extends Assert {
       long var3 = System.currentTimeMillis();
 
       for(int var5 = 0; var5 < 1000000; ++var5) {
-         var2.addParticle(new Integer(var5));
+         var2.addParticle(var5);
       }
 
       long var11 = System.currentTimeMillis();
@@ -194,12 +196,13 @@ public class test_ParticlesArray extends Assert {
       var3 = System.currentTimeMillis();
 
       for(var7 = 0; var7 < 1000000; ++var7) {
-         var2.addParticle(new Integer(var7));
+         var2.addParticle(var7);
       }
 
       var11 = System.currentTimeMillis();
       System.out.println("Add 1000000 elements = " + (var11 - var3) + " ms (size=" + var2.size() + ", count=" + var2.getCount() + ")");
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       var1 = 0;
       var3 = System.currentTimeMillis();
 
@@ -214,7 +217,7 @@ public class test_ParticlesArray extends Assert {
       var3 = System.currentTimeMillis();
 
       for(var7 = 0; var7 < 1000000; ++var7) {
-         var2.addParticle(new Integer(var7));
+         var2.addParticle(var7);
       }
 
       var11 = System.currentTimeMillis();
@@ -249,7 +252,7 @@ public class test_ParticlesArray extends Assert {
       var3 = System.currentTimeMillis();
 
       for(var8 = 0; var8 < 1000000; ++var8) {
-         var2.addParticle(new Integer(var8));
+         var2.addParticle(var8);
       }
 
       var11 = System.currentTimeMillis();
@@ -268,7 +271,7 @@ public class test_ParticlesArray extends Assert {
       var3 = System.currentTimeMillis();
 
       for(var8 = 0; var8 < 1000000; ++var8) {
-         var2.addParticle(new Integer(var8));
+         var2.addParticle(var8);
       }
 
       var11 = System.currentTimeMillis();
@@ -290,7 +293,7 @@ public class test_ParticlesArray extends Assert {
       for(int var9 = 0; var9 < 100000; ++var9) {
          for(int var10 = 0; var10 < var2.size(); ++var10) {
             if (var2.get(var10) == null) {
-               var2.set(var10, new Integer(var9));
+               var2.set(var10, var9);
                ++var8;
                break;
             }

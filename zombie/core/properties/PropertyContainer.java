@@ -8,7 +8,10 @@ import java.util.Comparator;
 import java.util.List;
 import zombie.core.TilePropertyAliasMap;
 import zombie.core.Collections.NonBlockingHashMap;
+import zombie.core.math.PZMath;
+import zombie.iso.IsoDirections;
 import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.util.StringUtils;
 
 public final class PropertyContainer {
    private long SpriteFlags1 = 0L;
@@ -21,6 +24,9 @@ public final class PropertyContainer {
    private byte SurfaceFlags;
    private short StackReplaceTileOffset;
    private byte ItemHeight;
+   private IsoDirections SlopedSurfaceDirection;
+   private byte SlopedSurfaceHeightMin;
+   private byte SlopedSurfaceHeightMax;
    private static final byte SURFACE_VALID = 1;
    private static final byte SURFACE_ISOFFSET = 2;
    private static final byte SURFACE_ISTABLE = 4;
@@ -30,8 +36,10 @@ public final class PropertyContainer {
    }
 
    public void CreateKeySet() {
-      TIntSet var1 = this.Properties.keySet();
-      this.keyArray = var1.toArray();
+      if (!this.Properties.isEmpty()) {
+         TIntSet var1 = this.Properties.keySet();
+         this.keyArray = var1.toArray();
+      }
    }
 
    public void AddProperties(PropertyContainer var1) {
@@ -40,10 +48,10 @@ public final class PropertyContainer {
             int var3 = var1.keyArray[var2];
             this.Properties.put(var3, var1.Properties.get(var3));
          }
-
-         this.SpriteFlags1 |= var1.SpriteFlags1;
-         this.SpriteFlags2 |= var1.SpriteFlags2;
       }
+
+      this.SpriteFlags1 |= var1.SpriteFlags1;
+      this.SpriteFlags2 |= var1.SpriteFlags2;
    }
 
    public void Clear() {
@@ -54,8 +62,8 @@ public final class PropertyContainer {
    }
 
    public boolean Is(IsoFlagType var1) {
-      long var2 = var1.index() / 64 == 0 ? this.SpriteFlags1 : this.SpriteFlags2;
-      return (var2 & 1L << var1.index() % 64) != 0L;
+      long var2 = var1.index() < 64 ? this.SpriteFlags1 : this.SpriteFlags2;
+      return (var2 & 1L << (var1.index() & 63)) != 0L;
    }
 
    public boolean Is(Double var1) {
@@ -117,6 +125,14 @@ public final class PropertyContainer {
       return !this.Properties.containsKey(var2) ? null : TilePropertyAliasMap.instance.getPropertyValueString(var2, this.Properties.get(var2));
    }
 
+   public boolean valueEquals(String var1, String var2) {
+      return StringUtils.equals(this.Val(var1), var2);
+   }
+
+   public boolean valueEqualsIgnoreCase(String var1, String var2) {
+      return StringUtils.equalsIgnoreCase(this.Val(var1), var2);
+   }
+
    public boolean Is(String var1) {
       int var2 = TilePropertyAliasMap.instance.getIDFromPropertyName(var1);
       return this.Properties.containsKey(var2);
@@ -158,6 +174,9 @@ public final class PropertyContainer {
          this.StackReplaceTileOffset = 0;
          this.SurfaceFlags = 1;
          this.ItemHeight = 0;
+         this.SlopedSurfaceDirection = null;
+         this.SlopedSurfaceHeightMin = 0;
+         this.SlopedSurfaceHeightMax = 0;
          this.Properties.forEachEntry((var1, var2) -> {
             TilePropertyAliasMap.TileProperty var3 = (TilePropertyAliasMap.TileProperty)TilePropertyAliasMap.instance.Properties.get(var1);
             String var4 = var3.propertyName;
@@ -190,6 +209,12 @@ public final class PropertyContainer {
                   }
                } catch (NumberFormatException var7) {
                }
+            } else if ("SlopedSurfaceDirection".equals(var4)) {
+               this.SlopedSurfaceDirection = IsoDirections.fromString(var5);
+            } else if ("SlopedSurfaceHeightMin".equals(var4)) {
+               this.SlopedSurfaceHeightMin = (byte)PZMath.clamp(PZMath.tryParseInt(var5, 0), 0, 100);
+            } else if ("SlopedSurfaceHeightMax".equals(var4)) {
+               this.SlopedSurfaceHeightMax = (byte)PZMath.clamp(PZMath.tryParseInt(var5, 0), 0, 100);
             }
 
             return true;
@@ -225,6 +250,21 @@ public final class PropertyContainer {
    public int getItemHeight() {
       this.initSurface();
       return this.ItemHeight;
+   }
+
+   public IsoDirections getSlopedSurfaceDirection() {
+      this.initSurface();
+      return this.SlopedSurfaceDirection;
+   }
+
+   public int getSlopedSurfaceHeightMin() {
+      this.initSurface();
+      return this.SlopedSurfaceHeightMin;
+   }
+
+   public int getSlopedSurfaceHeightMax() {
+      this.initSurface();
+      return this.SlopedSurfaceHeightMax;
    }
 
    public static class MostTested {

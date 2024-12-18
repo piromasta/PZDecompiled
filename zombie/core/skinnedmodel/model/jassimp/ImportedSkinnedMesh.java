@@ -4,6 +4,7 @@ import jassimp.AiBone;
 import jassimp.AiBoneWeight;
 import jassimp.AiMesh;
 import java.util.List;
+import org.lwjgl.util.vector.Matrix4f;
 import zombie.core.skinnedmodel.model.VertexBufferObject;
 
 public final class ImportedSkinnedMesh {
@@ -11,6 +12,7 @@ public final class ImportedSkinnedMesh {
    String name;
    VertexBufferObject.VertexArray vertices = null;
    int[] elements = null;
+   Matrix4f transform = null;
 
    public ImportedSkinnedMesh(ImportedSkeleton var1, AiMesh var2) {
       this.skeleton = var1;
@@ -54,16 +56,15 @@ public final class ImportedSkinnedMesh {
       }
 
       var8 = getNumUVs(var1);
-      VertexBufferObject.VertexFormat var18 = new VertexBufferObject.VertexFormat(5 + var8);
+      VertexBufferObject.VertexFormat var18 = new VertexBufferObject.VertexFormat(4 + var8);
       var18.setElement(0, VertexBufferObject.VertexType.VertexArray, 12);
       var18.setElement(1, VertexBufferObject.VertexType.NormalArray, 12);
-      var18.setElement(2, VertexBufferObject.VertexType.TangentArray, 12);
-      var18.setElement(3, VertexBufferObject.VertexType.BlendWeightArray, 16);
-      var18.setElement(4, VertexBufferObject.VertexType.BlendIndexArray, 16);
+      var18.setElement(2, VertexBufferObject.VertexType.BlendWeightArray, 16);
+      var18.setElement(3, VertexBufferObject.VertexType.BlendIndexArray, 16);
 
       int var19;
       for(var19 = 0; var19 < var8; ++var19) {
-         var18.setElement(5 + var19, VertexBufferObject.VertexType.TextureCoordArray, 8);
+         var18.setElement(4 + var19, VertexBufferObject.VertexType.TextureCoordArray, 8);
       }
 
       var18.calculate();
@@ -77,20 +78,14 @@ public final class ImportedSkinnedMesh {
             this.vertices.setElement(var19, 1, 0.0F, 1.0F, 0.0F);
          }
 
-         if (var1.hasTangentsAndBitangents()) {
-            this.vertices.setElement(var19, 2, var1.getTangentX(var19), var1.getTangentY(var19), var1.getTangentZ(var19));
-         } else {
-            this.vertices.setElement(var19, 2, 0.0F, 0.0F, 1.0F);
-         }
-
-         this.vertices.setElement(var19, 3, var5[var19 * 4], var5[var19 * 4 + 1], var5[var19 * 4 + 2], var5[var19 * 4 + 3]);
-         this.vertices.setElement(var19, 4, (float)var4[var19 * 4], (float)var4[var19 * 4 + 1], (float)var4[var19 * 4 + 2], (float)var4[var19 * 4 + 3]);
+         this.vertices.setElement(var19, 2, var5[var19 * 4], var5[var19 * 4 + 1], var5[var19 * 4 + 2], var5[var19 * 4 + 3]);
+         this.vertices.setElement(var19, 3, (float)var4[var19 * 4], (float)var4[var19 * 4 + 1], (float)var4[var19 * 4 + 2], (float)var4[var19 * 4 + 3]);
          if (var8 > 0) {
             var11 = 0;
 
             for(int var20 = 0; var20 < 8; ++var20) {
                if (var1.hasTexCoords(var20)) {
-                  this.vertices.setElement(var19, 5 + var11, var1.getTexCoordU(var19, var20), 1.0F - var1.getTexCoordV(var19, var20));
+                  this.vertices.setElement(var19, 4 + var11, var1.getTexCoordU(var19, var20), 1.0F - var1.getTexCoordV(var19, var20));
                   ++var11;
                }
             }

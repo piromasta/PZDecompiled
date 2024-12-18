@@ -29,9 +29,9 @@ public final class VehicleDBHelper {
             try {
                var3 = PZSQLUtils.getConnection(var4.getAbsolutePath());
             } catch (Exception var20) {
-               DebugLog.log("failed to create vehicles database");
+               DebugLog.log("failed to get connection to vehicles database: " + var4.getAbsolutePath());
                ExceptionLogger.logException(var20);
-               System.exit(1);
+               return false;
             }
 
             boolean var5 = false;

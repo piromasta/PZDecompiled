@@ -1,6 +1,7 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -22,44 +23,7 @@ public final class RBClinic extends RandomizedBuildingBase {
                         int var9 = Rand.Next(1, 3);
 
                         for(int var10 = 0; var10 < var9; ++var10) {
-                           int var11 = Rand.Next(12);
-                           switch (var11) {
-                              case 0:
-                                 this.addWorldItem("Scalpel", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 1:
-                                 this.addWorldItem("Bandage", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 2:
-                                 this.addWorldItem("Pills", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 3:
-                                 this.addWorldItem("AlcoholWipes", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 4:
-                                 this.addWorldItem("Bandaid", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 5:
-                                 this.addWorldItem("CottonBalls", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 6:
-                                 this.addWorldItem("Disinfectant", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 7:
-                                 this.addWorldItem("SutureNeedle", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 8:
-                                 this.addWorldItem("SutureNeedleHolder", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 9:
-                                 this.addWorldItem("Tweezers", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 10:
-                                 this.addWorldItem("Gloves_Surgical", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                                 break;
-                              case 11:
-                                 this.addWorldItem("Hat_SurgicalMask_Blue", var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
-                           }
+                           ItemSpawner.spawnItem(RBBasic.getMedicallutterItem(), var6, Rand.Next(0.4F, 0.6F), Rand.Next(0.4F, 0.6F), var8.getSurfaceOffsetNoTable() / 96.0F);
                         }
                      }
                   }

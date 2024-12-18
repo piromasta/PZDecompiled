@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import zombie.GameWindow;
 import zombie.core.Core;
 import zombie.core.ThreadGroups;
+import zombie.core.logger.ExceptionLogger;
 import zombie.debug.DebugLog;
 import zombie.iso.objects.IsoTree;
 import zombie.network.MPStatistic;
@@ -31,7 +32,7 @@ public final class WorldReuserThread {
             try {
                Thread.sleep(1000L);
             } catch (InterruptedException var2) {
-               var2.printStackTrace();
+               ExceptionLogger.logException(var2);
             }
          }
 
@@ -70,28 +71,32 @@ public final class WorldReuserThread {
    }
 
    public void testReuseChunk() {
-      for(IsoChunk var1 = (IsoChunk)this.reuseGridSquares.poll(); var1 != null; var1 = (IsoChunk)this.reuseGridSquares.poll()) {
-         if (Core.bDebug) {
-            if (ChunkSaveWorker.instance.toSaveQueue.contains(var1)) {
-               DebugLog.log("ERROR: reusing chunk that needs to be saved");
+      try {
+         for(IsoChunk var1 = (IsoChunk)this.reuseGridSquares.poll(); var1 != null; var1 = (IsoChunk)this.reuseGridSquares.poll()) {
+            if (Core.bDebug) {
+               if (ChunkSaveWorker.instance.toSaveQueue.contains(var1)) {
+                  DebugLog.log("ERROR: reusing chunk that needs to be saved");
+               }
+
+               if (IsoChunkMap.chunkStore.contains(var1)) {
+                  DebugLog.log("ERROR: reusing chunk in chunkStore");
+               }
+
+               if (!var1.refs.isEmpty()) {
+                  DebugLog.log("ERROR: reusing chunk with refs");
+               }
             }
 
-            if (IsoChunkMap.chunkStore.contains(var1)) {
-               DebugLog.log("ERROR: reusing chunk in chunkStore");
+            if (Core.bDebug) {
             }
 
-            if (!var1.refs.isEmpty()) {
-               DebugLog.log("ERROR: reusing chunk with refs");
+            this.reuseGridSquares(var1);
+            if (this.treesToReuse.size() > 1000 || this.objectsToReuse.size() > 5000) {
+               this.reconcileReuseObjects();
             }
          }
-
-         if (Core.bDebug) {
-         }
-
-         this.reuseGridSquares(var1);
-         if (this.treesToReuse.size() > 1000 || this.objectsToReuse.size() > 5000) {
-            this.reconcileReuseObjects();
-         }
+      } catch (Throwable var2) {
+         ExceptionLogger.logException(var2);
       }
 
    }
@@ -101,31 +106,32 @@ public final class WorldReuserThread {
    }
 
    public void reuseGridSquares(IsoChunk var1) {
-      byte var2 = 100;
+      byte var2 = 64;
 
-      for(int var3 = 0; var3 < 8; ++var3) {
+      for(int var3 = var1.minLevel; var3 <= var1.maxLevel; ++var3) {
          for(int var4 = 0; var4 < var2; ++var4) {
-            IsoGridSquare var5 = var1.squares[var3][var4];
-            if (var5 != null) {
-               for(int var6 = 0; var6 < var5.getObjects().size(); ++var6) {
-                  IsoObject var7 = (IsoObject)var5.getObjects().get(var6);
-                  if (var7 instanceof IsoTree) {
-                     var7.reset();
+            int var5 = var1.squaresIndexOfLevel(var3);
+            IsoGridSquare var6 = var1.squares[var5][var4];
+            if (var6 != null) {
+               for(int var7 = 0; var7 < var6.getObjects().size(); ++var7) {
+                  IsoObject var8 = (IsoObject)var6.getObjects().get(var7);
+                  if (var8 instanceof IsoTree) {
+                     var8.reset();
                      synchronized(this.treesToReuse) {
-                        this.treesToReuse.add((IsoTree)var7);
+                        this.treesToReuse.add((IsoTree)var8);
                      }
-                  } else if (var7.getClass() == IsoObject.class) {
-                     var7.reset();
+                  } else if (var8.getClass() == IsoObject.class) {
+                     var8.reset();
                      synchronized(this.objectsToReuse) {
-                        this.objectsToReuse.add(var7);
+                        this.objectsToReuse.add(var8);
                      }
                   } else {
-                     var7.reuseGridSquare();
+                     var8.reuseGridSquare();
                   }
                }
 
-               var5.discard();
-               var1.squares[var3][var4] = null;
+               var6.discard();
+               var1.squares[var5][var4] = null;
             }
          }
       }

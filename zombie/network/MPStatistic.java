@@ -215,23 +215,21 @@ public class MPStatistic {
          this.table.rawset("countConnections", (double)GameServer.udpEngine.connections.size());
          KahluaTable var3 = LuaManager.platform.newTable();
 
-         KahluaTable var9;
-         KahluaTable var17;
          for(int var4 = 0; var4 < GameServer.udpEngine.connections.size(); ++var4) {
             KahluaTable var5 = LuaManager.platform.newTable();
             UdpConnection var6 = (UdpConnection)GameServer.udpEngine.connections.get(var4);
             var5.rawset("ip", var6.ip);
             var5.rawset("username", var6.username);
-            var5.rawset("accessLevel", var6.accessLevel);
+            var5.rawset("accessLevel", var6.role.getName());
             KahluaTable var7 = LuaManager.platform.newTable();
 
             for(int var8 = 0; var8 < var6.players.length; ++var8) {
                if (var6.players[var8] != null) {
-                  var9 = LuaManager.platform.newTable();
+                  KahluaTable var9 = LuaManager.platform.newTable();
                   var9.rawset("username", var6.players[var8].username);
-                  var9.rawset("x", (double)var6.players[var8].x);
-                  var9.rawset("y", (double)var6.players[var8].y);
-                  var9.rawset("z", (double)var6.players[var8].z);
+                  var9.rawset("x", (double)var6.players[var8].getX());
+                  var9.rawset("y", (double)var6.players[var8].getY());
+                  var9.rawset("z", (double)var6.players[var8].getZ());
                   var7.rawset(var8, var9);
                }
             }
@@ -252,18 +250,18 @@ public class MPStatistic {
             var5.rawset("FPSMin", (double)var6.statistic.FPSMin);
             var5.rawset("FPSAvg", (double)var6.statistic.FPSAvg);
             var5.rawset("FPSMax", (double)var6.statistic.FPSMax);
-            var17 = LuaManager.platform.newTable();
-            short var18 = 0;
+            KahluaTable var26 = LuaManager.platform.newTable();
+            short var28 = 0;
 
             for(int var10 = 0; var10 < 32; ++var10) {
-               var17.rawset(var10, (double)var6.statistic.FPSHistogramm[var10]);
-               if (var18 < var6.statistic.FPSHistogramm[var10]) {
-                  var18 = var6.statistic.FPSHistogramm[var10];
+               var26.rawset(var10, (double)var6.statistic.FPSHistogramm[var10]);
+               if (var28 < var6.statistic.FPSHistogramm[var10]) {
+                  var28 = var6.statistic.FPSHistogramm[var10];
                }
             }
 
-            var5.rawset("FPSHistogram", var17);
-            var5.rawset("FPSHistogramMax", (double)var18);
+            var5.rawset("FPSHistogram", var26);
+            var5.rawset("FPSHistogramMax", (double)var28);
             var3.rawset(var4, var5);
          }
 
@@ -272,48 +270,76 @@ public class MPStatistic {
          this.table.rawset("countIncomePackets", (double)this.countIncomePackets);
          this.table.rawset("countIncomeBytes", (double)this.countIncomeBytes);
          this.table.rawset("maxIncomeBytesPerSecound", (double)this.maxIncomeBytesPerSecond);
-         KahluaTable var11 = LuaManager.platform.newTable();
-         int var12 = -1;
+         KahluaTable var23 = LuaManager.platform.newTable();
+         int var24 = -1;
+         long var25 = 0L;
+         long var27 = 0L;
+         long var29 = 0L;
 
-         PacketTypes.PacketType var15;
-         for(Iterator var13 = PacketTypes.packetTypes.values().iterator(); var13.hasNext(); var15.incomeBytes = 0) {
-            var15 = (PacketTypes.PacketType)var13.next();
-            if (var15.incomePackets > 0) {
-               var17 = LuaManager.platform.newTable();
-               var17.rawset("name", var15.name());
-               var17.rawset("count", (double)var15.incomePackets);
-               var17.rawset("bytes", (double)var15.incomeBytes);
-               var11.rawset(var12, var17);
+         PacketTypes.PacketType var13;
+         for(Iterator var12 = PacketTypes.packetTypes.values().iterator(); var12.hasNext(); var13.incomeTime = 0) {
+            var13 = (PacketTypes.PacketType)var12.next();
+            if (var13.incomePackets > 0) {
+               KahluaTable var14 = LuaManager.platform.newTable();
+               var14.rawset("name", var13.name());
+               var14.rawset("count", (double)var13.incomePackets);
+               var14.rawset("bytes", (double)var13.incomeBytes);
+               var14.rawset("time", (double)(var13.incomeTime / 1000 / Period));
+               var23.rawset(var24++, var14);
+               var25 += (long)var13.incomePackets;
+               var27 += (long)var13.incomeBytes;
+               var29 += (long)var13.incomeTime;
             }
 
-            var15.incomePackets = 0;
+            var13.incomePackets = 0;
+            var13.incomeBytes = 0;
          }
 
-         this.table.rawset("incomePacketsTable", var11);
+         KahluaTable var30 = LuaManager.platform.newTable();
+         var30.rawset("name", "Total");
+         var30.rawset("count", (double)var25);
+         var30.rawset("bytes", (double)var27);
+         var30.rawset("time", (double)(var29 / 1000L / (long)Period));
+         var23.rawset(var24, var30);
+         this.table.rawset("incomePacketsTable", var23);
          this.countIncomePackets = 0;
          this.countIncomeBytes = 0;
          this.maxIncomeBytesPerSecond = 0;
          this.table.rawset("countOutcomePackets", (double)this.countOutcomePackets);
          this.table.rawset("countOutcomeBytes", (double)this.countOutcomeBytes);
          this.table.rawset("maxOutcomeBytesPerSecound", (double)this.maxOutcomeBytesPerSecond);
-         KahluaTable var14 = LuaManager.platform.newTable();
-         var12 = -1;
+         KahluaTable var31 = LuaManager.platform.newTable();
+         var24 = -1;
+         long var32 = 0L;
+         long var16 = 0L;
+         long var18 = 0L;
 
-         PacketTypes.PacketType var19;
-         for(Iterator var16 = PacketTypes.packetTypes.values().iterator(); var16.hasNext(); var19.outcomeBytes = 0) {
-            var19 = (PacketTypes.PacketType)var16.next();
-            if (var19.outcomePackets > 0) {
-               var9 = LuaManager.platform.newTable();
-               var9.rawset("name", var19.name());
-               var9.rawset("count", (double)var19.outcomePackets);
-               var9.rawset("bytes", (double)var19.outcomeBytes);
-               var14.rawset(var12++, var9);
+         PacketTypes.PacketType var21;
+         for(Iterator var20 = PacketTypes.packetTypes.values().iterator(); var20.hasNext(); var21.outcomeTime = 0) {
+            var21 = (PacketTypes.PacketType)var20.next();
+            if (var21.outcomePackets > 0) {
+               KahluaTable var22 = LuaManager.platform.newTable();
+               var22.rawset("name", var21.name());
+               var22.rawset("count", (double)var21.outcomePackets);
+               var22.rawset("bytes", (double)var21.outcomeBytes);
+               var22.rawset("time", (double)(var21.outcomeTime / 1000 / Period));
+               var31.rawset(var24++, var22);
+               var32 += (long)var21.outcomePackets;
+               var16 += (long)var21.outcomeBytes;
+               var18 += (long)var21.outcomeTime;
             }
 
-            var19.outcomePackets = 0;
+            var21.outcomePackets = 0;
+            var21.outcomeBytes = 0;
          }
 
-         this.table.rawset("outcomePacketsTable", var14);
+         KahluaTable var33 = LuaManager.platform.newTable();
+         var33.rawset("name", "Total");
+         var33.rawset("count", (double)var32);
+         var33.rawset("bytes", (double)var16);
+         var33.rawset("time", (double)(var18 / 1000L / (long)Period));
+         var31.rawset(var24, var33);
+         this.table.rawset("outcomePacketsTable", var31);
          this.countOutcomePackets = 0;
          this.countOutcomeBytes = 0;
          this.maxOutcomeBytesPerSecond = 0;
@@ -357,12 +383,12 @@ public class MPStatistic {
          String var6;
          for(int var1 = 0; var1 < GameServer.udpEngine.connections.size(); ++var1) {
             UdpConnection var2 = (UdpConnection)GameServer.udpEngine.connections.get(var1);
-            DebugLog.Statistic.println("Connection " + var1 + " " + var2.ip + " " + var2.username + " " + var2.accessLevel);
+            DebugLog.DetailedInfo.trace("Connection " + var1 + " " + var2.ip + " " + var2.username + " " + var2.role.getName());
 
             for(int var3 = 0; var3 < var2.players.length; ++var3) {
                if (var2.players[var3] != null) {
                   var6 = var2.players[var3].username;
-                  DebugLog.Statistic.println("  User " + var6 + " (" + var2.players[var3].x + ", " + var2.players[var3].y + ", " + var2.players[var3].z + ")");
+                  DebugLog.DetailedInfo.trace("  User " + var6 + " (" + var2.players[var3].getX() + ", " + var2.players[var3].getY() + ", " + var2.players[var3].getZ() + ")");
                }
             }
 
@@ -755,7 +781,7 @@ public class MPStatistic {
                      } else {
                         this.csvConnectionsFile.print(var2.ip + "; ");
                         this.csvConnectionsFile.print(var2.username + "; ");
-                        this.csvConnectionsFile.print(var2.accessLevel + "; ");
+                        this.csvConnectionsFile.print(var2.role.getName() + "; ");
                         this.csvConnectionsFile.print(var2.players.length + "; ");
                         this.csvConnectionsFile.print(var2.statistic.diff / 2 + "; ");
                         this.csvConnectionsFile.print(var2.statistic.pingAVG + "; ");
@@ -828,7 +854,7 @@ public class MPStatistic {
          this.table = LuaManager.platform.newTable();
 
          try {
-            this.table.load(var1, 195);
+            this.table.load(var1, 219);
             this.table.rawset("lastReportTime", (double)System.currentTimeMillis());
          } catch (Exception var3) {
             this.table = null;

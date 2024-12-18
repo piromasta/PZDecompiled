@@ -1,6 +1,7 @@
 package zombie.iso.sprite.shapers;
 
 import javax.xml.bind.annotation.XmlType;
+import zombie.core.PerformanceSettings;
 import zombie.core.textures.TextureDraw;
 import zombie.debug.DebugOptions;
 
@@ -12,7 +13,9 @@ public class FloorShaperAttachedSprites extends FloorShaper {
 
    public void accept(TextureDraw var1) {
       super.accept(var1);
-      this.applyAttachedSpritesPadding(var1);
+      if (!PerformanceSettings.FBORenderChunk) {
+         this.applyAttachedSpritesPadding(var1);
+      }
    }
 
    private void applyAttachedSpritesPadding(TextureDraw var1) {

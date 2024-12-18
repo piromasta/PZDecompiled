@@ -17,6 +17,8 @@ public abstract class BaseSoundEmitter {
 
    public abstract void stopSoundLocal(long var1);
 
+   public abstract void stopOrTriggerSoundLocal(long var1);
+
    public abstract int stopSoundByName(String var1);
 
    public abstract void stopOrTriggerSound(long var1);
@@ -30,6 +32,10 @@ public abstract class BaseSoundEmitter {
    public abstract boolean hasSustainPoints(long var1);
 
    public abstract void setParameterValue(long var1, FMOD_STUDIO_PARAMETER_DESCRIPTION var3, float var4);
+
+   public abstract void setParameterValueByName(long var1, String var3, float var4);
+
+   public abstract boolean isUsingParameter(long var1, String var3);
 
    public abstract void setTimelinePosition(long var1, String var3);
 

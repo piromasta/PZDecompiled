@@ -233,7 +233,7 @@ public class RCONClient {
             var1.read(input, 0, var2);
          }
 
-         this.size = bbr.getInt();
+         this.size = Math.min(bbr.getInt(), bbr.capacity() - 4);
          this.id = bbr.getInt();
          this.type = bbr.getInt();
          if (this.size > 10) {

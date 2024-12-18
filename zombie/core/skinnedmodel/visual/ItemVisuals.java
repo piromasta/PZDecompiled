@@ -3,6 +3,7 @@ package zombie.core.skinnedmodel.visual;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Iterator;
 import zombie.core.skinnedmodel.population.ClothingItem;
 
 public final class ItemVisuals extends ArrayList<ItemVisual> {
@@ -52,5 +53,34 @@ public final class ItemVisuals extends ArrayList<ItemVisual> {
       }
 
       return null;
+   }
+
+   private boolean contains(String var1) {
+      Iterator var2 = this.iterator();
+
+      ItemVisual var3;
+      do {
+         if (!var2.hasNext()) {
+            return false;
+         }
+
+         var3 = (ItemVisual)var2.next();
+      } while(!var3.getItemType().equals(var1));
+
+      return true;
+   }
+
+   public String getDescription() {
+      String var1 = "{ \"ItemVisuals\" : [ ";
+
+      for(int var2 = 0; var2 < this.size(); ++var2) {
+         var1 = var1 + ((ItemVisual)this.get(var2)).getDescription();
+         if (var2 < this.size() - 1) {
+            var1 = var1 + ", ";
+         }
+      }
+
+      var1 = var1 + " ] }";
+      return var1;
    }
 }

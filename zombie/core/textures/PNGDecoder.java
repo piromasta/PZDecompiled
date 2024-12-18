@@ -15,8 +15,11 @@ public final class PNGDecoder {
    private static final int IHDR = 1229472850;
    private static final int PLTE = 1347179589;
    private static final int tRNS = 1951551059;
-   private static final int IDAT = 1229209940;
+   public static final int IDAT = 1229209940;
    private static final int IEND = 1229278788;
+   private static final int acTL = 1633899596;
+   private static final int fcTL = 1717785676;
+   public static final int fdAT = 1717846356;
    private static final byte COLOR_GREYSCALE = 0;
    private static final byte COLOR_TRUECOLOR = 2;
    private static final byte COLOR_INDEXED = 3;
@@ -36,6 +39,10 @@ public final class PNGDecoder {
    private byte[] palette;
    private byte[] paletteA;
    private byte[] transPixel;
+   private int num_frames;
+   private int num_plays;
+   private boolean bDefaultImageIsFirstFrame;
+   private final APNGFrame apngFrame = new APNGFrame();
    int maskM = 0;
    public int maskID = 0;
    public BooleanGrid mask;
@@ -54,11 +61,13 @@ public final class PNGDecoder {
          this.openChunk(1229472850);
          this.readIHDR();
          this.closeChunk();
+         boolean var3 = false;
 
          while(true) {
             this.openChunk();
             switch (this.chunkType) {
                case 1229209940:
+                  var3 = true;
                   if (this.colorType == 3 && this.palette == null) {
                      throw new IOException("Missing PLTE chunk");
                   }
@@ -70,6 +79,16 @@ public final class PNGDecoder {
                   return;
                case 1347179589:
                   this.readPLTE();
+                  break;
+               case 1633899596:
+                  this.readacTL();
+                  break;
+               case 1717785676:
+                  this.bDefaultImageIsFirstFrame = !var3;
+                  this.readfcTL();
+                  break;
+               case 1717846356:
+                  this.readfdAT();
                   break;
                case 1951551059:
                   this.readtRNS();
@@ -98,6 +117,26 @@ public final class PNGDecoder {
 
    public boolean isRGB() {
       return this.colorType == 6 || this.colorType == 2 || this.colorType == 3;
+   }
+
+   public boolean isAnimated() {
+      return this.num_frames > 0;
+   }
+
+   public int getNumFrames() {
+      return this.num_frames;
+   }
+
+   public int getNumPlays() {
+      return this.num_plays;
+   }
+
+   public APNGFrame getCurrentFrame() {
+      return this.apngFrame;
+   }
+
+   private int getCurrentFrameWidth() {
+      return this.isAnimated() ? this.apngFrame.width : this.width;
    }
 
    public void overwriteTRNS(byte var1, byte var2, byte var3) {
@@ -171,64 +210,64 @@ public final class PNGDecoder {
       }
    }
 
-   public void decode(ByteBuffer var1, int var2, Format var3) throws IOException {
-      int var4 = var1.position();
-      int var5 = (this.width * this.bitdepth + 7) / 8 * this.bytesPerPixel;
-      byte[] var6 = new byte[var5 + 1];
-      byte[] var7 = new byte[var5 + 1];
-      byte[] var8 = this.bitdepth < 8 ? new byte[this.width + 1] : null;
+   public void decode(ByteBuffer var1, int var2, int var3, Format var4, int var5) throws IOException {
+      int var6 = var1.position();
+      int var7 = (this.getCurrentFrameWidth() * this.bitdepth + 7) / 8 * this.bytesPerPixel;
+      byte[] var8 = new byte[var7 + 1];
+      byte[] var9 = new byte[var7 + 1];
+      byte[] var10 = this.bitdepth < 8 ? new byte[this.getCurrentFrameWidth() + 1] : null;
       this.maskM = 0;
-      Inflater var9 = new Inflater();
+      Inflater var11 = new Inflater();
 
       try {
-         for(int var10 = 0; var10 < this.height; ++var10) {
-            this.readChunkUnzip(var9, var6, 0, var6.length);
-            this.unfilter(var6, var7);
-            var1.position(var4 + var10 * var2);
-            label123:
+         for(int var12 = 0; var12 < var3; ++var12) {
+            this.readChunkUnzip(var11, var8, 0, var8.length, var5);
+            this.unfilter(var8, var9);
+            var1.position(var6 + var12 * var2);
+            label127:
             switch (this.colorType) {
                case 0:
-                  switch (var3) {
+                  switch (var4) {
                      case RGBA:
-                        this.copyGREYtoRGBA(var1, var6);
-                        break label123;
+                        this.copyGREYtoRGBA(var1, var8);
+                        break label127;
                      case BGRA:
                      case RGB:
                      default:
                         throw new UnsupportedOperationException("Unsupported format for this image");
                      case LUMINANCE:
                      case ALPHA:
-                        this.copy(var1, var6);
-                        break label123;
+                        this.copy(var1, var8);
+                        break label127;
                   }
                case 1:
                case 5:
                default:
                   throw new UnsupportedOperationException("Not yet implemented");
                case 2:
-                  switch (var3) {
+                  switch (var4) {
                      case ABGR:
-                        this.copyRGBtoABGR(var1, var6);
-                        break label123;
+                        this.copyRGBtoABGR(var1, var8);
+                        break label127;
                      case RGBA:
-                        this.copyRGBtoRGBA(var1, var6);
-                        break label123;
+                        this.copyRGBtoRGBA(var1, var8);
+                        break label127;
                      case BGRA:
-                        this.copyRGBtoBGRA(var1, var6);
-                        break label123;
+                        this.copyRGBtoBGRA(var1, var8);
+                        break label127;
                      case RGB:
-                        this.copy(var1, var6);
-                        break label123;
+                        this.copy(var1, var8);
+                        break label127;
                      default:
                         throw new UnsupportedOperationException("Unsupported format for this image");
                   }
                case 3:
                   switch (this.bitdepth) {
                      case 1:
-                        this.expand1(var6, var8);
+                        this.expand1(var8, var10);
                         break;
                      case 2:
-                        this.expand2(var6, var8);
+                        this.expand2(var8, var10);
                         break;
                      case 3:
                      case 5:
@@ -237,75 +276,106 @@ public final class PNGDecoder {
                      default:
                         throw new UnsupportedOperationException("Unsupported bitdepth for this image");
                      case 4:
-                        this.expand4(var6, var8);
+                        this.expand4(var8, var10);
                         break;
                      case 8:
-                        var8 = var6;
+                        var10 = var8;
                   }
 
-                  switch (var3) {
+                  switch (var4) {
                      case ABGR:
-                        this.copyPALtoABGR(var1, var8);
-                        break label123;
+                        this.copyPALtoABGR(var1, var10);
+                        break label127;
                      case RGBA:
-                        this.copyPALtoRGBA(var1, var8);
-                        break label123;
+                        this.copyPALtoRGBA(var1, var10);
+                        break label127;
                      case BGRA:
-                        this.copyPALtoBGRA(var1, var8);
-                        break label123;
+                        this.copyPALtoBGRA(var1, var10);
+                        break label127;
                      default:
                         throw new UnsupportedOperationException("Unsupported format for this image");
                   }
                case 4:
-                  switch (var3) {
+                  switch (var4) {
                      case RGBA:
-                        this.copyGREYALPHAtoRGBA(var1, var6);
-                        break label123;
+                        this.copyGREYALPHAtoRGBA(var1, var8);
+                        break label127;
                      case LUMINANCE_ALPHA:
-                        this.copy(var1, var6);
-                        break label123;
+                        this.copy(var1, var8);
+                        break label127;
                      default:
                         throw new UnsupportedOperationException("Unsupported format for this image");
                   }
                case 6:
-                  switch (var3) {
+                  switch (var4) {
                      case ABGR:
-                        this.copyRGBAtoABGR(var1, var6);
+                        this.copyRGBAtoABGR(var1, var8);
                         break;
                      case RGBA:
-                        this.copy(var1, var6);
+                        this.copy(var1, var8);
                         break;
                      case BGRA:
-                        this.copyRGBAtoBGRA(var1, var6);
+                        this.copyRGBAtoBGRA(var1, var8);
                         break;
                      case RGB:
-                        this.copyRGBAtoRGB(var1, var6);
+                        this.copyRGBAtoRGB(var1, var8);
                         break;
                      default:
                         throw new UnsupportedOperationException("Unsupported format for this image");
                   }
             }
 
-            byte[] var11 = var6;
-            var6 = var7;
-            var7 = var11;
+            byte[] var13 = var8;
+            var8 = var9;
+            var9 = var13;
          }
-      } finally {
-         var9.end();
-      }
 
+         this.closeChunk();
+      } finally {
+         var11.end();
+      }
    }
 
-   public void decodeFlipped(ByteBuffer var1, int var2, Format var3) throws IOException {
+   public void decodeFlipped(ByteBuffer var1, int var2, int var3, Format var4, int var5) throws IOException {
       if (var2 <= 0) {
          throw new IllegalArgumentException("stride");
       } else {
-         int var4 = var1.position();
-         int var5 = (this.height - 1) * var2;
-         var1.position(var4 + var5);
-         this.decode(var1, -var2, var3);
-         var1.position(var1.position() + var5);
+         int var6 = var1.position();
+         int var7 = (this.height - 1) * var2;
+         var1.position(var6 + var7);
+         this.decode(var1, -var2, var3, var4, var5);
+         var1.position(var1.position() + var7);
       }
+   }
+
+   public void decodeStartOfNextFrame() throws IOException {
+      boolean var1 = true;
+
+      while(true) {
+         this.openChunk();
+         switch (this.chunkType) {
+            case 1347179589:
+               this.readPLTE();
+               break;
+            case 1717785676:
+               this.readfcTL();
+               break;
+            case 1717846356:
+               int var3 = this.readfdAT();
+               return;
+            case 1951551059:
+               this.readtRNS();
+               break;
+            default:
+               boolean var2 = true;
+         }
+
+         this.closeChunk();
+      }
+   }
+
+   public void decodeFrame(ByteBuffer var1, int var2, Format var3) throws IOException {
+      this.decode(var1, var2, this.apngFrame.height, var3, 1717846356);
    }
 
    private void copy(ByteBuffer var1, byte[] var2) {
@@ -834,6 +904,37 @@ public final class PNGDecoder {
 
    }
 
+   private void readacTL() throws IOException {
+      this.checkChunkLength(8);
+      this.readChunk(this.buffer, 0, 8);
+      this.num_frames = this.readInt(this.buffer, 0);
+      this.num_plays = this.readInt(this.buffer, 4);
+   }
+
+   private void readfcTL() throws IOException {
+      this.checkChunkLength(26);
+      this.readChunk(this.buffer, 0, 26);
+      this.apngFrame.sequence_number = this.readInt(this.buffer, 0);
+      this.apngFrame.width = this.readInt(this.buffer, 4);
+      this.apngFrame.height = this.readInt(this.buffer, 8);
+      this.apngFrame.x_offset = this.readInt(this.buffer, 12);
+      this.apngFrame.y_offset = this.readInt(this.buffer, 16);
+      this.apngFrame.delay_num = (short)this.readShort(this.buffer, 20);
+      this.apngFrame.delay_den = (short)this.readShort(this.buffer, 22);
+      this.apngFrame.dispose_op = this.buffer[24];
+      this.apngFrame.blend_op = this.buffer[25];
+   }
+
+   private int readfdAT() throws IOException {
+      if (this.chunkRemaining < 4) {
+         throw new IOException("Chunk has wrong size");
+      } else {
+         this.readChunk(this.buffer, 0, 4);
+         int var1 = this.readInt(this.buffer, 0);
+         return var1;
+      }
+   }
+
    private void closeChunk() throws IOException {
       if (this.chunkRemaining > 0) {
          this.skip((long)(this.chunkRemaining + 4));
@@ -884,23 +985,23 @@ public final class PNGDecoder {
       return var3;
    }
 
-   private void refillInflater(Inflater var1) throws IOException {
+   private void refillInflater(Inflater var1, int var2) throws IOException {
       while(this.chunkRemaining == 0) {
          this.closeChunk();
-         this.openChunk(1229209940);
+         this.openChunk(var2);
       }
 
-      int var2 = this.readChunk(this.buffer, 0, this.buffer.length);
-      var1.setInput(this.buffer, 0, var2);
+      int var3 = this.readChunk(this.buffer, 0, this.buffer.length);
+      var1.setInput(this.buffer, 0, var3);
    }
 
-   private void readChunkUnzip(Inflater var1, byte[] var2, int var3, int var4) throws IOException {
+   private void readChunkUnzip(Inflater var1, byte[] var2, int var3, int var4, int var5) throws IOException {
       assert var2 != this.buffer;
 
       try {
          do {
-            int var5 = var1.inflate(var2, var3, var4);
-            if (var5 <= 0) {
+            int var6 = var1.inflate(var2, var3, var4);
+            if (var6 <= 0) {
                if (var1.finished()) {
                   throw new EOFException();
                }
@@ -909,15 +1010,15 @@ public final class PNGDecoder {
                   throw new IOException("Can't inflate " + var4 + " bytes");
                }
 
-               this.refillInflater(var1);
+               this.refillInflater(var1, var5);
             } else {
-               var3 += var5;
-               var4 -= var5;
+               var3 += var6;
+               var4 -= var6;
             }
          } while(var4 > 0);
 
-      } catch (DataFormatException var6) {
-         throw (IOException)(new IOException("inflate error")).initCause(var6);
+      } catch (DataFormatException var7) {
+         throw (IOException)(new IOException("inflate error")).initCause(var7);
       }
    }
 
@@ -937,6 +1038,10 @@ public final class PNGDecoder {
 
    private int readInt(byte[] var1, int var2) {
       return var1[var2] << 24 | (var1[var2 + 1] & 255) << 16 | (var1[var2 + 2] & 255) << 8 | var1[var2 + 3] & 255;
+   }
+
+   private int readShort(byte[] var1, int var2) {
+      return (var1[var2] & 255) << 8 | var1[var2 + 1] & 255;
    }
 
    private void skip(long var1) throws IOException {

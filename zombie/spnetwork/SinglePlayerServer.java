@@ -14,11 +14,10 @@ import zombie.core.network.ByteBufferWriter;
 import zombie.debug.DebugLog;
 import zombie.globalObjects.SGlobalObjectNetwork;
 import zombie.iso.IsoObject;
-import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.network.GameClient;
 import zombie.network.PacketTypes;
 import zombie.network.TableNetworkUtils;
-import zombie.vehicles.BaseVehicle;
+import zombie.network.packets.INetworkPacket;
 
 public final class SinglePlayerServer {
    private static final ArrayList<ZomboidNetData> MainLoopNetData = new ArrayList();
@@ -43,31 +42,7 @@ public final class SinglePlayerServer {
 
    private static void sendObjectChange(IsoObject var0, String var1, KahluaTable var2, UdpConnection var3) {
       if (var0.getSquare() != null) {
-         ByteBufferWriter var4 = var3.startPacket();
-         PacketTypes.PacketType.ObjectChange.doPacket(var4);
-         if (var0 instanceof IsoPlayer) {
-            var4.putByte((byte)1);
-            var4.putShort(((IsoPlayer)var0).OnlineID);
-         } else if (var0 instanceof BaseVehicle) {
-            var4.putByte((byte)2);
-            var4.putShort(((BaseVehicle)var0).getId());
-         } else if (var0 instanceof IsoWorldInventoryObject) {
-            var4.putByte((byte)3);
-            var4.putInt(var0.getSquare().getX());
-            var4.putInt(var0.getSquare().getY());
-            var4.putInt(var0.getSquare().getZ());
-            var4.putInt(((IsoWorldInventoryObject)var0).getItem().getID());
-         } else {
-            var4.putByte((byte)0);
-            var4.putInt(var0.getSquare().getX());
-            var4.putInt(var0.getSquare().getY());
-            var4.putInt(var0.getSquare().getZ());
-            var4.putInt(var0.getSquare().getObjects().indexOf(var0));
-         }
-
-         var4.putUTF(var1);
-         var0.saveChange(var1, var2, var4.bb);
-         var3.endPacketImmediate();
+         INetworkPacket.send(var3, PacketTypes.PacketType.ObjectChange, var0, var1, var2);
       }
    }
 

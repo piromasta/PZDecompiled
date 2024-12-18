@@ -2,11 +2,13 @@ package zombie.commands.serverCommands;
 
 import java.util.Iterator;
 import zombie.Lua.LuaManager;
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.raknet.UdpConnection;
 
 @CommandName(
@@ -18,11 +20,11 @@ import zombie.core.raknet.UdpConnection;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_ReloadLua"
 )
-@RequiredRight(
-   requiredRights = 32
+@RequiredCapability(
+   requiredCapability = Capability.ReloadLuaFiles
 )
 public class ReloadLuaCommand extends CommandBase {
-   public ReloadLuaCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public ReloadLuaCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 

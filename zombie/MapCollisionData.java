@@ -9,13 +9,15 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
 import zombie.gameStates.IngameState;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoLot;
 import zombie.iso.IsoMetaCell;
-import zombie.iso.IsoMetaChunk;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
+import zombie.iso.LotHeader;
+import zombie.iso.MapFiles;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.network.GameClient;
@@ -30,16 +32,16 @@ public final class MapCollisionData {
    public static final byte BIT_WALLW = 4;
    public static final byte BIT_WATER = 8;
    public static final byte BIT_ROOM = 16;
-   private static final int SQUARES_PER_CHUNK = 10;
-   private static final int CHUNKS_PER_CELL = 30;
-   private static final int SQUARES_PER_CELL = 300;
-   private static int[] curXY = new int[2];
+   private static final int SQUARES_PER_CHUNK = 8;
+   private static final int CHUNKS_PER_CELL;
+   private static final int SQUARES_PER_CELL;
+   private static int[] curXY;
    public final Object renderLock = new Object();
    private final Stack<PathTask> freePathTasks = new Stack();
    private final ConcurrentLinkedQueue<PathTask> pathTaskQueue = new ConcurrentLinkedQueue();
    private final ConcurrentLinkedQueue<PathTask> pathResultQueue = new ConcurrentLinkedQueue();
    private final Sync sync = new Sync();
-   private final byte[] squares = new byte[100];
+   private final byte[] squares = new byte[64];
    private final int SQUARE_UPDATE_SIZE = 9;
    private final ByteBuffer squareUpdateBuffer = ByteBuffer.allocateDirect(1024);
    private boolean bClient;
@@ -92,10 +94,14 @@ public final class MapCollisionData {
    public void init(IsoMetaGrid var1) {
       this.bClient = GameClient.bClient;
       if (!this.bClient) {
-         int var2 = var1.getMinX();
-         int var3 = var1.getMinY();
-         int var4 = var1.getWidth();
-         int var5 = var1.getHeight();
+         int var2 = var1.minNonProceduralX;
+         int var3 = var1.minNonProceduralY;
+         int var4 = var1.maxNonProceduralX - var2 + 1;
+         int var5 = var1.maxNonProceduralY - var3 + 1;
+         var2 = var1.minX;
+         var3 = var1.minY;
+         var4 = var1.getWidth();
+         var5 = var1.getHeight();
          n_setGameState("Core.GameMode", Core.getInstance().getGameMode());
          n_setGameState("Core.GameSaveWorld", Core.GameSaveWorld);
          n_setGameState("Core.bLastStand", Core.bLastStand);
@@ -106,6 +112,8 @@ public final class MapCollisionData {
          n_setGameState("GameWindow.SaveDir", ZomboidFileSystem.instance.getSaveDir());
          n_setGameState("SandboxOptions.Distribution", SandboxOptions.instance.Distribution.getValue());
          n_setGameState("SandboxOptions.Zombies", SandboxOptions.instance.Zombies.getValue());
+         n_setGameState("SavefileNaming.SUBDIR_CHUNKDATA", "chunkdata");
+         n_setGameState("SavefileNaming.SUBDIR_ZPOP", "zpop");
          n_setGameState("World.ZombiesDisabled", IsoWorld.getZombiesDisabled());
          n_setGameState("PAUSED", this.bPaused = true);
          n_initMetaGrid(var2, var3, var4, var5);
@@ -113,14 +121,18 @@ public final class MapCollisionData {
          for(int var6 = var3; var6 < var3 + var5; ++var6) {
             for(int var7 = var2; var7 < var2 + var4; ++var7) {
                IsoMetaCell var8 = var1.getCellData(var7, var6);
-               n_initMetaCell(var7, var6, (String)IsoLot.InfoFileNames.get("chunkdata_" + var7 + "_" + var6 + ".bin"));
+
+               int var9;
+               for(var9 = 0; var9 < IsoLot.MapFiles.size(); ++var9) {
+                  MapFiles var10 = (MapFiles)IsoLot.MapFiles.get(var9);
+                  n_initMetaCell(var7, var6, (String)var10.InfoFileNames.get("chunkdata_" + var7 + "_" + var6 + ".bin"));
+               }
+
                if (var8 != null) {
-                  for(int var9 = 0; var9 < 30; ++var9) {
-                     for(int var10 = 0; var10 < 30; ++var10) {
-                        IsoMetaChunk var11 = var8.getChunk(var10, var9);
-                        if (var11 != null) {
-                           n_initMetaChunk(var7, var6, var10, var9, var11.getUnadjustedZombieIntensity());
-                        }
+                  for(var9 = 0; var9 < IsoCell.CellSizeInChunks; ++var9) {
+                     for(int var12 = 0; var12 < IsoCell.CellSizeInChunks; ++var12) {
+                        int var11 = LotHeader.getZombieIntensityForChunk(var8.info, var12, var9);
+                        n_initMetaChunk(var7, var6, var12, var9, Math.max(var11, 0));
                      }
                   }
                }
@@ -216,11 +228,11 @@ public final class MapCollisionData {
 
    public void addChunkToWorld(IsoChunk var1) {
       if (!this.bClient) {
-         for(int var2 = 0; var2 < 10; ++var2) {
-            for(int var3 = 0; var3 < 10; ++var3) {
+         for(int var2 = 0; var2 < 8; ++var2) {
+            for(int var3 = 0; var3 < 8; ++var3) {
                IsoGridSquare var4 = var1.getGridSquare(var3, var2, 0);
                if (var4 == null) {
-                  this.squares[var3 + var2 * 10] = 1;
+                  this.squares[var3 + var2 * 8] = 1;
                } else {
                   byte var5 = 0;
                   if (this.isSolid(var4)) {
@@ -243,7 +255,7 @@ public final class MapCollisionData {
                      var5 = (byte)(var5 | 16);
                   }
 
-                  this.squares[var3 + var2 * 10] = var5;
+                  this.squares[var3 + var2 * 8] = var5;
                }
             }
          }
@@ -426,6 +438,12 @@ public final class MapCollisionData {
       return var1.getRoom() != null;
    }
 
+   static {
+      CHUNKS_PER_CELL = IsoCell.CellSizeInChunks;
+      SQUARES_PER_CELL = CHUNKS_PER_CELL * 8;
+      curXY = new int[2];
+   }
+
    static class Sync {
       private int fps = 10;
       private long period;
@@ -469,11 +487,11 @@ public final class MapCollisionData {
    }
 
    private final class MCDThread extends Thread {
-      public final Object notifier = new Object();
+      public final Object notifier = new String("MDCThread Notifier");
       public boolean bStop;
       public volatile boolean bSave;
       public volatile boolean bWaiting;
-      public Queue<PathTask> pathTasks = new ArrayDeque();
+      public final Queue<PathTask> pathTasks = new ArrayDeque();
 
       private MCDThread() {
       }

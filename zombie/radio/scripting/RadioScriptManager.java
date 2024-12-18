@@ -155,65 +155,33 @@ public final class RadioScriptManager {
 
       while(var2.hasNext()) {
          Map.Entry var3 = (Map.Entry)var2.next();
-         Object var10001 = var3.getKey();
-         var1.write("" + var10001 + "," + ((RadioChannel)var3.getValue()).getCurrentScriptLoop() + "," + ((RadioChannel)var3.getValue()).getCurrentScriptMaxLoops());
          RadioScript var4 = ((RadioChannel)var3.getValue()).getCurrentScript();
-         String var6;
-         if (var4 != null) {
-            var6 = var4.GetName();
-            var1.write("," + var6 + "," + var4.getStartDay());
-         }
-
          RadioBroadCast var5 = ((RadioChannel)var3.getValue()).getAiringBroadcast();
-         if (var5 != null) {
-            var1.write("," + var5.getID());
-         } else if (((RadioChannel)var3.getValue()).getLastBroadcastID() != null) {
-            var1.write("," + ((RadioChannel)var3.getValue()).getLastBroadcastID());
-         } else {
-            var1.write(",none");
-         }
-
-         var6 = var5 != null ? "" + var5.getCurrentLineNumber() : "-1";
-         var1.write("," + var6);
+         var1.write(String.join(",", Integer.toString((Integer)var3.getKey()), Integer.toString(((RadioChannel)var3.getValue()).getCurrentScriptLoop()), Integer.toString(((RadioChannel)var3.getValue()).getCurrentScriptMaxLoops()), var4 == null ? "none" : var4.GetName(), var4 == null ? "-1" : Integer.toString(var4.getStartDay()), var5 == null ? "none" : var5.getID(), var5 == null ? "-1" : Integer.toString(var5.getCurrentLineNumber())));
          var1.write(System.lineSeparator());
       }
 
    }
 
    public void Load(List<String> var1) throws IOException, NumberFormatException {
-      int var3 = 1;
-      int var4 = 1;
-      Iterator var9 = var1.iterator();
+      Iterator var2 = var1.iterator();
 
-      while(var9.hasNext()) {
-         String var10 = (String)var9.next();
-         RadioChannel var11 = null;
-         if (var10 != null) {
-            var10 = var10.trim();
-            String[] var12 = var10.split(",");
-            if (var12.length >= 3) {
-               int var2 = Integer.parseInt(var12[0]);
-               var3 = Integer.parseInt(var12[1]);
-               var4 = Integer.parseInt(var12[2]);
-               if (this.channels.containsKey(var2)) {
-                  var11 = (RadioChannel)this.channels.get(var2);
-                  var11.setTimeSynced(true);
-               }
-            }
+      while(var2.hasNext()) {
+         String var3 = (String)var2.next();
+         if (var3 != null && !var3.isBlank()) {
+            var3 = var3.trim();
+            String[] var4 = var3.split(",");
+            RadioChannel var5 = (RadioChannel)this.channels.get(Integer.parseInt(var4[0]));
+            if (var5 != null) {
+               var5.setTimeSynced(true);
+               if (var4.length == 7) {
+                  if (!"none".equals(var4[3])) {
+                     var5.setActiveScript(var4[3], Integer.parseInt(var4[4]), Integer.parseInt(var4[1]), Integer.parseInt(var4[2]));
+                  }
 
-            if (var11 != null && var12.length >= 5) {
-               String var7 = var12[3];
-               int var5 = Integer.parseInt(var12[4]);
-               if (var11 != null) {
-                  var11.setActiveScript(var7, var5, var3, var4);
-               }
-            }
-
-            if (var11 != null && var12.length >= 7) {
-               String var8 = var12[5];
-               if (!var8.equals("none")) {
-                  int var6 = Integer.parseInt(var12[6]);
-                  var11.LoadAiringBroadcast(var8, var6);
+                  if (!"none".equals(var4[5])) {
+                     var5.LoadAiringBroadcast(var4[5], Integer.parseInt(var4[6]));
+                  }
                }
             }
          }

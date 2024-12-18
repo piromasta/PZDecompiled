@@ -9,11 +9,15 @@ public final class SmartShader {
    private final ShaderProgram m_shaderProgram;
 
    public SmartShader(String var1) {
-      this.m_shaderProgram = ShaderProgram.createShaderProgram(var1, false, true);
+      this.m_shaderProgram = ShaderProgram.createShaderProgram(var1, false, false, true);
    }
 
    public SmartShader(String var1, boolean var2) {
-      this.m_shaderProgram = ShaderProgram.createShaderProgram(var1, var2, true);
+      this.m_shaderProgram = ShaderProgram.createShaderProgram(var1, var2, false, true);
+   }
+
+   public ShaderProgram getShaderProgram() {
+      return this.m_shaderProgram;
    }
 
    public void Start() {

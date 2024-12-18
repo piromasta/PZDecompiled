@@ -1,9 +1,9 @@
 package zombie.iso;
 
 import org.joml.Vector4f;
-import org.lwjgl.opengl.ARBShaderObjects;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import zombie.core.SpriteRenderer;
 import zombie.core.opengl.Shader;
 import zombie.core.opengl.ShaderProgram;
@@ -26,30 +26,30 @@ public final class PuddlesShader extends Shader {
 
    protected void onCompileSuccess(ShaderProgram var1) {
       int var2 = var1.getShaderID();
-      this.WaterGroundTex = ARBShaderObjects.glGetUniformLocationARB(var2, "WaterGroundTex");
-      this.WaterTextureReflectionA = ARBShaderObjects.glGetUniformLocationARB(var2, "WaterTextureReflectionA");
-      this.WaterTextureReflectionB = ARBShaderObjects.glGetUniformLocationARB(var2, "WaterTextureReflectionB");
-      this.PuddlesHM = ARBShaderObjects.glGetUniformLocationARB(var2, "PuddlesHM");
-      this.WaterTime = ARBShaderObjects.glGetUniformLocationARB(var2, "WTime");
-      this.WaterOffset = ARBShaderObjects.glGetUniformLocationARB(var2, "WOffset");
-      this.WaterViewport = ARBShaderObjects.glGetUniformLocationARB(var2, "WViewport");
-      this.WaterReflectionParam = ARBShaderObjects.glGetUniformLocationARB(var2, "WReflectionParam");
-      this.PuddlesParams = ARBShaderObjects.glGetUniformLocationARB(var2, "PuddlesParams");
+      this.WaterGroundTex = GL20.glGetUniformLocation(var2, "WaterGroundTex");
+      this.WaterTextureReflectionA = GL20.glGetUniformLocation(var2, "WaterTextureReflectionA");
+      this.WaterTextureReflectionB = GL20.glGetUniformLocation(var2, "WaterTextureReflectionB");
+      this.PuddlesHM = GL20.glGetUniformLocation(var2, "PuddlesHM");
+      this.WaterTime = GL20.glGetUniformLocation(var2, "WTime");
+      this.WaterOffset = GL20.glGetUniformLocation(var2, "WOffset");
+      this.WaterViewport = GL20.glGetUniformLocation(var2, "WViewport");
+      this.WaterReflectionParam = GL20.glGetUniformLocation(var2, "WReflectionParam");
+      this.PuddlesParams = GL20.glGetUniformLocation(var2, "PuddlesParams");
       this.Start();
       if (this.WaterGroundTex != -1) {
-         ARBShaderObjects.glUniform1iARB(this.WaterGroundTex, 0);
+         GL20.glUniform1i(this.WaterGroundTex, 0);
       }
 
       if (this.WaterTextureReflectionA != -1) {
-         ARBShaderObjects.glUniform1iARB(this.WaterTextureReflectionA, 1);
+         GL20.glUniform1i(this.WaterTextureReflectionA, 1);
       }
 
       if (this.WaterTextureReflectionB != -1) {
-         ARBShaderObjects.glUniform1iARB(this.WaterTextureReflectionB, 2);
+         GL20.glUniform1i(this.WaterTextureReflectionB, 2);
       }
 
       if (this.PuddlesHM != -1) {
-         ARBShaderObjects.glUniform1iARB(this.PuddlesHM, 3);
+         GL20.glUniform1i(this.PuddlesHM, 3);
       }
 
       this.End();
@@ -74,11 +74,11 @@ public final class PuddlesShader extends Shader {
       GL11.glTexParameteri(3553, 10240, 9729);
       GL11.glTexParameteri(3553, 10241, 9729);
       GL11.glTexEnvi(8960, 8704, 7681);
-      ARBShaderObjects.glUniform1fARB(this.WaterTime, var3.getShaderTime());
+      GL20.glUniform1f(this.WaterTime, var3.getShaderTime());
       Vector4f var6 = var3.getShaderOffset();
-      ARBShaderObjects.glUniform4fARB(this.WaterOffset, var6.x - 90000.0F, var6.y - 640000.0F, var6.z, var6.w);
-      ARBShaderObjects.glUniform4fARB(this.WaterViewport, (float)IsoCamera.getOffscreenLeft(var1), (float)IsoCamera.getOffscreenTop(var1), (float)var5.OffscreenWidth / var5.zoom, (float)var5.OffscreenHeight / var5.zoom);
-      ARBShaderObjects.glUniform1fARB(this.WaterReflectionParam, var4.getTextureShift());
-      ARBShaderObjects.glUniformMatrix4fvARB(this.PuddlesParams, true, var3.getPuddlesParams(var2));
+      GL20.glUniform4f(this.WaterOffset, var6.x - 90000.0F, var6.y - 640000.0F, var6.z, var6.w);
+      GL20.glUniform4f(this.WaterViewport, (float)IsoCamera.getOffscreenLeft(var1), (float)IsoCamera.getOffscreenTop(var1), (float)var5.OffscreenWidth / var5.zoom, (float)var5.OffscreenHeight / var5.zoom);
+      GL20.glUniform1f(this.WaterReflectionParam, var4.getTextureShift());
+      GL20.glUniformMatrix4fv(this.PuddlesParams, true, var3.getPuddlesParams(var2));
    }
 }

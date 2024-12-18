@@ -7,7 +7,7 @@ import zombie.GameTime;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -301,14 +301,6 @@ public class RainManager {
    public static void Update() {
       IsRaining = ClimateManager.getInstance().isRaining();
       RainIntensity = IsRaining ? ClimateManager.getInstance().getPrecipitationIntensity() : 0.0F;
-      if (IsoPlayer.getInstance() != null) {
-         if (IsoPlayer.getInstance().getCurrentSquare() != null) {
-            if (!GameServer.bServer) {
-               AddSplashes();
-            }
-
-         }
-      }
    }
 
    public static void UpdateServer() {
@@ -378,7 +370,7 @@ public class RainManager {
    }
 
    private static boolean interruptSleep(IsoPlayer var0) {
-      if (var0.isAsleep() && var0.isOutside() && var0.getBed() != null && !var0.getBed().getName().equals("Tent")) {
+      if (var0.isAsleep() && var0.isOutside() && var0.getBed() != null && !var0.getBed().isTent()) {
          IsoObject var1 = var0.getBed();
          if (var1.getCell().getGridSquare((double)var1.getX(), (double)var1.getY(), (double)(var1.getZ() + 1.0F)) == null || var1.getCell().getGridSquare((double)var1.getX(), (double)var1.getY(), (double)(var1.getZ() + 1.0F)).getFloor() == null) {
             return true;

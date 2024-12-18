@@ -97,21 +97,7 @@ public final class ItemSoundManager {
       for(var0 = 0; var0 < items.size(); ++var0) {
          var4 = (InventoryItem)items.get(var0);
          var2 = (BaseSoundEmitter)emitters.get(var0);
-         ItemContainer var6 = var4.getOutermostContainer();
-         if (var6 != null) {
-            if (var6.containingItem != null && var6.containingItem.getWorldItem() != null) {
-               if (var6.containingItem.getWorldItem().getWorldObjectIndex() == -1) {
-                  var6 = null;
-               }
-            } else if (var6.parent != null) {
-               if (var6.parent.getObjectIndex() == -1 && var6.parent.getMovingObjectIndex() == -1 && var6.parent.getStaticMovingObjectIndex() == -1) {
-                  var6 = null;
-               }
-            } else {
-               var6 = null;
-            }
-         }
-
+         ItemContainer var6 = getExistingContainer(var4);
          if (var6 != null || var4.getWorldItem() != null && var4.getWorldItem().getWorldObjectIndex() != -1) {
             var4.updateSound(var2);
             var2.tick();
@@ -120,6 +106,25 @@ public final class ItemSoundManager {
          }
       }
 
+   }
+
+   private static ItemContainer getExistingContainer(InventoryItem var0) {
+      ItemContainer var1 = var0.getOutermostContainer();
+      if (var1 != null) {
+         if (var1.containingItem != null && var1.containingItem.getWorldItem() != null) {
+            if (var1.containingItem.getWorldItem().getWorldObjectIndex() == -1) {
+               var1 = null;
+            }
+         } else if (var1.parent != null) {
+            if (var1.parent.getObjectIndex() == -1 && var1.parent.getMovingObjectIndex() == -1 && var1.parent.getStaticMovingObjectIndex() == -1) {
+               var1 = null;
+            }
+         } else {
+            var1 = null;
+         }
+      }
+
+      return var1;
    }
 
    public static void Reset() {

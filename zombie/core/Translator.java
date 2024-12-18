@@ -21,6 +21,7 @@ import zombie.characters.skills.PerkFactory;
 import zombie.core.logger.ExceptionLogger;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
+import zombie.gameStates.ChooseGameInfo;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
 import zombie.util.StringUtils;
@@ -58,6 +59,13 @@ public final class Translator {
    private static final HashMap<String, String> itemEvolvedRecipeName = new HashMap();
    private static final HashMap<String, String> recordedMedia = new HashMap();
    private static final HashMap<String, String> recordedMedia_EN = new HashMap();
+   private static final HashMap<String, String> survivorNames = new HashMap();
+   private static final HashMap<String, String> attributes = new HashMap();
+   private static final HashMap<String, String> fluids = new HashMap();
+   private static final HashMap<String, String> entity = new HashMap();
+   private static final HashMap<String, String> printMedia = new HashMap();
+   private static final HashMap<String, String> printText = new HashMap();
+   private static final HashMap<String, String> radioData = new HashMap();
    public static Language language = null;
    private static final String newsHeader = "<IMAGE:media/ui/dot.png> <SIZE:small> ";
 
@@ -103,7 +111,13 @@ public final class Translator {
       dynamicRadio.clear();
       itemEvolvedRecipeName.clear();
       recordedMedia.clear();
-      DebugLog.log("translator: language is " + getLanguage());
+      survivorNames.clear();
+      attributes.clear();
+      fluids.clear();
+      printMedia.clear();
+      printText.clear();
+      radioData.clear();
+      DebugLog.Translation.println("translator: language is " + getLanguage());
       debugErrors = false;
       fillMapFromFile("Tooltip", tooltip);
       fillMapFromFile("IG_UI", igui);
@@ -125,10 +139,17 @@ public final class Translator {
       fillMapFromFile("DynamicRadio", dynamicRadio);
       fillMapFromFile("EvolvedRecipeName", itemEvolvedRecipeName);
       fillMapFromFile("Recorded_Media", recordedMedia);
+      fillMapFromFile("SurvivorNames", survivorNames);
       fillNewsFromFile(news);
+      fillMapFromFile("Attributes", attributes);
+      fillMapFromFile("Fluids", fluids);
+      fillMapFromFile("Print_Media", printMedia);
+      fillMapFromFile("Print_Text", printText);
+      fillMapFromFile("Entity", entity);
+      fillMapFromFile("RadioData", radioData);
       if (debug) {
          if (debugErrors) {
-            DebugLog.log("translator: errors detected, please see " + var0.getAbsolutePath());
+            DebugLog.Translation.trace("translator: errors detected, please see " + var0.getAbsolutePath());
          }
 
          debugItemEvolvedRecipeName.clear();
@@ -145,11 +166,22 @@ public final class Translator {
       ArrayList var2 = ZomboidFileSystem.instance.getModIDs();
 
       for(int var3 = 0; var3 < var2.size(); ++var3) {
-         String var4 = ZomboidFileSystem.instance.getModDir((String)var2.get(var3));
+         ChooseGameInfo.Mod var4 = ChooseGameInfo.getAvailableModDetails((String)var2.get(var3));
          if (var4 != null) {
-            tryFillNewsFromFile(var4, var0, var1, getLanguage());
-            if (getLanguage() != getDefaultLanguage()) {
-               tryFillNewsFromFile(var4, var0, var1, getDefaultLanguage());
+            String var5 = var4.getCommonDir();
+            if (var5 != null) {
+               tryFillNewsFromFile(var5, var0, var1, getLanguage());
+               if (getLanguage() != getDefaultLanguage()) {
+                  tryFillNewsFromFile(var5, var0, var1, getDefaultLanguage());
+               }
+            }
+
+            var5 = var4.getVersionDir();
+            if (var5 != null) {
+               tryFillNewsFromFile(var5, var0, var1, getLanguage());
+               if (getLanguage() != getDefaultLanguage()) {
+                  tryFillNewsFromFile(var5, var0, var1, getDefaultLanguage());
+               }
             }
          }
       }
@@ -159,11 +191,11 @@ public final class Translator {
          tryFillNewsFromFile(".", var0, var1, getDefaultLanguage());
       }
 
-      Iterator var5 = var1.values().iterator();
+      Iterator var6 = var1.values().iterator();
 
-      while(var5.hasNext()) {
-         News var6 = (News)var5.next();
-         var0.put("News_" + var6.version + "_Disclaimer", var6.toRichText());
+      while(var6.hasNext()) {
+         News var7 = (News)var6.next();
+         var0.put("News_" + var7.version + "_Disclaimer", var7.toRichText());
       }
 
       var1.clear();
@@ -306,9 +338,17 @@ public final class Translator {
       ArrayList var3 = ZomboidFileSystem.instance.getModIDs();
 
       for(int var4 = var3.size() - 1; var4 >= 0; --var4) {
-         String var5 = ZomboidFileSystem.instance.getModDir((String)var3.get(var4));
+         ChooseGameInfo.Mod var5 = ChooseGameInfo.getAvailableModDetails((String)var3.get(var4));
          if (var5 != null) {
-            tryFillMapFromFile(var5, var0, var1, var2);
+            String var6 = var5.getCommonDir();
+            if (var6 != null) {
+               tryFillMapFromFile(var6, var0, var1, var2);
+            }
+
+            var6 = var5.getVersionDir();
+            if (var6 != null) {
+               tryFillMapFromFile(var6, var0, var1, var2);
+            }
          }
       }
 
@@ -334,7 +374,7 @@ public final class Translator {
       for(int var3 = 0; var3 < var2.size(); ++var3) {
          Language var4 = (Language)var2.get(var3);
          tryFillMapFromMods(var0, var1, var4);
-         tryFillMapFromFile(ZomboidFileSystem.instance.base.getPath(), var0, var1, var4);
+         tryFillMapFromFile(ZomboidFileSystem.instance.base.canonicalFile.getPath(), var0, var1, var4);
       }
 
       var2.clear();
@@ -547,6 +587,22 @@ public final class Translator {
          var2 = (String)stash.get(var0);
       } else if (var0.startsWith("RM_")) {
          var2 = (String)recordedMedia.get(var0);
+      } else if (var0.startsWith("SurvivorName_")) {
+         var2 = (String)survivorNames.get(var0);
+      } else if (var0.startsWith("SurvivorSurname_")) {
+         var2 = (String)survivorNames.get(var0);
+      } else if (var0.startsWith("Attributes_")) {
+         var2 = (String)attributes.get(var0);
+      } else if (var0.startsWith("Fluid_")) {
+         var2 = (String)fluids.get(var0);
+      } else if (var0.startsWith("Print_Media_")) {
+         var2 = (String)printMedia.get(var0);
+      } else if (var0.startsWith("Print_Text_")) {
+         var2 = (String)printText.get(var0);
+      } else if (var0.startsWith("EC_")) {
+         var2 = (String)entity.get(var0);
+      } else if (var0.startsWith("RD_")) {
+         var2 = (String)radioData.get(var0);
       }
 
       String var3 = Core.bDebug && DebugOptions.instance.TranslationPrefix.getValue() ? "*" : null;
@@ -557,7 +613,7 @@ public final class Translator {
 
          if (!missing.contains(var0)) {
             if (Core.bDebug) {
-               DebugLog.log("ERROR: Missing translation \"" + var0 + "\"");
+               DebugLog.Translation.error("ERROR: Missing translation \"" + var0 + "\"");
             }
 
             if (debug) {
@@ -968,7 +1024,7 @@ public final class Translator {
       if (var1 == null) {
          if (!missing.contains(var0) && Core.bDebug) {
             if (Core.bDebug) {
-               DebugLog.log("ERROR: Missing translation \"" + var0 + "\"");
+               DebugLog.Translation.error("ERROR: Missing translation \"" + var0 + "\"");
             }
 
             if (debug) {
@@ -987,6 +1043,42 @@ public final class Translator {
       } else {
          return var2 == null ? var1 : var2 + var1;
       }
+   }
+
+   public static String getAttributeText(String var0) {
+      return getAttributeText(var0, false);
+   }
+
+   public static String getAttributeTextOrNull(String var0) {
+      return getAttributeText(var0, true);
+   }
+
+   private static String getAttributeText(String var0, boolean var1) {
+      String var2 = (String)attributes.get(var0);
+      if (var2 == null) {
+         if (!missing.contains(var0)) {
+            DebugLog.Translation.error("ERROR: Missing translation \"" + var0 + "\"");
+            if (debug) {
+               debugwrite("ERROR: Missing translation \"" + var0 + "\"\r\n");
+            }
+
+            missing.add(var0);
+         }
+
+         return var1 ? null : var0;
+      } else {
+         return var2;
+      }
+   }
+
+   public static String getFluidText(String var0) {
+      String var1 = (String)fluids.get(var0);
+      return var1 == null ? var0 : var1;
+   }
+
+   public static String getEntityText(String var0) {
+      String var1 = (String)entity.get(var0);
+      return var1 == null ? var0 : var1;
    }
 
    private static final class News {

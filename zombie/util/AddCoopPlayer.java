@@ -3,6 +3,7 @@ package zombie.util;
 import zombie.SoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.physics.WorldSimulation;
 import zombie.debug.DebugLog;
@@ -16,69 +17,86 @@ import zombie.iso.LosUtil;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.connection.ConnectCoopPacket;
 import zombie.popman.ZombiePopulationManager;
 import zombie.ui.UIManager;
 
 public final class AddCoopPlayer {
    private Stage stage;
-   private IsoPlayer player;
+   private final IsoPlayer player;
 
-   public AddCoopPlayer(IsoPlayer var1) {
-      this.stage = AddCoopPlayer.Stage.Init;
+   public AddCoopPlayer(IsoPlayer var1, boolean var2) {
       this.player = var1;
+      if (var2) {
+         this.stage = AddCoopPlayer.Stage.SendCoopConnect;
+      } else {
+         this.stage = AddCoopPlayer.Stage.Init;
+      }
+
+   }
+
+   public int getPlayerIndex() {
+      return this.player == null ? -1 : this.player.PlayerIndex;
+   }
+
+   public IsoPlayer getPlayer() {
+      return this.player;
    }
 
    public void update() {
       IsoCell var1;
+      ByteBufferWriter var2;
       int var4;
-      ByteBufferWriter var18;
+      ConnectCoopPacket var18;
       switch (this.stage) {
+         case SendCoopConnect:
+            if (GameClient.bClient) {
+               GameClient.sendCreatePlayer((byte)this.player.PlayerIndex);
+               this.stage = AddCoopPlayer.Stage.ReceiveCoopConnect;
+            } else {
+               this.stage = AddCoopPlayer.Stage.Init;
+            }
+            break;
          case Init:
             if (GameClient.bClient) {
-               var18 = GameClient.connection.startPacket();
-               PacketTypes.PacketType.AddCoopPlayer.doPacket(var18);
-               var18.putByte((byte)1);
-               var18.putByte((byte)this.player.PlayerIndex);
-               var18.putUTF(this.player.username != null ? this.player.username : "");
-               var18.putFloat(this.player.x);
-               var18.putFloat(this.player.y);
-               PacketTypes.PacketType.AddCoopPlayer.send(GameClient.connection);
+               var18 = new ConnectCoopPacket();
+               var18.setInit(this.player);
+               var2 = GameClient.connection.startPacket();
+               PacketTypes.PacketType.ConnectCoop.doPacket(var2);
+               var18.write(var2);
+               PacketTypes.PacketType.ConnectCoop.send(GameClient.connection);
                this.stage = AddCoopPlayer.Stage.ReceiveClientConnect;
             } else {
                this.stage = AddCoopPlayer.Stage.StartMapLoading;
             }
-         case ReceiveClientConnect:
-         case ReceivePlayerConnect:
-         case Finished:
-         default:
             break;
          case StartMapLoading:
             var1 = IsoWorld.instance.CurrentCell;
-            int var19 = this.player.PlayerIndex;
-            IsoChunkMap var21 = var1.ChunkMap[var19];
+            int var20 = this.player.PlayerIndex;
+            IsoChunkMap var22 = var1.ChunkMap[var20];
             IsoChunkMap.bSettingChunk.lock();
 
             try {
-               var21.Unload();
-               var21.ignore = false;
-               var4 = (int)(this.player.x / 10.0F);
-               int var5 = (int)(this.player.y / 10.0F);
+               var22.Unload();
+               var22.ignore = false;
+               var4 = (int)(this.player.getX() / 8.0F);
+               int var5 = (int)(this.player.getY() / 8.0F);
 
                try {
                   if (LightingJNI.init) {
-                     LightingJNI.teleport(var19, var4 - IsoChunkMap.ChunkGridWidth / 2, var5 - IsoChunkMap.ChunkGridWidth / 2);
+                     LightingJNI.teleport(var20, var4 - IsoChunkMap.ChunkGridWidth / 2, var5 - IsoChunkMap.ChunkGridWidth / 2);
                   }
                } catch (Exception var16) {
                }
 
                if (!GameServer.bServer && !GameClient.bClient) {
-                  ZombiePopulationManager.instance.playerSpawnedAt((int)this.player.x, (int)this.player.y, (int)this.player.z);
+                  ZombiePopulationManager.instance.playerSpawnedAt(PZMath.fastfloor(this.player.getX()), PZMath.fastfloor(this.player.getY()), PZMath.fastfloor(this.player.getZ()));
                }
 
-               var21.WorldX = var4;
-               var21.WorldY = var5;
+               var22.WorldX = var4;
+               var22.WorldY = var5;
                if (!GameServer.bServer) {
-                  WorldSimulation.instance.activateChunkMap(var19);
+                  WorldSimulation.instance.activateChunkMap(var20);
                }
 
                int var6 = var4 - IsoChunkMap.ChunkGridWidth / 2;
@@ -89,15 +107,15 @@ public final class AddCoopPlayer {
 
                while(true) {
                   if (var10 >= var8) {
-                     var21.SwapChunkBuffers();
+                     var22.SwapChunkBuffers();
                      break;
                   }
 
                   for(int var11 = var7; var11 < var9; ++var11) {
                      if (IsoWorld.instance.getMetaGrid().isValidChunk(var10, var11)) {
-                        IsoChunk var12 = var21.LoadChunkForLater(var10, var11, var10 - var6, var11 - var7);
+                        IsoChunk var12 = var22.LoadChunkForLater(var10, var11, var10 - var6, var11 - var7);
                         if (var12 != null && var12.bLoaded) {
-                           var1.setCacheChunk(var12, var19);
+                           var1.setCacheChunk(var12, var20);
                         }
                      }
                   }
@@ -112,32 +130,34 @@ public final class AddCoopPlayer {
             break;
          case CheckMapLoading:
             var1 = IsoWorld.instance.CurrentCell;
-            IsoChunkMap var2 = var1.ChunkMap[this.player.PlayerIndex];
-            var2.update();
+            IsoChunkMap var19 = var1.ChunkMap[this.player.PlayerIndex];
+            var19.update();
 
             for(int var3 = 0; var3 < IsoChunkMap.ChunkGridWidth; ++var3) {
                for(var4 = 0; var4 < IsoChunkMap.ChunkGridWidth; ++var4) {
-                  if (IsoWorld.instance.getMetaGrid().isValidChunk(var2.getWorldXMin() + var4, var2.getWorldYMin() + var3) && var2.getChunk(var4, var3) == null) {
+                  if (IsoWorld.instance.getMetaGrid().isValidChunk(var19.getWorldXMin() + var4, var19.getWorldYMin() + var3) && var19.getChunk(var4, var3) == null) {
                      return;
                   }
                }
             }
 
-            IsoGridSquare var20 = var1.getGridSquare((int)this.player.x, (int)this.player.y, (int)this.player.z);
-            if (var20 != null && var20.getRoom() != null) {
-               var20.getRoom().def.setExplored(true);
-               var20.getRoom().building.setAllExplored(true);
+            var19.calculateZExtentsForChunkMap();
+            IsoGridSquare var21 = var1.getGridSquare(PZMath.fastfloor(this.player.getX()), PZMath.fastfloor(this.player.getY()), PZMath.fastfloor(this.player.getZ()));
+            if (var21 != null && var21.getRoom() != null) {
+               var21.getRoom().def.setExplored(true);
+               var21.getRoom().building.setAllExplored(true);
             }
 
             this.stage = GameClient.bClient ? AddCoopPlayer.Stage.SendPlayerConnect : AddCoopPlayer.Stage.AddToWorld;
             break;
          case SendPlayerConnect:
-            var18 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.AddCoopPlayer.doPacket(var18);
-            var18.putByte((byte)2);
-            var18.putByte((byte)this.player.PlayerIndex);
-            GameClient.instance.writePlayerConnectData(var18, this.player);
-            PacketTypes.PacketType.AddCoopPlayer.send(GameClient.connection);
+            GameClient.connection.username = this.player.username;
+            var18 = new ConnectCoopPacket();
+            var18.setPlayerConnect(this.player);
+            var2 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.ConnectCoop.doPacket(var2);
+            var18.write(var2);
+            PacketTypes.PacketType.ConnectCoop.send(GameClient.connection);
             this.stage = AddCoopPlayer.Stage.ReceivePlayerConnect;
             break;
          case AddToWorld:
@@ -145,7 +165,7 @@ public final class AddCoopPlayer {
             LosUtil.cachecleared[this.player.PlayerIndex] = true;
             this.player.updateLightInfo();
             var1 = IsoWorld.instance.CurrentCell;
-            this.player.setCurrent(var1.getGridSquare((int)this.player.x, (int)this.player.y, (int)this.player.z));
+            this.player.setCurrent(var1.getGridSquare(PZMath.fastfloor(this.player.getX()), PZMath.fastfloor(this.player.getY()), PZMath.fastfloor(this.player.getZ())));
             this.player.updateUsername();
             this.player.setSceneCulled(false);
             if (var1.isSafeToAdd()) {
@@ -164,12 +184,24 @@ public final class AddCoopPlayer {
 
             this.stage = AddCoopPlayer.Stage.Finished;
             SoundManager.instance.stopMusic(IsoPlayer.DEATH_MUSIC_NAME);
+         case ReceiveCoopConnect:
+         case ReceiveClientConnect:
+         case ReceivePlayerConnect:
+         case Finished:
       }
 
    }
 
    public boolean isFinished() {
       return this.stage == AddCoopPlayer.Stage.Finished;
+   }
+
+   public void playerCreated(int var1) {
+      if (this.player.PlayerIndex == var1) {
+         DebugLog.Multiplayer.debugln("created player=%d", var1, Short.valueOf((short)4));
+         this.stage = AddCoopPlayer.Stage.Init;
+      }
+
    }
 
    public void accessGranted(int var1) {
@@ -203,18 +235,20 @@ public final class AddCoopPlayer {
    }
 
    public boolean isLoadingThisSquare(int var1, int var2) {
-      int var3 = (int)(this.player.x / 10.0F);
-      int var4 = (int)(this.player.y / 10.0F);
+      int var3 = (int)(this.player.getX() / 8.0F);
+      int var4 = (int)(this.player.getY() / 8.0F);
       int var5 = var3 - IsoChunkMap.ChunkGridWidth / 2;
       int var6 = var4 - IsoChunkMap.ChunkGridWidth / 2;
       int var7 = var5 + IsoChunkMap.ChunkGridWidth;
       int var8 = var6 + IsoChunkMap.ChunkGridWidth;
-      var1 /= 10;
-      var2 /= 10;
+      var1 /= 8;
+      var2 /= 8;
       return var1 >= var5 && var1 < var7 && var2 >= var6 && var2 < var8;
    }
 
    public static enum Stage {
+      SendCoopConnect,
+      ReceiveCoopConnect,
       Init,
       ReceiveClientConnect,
       StartMapLoading,

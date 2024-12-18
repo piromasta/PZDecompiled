@@ -7,6 +7,7 @@ import zombie.SandboxOptions;
 import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
+import zombie.core.SceneShaderStore;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
@@ -73,7 +74,7 @@ public final class RenderSettings {
 
    public void legacyPostRender(int var1) {
       if (!GameServer.bServer) {
-         if (Core.getInstance().RenderShader == null || Core.getInstance().getOffscreenBuffer() == null) {
+         if (SceneShaderStore.WeatherShader == null || Core.getInstance().getOffscreenBuffer() == null) {
             this.getPlayerSettings(var1).legacyPostRender(var1);
          }
 
@@ -116,6 +117,8 @@ public final class RenderSettings {
       private float bmod;
       private float SM_Radius = 0.0F;
       private float SM_Alpha = 0.0F;
+      private float DrunkFactor = 0.0F;
+      private float BlurFactor = 0.0F;
       private Color maskClearColor = new Color(0, 0, 0, 1);
 
       public PlayerRenderSettings() {
@@ -136,7 +139,6 @@ public final class RenderSettings {
          this.CM_FogIntensity = var4.getFogIntensity();
          var4.getThunderStorm().applyLightningForPlayer(this, var1, var2);
          WorldFlares.applyFlaresForPlayer(this, var1, var2);
-         int var5 = SandboxOptions.instance.NightDarkness.getValue();
          this.desaturation = this.CM_Desaturation;
          this.viewDistance = this.CM_ViewDistance;
          this.applyNightVisionGoggles = var2 != null && var2.isWearingNightVisionGoggles();
@@ -144,6 +146,7 @@ public final class RenderSettings {
          this.fogMod = 1.0F - this.CM_FogIntensity * 0.5F;
          this.night = this.CM_NightStrength;
          this.darkness = 1.0F - this.CM_DayLightStrength;
+         this.isExterior = true;
          if (this.isExterior) {
             this.setBlendColor(this.CM_GlobalLight.getExterior());
             this.blendIntensity = this.CM_GlobalLight.getExterior().a;
@@ -154,15 +157,33 @@ public final class RenderSettings {
 
          this.ambient = this.CM_Ambient;
          this.viewDistance = this.CM_ViewDistance;
-         --var5;
-         float var6 = 0.2F + 0.1F * (float)var5;
-         var6 += 0.075F * ClimateMoon.getMoonFloat() * this.night;
+         int var5 = SandboxOptions.instance.NightDarkness.getValue();
+         float var10000;
+         switch (var5) {
+            case 1:
+               var10000 = 0.0F;
+               break;
+            case 2:
+               var10000 = 0.07F;
+               break;
+            case 3:
+               var10000 = 0.15F;
+               break;
+            case 4:
+               var10000 = 0.25F;
+               break;
+            default:
+               var10000 = 0.15F;
+         }
+
+         float var6 = var10000;
+         var6 += 0.075F * ClimateMoon.getInstance().getMoonFloat() * this.night;
          if (!this.isExterior) {
             var6 *= 0.925F - 0.075F * this.darkness;
             this.desaturation *= 0.25F;
          }
 
-         if (this.ambient < 0.2F && var2.getCharacterTraits().NightVision.isSet()) {
+         if (this.ambient < 0.2F && var2 != null && var2.getCharacterTraits().NightVision.isSet()) {
             this.ambient = 0.2F;
          }
 
@@ -173,7 +194,7 @@ public final class RenderSettings {
             this.night = 0.25F;
          }
 
-         if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+         if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
             if (this.applyNightVisionGoggles) {
                this.ambient = 1.0F;
                this.rmod = GameTime.getInstance().Lerp(1.0F, 0.7F, this.darkness);
@@ -184,14 +205,19 @@ public final class RenderSettings {
                this.maskClearColor.b = 0.0F;
                this.maskClearColor.a = 0.0F;
             } else {
-               this.rmod = 1.0F;
-               this.gmod = 1.0F;
-               this.bmod = 1.0F;
+               this.desaturation *= 1.0F - this.darkness;
+               this.blendInfo.r = this.blendColor.r;
+               this.blendInfo.g = this.blendColor.g;
+               this.blendInfo.b = this.blendColor.b;
+               this.blendInfo.desaturate(this.desaturation);
+               this.rmod = GameTime.getInstance().Lerp(1.0F, this.blendInfo.r, this.blendIntensity);
+               this.gmod = GameTime.getInstance().Lerp(1.0F, this.blendInfo.g, this.blendIntensity);
+               this.bmod = GameTime.getInstance().Lerp(1.0F, this.blendInfo.b, this.blendIntensity);
                if (!this.isExterior) {
-                  this.maskClearColor.r = this.CM_GlobalLight.getInterior().r;
-                  this.maskClearColor.g = this.CM_GlobalLight.getInterior().g;
-                  this.maskClearColor.b = this.CM_GlobalLight.getInterior().b;
-                  this.maskClearColor.a = this.CM_GlobalLight.getInterior().a;
+                  this.maskClearColor.r = 0.0F;
+                  this.maskClearColor.g = 0.0F;
+                  this.maskClearColor.b = 0.0F;
+                  this.maskClearColor.a = 0.0F;
                } else {
                   this.maskClearColor.r = 0.0F;
                   this.maskClearColor.g = 0.0F;
@@ -217,6 +243,11 @@ public final class RenderSettings {
                this.gmod = 1.0F;
                this.bmod = 1.0F;
             }
+         }
+
+         if (var2 != null && !var2.isDead()) {
+            this.DrunkFactor = var2.getStats().getDrunkenness() / 100.0F;
+            this.BlurFactor = var2.getBlurFactor();
          }
 
       }
@@ -314,6 +345,14 @@ public final class RenderSettings {
 
       public float getSM_Alpha() {
          return this.SM_Alpha;
+      }
+
+      public float getDrunkFactor() {
+         return this.DrunkFactor;
+      }
+
+      public float getBlurFactor() {
+         return this.BlurFactor;
       }
    }
 }

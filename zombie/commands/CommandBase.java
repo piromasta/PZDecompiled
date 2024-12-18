@@ -5,9 +5,12 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import zombie.characters.Role;
 import zombie.commands.serverCommands.AddAllToWhiteListCommand;
 import zombie.commands.serverCommands.AddItemCommand;
+import zombie.commands.serverCommands.AddKeyCommand;
 import zombie.commands.serverCommands.AddUserCommand;
+import zombie.commands.serverCommands.AddUserToSafehouseCommand;
 import zombie.commands.serverCommands.AddUserToWhiteListCommand;
 import zombie.commands.serverCommands.AddVehicleCommand;
 import zombie.commands.serverCommands.AddXPCommand;
@@ -28,7 +31,9 @@ import zombie.commands.serverCommands.GunShotCommand;
 import zombie.commands.serverCommands.HelpCommand;
 import zombie.commands.serverCommands.InvisibleCommand;
 import zombie.commands.serverCommands.KickUserCommand;
+import zombie.commands.serverCommands.KickUserFromSafehouseCommand;
 import zombie.commands.serverCommands.LightningCommand;
+import zombie.commands.serverCommands.ListCommand;
 import zombie.commands.serverCommands.LogCommand;
 import zombie.commands.serverCommands.NoClipCommand;
 import zombie.commands.serverCommands.PlayersCommand;
@@ -37,12 +42,15 @@ import zombie.commands.serverCommands.ReleaseSafehouseCommand;
 import zombie.commands.serverCommands.ReloadLuaCommand;
 import zombie.commands.serverCommands.ReloadOptionsCommand;
 import zombie.commands.serverCommands.RemoveAdminCommand;
+import zombie.commands.serverCommands.RemoveCommand;
+import zombie.commands.serverCommands.RemoveItemCommand;
 import zombie.commands.serverCommands.RemoveUserFromWhiteList;
 import zombie.commands.serverCommands.RemoveZombiesCommand;
-import zombie.commands.serverCommands.ReplayCommands;
 import zombie.commands.serverCommands.SaveCommand;
 import zombie.commands.serverCommands.ServerMessageCommand;
 import zombie.commands.serverCommands.SetAccessLevelCommand;
+import zombie.commands.serverCommands.SetPasswordCommand;
+import zombie.commands.serverCommands.SetTimeSpeedCommand;
 import zombie.commands.serverCommands.ShowOptionsCommand;
 import zombie.commands.serverCommands.StartRainCommand;
 import zombie.commands.serverCommands.StartStormCommand;
@@ -59,7 +67,7 @@ import zombie.core.Translator;
 import zombie.core.raknet.UdpConnection;
 
 public abstract class CommandBase {
-   private final int playerType;
+   private final Role playerRole;
    private final String username;
    private final String command;
    private String[] commandArgs;
@@ -70,7 +78,7 @@ public abstract class CommandBase {
    protected String argsName = "default args name. Nothing match";
    protected static final String defaultArgsName = "default args name. Nothing match";
    protected final String description;
-   private static Class[] childrenClasses = new Class[]{SaveCommand.class, ServerMessageCommand.class, ConnectionsCommand.class, AddUserCommand.class, GrantAdminCommand.class, RemoveAdminCommand.class, DebugPlayerCommand.class, QuitCommand.class, AlarmCommand.class, ChopperCommand.class, AddAllToWhiteListCommand.class, KickUserCommand.class, TeleportCommand.class, TeleportToCommand.class, ReleaseSafehouseCommand.class, StartRainCommand.class, StopRainCommand.class, ThunderCommand.class, GunShotCommand.class, ReloadOptionsCommand.class, BanUserCommand.class, BanSteamIDCommand.class, UnbanUserCommand.class, UnbanSteamIDCommand.class, AddUserToWhiteListCommand.class, RemoveUserFromWhiteList.class, ChangeOptionCommand.class, ShowOptionsCommand.class, GodModeCommand.class, VoiceBanCommand.class, NoClipCommand.class, InvisibleCommand.class, HelpCommand.class, ClearCommand.class, PlayersCommand.class, AddItemCommand.class, AddXPCommand.class, AddVehicleCommand.class, CreateHordeCommand.class, CreateHorde2Command.class, ReloadLuaCommand.class, RemoveZombiesCommand.class, SetAccessLevelCommand.class, LogCommand.class, StatisticsCommand.class, LightningCommand.class, StopWeatherCommand.class, StartStormCommand.class, ReplayCommands.class, CheckModsNeedUpdate.class};
+   private static Class[] childrenClasses = new Class[]{SaveCommand.class, ServerMessageCommand.class, ConnectionsCommand.class, AddUserCommand.class, GrantAdminCommand.class, RemoveAdminCommand.class, DebugPlayerCommand.class, QuitCommand.class, AlarmCommand.class, ChopperCommand.class, AddAllToWhiteListCommand.class, KickUserCommand.class, TeleportCommand.class, TeleportToCommand.class, ReleaseSafehouseCommand.class, StartRainCommand.class, StopRainCommand.class, ThunderCommand.class, GunShotCommand.class, ReloadOptionsCommand.class, BanUserCommand.class, BanSteamIDCommand.class, UnbanUserCommand.class, UnbanSteamIDCommand.class, AddUserToWhiteListCommand.class, AddUserToSafehouseCommand.class, KickUserFromSafehouseCommand.class, RemoveUserFromWhiteList.class, ChangeOptionCommand.class, ShowOptionsCommand.class, GodModeCommand.class, VoiceBanCommand.class, NoClipCommand.class, InvisibleCommand.class, HelpCommand.class, ClearCommand.class, PlayersCommand.class, AddItemCommand.class, RemoveItemCommand.class, AddXPCommand.class, AddVehicleCommand.class, CreateHordeCommand.class, CreateHorde2Command.class, ReloadLuaCommand.class, RemoveZombiesCommand.class, RemoveCommand.class, ListCommand.class, SetAccessLevelCommand.class, LogCommand.class, StatisticsCommand.class, LightningCommand.class, StopWeatherCommand.class, StartStormCommand.class, CheckModsNeedUpdate.class, AddKeyCommand.class, SetTimeSpeedCommand.class, SetPasswordCommand.class};
 
    public static Class[] getSubClasses() {
       return childrenClasses;
@@ -122,28 +130,11 @@ public abstract class CommandBase {
       return var1 != null;
    }
 
-   public static int accessLevelToInt(String var0) {
-      switch (var0) {
-         case "admin":
-            return 32;
-         case "observer":
-            return 2;
-         case "moderator":
-            return 16;
-         case "overseer":
-            return 8;
-         case "gm":
-            return 4;
-         default:
-            return 1;
-      }
-   }
-
-   protected CommandBase(String var1, String var2, String var3, UdpConnection var4) {
+   protected CommandBase(String var1, Role var2, String var3, UdpConnection var4) {
       this.username = var1;
       this.command = var3;
       this.connection = var4;
-      this.playerType = accessLevelToInt(var2);
+      this.playerRole = var2;
       ArrayList var5 = new ArrayList();
       Matcher var6 = Pattern.compile("([^\"]\\S*|\".*?\")\\s*").matcher(var3);
 
@@ -157,7 +148,7 @@ public abstract class CommandBase {
          this.commandArgs[var7 - 1] = (String)var5.get(var7);
       }
 
-      this.description = "cmd=\"" + var3 + "\" user=\"" + var1 + "\" role=\"" + this.playerType + "\" " + (var4 != null ? "guid=\"" + var4.getConnectedGUID() + "\" id=\"" + var4.idStr : "unknown connection") + "\"";
+      this.description = "cmd=\"" + var3 + "\" user=\"" + var1 + "\" role=\"" + this.playerRole.getName() + "\" " + (var4 != null ? "guid=\"" + var4.getConnectedGUID() + "\" id=\"" + var4.idStr : "unknown connection") + "\"";
    }
 
    public String Execute() throws SQLException {
@@ -180,8 +171,8 @@ public abstract class CommandBase {
       return this.connection == null;
    }
 
-   protected RequiredRight getRequiredRights() {
-      return (RequiredRight)this.getClass().getAnnotation(RequiredRight.class);
+   protected RequiredCapability getRequiredCapability() {
+      return (RequiredCapability)this.getClass().getAnnotation(RequiredCapability.class);
    }
 
    protected CommandArgs[] getCommandArgVariants() {
@@ -291,8 +282,8 @@ public abstract class CommandBase {
       }
    }
 
-   protected int getAccessLevel() {
-      return this.playerType;
+   protected Role getRole() {
+      return this.playerRole;
    }
 
    protected String getExecutorUsername() {
@@ -316,8 +307,8 @@ public abstract class CommandBase {
    }
 
    private boolean PlayerSatisfyRequiredRights() {
-      RequiredRight var1 = this.getRequiredRights();
-      return (this.playerType & var1.requiredRights()) != 0;
+      RequiredCapability var1 = this.getRequiredCapability();
+      return this.playerRole.haveCapability(var1.requiredCapability());
    }
 
    private String invalidCommand() {

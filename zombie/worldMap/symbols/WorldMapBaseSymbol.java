@@ -2,13 +2,21 @@ package zombie.worldMap.symbols;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import zombie.characters.Faction;
 import zombie.core.math.PZMath;
+import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.iso.areas.SafeHouse;
+import zombie.network.GameClient;
+import zombie.network.GameServer;
+import zombie.util.StringUtils;
 import zombie.worldMap.UIWorldMap;
+import zombie.worldMap.network.WorldMapSymbolNetworkInfo;
 
 public abstract class WorldMapBaseSymbol {
    public static float DEFAULT_SCALE = 0.666F;
    WorldMapSymbols m_owner;
+   WorldMapSymbolNetworkInfo m_networkInfo;
    float m_x;
    float m_y;
    float m_width;
@@ -25,6 +33,7 @@ public abstract class WorldMapBaseSymbol {
    float m_layoutX;
    float m_layoutY;
    boolean m_visible;
+   protected static final ColorInfo s_tempColorInfo = new ColorInfo();
 
    public WorldMapBaseSymbol(WorldMapSymbols var1) {
       this.m_scale = DEFAULT_SCALE;
@@ -35,6 +44,34 @@ public abstract class WorldMapBaseSymbol {
    }
 
    public abstract WorldMapSymbols.WorldMapSymbolType getType();
+
+   public void setNetworkInfo(WorldMapSymbolNetworkInfo var1) {
+      this.m_networkInfo = var1;
+   }
+
+   public WorldMapSymbolNetworkInfo getNetworkInfo() {
+      return this.m_networkInfo;
+   }
+
+   public void setPrivate() {
+      this.m_networkInfo = null;
+   }
+
+   public boolean isShared() {
+      return this.getNetworkInfo() != null;
+   }
+
+   public boolean isPrivate() {
+      return this.getNetworkInfo() == null;
+   }
+
+   public boolean isAuthorLocalPlayer() {
+      if (!GameServer.bServer && GameClient.bClient) {
+         return !this.isShared() ? false : StringUtils.equals(GameClient.username, this.getNetworkInfo().getAuthor());
+      } else {
+         throw new IllegalStateException("not client");
+      }
+   }
 
    public void setAnchor(float var1, float var2) {
       this.m_anchorX = PZMath.clamp(var1, 0.0F, 1.0F);
@@ -93,6 +130,25 @@ public abstract class WorldMapBaseSymbol {
    }
 
    public boolean isVisible() {
+      if (this.isShared() && !this.getNetworkInfo().isVisibleToEveryone() && !this.isAuthorLocalPlayer()) {
+         boolean var1 = false;
+         if (this.getNetworkInfo().isVisibleToFaction() && Faction.getPlayerFaction(GameClient.username) != null && Faction.getPlayerFaction(GameClient.username) == Faction.getPlayerFaction(this.getNetworkInfo().getAuthor())) {
+            var1 = true;
+         }
+
+         if (this.getNetworkInfo().isVisibleToSafehouse() && SafeHouse.hasSafehouse(GameClient.username) != null && SafeHouse.hasSafehouse(GameClient.username) == SafeHouse.hasSafehouse(this.getNetworkInfo().getAuthor())) {
+            var1 = true;
+         }
+
+         if (this.getNetworkInfo().hasPlayer(GameClient.username)) {
+            var1 = true;
+         }
+
+         if (!var1) {
+            return false;
+         }
+      }
+
       return this.m_visible;
    }
 
@@ -128,6 +184,10 @@ public abstract class WorldMapBaseSymbol {
       float var4 = var2 + this.m_layoutX + this.widthScaled(var1) / 2.0F;
       float var5 = var3 + this.m_layoutY + this.heightScaled(var1) / 2.0F;
       var1.DrawTextureScaledCol((Texture)null, (double)(var4 - 3.0F), (double)(var5 - 3.0F), 6.0, 6.0, (double)this.m_r, (double)this.m_g, (double)this.m_b, (double)this.m_a);
+   }
+
+   ColorInfo getColor(UIWorldMap var1, ColorInfo var2) {
+      return this.isPrivate() && var1.getAPIv2().isDimUnsharedSymbols() ? var2.set(0.25F, 0.25F, 0.25F, 0.5F) : var2.set(this.m_r, this.m_g, this.m_b, this.m_a);
    }
 
    public abstract void release();

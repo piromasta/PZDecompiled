@@ -1,11 +1,13 @@
 package zombie.commands.serverCommands;
 
 import zombie.AmbientStreamManager;
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Role;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.GameServer;
 
@@ -15,11 +17,11 @@ import zombie.network.GameServer;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_Alarm"
 )
-@RequiredRight(
-   requiredRights = 60
+@RequiredCapability(
+   requiredCapability = Capability.MakeEventsAlarmGunshot
 )
 public class AlarmCommand extends CommandBase {
-   public AlarmCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public AlarmCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 

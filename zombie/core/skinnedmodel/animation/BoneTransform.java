@@ -26,6 +26,10 @@ public class BoneTransform extends PooledObject {
       this.setIdentity();
    }
 
+   public void onReleased() {
+      this.reset();
+   }
+
    public void setIdentity() {
       this.m_matrixValid = true;
       this.m_matrix.setIdentity();
@@ -33,6 +37,10 @@ public class BoneTransform extends PooledObject {
       this.m_pos.set(0.0F, 0.0F, 0.0F);
       this.m_rot.setIdentity();
       this.m_scale.set(1.0F, 1.0F, 1.0F);
+   }
+
+   public void reset() {
+      this.setIdentity();
    }
 
    public void set(BoneTransform var1) {
@@ -77,9 +85,19 @@ public class BoneTransform extends PooledObject {
       var3.set(this.m_scale);
    }
 
+   public void setPosition(Vector3f var1) {
+      this.validatePRS();
+      this.m_pos.set(var1);
+   }
+
    public void getPosition(Vector3f var1) {
       this.validatePRS();
       var1.set(this.m_pos);
+   }
+
+   public void getRotation(Quaternion var1) {
+      this.validatePRS();
+      var1.set(this.m_rot);
    }
 
    private Matrix4f getValidMatrix_Internal() {

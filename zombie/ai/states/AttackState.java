@@ -8,9 +8,9 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.skills.PerkFactory;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
-import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.LosUtil;
 import zombie.iso.Vector2;
@@ -37,7 +37,7 @@ public final class AttackState extends State {
       HashMap var3 = var1.getStateMachineParams(this);
       var3.clear();
       var3.put(0, Boolean.FALSE);
-      var1.setVariable("AttackOutcome", "start");
+      var2.setAttackOutcome("start");
       var1.clearVariable("AttackDidDamage");
       var1.clearVariable("ZombieBiteDone");
    }
@@ -47,14 +47,14 @@ public final class AttackState extends State {
       IsoZombie var3 = (IsoZombie)var1;
       IsoGameCharacter var4 = (IsoGameCharacter)var3.target;
       if (var4 == null || !"Chainsaw".equals(var4.getVariableString("ZombieHitReaction"))) {
-         String var5 = var1.getVariableString("AttackOutcome");
+         String var5 = var3.getAttackOutcome();
          if ("success".equals(var5) && var1.getVariableBoolean("bAttack") && var1.isVariable("targethitreaction", "EndDeath")) {
             var5 = "enddeath";
-            var1.setVariable("AttackOutcome", var5);
+            var3.setAttackOutcome(var5);
          }
 
          if ("success".equals(var5) && !var1.getVariableBoolean("bAttack") && !var1.getVariableBoolean("AttackDidDamage") && var1.getVariableString("ZombieBiteDone") == null) {
-            var1.setVariable("AttackOutcome", "interrupted");
+            var3.setAttackOutcome("interrupted");
          }
 
          if (var4 == null || var4.isDead()) {
@@ -128,9 +128,9 @@ public final class AttackState extends State {
       IsoZombie var3 = (IsoZombie)var1;
       if (var2.m_EventName.equalsIgnoreCase("SetAttackOutcome")) {
          if (var3.getVariableBoolean("bAttack")) {
-            var3.setVariable("AttackOutcome", "success");
+            var3.setAttackOutcome("success");
          } else {
-            var3.setVariable("AttackOutcome", "fail");
+            var3.setAttackOutcome("fail");
          }
       }
 
@@ -163,7 +163,7 @@ public final class AttackState extends State {
          var9.y -= var4.getY();
          var9.normalize();
          if (GameClient.bClient && !var3.isRemoteZombie()) {
-            GameClient.sendHitCharacter(var3, var4, (HandWeapon)null, 0.0F, false, 1.0F, false, false, false);
+            GameClient.sendZombieHit(var3, (IsoPlayer)var4);
          }
       }
 
@@ -203,10 +203,10 @@ public final class AttackState extends State {
                         var1 = var1 + "RIGHT";
                      }
 
-                     if (!((IsoPlayer)var4).bDoShove || !var6 || var4.isAimAtFloor()) {
-                        if (!((IsoPlayer)var4).bDoShove || var6 || var7 || Rand.Next(100) <= 75) {
-                           if (!(Math.abs(var3.z - var4.z) >= 0.2F)) {
-                              LosUtil.TestResults var8 = LosUtil.lineClear(var3.getCell(), (int)var3.getX(), (int)var3.getY(), (int)var3.getZ(), (int)var4.getX(), (int)var4.getY(), (int)var4.getZ(), false);
+                     if (!((IsoPlayer)var4).isDoShove() || !var6 || var4.isAimAtFloor()) {
+                        if (!((IsoPlayer)var4).isDoShove() || var6 || var7 || Rand.Next(100) <= 75) {
+                           if (!(Math.abs(var3.getZ() - var4.getZ()) >= 0.2F)) {
+                              LosUtil.TestResults var8 = LosUtil.lineClear(var3.getCell(), PZMath.fastfloor(var3.getX()), PZMath.fastfloor(var3.getY()), PZMath.fastfloor(var3.getZ()), PZMath.fastfloor(var4.getX()), PZMath.fastfloor(var4.getY()), PZMath.fastfloor(var4.getZ()), false);
                               if (var8 != LosUtil.TestResults.Blocked && var8 != LosUtil.TestResults.ClearThroughClosedDoor) {
                                  if (!var4.getSquare().isSomethingTo(var3.getCurrentSquare())) {
                                     var4.setAttackedBy(var3);

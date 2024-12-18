@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -16,70 +16,77 @@ public final class RBBar extends RandomizedBuildingBase {
             for(int var5 = 0; var5 < 8; ++var5) {
                IsoGridSquare var6 = var2.getGridSquare(var3, var4, var5);
                if (var6 != null && this.roomValid(var6)) {
-                  for(int var7 = 0; var7 < var6.getObjects().size(); ++var7) {
-                     IsoObject var8 = (IsoObject)var6.getObjects().get(var7);
-                     if (var8.getSprite() != null && var8.getSprite().getName() != null && (var8.getSprite().getName().equals("recreational_01_6") || var8.getSprite().getName().equals("recreational_01_7"))) {
-                        if (Rand.NextBool(3)) {
-                           this.addWorldItem("PoolBall", var6, var8);
-                        }
-
-                        if (Rand.NextBool(3)) {
-                           this.addWorldItem("Poolcue", var6, var8);
-                        }
-                     } else if (var8.isTableSurface() && Rand.NextBool(2)) {
-                        if (Rand.NextBool(3)) {
-                           this.addWorldItem("Cigarettes", var6, var8);
-                           if (Rand.NextBool(2)) {
-                              this.addWorldItem("Lighter", var6, var8);
+                  if (var6.getObjects().size() == 1) {
+                     if (Rand.NextBool(160)) {
+                        this.addWorldItem("Dart", var6, (IsoObject)null);
+                     }
+                  } else {
+                     for(int var7 = 0; var7 < var6.getObjects().size(); ++var7) {
+                        IsoObject var8 = (IsoObject)var6.getObjects().get(var7);
+                        if (var8.getSprite() != null && var8.getSprite().getName() != null && (var8.getSprite().getName().equals("recreational_01_6") || var8.getSprite().getName().equals("recreational_01_7"))) {
+                           if (Rand.NextBool(3)) {
+                              this.addWorldItem("PoolBall", var6, var8);
                            }
-                        }
 
-                        int var9 = Rand.Next(7);
-                        switch (var9) {
-                           case 0:
-                              this.addWorldItem("WhiskeyFull", var6, var8);
-                              break;
-                           case 1:
-                              this.addWorldItem("Wine", var6, var8);
-                              break;
-                           case 2:
-                              this.addWorldItem("Wine2", var6, var8);
-                              break;
-                           case 3:
-                              this.addWorldItem("BeerCan", var6, var8);
-                              break;
-                           case 4:
-                              this.addWorldItem("BeerBottle", var6, var8);
-                        }
+                           if (Rand.NextBool(3)) {
+                              this.addWorldItem("Poolcue", var6, var8);
+                           }
+                        } else if (var8.isTableSurface() && Rand.NextBool(2)) {
+                           if (Rand.NextBool(3)) {
+                              this.addWorldItem("CigaretteSingle", var6, var8, true);
+                              if (Rand.NextBool(2)) {
+                                 this.addWorldItem("Matches", var6, var8, true);
+                              } else if (Rand.NextBool(2)) {
+                                 this.addWorldItem("LighterDisposable", var6, var8, true);
+                              }
+                           }
 
-                        if (Rand.NextBool(3)) {
-                           int var10 = Rand.Next(7);
-                           switch (var10) {
+                           int var9 = Rand.Next(7);
+                           switch (var9) {
                               case 0:
-                                 this.addWorldItem("Crisps", var6, var8);
+                                 this.addWorldItem("Whiskey", var6, var8, true);
                                  break;
                               case 1:
-                                 this.addWorldItem("Crisps2", var6, var8);
+                                 this.addWorldItem("Wine", var6, var8, true);
                                  break;
                               case 2:
-                                 this.addWorldItem("Crisps3", var6, var8);
+                                 this.addWorldItem("Wine2", var6, var8, true);
                                  break;
                               case 3:
-                                 this.addWorldItem("Crisps4", var6, var8);
+                                 this.addWorldItem("BeerCan", var6, var8, true);
                                  break;
                               case 4:
-                                 this.addWorldItem("Peanuts", var6, var8);
+                                 this.addWorldItem("BeerBottle", var6, var8, true);
+                           }
+
+                           if (Rand.NextBool(3)) {
+                              int var10 = Rand.Next(7);
+                              switch (var10) {
+                                 case 0:
+                                    this.addWorldItem("Crisps", var6, var8, true);
+                                    break;
+                                 case 1:
+                                    this.addWorldItem("Crisps2", var6, var8, true);
+                                    break;
+                                 case 2:
+                                    this.addWorldItem("Crisps3", var6, var8, true);
+                                    break;
+                                 case 3:
+                                    this.addWorldItem("Crisps4", var6, var8, true);
+                                    break;
+                                 case 4:
+                                    this.addWorldItem("Peanuts", var6, var8, true);
+                                    break;
+                                 case 5:
+                                    this.addWorldItem("ScratchTicket_Loser", var6, var8, true);
+                              }
+                           }
+
+                           if (Rand.NextBool(4)) {
+                              this.addWorldItem("CardDeck", var6, var8, true);
                            }
                         }
-
-                        if (Rand.NextBool(4)) {
-                           this.addWorldItem("CardDeck", var6, var8);
-                        }
                      }
-                  }
-
-                  if (Rand.NextBool(20) && var6.getRoom() != null && var6.getRoom().getName().equals("bar") && var6.getObjects().size() == 1 && Rand.NextBool(8)) {
-                     this.addWorldItem("Dart", var6, (IsoObject)null);
                   }
                }
             }

@@ -2,8 +2,8 @@ package zombie.iso.objects;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import zombie.core.Rand;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoObject;

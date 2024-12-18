@@ -9,5 +9,7 @@ public interface IAnimListener {
 
    void onNonLoopedAnimFinished(AnimationTrack var1);
 
+   void onNoAnimConditionsPass();
+
    void onTrackDestroyed(AnimationTrack var1);
 }

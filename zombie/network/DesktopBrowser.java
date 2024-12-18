@@ -12,12 +12,12 @@ public final class DesktopBrowser {
    public static boolean openURL(String var0) {
       try {
          if (System.getProperty("os.name").contains("OS X")) {
-            Runtime.getRuntime().exec(String.format("open %s", var0));
+            Runtime.getRuntime().exec(new String[]{"open", var0});
             return true;
          }
 
          if (System.getProperty("os.name").startsWith("Win")) {
-            Runtime.getRuntime().exec(String.format("rundll32 url.dll,FileProtocolHandler %s", var0));
+            Runtime.getRuntime().exec(new String[]{"rundll32", "url.dll,FileProtocolHandler", var0});
             return true;
          }
 

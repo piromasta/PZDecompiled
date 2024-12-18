@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 
 public final class RBTSFoodPreparation extends RBTableStoryBase {
@@ -30,7 +30,7 @@ public final class RBTSFoodPreparation extends RBTableStoryBase {
       this.addWorldItem(var2, this.table1.getSquare(), 0.836F, 0.627F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
       this.addWorldItem(Rand.NextBool(2) ? "Base.Pepper" : "Base.Salt", this.table1.getSquare(), 0.492F, 0.94F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
       this.addWorldItem("Base.KitchenKnife", this.table1.getSquare(), 0.492F, 0.29F, this.table1.getSurfaceOffsetNoTable() / 96.0F, 1);
-      var2 = "farming.Tomato";
+      var2 = "Base.Tomato";
       var3 = Rand.Next(0, 4);
       switch (var3) {
          case 0:

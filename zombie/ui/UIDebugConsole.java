@@ -19,16 +19,24 @@ import se.krka.kahlua.stdlib.BaseLib;
 import se.krka.kahlua.vm.KahluaException;
 import se.krka.kahlua.vm.LuaClosure;
 import zombie.Lua.LuaManager;
-import zombie.characters.IsoGameCharacter;
 import zombie.core.Core;
+import zombie.core.math.PZMath;
+import zombie.core.textures.Texture;
 import zombie.debug.DebugOptions;
+import zombie.input.Mouse;
 
 public final class UIDebugConsole extends NewWindow {
    public static UIDebugConsole instance;
-   IsoGameCharacter ParentChar;
    ScrollBar ScrollBarV;
    UITextBox2 OutputLog;
    public UITextBox2 CommandLine;
+   boolean bResizing = false;
+   boolean bResizeWidth = false;
+   boolean bResizeHeight = false;
+   int resizeStartX;
+   int resizeStartY;
+   int resizeStartWidth;
+   int resizeStartHeight;
    UITextBox2 autosuggest;
    String ConsoleVersion = "v1.1.0";
    int inputlength = 0;
@@ -52,17 +60,21 @@ public final class UIDebugConsole extends NewWindow {
       this.ResizeToFitY = false;
       this.visible = true;
       instance = this;
-      this.width = 640.0F;
+      this.width = (float)PZMath.max(640, Core.getInstance().getScreenWidth() / 3);
       int var3 = TextManager.instance.getFontHeight(UIFont.DebugConsole);
       byte var4 = 11;
       byte var5 = 5;
-      this.OutputLog = new UITextBox2(UIFont.DebugConsole, 5, 33, 630, var3 * var4 + var5 * 2, "Project Zomboid - " + Core.getInstance().getVersion() + "\nDebug Console - " + this.ConsoleVersion + "\n(C) Indie Stone Studios 2021\n---------------------------------------------------------------------------------------------------------------------------\n\n", true);
+      this.OutputLog = new UITextBox2(UIFont.DebugConsole, 5, this.titleMiddle.getHeight() + var3, (int)this.width - var5 * 2, var3 * var4 + var5 * 2, "Project Zomboid - " + Core.getInstance().getVersion() + "\nDebug Console - " + this.ConsoleVersion + "\n(C) Indie Stone Studios 2021\n---------------------------------------------------------------------------------------------------------------------------\n\n", true);
       this.OutputLog.multipleLine = true;
       this.OutputLog.bAlwaysPaginate = false;
-      this.CommandLine = new CommandEntry(UIFont.DebugConsole, 5, (int)(this.OutputLog.getY() + this.OutputLog.getHeight()) + 15, 630, 24, "", true);
+      this.OutputLog.setWrapLines(false);
+      this.CommandLine = new CommandEntry(UIFont.DebugConsole, 5, (int)(this.OutputLog.getY() + this.OutputLog.getHeight()) + var3, (int)this.width - var5 * 2, var3 + var5 * 2, "", true);
       this.CommandLine.IsEditable = true;
       this.CommandLine.TextEntryMaxLength = 256;
-      this.autosuggest = new UITextBox2(UIFont.DebugConsole, 5, 180, 15, 25, "", true);
+      int var6 = var3 + var5 * 2;
+      int var7 = (int)(this.OutputLog.getY() + this.OutputLog.getHeight()) - var6;
+      this.autosuggest = new UITextBox2(UIFont.DebugConsole, 5, var7, 15, var6, "", true);
+      this.autosuggest.Frame.Colour.set(1.0F, 1.0F, 1.0F, 1.0F);
       this.height = (float)((int)(this.CommandLine.getY() + this.CommandLine.getHeight()) + 6);
       this.ScrollBarV = new ScrollBar("UIDebugConsoleScrollbar", (UIEventHandler)null, (int)(this.OutputLog.getX() + this.OutputLog.getWidth()) - 14, this.OutputLog.getY().intValue() + 4, this.OutputLog.getHeight().intValue() - 8, true);
       this.ScrollBarV.SetParentTextBox(this.OutputLog);
@@ -77,17 +89,134 @@ public final class UIDebugConsole extends NewWindow {
 
    }
 
+   public Boolean onMouseDown(double var1, double var3) {
+      if (!this.isVisible()) {
+         return Boolean.FALSE;
+      } else {
+         super.onMouseDown(var1, var3);
+         if (this.ScrollBarV.isPointOver(this.getAbsoluteX() + var1, this.getAbsoluteY() + var3)) {
+            return Boolean.FALSE;
+         } else if (this.moving || !(var1 >= this.getWidth() - 10.0) && !(var3 >= this.getHeight() - 10.0)) {
+            return Boolean.FALSE;
+         } else {
+            this.bResizing = true;
+            this.bResizeWidth = var1 >= this.getWidth() - 10.0;
+            this.bResizeHeight = var3 >= this.getHeight() - 10.0;
+            this.resizeStartX = Mouse.getXA();
+            this.resizeStartY = Mouse.getYA();
+            this.resizeStartWidth = this.getWidth().intValue();
+            this.resizeStartHeight = this.getHeight().intValue();
+            this.setCapture(true);
+            return Boolean.TRUE;
+         }
+      }
+   }
+
+   public Boolean onMouseUp(double var1, double var3) {
+      if (!this.isVisible()) {
+         return Boolean.FALSE;
+      } else {
+         super.onMouseUp(var1, var3);
+         if (this.bResizing) {
+            this.bResizing = false;
+            this.setCapture(false);
+            return Boolean.TRUE;
+         } else {
+            return Boolean.FALSE;
+         }
+      }
+   }
+
+   public void onMouseUpOutside(double var1, double var3) {
+      this.onMouseUp(var1, var3);
+   }
+
+   public Boolean onMouseMove(double var1, double var3) {
+      if (!this.isVisible()) {
+         return Boolean.FALSE;
+      } else {
+         super.onMouseMove(var1, var3);
+         if (this.bResizing) {
+            int var5;
+            if (this.bResizeWidth) {
+               var5 = Mouse.getXA() - this.resizeStartX;
+               this.setNewSize(this.resizeStartWidth + var5, this.getHeight().intValue());
+            }
+
+            if (this.bResizeHeight) {
+               var5 = Mouse.getYA() - this.resizeStartY;
+               this.setNewSize(this.getWidth().intValue(), this.resizeStartHeight + var5);
+            }
+
+            return Boolean.TRUE;
+         } else {
+            return Boolean.FALSE;
+         }
+      }
+   }
+
+   private void setNewSize(int var1, int var2) {
+      var1 = PZMath.clamp(var1, 640, Core.getInstance().getScreenWidth() - 50);
+      var2 = PZMath.clamp(var2, 200, Core.getInstance().getScreenHeight() - 50);
+      int var3 = this.getHeight().intValue() - this.OutputLog.getHeight().intValue();
+      int var4 = var2 - var3;
+      int var5 = TextManager.instance.getFontHeight(this.OutputLog.font);
+      int var6 = (var4 - this.OutputLog.getInset() * 2) / var5;
+      var2 = var3 + var6 * var5 + this.OutputLog.getInset() * 2;
+      byte var7 = 5;
+      if (var1 != this.getWidth().intValue()) {
+         this.setWidth((double)var1);
+         this.OutputLog.setWidth(this.getWidth() - (double)(var7 * 2));
+         this.OutputLog.getFrame().setWidth(this.OutputLog.getWidth());
+         this.ScrollBarV.setX((double)((int)(this.OutputLog.getX() + this.OutputLog.getWidth()) - 14));
+         this.CommandLine.setWidth(this.getWidth() - (double)(var7 * 2));
+         this.CommandLine.getFrame().setWidth(this.CommandLine.getWidth());
+      }
+
+      if (var2 != this.getHeight().intValue()) {
+         int var8 = TextManager.instance.getFontHeight(UIFont.DebugConsole);
+         this.setHeight((double)var2);
+         this.CommandLine.setY((double)(this.getHeight().intValue() - 6) - this.CommandLine.getHeight());
+         this.CommandLine.getFrame().setY(0.0);
+         this.OutputLog.setHeight(this.CommandLine.getY() - (double)var8 - this.OutputLog.getY());
+         this.OutputLog.getFrame().setHeight(this.OutputLog.getHeight());
+         this.OutputLog.update();
+         this.ScrollBarV.setHeight((double)(this.OutputLog.getHeight().intValue() - 8));
+         this.ScrollBarV.update();
+         this.ScrollBarV.scrollToBottom();
+         this.autosuggest.setY(this.OutputLog.getY() + this.OutputLog.getHeight() - this.autosuggest.getHeight());
+      }
+
+   }
+
    public void render() {
       if (this.isVisible()) {
          super.render();
          this.DrawTextCentre(UIFont.DebugConsole, "Command Console", this.getWidth() / 2.0, 2.0, 1.0, 1.0, 1.0, 1.0);
-         this.DrawText(UIFont.DebugConsole, "Output Log", 7.0, 19.0, 0.699999988079071, 0.699999988079071, 1.0, 1.0);
+         this.DrawText(UIFont.DebugConsole, "Output Log", 7.0, (double)this.titleMiddle.getHeight(), 0.699999988079071, 0.699999988079071, 1.0, 1.0);
          this.DrawText(UIFont.DebugConsole, "Lua Command Line", 7.0, this.OutputLog.getY() + this.OutputLog.getHeight() + 1.0, 0.699999988079071, 0.699999988079071, 1.0, 1.0);
+         if (this.bResizing || this.isMouseOver() && !this.ScrollBarV.isMouseOver() && !this.ScrollBarV.isBeingDragged()) {
+            int var1 = Mouse.getXA() - this.getAbsoluteX().intValue();
+            int var2 = Mouse.getYA() - this.getAbsoluteY().intValue();
+            byte var3 = 18;
+            double var4;
+            if (this.bResizing && this.bResizeWidth || !this.bResizing && var1 >= this.getWidth().intValue() - 10 && var2 >= var3) {
+               var4 = this.bResizing ? 1.0 : 0.66;
+               this.DrawTextureScaledColor((Texture)null, this.getWidth() - 10.0, 0.0, 10.0, this.getHeight(), var4, var4, var4, 0.66);
+            }
+
+            if (this.bResizing && this.bResizeHeight || !this.bResizing && var2 >= this.getHeight().intValue() - 10) {
+               var4 = this.bResizing ? 1.0 : 0.66;
+               this.DrawTextureScaledColor((Texture)null, 0.0, this.getHeight() - 10.0, this.getWidth(), 10.0, var4, var4, var4, 0.66);
+            }
+         }
+
       }
    }
 
    public void update() {
       if (this.isVisible()) {
+         this.setNewSize(this.getWidth().intValue(), this.getHeight().intValue());
          this.handleOutput();
          super.update();
          if (this.CommandLine.getText().length() != this.inputlength && this.CommandLine.getText().length() != 0) {
@@ -165,8 +294,8 @@ public final class UIDebugConsole extends NewWindow {
 
                this.autosuggest.SetText("<" + var4 + "> " + var3.getName());
                this.autosuggest.setX((double)(5 * this.CommandLine.getText().length()));
-               this.autosuggest.setWidth((double)(15 * (var4.length() + var3.getName().length())));
-               this.autosuggest.Frame.width = (float)(10 * (var4.length() + var3.getName().length()));
+               this.autosuggest.setWidth((double)(this.autosuggest.getInset() * 2 + TextManager.instance.MeasureStringX(this.autosuggest.font, this.autosuggest.Text)));
+               this.autosuggest.Frame.width = this.autosuggest.getWidth().floatValue();
             }
          } else if (this.CommandLine.getText().length() == 0 && this.autosuggest.isVisible()) {
             this.autosuggest.setVisible(false);

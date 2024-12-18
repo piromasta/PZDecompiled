@@ -51,8 +51,8 @@ public final class CopyFrames implements IRuntimeAnimationCommand {
                var7.Bone = var6.Bone;
                var7.BoneName = var6.BoneName;
                var7.Time = (float)(this.m_frame - 1 + (var5 - this.m_sourceFrame1)) / (float)this.m_FPS;
-               var7.Position = KeyframeUtil.GetKeyFramePosition(var4, (float)(var5 - 1) / (float)this.m_sourceFPS, (double)var2.Duration);
-               var7.Rotation = KeyframeUtil.GetKeyFrameRotation(var4, (float)(var5 - 1) / (float)this.m_sourceFPS, (double)var2.Duration);
+               var7.Position = KeyframeUtil.GetKeyFramePosition(var4, (float)(var5 - 1) / (float)this.m_sourceFPS, (double)var2.getDuration());
+               var7.Rotation = KeyframeUtil.GetKeyFrameRotation(var4, (float)(var5 - 1) / (float)this.m_sourceFPS, (double)var2.getDuration());
                var7.Scale = var6.Scale;
                var1.add(var7);
             }

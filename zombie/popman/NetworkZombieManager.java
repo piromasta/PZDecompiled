@@ -50,7 +50,7 @@ public class NetworkZombieManager {
    public static boolean canSpotted(IsoZombie var0) {
       if (var0.isRemoteZombie()) {
          return false;
-      } else if (var0.target != null && IsoUtils.DistanceToSquared(var0.x, var0.y, var0.target.x, var0.target.y) < 16.0F) {
+      } else if (var0.target != null && IsoUtils.DistanceToSquared(var0.getX(), var0.getY(), var0.target.getX(), var0.target.getY()) < 16.0F) {
          return false;
       } else {
          State var1 = var0.getCurrentState();
@@ -87,8 +87,8 @@ public class NetworkZombieManager {
                UdpConnection var2;
                if (var1.target instanceof IsoPlayer) {
                   var2 = GameServer.getConnectionFromPlayer((IsoPlayer)var1.target);
-                  if (var2 != null && var2.isFullyConnected()) {
-                     float var3 = ((IsoPlayer)var1.target).getRelevantAndDistance(var1.x, var1.y, (float)(var2.ReleventRange - 2));
+                  if (var2 != null && var2.isFullyConnected() && !GameServer.isDelayedDisconnect(var2)) {
+                     float var3 = ((IsoPlayer)var1.target).getRelevantAndDistance(var1.getX(), var1.getY(), (float)(var2.ReleventRange - 2));
                      if (!Float.isInfinite(var3)) {
                         this.moveZombie(var1, var2, (IsoPlayer)var1.target);
                         if (Core.bDebug) {
@@ -104,7 +104,7 @@ public class NetworkZombieManager {
                IsoPlayer var12 = var1.authOwnerPlayer;
                float var4 = 1.0F / 0.0F;
                if (var2 != null) {
-                  var4 = var2.getRelevantAndDistance(var1.x, var1.y, var1.z);
+                  var4 = var2.getRelevantAndDistance(var1.getX(), var1.getY(), var1.getZ());
                }
 
                int var5;
@@ -115,14 +115,14 @@ public class NetworkZombieManager {
                IsoPlayer var10;
                for(var5 = 0; var5 < GameServer.udpEngine.connections.size(); ++var5) {
                   var6 = (UdpConnection)GameServer.udpEngine.connections.get(var5);
-                  if (var6 != var2) {
+                  if (var6 != var2 && !GameServer.isDelayedDisconnect(var6)) {
                      var7 = var6.players;
                      var8 = var7.length;
 
                      for(var9 = 0; var9 < var8; ++var9) {
                         var10 = var7[var9];
                         if (var10 != null && var10.isAlive()) {
-                           float var11 = var10.getRelevantAndDistance(var1.x, var1.y, (float)(var6.ReleventRange - 2));
+                           float var11 = var10.getRelevantAndDistance(var1.getX(), var1.getY(), (float)(var6.ReleventRange - 2));
                            if (!Float.isInfinite(var11) && (var2 == null || var4 > var11 * 1.618034F)) {
                               var2 = var6;
                               var4 = var11;
@@ -140,7 +140,7 @@ public class NetworkZombieManager {
                if (var2 == null && var1.isReanimatedPlayer()) {
                   for(var5 = 0; var5 < GameServer.udpEngine.connections.size(); ++var5) {
                      var6 = (UdpConnection)GameServer.udpEngine.connections.get(var5);
-                     if (var6 != var2) {
+                     if (var6 != var2 && !GameServer.isDelayedDisconnect(var6)) {
                         var7 = var6.players;
                         var8 = var7.length;
 
@@ -158,7 +158,7 @@ public class NetworkZombieManager {
                   }
                }
 
-               if (var2 != null && !var2.RelevantTo(var1.x, var1.y, (float)((var2.ReleventRange - 2) * 10))) {
+               if (var2 != null && !var2.RelevantTo(var1.getX(), var1.getY(), (float)((var2.ReleventRange - 2) * 10))) {
                   var2 = null;
                }
 
@@ -294,7 +294,7 @@ public class NetworkZombieManager {
    }
 
    public static void removeZombies(UdpConnection var0) {
-      int var1 = (IsoChunkMap.ChunkGridWidth / 2 + 2) * 10;
+      int var1 = (IsoChunkMap.ChunkGridWidth / 2 + 2) * 8;
       IsoPlayer[] var2 = var0.players;
       int var3 = var2.length;
 
@@ -304,7 +304,7 @@ public class NetworkZombieManager {
             int var6 = (int)var5.getX();
             int var7 = (int)var5.getY();
 
-            for(int var8 = 0; var8 < 8; ++var8) {
+            for(int var8 = 0; var8 < 64; ++var8) {
                for(int var9 = var7 - var1; var9 <= var7 + var1; ++var9) {
                   for(int var10 = var6 - var1; var10 <= var6 + var1; ++var10) {
                      IsoGridSquare var11 = IsoWorld.instance.CurrentCell.getGridSquare(var10, var9, var8);

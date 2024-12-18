@@ -126,7 +126,7 @@ public class RCONServer {
                return;
             }
 
-            DebugLog.log("RCON: new connection " + var1.toString());
+            DebugLog.DetailedInfo.trace("RCON: new connection " + var1.toString());
             ClientThread var5 = new ClientThread(var1, RCONServer.this.password);
             this.connections.add(var5);
             var5.start();
@@ -221,7 +221,7 @@ public class RCONServer {
                   var2.printStackTrace();
                }
 
-               DebugLog.log("RCON: connection closed " + this.socket.toString());
+               DebugLog.DetailedInfo.trace("RCON: connection closed " + this.socket.toString());
             }
          }
       }
@@ -259,7 +259,7 @@ public class RCONServer {
 
       private void handlePacket(int var1, int var2, String var3) throws IOException {
          if (!"players".equals(var3)) {
-            DebugLog.log("RCON: ID=" + var1 + " Type=" + var2 + " Body='" + var3 + "' " + this.socket.toString());
+            DebugLog.DetailedInfo.trace("RCON: ID=" + var1 + " Type=" + var2 + " Body='" + var3 + "' " + this.socket.toString());
          }
 
          ByteBuffer var4;

@@ -5,9 +5,12 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Vector;
 import zombie.VirtualZombieManager;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.stash.StashSystem;
 import zombie.inventory.ItemContainer;
+import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoRoomLight;
@@ -16,6 +19,7 @@ import zombie.iso.MetaObject;
 import zombie.iso.RoomDef;
 import zombie.iso.objects.IsoLightSwitch;
 import zombie.iso.objects.IsoWindow;
+import zombie.network.GameClient;
 import zombie.network.GameServer;
 
 public final class IsoRoom {
@@ -265,13 +269,22 @@ public final class IsoRoom {
    }
 
    public void onSee() {
-      for(int var1 = 0; var1 < this.getBuilding().Rooms.size(); ++var1) {
-         IsoRoom var2 = (IsoRoom)this.getBuilding().Rooms.elementAt(var1);
-         if (var2 != null && !var2.def.bExplored) {
-            var2.def.bExplored = true;
+      if (!GameClient.bClient) {
+         BuildingDef var1 = this.getBuilding().getDef();
+         if (var1 != null && StashSystem.isStashBuilding(var1)) {
+            StashSystem.visitedBuilding(var1);
          }
+      }
 
-         IsoWorld.instance.getCell().roomSpotted(var2);
+      for(int var3 = 0; var3 < this.getBuilding().Rooms.size(); ++var3) {
+         IsoRoom var2 = (IsoRoom)this.getBuilding().Rooms.elementAt(var3);
+         if (VirtualZombieManager.instance.shouldSpawnZombiesOnLevel(var2.def.level)) {
+            if (var2 != null && !var2.def.bExplored) {
+               var2.def.bExplored = true;
+            }
+
+            IsoWorld.instance.getCell().roomSpotted(var2);
+         }
       }
 
    }
@@ -322,6 +335,156 @@ public final class IsoRoom {
       }
    }
 
+   public IsoGridSquare getRandomDoorFreeSquare() {
+      int var1 = 100;
+      IsoGridSquare var2 = null;
+      if (GameServer.bServer) {
+         while(var1 > 0) {
+            var2 = IsoWorld.instance.CurrentCell.getGridSquare(this.def.getX() + Rand.Next(this.def.getW()), this.def.getY() + Rand.Next(this.def.getH()), this.def.level);
+            if (var2 != null && var2.getRoom() == this && var2.isFree(true) && var2.isGoodSquare()) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      } else if (this.Squares.isEmpty()) {
+         return null;
+      } else {
+         while(var1 > 0) {
+            var2 = (IsoGridSquare)this.Squares.get(Rand.Next(this.Squares.size()));
+            if (var2.isFree(true) && var2.isGoodSquare()) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      }
+   }
+
+   public IsoGridSquare getRandomWallFreeSquare() {
+      int var1 = 100;
+      IsoGridSquare var2 = null;
+      if (GameServer.bServer) {
+         while(var1 > 0) {
+            var2 = IsoWorld.instance.CurrentCell.getGridSquare(this.def.getX() + Rand.Next(this.def.getW()), this.def.getY() + Rand.Next(this.def.getH()), this.def.level);
+            if (var2 != null && var2.getRoom() == this && var2.isFree(true) && !var2.isWallSquare() && var2.isGoodSquare()) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      } else if (this.Squares.isEmpty()) {
+         return null;
+      } else {
+         while(var1 > 0) {
+            var2 = (IsoGridSquare)this.Squares.get(Rand.Next(this.Squares.size()));
+            if (var2.isFree(true) && !var2.isWallSquare() && var2.isGoodSquare()) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      }
+   }
+
+   public IsoGridSquare getRandomWallFreePairSquare(IsoDirections var1, boolean var2) {
+      int var3 = 100;
+      IsoGridSquare var4 = null;
+      if (GameServer.bServer) {
+         while(var3 > 0) {
+            var4 = IsoWorld.instance.CurrentCell.getGridSquare(this.def.getX() + Rand.Next(this.def.getW()), this.def.getY() + Rand.Next(this.def.getH()), this.def.level);
+            if (var4 != null && var4.getRoom() == this && var4.isFree(true) && var4.isFreeWallPair(var1, var2)) {
+               return var4;
+            }
+
+            --var3;
+         }
+
+         return null;
+      } else if (this.Squares.isEmpty()) {
+         return null;
+      } else {
+         while(var3 > 0) {
+            var4 = (IsoGridSquare)this.Squares.get(Rand.Next(this.Squares.size()));
+            if (var4.isFree(true) && var4.isFreeWallPair(var1, var2)) {
+               return var4;
+            }
+
+            --var3;
+         }
+
+         return null;
+      }
+   }
+
+   public IsoGridSquare getRandomWallSquare() {
+      int var1 = 100;
+      IsoGridSquare var2 = null;
+      if (GameServer.bServer) {
+         while(var1 > 0) {
+            var2 = IsoWorld.instance.CurrentCell.getGridSquare(this.def.getX() + Rand.Next(this.def.getW()), this.def.getY() + Rand.Next(this.def.getH()), this.def.level);
+            if (var2 != null && var2.getRoom() == this && var2.isFree(true) && var2.isFreeWallSquare() && !var2.isDoorSquare()) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      } else if (this.Squares.isEmpty()) {
+         return null;
+      } else {
+         while(var1 > 0) {
+            var2 = (IsoGridSquare)this.Squares.get(Rand.Next(this.Squares.size()));
+            if (var2.isFree(true) && var2.isFreeWallSquare() && !var2.isDoorSquare()) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      }
+   }
+
+   public IsoGridSquare getRandomDoorAndWallFreeSquare() {
+      int var1 = 100;
+      IsoGridSquare var2 = null;
+      if (GameServer.bServer) {
+         while(var1 > 0) {
+            var2 = IsoWorld.instance.CurrentCell.getGridSquare(this.def.getX() + Rand.Next(this.def.getW()), this.def.getY() + Rand.Next(this.def.getH()), this.def.level);
+            if (var2 != null && var2.getRoom() == this && var2.isFree(true) && !var2.isDoorOrWallSquare() && var2.getObjects().size() < 2) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      } else if (this.Squares.isEmpty()) {
+         return null;
+      } else {
+         while(var1 > 0) {
+            var2 = (IsoGridSquare)this.Squares.get(Rand.Next(this.Squares.size()));
+            if (var2.isFree(true) && !var2.isDoorOrWallSquare() && var2.getObjects().size() < 2) {
+               return var2;
+            }
+
+            --var1;
+         }
+
+         return null;
+      }
+   }
+
    public boolean hasLightSwitches() {
       if (!this.lightSwitches.isEmpty()) {
          return true;
@@ -347,11 +510,112 @@ public final class IsoRoom {
       }
    }
 
+   public IsoRoomLight findRoomLightByID(int var1) {
+      for(int var2 = 0; var2 < this.roomLights.size(); ++var2) {
+         IsoRoomLight var3 = (IsoRoomLight)this.roomLights.get(var2);
+         if (var3.ID == var1) {
+            return var3;
+         }
+      }
+
+      return null;
+   }
+
    public RoomDef getRoomDef() {
       return this.def;
    }
 
    public ArrayList<IsoLightSwitch> getLightSwitches() {
       return this.lightSwitches;
+   }
+
+   public boolean spawnRandomWorkstation() {
+      IsoGridSquare var1 = this.getRandomWallSquare();
+      if (var1 == null) {
+         var1 = this.getRandomDoorFreeSquare();
+      }
+
+      if (var1 != null) {
+         var1.spawnRandomWorkstation();
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   public boolean spawnRandom2TileWorkstation() {
+      boolean var1 = false;
+      Object var2 = null;
+      if (Rand.NextBool(3)) {
+         int var3 = Rand.Next(2);
+         switch (var3) {
+            case 0:
+               var1 = this.addMetalWorkbench();
+               break;
+            case 1:
+               var1 = this.addPotteryWheel();
+         }
+      }
+
+      return var1 ? true : this.spawnRandomWorkstation();
+   }
+
+   public boolean addMetalWorkbench() {
+      return this.add2TileBench("Base.Metalworkbench", "crafted_02_2", "crafted_02_3", "crafted_02_0", "crafted_02_1", true);
+   }
+
+   public boolean addPotteryWheel() {
+      return Rand.NextBool(2) ? this.addOldPotteryWheel() : this.addModernPotteryWheel();
+   }
+
+   public boolean addOldPotteryWheel() {
+      return this.add2TileBench("Base.Pottery_Wheel", "crafted_01_64", "crafted_01_65", "crafted_01_66", "crafted_01_67", false);
+   }
+
+   public boolean addModernPotteryWheel() {
+      return Rand.NextBool(2) ? this.add2TileBench("Base.Pottery_Wheel_Modern", "crafted_01_92", "crafted_01_93", "crafted_01_94", "crafted_01_95", false) : this.add2TileBench("Base.Pottery_Wheel_Modern", "crafted_01_88", "crafted_01_89", "crafted_01_90", "crafted_01_91", false);
+   }
+
+   public boolean add2TileBench(String var1, String var2, String var3, String var4, String var5, boolean var6) {
+      IsoGridSquare var7 = null;
+      boolean var8 = false;
+      if (Rand.NextBool(2)) {
+         var8 = true;
+         var7 = this.getRandomWallFreePairSquare(IsoDirections.N, var6);
+      }
+
+      if (var7 == null) {
+         var7 = this.getRandomWallFreePairSquare(IsoDirections.E, var6);
+      }
+
+      if (!var8 && var7 == null) {
+         var8 = true;
+         var7 = this.getRandomWallFreePairSquare(IsoDirections.N, var6);
+      }
+
+      if (var7 == null) {
+         return false;
+      } else {
+         IsoGridSquare var9;
+         if (var8) {
+            var9 = var7.getAdjacentSquare(IsoDirections.N);
+            if (var9 == null) {
+               return false;
+            } else {
+               var7.addWorkstationEntity(var1, var2);
+               var9.addWorkstationEntity(var1, var3);
+               return true;
+            }
+         } else {
+            var9 = var7.getAdjacentSquare(IsoDirections.E);
+            if (var9 == null) {
+               return false;
+            } else {
+               var7.addWorkstationEntity(var1, var4);
+               var9.addWorkstationEntity(var1, var5);
+               return true;
+            }
+         }
+      }
    }
 }

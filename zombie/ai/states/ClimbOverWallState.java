@@ -3,6 +3,7 @@ package zombie.ai.states;
 import fmod.fmod.FMODManager;
 import java.util.HashMap;
 import zombie.GameTime;
+import zombie.SandboxOptions;
 import zombie.ZomboidGlobals;
 import zombie.ai.State;
 import zombie.characters.IsoGameCharacter;
@@ -12,17 +13,18 @@ import zombie.characters.Stats;
 import zombie.characters.Moodles.MoodleType;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
+import zombie.debug.DebugLog;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.util.Type;
 
 public final class ClimbOverWallState extends State {
    private static final ClimbOverWallState _instance = new ClimbOverWallState();
@@ -32,6 +34,8 @@ public final class ClimbOverWallState extends State {
    static final Integer PARAM_END_X = 3;
    static final Integer PARAM_END_Y = 4;
    static final Integer PARAM_DIR = 5;
+   static final Integer PARAM_STRUGGLE = 6;
+   static final Integer PARAM_SUCCESS = 7;
    static final int FENCE_TYPE_WOOD = 0;
    static final int FENCE_TYPE_METAL = 1;
    static final int FENCE_TYPE_METAL_BARS = 2;
@@ -46,7 +50,7 @@ public final class ClimbOverWallState extends State {
    public void enter(IsoGameCharacter var1) {
       var1.setIgnoreMovement(true);
       var1.setHideWeaponModel(true);
-      var1.getStateMachineParams(this);
+      HashMap var2 = var1.getStateMachineParams(this);
       Stats var10000 = var1.getStats();
       var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce * 1200.0);
       IsoPlayer var3 = (IsoPlayer)var1;
@@ -58,9 +62,19 @@ public final class ClimbOverWallState extends State {
 
       boolean var5 = var3.isClimbOverWallSuccess();
       var1.setVariable("ClimbFenceFinished", false);
-      var1.setVariable("ClimbFenceOutcome", var5 ? "success" : "fail");
       var1.setVariable("ClimbFenceStarted", false);
-      var1.setVariable("ClimbFenceStruggle", var4);
+      if (var3.isLocalPlayer()) {
+         var1.setVariable("ClimbFenceOutcome", var5 ? "success" : "fail");
+         var1.setVariable("ClimbFenceStruggle", var4);
+      } else {
+         var1.setVariable("ClimbFenceOutcome", (Boolean)var2.get(PARAM_SUCCESS) ? "success" : "fail");
+         var1.setVariable("ClimbFenceStruggle", (Boolean)var2.get(PARAM_STRUGGLE));
+      }
+
+      if (var3.isLocalPlayer()) {
+         var3.triggerMusicIntensityEvent("ClimbWall");
+      }
+
    }
 
    public void execute(IsoGameCharacter var1) {
@@ -68,30 +82,32 @@ public final class ClimbOverWallState extends State {
       IsoDirections var3 = (IsoDirections)var2.get(PARAM_DIR);
       var1.setAnimated(true);
       var1.setDir(var3);
-      boolean var4 = var1.getVariableBoolean("ClimbFenceStarted");
-      if (!var4) {
-         int var5 = (Integer)var2.get(PARAM_START_X);
-         int var6 = (Integer)var2.get(PARAM_START_Y);
-         float var7 = 0.15F;
-         float var8 = var1.getX();
-         float var9 = var1.getY();
+      float var4 = (float)(var1.getPerkLevel(PerkFactory.Perks.Nimble) + var1.getPerkLevel(PerkFactory.Perks.Strength) * 2) / 3.0F;
+      var1.addBothArmMuscleStrain((float)(0.02 * (double)GameTime.instance.getMultiplier() * (double)(var1.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) + 1)) * ((15.0F - var4) / 10.0F) * (GameTime.instance.getMultiplier() / 0.8F));
+      boolean var5 = var1.getVariableBoolean("ClimbFenceStarted");
+      if (!var5) {
+         int var6 = (Integer)var2.get(PARAM_START_X);
+         int var7 = (Integer)var2.get(PARAM_START_Y);
+         float var8 = 0.15F;
+         float var9 = var1.getX();
+         float var10 = var1.getY();
          switch (var3) {
             case N:
-               var9 = (float)var6 + var7;
+               var10 = (float)var7 + var8;
                break;
             case S:
-               var9 = (float)(var6 + 1) - var7;
+               var10 = (float)(var7 + 1) - var8;
                break;
             case W:
-               var8 = (float)var5 + var7;
+               var9 = (float)var6 + var8;
                break;
             case E:
-               var8 = (float)(var5 + 1) - var7;
+               var9 = (float)(var6 + 1) - var8;
          }
 
-         float var10 = GameTime.getInstance().getMultiplier() / 1.6F / 8.0F;
-         var1.setX(var1.x + (var8 - var1.x) * var10);
-         var1.setY(var1.y + (var9 - var1.y) * var10);
+         float var11 = GameTime.getInstance().getThirtyFPSMultiplier() / 8.0F;
+         var1.setX(var1.getX() + (var9 - var1.getX()) * var11);
+         var1.setY(var1.getY() + (var10 - var1.getY()) * var11);
       }
 
    }
@@ -101,6 +117,7 @@ public final class ClimbOverWallState extends State {
       var1.clearVariable("ClimbFenceOutcome");
       var1.clearVariable("ClimbFenceStarted");
       var1.clearVariable("ClimbFenceStruggle");
+      var1.clearVariable("PlayerVoiceSound");
       var1.setIgnoreMovement(false);
       var1.setHideWeaponModel(false);
       if (var1 instanceof IsoZombie) {
@@ -110,15 +127,29 @@ public final class ClimbOverWallState extends State {
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (var2.m_EventName.equalsIgnoreCase("PlayFenceSound")) {
-         IsoObject var3 = this.getFence(var1);
+         IsoObject var4 = this.getFence(var1);
+         if (var4 == null) {
+            return;
+         }
+
+         int var5 = this.getFenceType(var4);
+         long var6 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
+         var1.getEmitter().setParameterValue(var6, FMODManager.instance.getParameterDescription("FenceTypeHigh"), (float)var5);
+      }
+
+      if (var2.m_EventName.equalsIgnoreCase("PlayerVoiceSound")) {
+         if (var1.getVariableBoolean("PlayerVoiceSound")) {
+            return;
+         }
+
          if (var3 == null) {
             return;
          }
 
-         int var4 = this.getFenceType(var3);
-         long var5 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
-         var1.getEmitter().setParameterValue(var5, FMODManager.instance.getParameterDescription("FenceTypeHigh"), (float)var4);
+         var1.setVariable("PlayerVoiceSound", true);
+         var3.playerVoiceSound(var2.m_ParameterValue);
       }
 
    }
@@ -271,42 +302,35 @@ public final class ClimbOverWallState extends State {
       var3.put(PARAM_DIR, var2);
       IsoPlayer var11 = (IsoPlayer)var1;
       if (var11.isLocalPlayer()) {
-         int var12 = 20;
-         var12 += var1.getPerkLevel(PerkFactory.Perks.Fitness) * 2;
-         var12 += var1.getPerkLevel(PerkFactory.Perks.Strength) * 2;
-         var12 -= var1.getMoodles().getMoodleLevel(MoodleType.Endurance) * 5;
-         var12 -= var1.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 8;
-         if (var1.getTraits().contains("Emaciated") || var1.Traits.Obese.isSet() || var1.getTraits().contains("Very Underweight")) {
-            var12 -= 25;
+         if (SandboxOptions.instance.EasyClimbing.getValue()) {
+            var11.setClimbOverWallStruggle(false);
+            var11.setClimbOverWallSuccess(true);
+            return;
          }
 
-         if (var1.getTraits().contains("Underweight") || var1.getTraits().contains("Overweight")) {
-            var12 -= 15;
-         }
-
-         IsoGridSquare var13 = var1.getCurrentSquare();
-         if (var13 != null) {
-            for(int var14 = 0; var14 < var13.getMovingObjects().size(); ++var14) {
-               IsoMovingObject var15 = (IsoMovingObject)var13.getMovingObjects().get(var14);
-               if (var15 instanceof IsoZombie) {
-                  if (((IsoZombie)var15).target == var1 && ((IsoZombie)var15).getCurrentState() == AttackState.instance()) {
-                     var12 -= 25;
-                  } else {
-                     var12 -= 7;
-                  }
-               }
-            }
-         }
-
-         var12 = Math.max(0, var12);
-         boolean var16 = Rand.NextBool(var12 / 2);
+         int var12 = var1.getClimbingFailChanceInt();
+         DebugLog.log("ClimbWall actual struggleChance 1 in " + var12 / 2);
+         boolean var13 = Rand.NextBool(var12 / 2);
          if ("Tutorial".equals(Core.GameMode)) {
-            var16 = false;
+            var13 = false;
          }
 
-         boolean var17 = !Rand.NextBool(var12);
-         var11.setClimbOverWallStruggle(var16);
-         var11.setClimbOverWallSuccess(var17);
+         DebugLog.log("ClimbWall struggle? " + var13);
+         DebugLog.log("ClimbWall failure chance 1 in " + var12);
+         boolean var14 = false;
+         if (var12 > 0) {
+            var14 = !Rand.NextBool(var12);
+         } else if (var1.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) == 0) {
+            int var15 = Math.max(1, var1.getPerkLevel(PerkFactory.Perks.Strength));
+            DebugLog.log("ClimbWall bonus " + (var15 + 1) + " of success when base chance is 0 when encumbered");
+            var14 = Rand.Next(100) <= var15;
+         }
+
+         DebugLog.log("ClimbWall success? " + var14);
+         var11.setClimbOverWallStruggle(var13);
+         var11.setClimbOverWallSuccess(var14);
+         var3.put(PARAM_STRUGGLE, var13);
+         var3.put(PARAM_SUCCESS, var14);
       }
 
    }

@@ -27,6 +27,14 @@ public final class EventNotOccurred implements IActionCondition {
       return null;
    }
 
+   public String toString() {
+      return this.toString("");
+   }
+
+   public String toString(String var1) {
+      return var1 + this.getClass().getName() + "{ " + this.eventName + " }";
+   }
+
    public static class Factory implements IActionCondition.IFactory {
       public Factory() {
       }

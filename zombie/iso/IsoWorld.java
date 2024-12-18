@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,6 +20,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -28,9 +30,12 @@ import se.krka.kahlua.vm.KahluaTable;
 import zombie.CollisionManager;
 import zombie.DebugFileWatcher;
 import zombie.FliesSound;
+import zombie.GameProfiler;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.MapCollisionData;
+import zombie.MovingObjectUpdateScheduler;
 import zombie.PersistentOutfits;
 import zombie.PredicatedFileWatcher;
 import zombie.ReanimatedPlayers;
@@ -49,6 +54,9 @@ import zombie.ai.states.FakeDeadZombieState;
 import zombie.audio.BaseSoundEmitter;
 import zombie.audio.DummySoundEmitter;
 import zombie.audio.ObjectAmbientEmitters;
+import zombie.audio.parameters.ParameterInside;
+import zombie.basements.Basements;
+import zombie.characters.AnimalVocalsManager;
 import zombie.characters.HaloTextHelper;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
@@ -57,11 +65,18 @@ import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.TriggerSetAnimationRecorderFile;
 import zombie.characters.ZombieVocalsManager;
+import zombie.characters.animals.AnimalDefinitions;
+import zombie.characters.animals.AnimalPopulationManager;
+import zombie.characters.animals.AnimalTracksDefinitions;
+import zombie.characters.animals.AnimalZones;
+import zombie.characters.animals.IsoAnimal;
 import zombie.characters.professions.ProfessionFactory;
 import zombie.characters.traits.TraitFactory;
 import zombie.core.Core;
+import zombie.core.ImportantAreaManager;
+import zombie.core.PZForkJoinPool;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
 import zombie.core.SpriteRenderer;
 import zombie.core.TilePropertyAliasMap;
 import zombie.core.Translator;
@@ -70,37 +85,54 @@ import zombie.core.math.PZMath;
 import zombie.core.physics.WorldSimulation;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.DeadBodyAtlas;
+import zombie.core.skinnedmodel.animation.debug.AnimationPlayerRecorder;
 import zombie.core.skinnedmodel.model.WorldItemAtlas;
 import zombie.core.stash.StashSystem;
 import zombie.core.textures.Texture;
 import zombie.core.utils.OnceEvery;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugLogStream;
+import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
+import zombie.entity.GameEntityManager;
+import zombie.entity.components.spriteconfig.SpriteConfigManager;
 import zombie.erosion.ErosionGlobals;
 import zombie.gameStates.GameLoadingState;
 import zombie.globalObjects.GlobalObjectLookup;
 import zombie.input.Mouse;
+import zombie.inventory.ItemConfigurator;
 import zombie.inventory.ItemPickerJava;
 import zombie.inventory.types.MapItem;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.areas.DesignationZone;
 import zombie.iso.areas.IsoBuilding;
 import zombie.iso.areas.SafeHouse;
 import zombie.iso.areas.isoregion.IsoRegions;
-import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.fboRenderChunk.FBORenderAreaHighlights;
 import zombie.iso.objects.IsoFireManager;
 import zombie.iso.objects.ObjectRenderEffects;
 import zombie.iso.objects.RainManager;
-import zombie.iso.sprite.IsoDirectionFrame;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteGrid;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.iso.sprite.SkyBox;
+import zombie.iso.sprite.SpriteGridParseData;
 import zombie.iso.weather.ClimateManager;
 import zombie.iso.weather.WorldFlares;
 import zombie.iso.weather.fog.ImprovedFog;
+import zombie.iso.weather.fx.IsoWeatherFX;
 import zombie.iso.weather.fx.WeatherFxMask;
+import zombie.iso.worldgen.WGChunk;
+import zombie.iso.worldgen.WGParams;
+import zombie.iso.worldgen.attachments.AttachmentsHandler;
+import zombie.iso.worldgen.blending.Blending;
+import zombie.iso.worldgen.maps.BiomeMap;
+import zombie.iso.worldgen.rules.Rules;
+import zombie.iso.worldgen.zones.ZoneGenerator;
+import zombie.iso.zones.Zone;
 import zombie.network.BodyDamageSync;
 import zombie.network.ClientServerMap;
 import zombie.network.GameClient;
@@ -109,71 +141,135 @@ import zombie.network.NetChecksum;
 import zombie.network.PassengerMap;
 import zombie.network.ServerMap;
 import zombie.network.ServerOptions;
+import zombie.network.id.ObjectIDManager;
+import zombie.pathfind.PolygonalMap2;
+import zombie.pathfind.extra.BorderFinderRenderer;
+import zombie.pathfind.nativeCode.PathfindNative;
+import zombie.pathfind.nativeCode.PathfindNativeRenderer;
 import zombie.popman.ZombiePopulationManager;
+import zombie.popman.animal.HutchManager;
 import zombie.radio.ZomboidRadio;
+import zombie.randomizedWorld.RandomizedWorldBase;
 import zombie.randomizedWorld.randomizedBuilding.RBBar;
+import zombie.randomizedWorld.randomizedBuilding.RBBarn;
 import zombie.randomizedWorld.randomizedBuilding.RBBasic;
 import zombie.randomizedWorld.randomizedBuilding.RBBurnt;
 import zombie.randomizedWorld.randomizedBuilding.RBBurntCorpse;
 import zombie.randomizedWorld.randomizedBuilding.RBBurntFireman;
 import zombie.randomizedWorld.randomizedBuilding.RBCafe;
 import zombie.randomizedWorld.randomizedBuilding.RBClinic;
+import zombie.randomizedWorld.randomizedBuilding.RBDorm;
+import zombie.randomizedWorld.randomizedBuilding.RBGunstoreSiege;
 import zombie.randomizedWorld.randomizedBuilding.RBHairSalon;
+import zombie.randomizedWorld.randomizedBuilding.RBHeatBreakAfternoon;
+import zombie.randomizedWorld.randomizedBuilding.RBJackieJaye;
+import zombie.randomizedWorld.randomizedBuilding.RBJoanHartford;
 import zombie.randomizedWorld.randomizedBuilding.RBKateAndBaldspot;
 import zombie.randomizedWorld.randomizedBuilding.RBLooted;
+import zombie.randomizedWorld.randomizedBuilding.RBMayorWestPoint;
+import zombie.randomizedWorld.randomizedBuilding.RBNolans;
 import zombie.randomizedWorld.randomizedBuilding.RBOffice;
 import zombie.randomizedWorld.randomizedBuilding.RBOther;
 import zombie.randomizedWorld.randomizedBuilding.RBPileOCrepe;
 import zombie.randomizedWorld.randomizedBuilding.RBPizzaWhirled;
+import zombie.randomizedWorld.randomizedBuilding.RBPoliceSiege;
 import zombie.randomizedWorld.randomizedBuilding.RBSafehouse;
 import zombie.randomizedWorld.randomizedBuilding.RBSchool;
 import zombie.randomizedWorld.randomizedBuilding.RBShopLooted;
 import zombie.randomizedWorld.randomizedBuilding.RBSpiffo;
 import zombie.randomizedWorld.randomizedBuilding.RBStripclub;
+import zombie.randomizedWorld.randomizedBuilding.RBTrashed;
+import zombie.randomizedWorld.randomizedBuilding.RBTwiggy;
+import zombie.randomizedWorld.randomizedBuilding.RBWoodcraft;
 import zombie.randomizedWorld.randomizedBuilding.RandomizedBuildingBase;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSAmbulanceCrash;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSAnimalOnRoad;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSAnimalTrailerOnRoad;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSBanditRoad;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSBurntCar;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSCarCrash;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSCarCrashCorpse;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSCarCrashDeer;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSChangingTire;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSConstructionSite;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSCrashHorde;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSDeadEnd;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSFlippedCrash;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSHerdOnRoad;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSPlonkies;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSPoliceBlockade;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSPoliceBlockadeShooting;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRegionalProfessionVehicle;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRichJerk;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRoadKill;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRoadKillSmall;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSTrailerCrash;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSUtilityVehicle;
 import zombie.randomizedWorld.randomizedVehicleStory.RandomizedVehicleStoryBase;
+import zombie.randomizedWorld.randomizedZoneStory.RZJackieJaye;
+import zombie.randomizedWorld.randomizedZoneStory.RZSAttachedAnimal;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBBQParty;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBaseball;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBeachParty;
+import zombie.randomizedWorld.randomizedZoneStory.RZSBurntWreck;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBuryingCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSCampsite;
+import zombie.randomizedWorld.randomizedZoneStory.RZSCharcoalBurner;
+import zombie.randomizedWorld.randomizedZoneStory.RZSDean;
+import zombie.randomizedWorld.randomizedZoneStory.RZSDuke;
+import zombie.randomizedWorld.randomizedZoneStory.RZSEscapedAnimal;
+import zombie.randomizedWorld.randomizedZoneStory.RZSEscapedHerd;
 import zombie.randomizedWorld.randomizedZoneStory.RZSFishingTrip;
 import zombie.randomizedWorld.randomizedZoneStory.RZSForestCamp;
 import zombie.randomizedWorld.randomizedZoneStory.RZSForestCampEaten;
+import zombie.randomizedWorld.randomizedZoneStory.RZSFrankHemingway;
+import zombie.randomizedWorld.randomizedZoneStory.RZSHermitCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSHillbillyHoedown;
+import zombie.randomizedWorld.randomizedZoneStory.RZSHogWild;
 import zombie.randomizedWorld.randomizedZoneStory.RZSHunterCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSKirstyKormick;
+import zombie.randomizedWorld.randomizedZoneStory.RZSMurderScene;
 import zombie.randomizedWorld.randomizedZoneStory.RZSMusicFest;
 import zombie.randomizedWorld.randomizedZoneStory.RZSMusicFestStage;
+import zombie.randomizedWorld.randomizedZoneStory.RZSNastyMattress;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOccultActivity;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOldFirepit;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOldShelter;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOrphanedFawn;
+import zombie.randomizedWorld.randomizedZoneStory.RZSRangerSmith;
+import zombie.randomizedWorld.randomizedZoneStory.RZSRockerParty;
+import zombie.randomizedWorld.randomizedZoneStory.RZSSadCamp;
 import zombie.randomizedWorld.randomizedZoneStory.RZSSexyTime;
+import zombie.randomizedWorld.randomizedZoneStory.RZSSirTwiggy;
+import zombie.randomizedWorld.randomizedZoneStory.RZSSurvivalistCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSTragicPicnic;
 import zombie.randomizedWorld.randomizedZoneStory.RZSTrapperCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSVanCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSWasteDump;
+import zombie.randomizedWorld.randomizedZoneStory.RZSWaterPump;
 import zombie.randomizedWorld.randomizedZoneStory.RandomizedZoneStoryBase;
 import zombie.savefile.ClientPlayerDB;
 import zombie.savefile.PlayerDB;
 import zombie.savefile.PlayerDBHelper;
 import zombie.savefile.ServerPlayerDB;
+import zombie.scripting.ScriptManager;
+import zombie.spriteModel.SpriteModelManager;
 import zombie.text.templating.TemplateText;
+import zombie.tileDepth.TileDepthTextureManager;
 import zombie.ui.TutorialManager;
 import zombie.util.AddCoopPlayer;
 import zombie.util.SharedStrings;
+import zombie.util.StringUtils;
 import zombie.util.Type;
-import zombie.vehicles.PolygonalMap2;
+import zombie.vehicles.BaseVehicle;
 import zombie.vehicles.VehicleIDMap;
 import zombie.vehicles.VehicleManager;
 import zombie.vehicles.VehiclesDB2;
+import zombie.viewCone.ViewConeTextureFBO;
 import zombie.world.WorldDictionary;
 import zombie.world.WorldDictionaryException;
 import zombie.world.moddata.GlobalModData;
+import zombie.worldMap.network.WorldMapClient;
 
 public final class IsoWorld {
    private String weather = "sunny";
@@ -182,7 +278,8 @@ public final class IsoWorld {
    private final ArrayList<RandomizedZoneStoryBase> randomizedZoneList = new ArrayList();
    private final ArrayList<RandomizedVehicleStoryBase> randomizedVehicleStoryList = new ArrayList();
    private final RandomizedBuildingBase RBBasic = new RBBasic();
-   private final HashMap<String, ArrayList<Double>> spawnedZombieZone = new HashMap();
+   private final RandomizedWorldBase RandomizedWorldBase = new RandomizedWorldBase();
+   private final HashMap<String, ArrayList<UUID>> spawnedZombieZone = new HashMap();
    private final HashMap<String, ArrayList<String>> allTiles = new HashMap();
    private final ArrayList<String> tileImages = new ArrayList();
    private float flashIsoCursorA = 1.0F;
@@ -209,7 +306,6 @@ public final class IsoWorld {
    public HashMap<Integer, SurvivorDesc> SurvivorDescriptors = new HashMap();
    public ArrayList<AddCoopPlayer> AddCoopPlayers = new ArrayList();
    private static final CompScoreToPlayer compScoreToPlayer = new CompScoreToPlayer();
-   static CompDistToPlayer compDistToPlayer = new CompDistToPlayer();
    public static String mapPath = "media/";
    public static boolean mapUseJar = true;
    boolean bLoaded = false;
@@ -218,81 +314,45 @@ public final class IsoWorld {
    private static int WorldY = 0;
    private SurvivorDesc luaDesc;
    private ArrayList<String> luatraits;
-   private int luaSpawnCellX = -1;
-   private int luaSpawnCellY = -1;
    private int luaPosX = -1;
    private int luaPosY = -1;
    private int luaPosZ = -1;
-   public static final int WorldVersion = 195;
-   public static final int WorldVersion_Barricade = 87;
-   public static final int WorldVersion_SandboxOptions = 88;
-   public static final int WorldVersion_FliesSound = 121;
-   public static final int WorldVersion_LootRespawn = 125;
-   public static final int WorldVersion_OverlappingGenerators = 127;
-   public static final int WorldVersion_ItemContainerIdenticalItems = 128;
-   public static final int WorldVersion_VehicleSirenStartTime = 129;
-   public static final int WorldVersion_CompostLastUpdated = 130;
-   public static final int WorldVersion_DayLengthHours = 131;
-   public static final int WorldVersion_LampOnPillar = 132;
-   public static final int WorldVersion_AlarmClockRingSince = 134;
-   public static final int WorldVersion_ClimateAdded = 135;
-   public static final int WorldVersion_VehicleLightFocusing = 135;
-   public static final int WorldVersion_GeneratorFuelFloat = 138;
-   public static final int WorldVersion_InfectionTime = 142;
-   public static final int WorldVersion_ClimateColors = 143;
-   public static final int WorldVersion_BodyLocation = 144;
-   public static final int WorldVersion_CharacterModelData = 145;
-   public static final int WorldVersion_CharacterModelData2 = 146;
-   public static final int WorldVersion_CharacterModelData3 = 147;
-   public static final int WorldVersion_HumanVisualBlood = 148;
-   public static final int WorldVersion_ItemContainerIdenticalItemsInt = 149;
-   public static final int WorldVersion_PerkName = 152;
-   public static final int WorldVersion_Thermos = 153;
-   public static final int WorldVersion_AllPatches = 155;
-   public static final int WorldVersion_ZombieRotStage = 156;
-   public static final int WorldVersion_NewSandboxLootModifier = 157;
-   public static final int WorldVersion_KateBobStorm = 158;
-   public static final int WorldVersion_DeadBodyAngle = 159;
-   public static final int WorldVersion_ChunkSpawnedRooms = 160;
-   public static final int WorldVersion_DeathDragDown = 161;
-   public static final int WorldVersion_CanUpgradePerk = 162;
-   public static final int WorldVersion_ItemVisualFullType = 164;
-   public static final int WorldVersion_VehicleBlood = 165;
-   public static final int WorldVersion_DeadBodyZombieRotStage = 166;
-   public static final int WorldVersion_Fitness = 167;
-   public static final int WorldVersion_DeadBodyFakeDead = 168;
-   public static final int WorldVersion_Fitness2 = 169;
-   public static final int WorldVersion_NewFog = 170;
-   public static final int WorldVersion_DeadBodyPersistentOutfitID = 171;
-   public static final int WorldVersion_VehicleTowingID = 172;
-   public static final int WorldVersion_VehicleJNITransform = 173;
-   public static final int WorldVersion_VehicleTowAttachment = 174;
-   public static final int WorldVersion_ContainerMaxCapacity = 175;
-   public static final int WorldVersion_TimedActionInstantCheat = 176;
-   public static final int WorldVersion_ClothingPatchSaveLoad = 178;
-   public static final int WorldVersion_AttachedSlotType = 179;
-   public static final int WorldVersion_NoiseMakerDuration = 180;
-   public static final int WorldVersion_ChunkVehicles = 91;
-   public static final int WorldVersion_PlayerVehicleSeat = 91;
-   public static final int WorldVersion_MediaDisksAndTapes = 181;
-   public static final int WorldVersion_AlreadyReadBooks1 = 182;
-   public static final int WorldVersion_LampOnPillar2 = 183;
-   public static final int WorldVersion_AlreadyReadBooks2 = 184;
-   public static final int WorldVersion_PolygonZone = 185;
-   public static final int WorldVersion_PolylineZone = 186;
-   public static final int WorldVersion_NaturalHairBeardColor = 187;
-   public static final int WorldVersion_CruiseSpeedSaving = 188;
-   public static final int WorldVersion_KnownMediaLines = 189;
-   public static final int WorldVersion_DeadBodyAtlas = 190;
-   public static final int WorldVersion_Scarecrow = 191;
-   public static final int WorldVersion_DeadBodyID = 192;
-   public static final int WorldVersion_IgnoreRemoveSandbox = 193;
-   public static final int WorldVersion_MapMetaBounds = 194;
-   public static final int WorldVersion_PreviouslyEntered = 195;
+   private String spawnRegionName = "";
+   public static final int WorldVersion = 219;
+   public static final int WorldVersion_PreviouslyMoved = 196;
+   public static final int WorldVersion_DesignationZone = 197;
+   public static final int WorldVersion_PlayerExtraInfoFlags = 198;
+   public static final int WorldVersion_ObjectID = 199;
+   public static final int WorldVersion_CraftUpdateFoundations = 200;
+   public static final int WorldVersion_AlarmDecay = 201;
+   public static final int WorldVersion_FishingCheat = 202;
+   public static final int WorldVersion_CharacterVoiceType = 203;
+   public static final int WorldVersion_AnimalHutch = 204;
+   public static final int WorldVersion_AlarmClock = 205;
+   public static final int WorldVersion_VariableHeight = 206;
+   public static final int WorldVersion_EnableWorldgen = 207;
+   public static final int WorldVersion_CharacterVoiceOptions = 208;
+   public static final int WorldVersion_ChunksWorldGeneratedBoolean = 209;
+   public static final int WorldVersion_ChunksWorldModifiedBoolean = 210;
+   public static final int WorldVersion_CharacterDiscomfort = 211;
+   public static final int WorldVersion_HutchAndVehicleAnimalFormat = 212;
+   public static final int WorldVersion_IsoCompostHealthValues = 213;
+   public static final int WorldVersion_ChunksAttachmentsState = 214;
+   public static final int WorldVersion_ZoneIDisUUID = 215;
+   public static final int WorldVersion_SafeHouseHitPoints = 216;
+   public static final int WorldVersion_FastMoveCheat = 217;
+   public static final int WorldVersion_SquareSeen = 218;
+   public static final int WorldVersion_TrapExplosionDuration = 219;
    public static int SavedWorldVersion = -1;
    private boolean bDrawWorld = true;
    private final ArrayList<IsoZombie> zombieWithModel = new ArrayList();
    private final ArrayList<IsoZombie> zombieWithoutModel = new ArrayList();
+   private final ArrayList<IsoAnimal> animalWithModel = new ArrayList();
+   private final ArrayList<IsoAnimal> animalWithoutModel = new ArrayList();
+   Vector2 coneTempo1 = new Vector2();
+   Vector2 coneTempo2 = new Vector2();
+   Vector2 coneTempo3 = new Vector2();
+   static float d;
    public static boolean NoZombies = false;
    public static int TotalWorldVersion = -1;
    public static int saveoffsetx;
@@ -301,17 +361,26 @@ public final class IsoWorld {
    private long emitterUpdateMS;
    public boolean emitterUpdate;
    private int updateSafehousePlayers = 200;
+   public static CompletableFuture<Void> animationThread;
+   private Rules rules;
+   private WGChunk wgChunk;
+   private Blending blending;
+   private AttachmentsHandler attachmentsHandler;
+   private ZoneGenerator zoneGenerator;
+   private BiomeMap biomeMap;
 
    public IsoMetaGrid getMetaGrid() {
       return this.MetaGrid;
    }
 
-   public IsoMetaGrid.Zone registerZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
+   public Zone registerZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
       return this.MetaGrid.registerZone(var1, var2, var3, var4, var5, var6, var7);
    }
 
-   public IsoMetaGrid.Zone registerZoneNoOverlap(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
-      return this.MetaGrid.registerZoneNoOverlap(var1, var2, var3, var4, var5, var6, var7);
+   /** @deprecated */
+   @Deprecated
+   public Zone registerZoneNoOverlap(String var1, String var2, int var3, int var4, int var5, int var6, int var7) {
+      return this.registerZone(var1, var2, var3, var4, var5, var6, var7);
    }
 
    public void removeZonesForLotDirectory(String var1) {
@@ -366,11 +435,11 @@ public final class IsoWorld {
       }
    }
 
-   public IsoMetaGrid.Zone registerVehiclesZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
+   public Zone registerVehiclesZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
       return this.MetaGrid.registerVehiclesZone(var1, var2, var3, var4, var5, var6, var7, var8);
    }
 
-   public IsoMetaGrid.Zone registerMannequinZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
+   public Zone registerMannequinZone(String var1, String var2, int var3, int var4, int var5, int var6, int var7, KahluaTable var8) {
       return this.MetaGrid.registerMannequinZone(var1, var2, var3, var4, var5, var6, var7, var8);
    }
 
@@ -405,6 +474,14 @@ public final class IsoWorld {
       return Core.GameMode;
    }
 
+   public void setPreset(String var1) {
+      Core.Preset = var1;
+   }
+
+   public String getPreset() {
+      return Core.Preset;
+   }
+
    public void setWorld(String var1) {
       Core.GameSaveWorld = var1.trim();
    }
@@ -424,23 +501,7 @@ public final class IsoWorld {
       return this.m_frameNo;
    }
 
-   public IsoObject getItemFromXYZIndexBuffer(ByteBuffer var1) {
-      int var2 = var1.getInt();
-      int var3 = var1.getInt();
-      int var4 = var1.getInt();
-      IsoGridSquare var5 = this.CurrentCell.getGridSquare(var2, var3, var4);
-      if (var5 == null) {
-         return null;
-      } else {
-         byte var6 = var1.get();
-         return var6 >= 0 && var6 < var5.getObjects().size() ? (IsoObject)var5.getObjects().get(var6) : null;
-      }
-   }
-
    public IsoWorld() {
-      if (!GameServer.bServer) {
-      }
-
    }
 
    private static void initMessaging() {
@@ -530,7 +591,7 @@ public final class IsoWorld {
    }
 
    public void LoadTileDefinitions(IsoSpriteManager var1, String var2, int var3) {
-      DebugLog.log("tiledef: loading " + var2);
+      DebugLog.DetailedInfo.trace("tiledef: loading " + var2);
       boolean var4 = var2.endsWith(".patch.tiles");
 
       try {
@@ -556,7 +617,7 @@ public final class IsoWorld {
                   var16.put(var17[var18], new ArrayList());
                }
 
-               ArrayList var57 = new ArrayList();
+               SpriteGridParseData var58 = new SpriteGridParseData();
                HashMap var19 = new HashMap();
                int var20 = 0;
                int var21 = 0;
@@ -565,50 +626,50 @@ public final class IsoWorld {
                HashSet var24 = new HashSet();
                int var25 = 0;
 
-               label731:
+               label755:
                while(true) {
                   String var27;
                   String var28;
                   if (var25 >= var9) {
                      String var10001;
-                     ArrayList var58;
+                     ArrayList var59;
                      if (var12) {
-                        var58 = new ArrayList(var24);
-                        Collections.sort(var58);
-                        Iterator var59 = var58.iterator();
+                        var59 = new ArrayList(var24);
+                        Collections.sort(var59);
+                        Iterator var60 = var59.iterator();
 
-                        while(var59.hasNext()) {
-                           var27 = (String)var59.next();
-                           PrintStream var87 = System.out;
+                        while(var60.hasNext()) {
+                           var27 = (String)var60.next();
+                           PrintStream var97 = System.out;
                            var10001 = var27.replaceAll(" ", "_").replaceAll("-", "_").replaceAll("'", "").replaceAll("\\.", "");
-                           var87.println(var10001 + " = \"" + var27 + "\",");
+                           var97.println(var10001 + " = \"" + var27 + "\",");
                         }
                      }
 
                      if (var13) {
-                        var58 = new ArrayList(var24);
-                        Collections.sort(var58);
-                        StringBuilder var60 = new StringBuilder();
-                        Iterator var61 = var58.iterator();
+                        var59 = new ArrayList(var24);
+                        Collections.sort(var59);
+                        StringBuilder var61 = new StringBuilder();
+                        Iterator var62 = var59.iterator();
 
-                        while(var61.hasNext()) {
-                           var28 = (String)var61.next();
+                        while(var62.hasNext()) {
+                           var28 = (String)var62.next();
                            if (Translator.getMoveableDisplayNameOrNull(var28) == null) {
                               var10001 = var28.replaceAll(" ", "_").replaceAll("-", "_").replaceAll("'", "").replaceAll("\\.", "");
-                              var60.append(var10001 + " = \"" + var28 + "\",\n");
+                              var61.append(var10001 + " = \"" + var28 + "\",\n");
                            }
                         }
 
-                        var27 = var60.toString();
+                        var27 = var61.toString();
                         if (!var27.isEmpty() && Core.bDebug) {
-                           System.out.println("Missing translations in Moveables_EN.txt:\n" + var27);
+                           DebugLog.Translation.debugln("Missing translations in Moveables_EN.txt:\n" + var27);
                         }
                      }
 
                      if (var11) {
                         try {
                            this.saveMovableStats(var19, var3, var21, var22, var23, var20);
-                        } catch (Exception var53) {
+                        } catch (Exception var54) {
                         }
                      }
                      break;
@@ -651,6 +712,7 @@ public final class IsoWorld {
                      var14.add(var34);
                      if (!var4) {
                         var34.setName(var27 + "_" + var33);
+                        var34.tilesetName = var27;
                         var34.tileSheetIndex = var33;
                      }
 
@@ -664,9 +726,9 @@ public final class IsoWorld {
                         var34.attachedFloor = true;
                      }
 
-                     int var63 = readInt((InputStream)var6);
+                     int var64 = readInt((InputStream)var6);
 
-                     for(int var36 = 0; var36 < var63; ++var36) {
+                     for(int var36 = 0; var36 < var64; ++var36) {
                         var26 = readString((InputStream)var6);
                         String var37 = var26.trim();
                         var26 = readString((InputStream)var6);
@@ -701,7 +763,7 @@ public final class IsoWorld {
                            } else if (var37.equals("solid")) {
                               var34.solid = true;
                               var34.getProperties().Set(var37, var38);
-                           } else if (var37.equals("solidTrans")) {
+                           } else if (var37.equals("solidtrans")) {
                               var34.solidTrans = true;
                               var34.getProperties().Set(var37, var38);
                            } else if (var37.equals("invisible")) {
@@ -892,7 +954,7 @@ public final class IsoWorld {
                            var34.setType(IsoObjectType.windowFW);
                            if (var34.getProperties().Is(IsoFlagType.HoppableW)) {
                               if (Core.bDebug) {
-                                 DebugLog.log("ERROR: WindowW sprite shouldn't have HoppableW (" + var34.getName() + ")");
+                                 DebugLog.Moveable.println("ERROR: WindowW sprite shouldn't have HoppableW (" + var34.getName() + ")");
                               }
 
                               var34.getProperties().UnSet(IsoFlagType.HoppableW);
@@ -907,7 +969,7 @@ public final class IsoWorld {
                            var34.setType(IsoObjectType.windowFN);
                            if (var34.getProperties().Is(IsoFlagType.HoppableN)) {
                               if (Core.bDebug) {
-                                 DebugLog.log("ERROR: WindowN sprite shouldn't have HoppableN (" + var34.getName() + ")");
+                                 DebugLog.Moveable.println("ERROR: WindowN sprite shouldn't have HoppableN (" + var34.getName() + ")");
                               }
 
                               var34.getProperties().UnSet(IsoFlagType.HoppableN);
@@ -967,321 +1029,346 @@ public final class IsoWorld {
 
                      var34.getProperties().CreateKeySet();
                      if (Core.bDebug && var34.getProperties().Is("SmashedTileOffset") && !var34.getProperties().Is("GlassRemovedOffset")) {
-                        DebugLog.General.error("Window sprite has SmashedTileOffset but no GlassRemovedOffset (" + var34.getName() + ")");
+                        DebugLog.Sprite.error("Window sprite has SmashedTileOffset but no GlassRemovedOffset (" + var34.getName() + ")");
                      }
                   }
 
                   this.setOpenDoorProperties(var27, var14);
                   var15.clear();
-                  Iterator var62 = var14.iterator();
+                  Iterator var63 = var14.iterator();
 
                   while(true) {
                      while(true) {
-                        String var65;
-                        do {
-                           if (!var62.hasNext()) {
-                              var62 = var15.entrySet().iterator();
+                        String var66;
+                        while(var63.hasNext()) {
+                           var34 = (IsoSprite)var63.next();
+                           if (var34.getProperties().Is("StopCar")) {
+                              var34.setType(IsoObjectType.isMoveAbleObject);
+                           }
 
+                           String var10000;
+                           if (var34.getProperties().Is("IsMoveAble")) {
+                              if (var34.getProperties().Is("CustomName") && !var34.getProperties().Val("CustomName").equals("")) {
+                                 ++var20;
+                                 if (var34.getProperties().Is("GroupName")) {
+                                    var10000 = var34.getProperties().Val("GroupName");
+                                    var66 = var10000 + " " + var34.getProperties().Val("CustomName");
+                                    if (!var15.containsKey(var66)) {
+                                       var15.put(var66, new ArrayList());
+                                    }
+
+                                    ((ArrayList)var15.get(var66)).add(var34);
+                                    var24.add(var66);
+                                 } else {
+                                    if (!var19.containsKey(var27)) {
+                                       var19.put(var27, new ArrayList());
+                                    }
+
+                                    if (!((ArrayList)var19.get(var27)).contains(var34.getProperties().Val("CustomName"))) {
+                                       ((ArrayList)var19.get(var27)).add(var34.getProperties().Val("CustomName"));
+                                    }
+
+                                    ++var21;
+                                    var24.add(var34.getProperties().Val("CustomName"));
+                                 }
+                              } else {
+                                 DebugLog.Moveable.println("[IMPORTANT] MOVABLES: Object has no custom name defined: sheet = " + var27);
+                              }
+                           } else if (var34.getProperties().Is("SpriteGridPos")) {
+                              if (StringUtils.isNullOrWhitespace(var34.getProperties().Val("CustomName"))) {
+                                 DebugLog.Moveable.println("[IMPORTANT] MOVABLES: Object has no custom name defined: sheet = " + var27);
+                              } else if (var34.getProperties().Is("GroupName")) {
+                                 var10000 = var34.getProperties().Val("GroupName");
+                                 var66 = var10000 + " " + var34.getProperties().Val("CustomName");
+                                 if (!var15.containsKey(var66)) {
+                                    var15.put(var66, new ArrayList());
+                                 }
+
+                                 ((ArrayList)var15.get(var66)).add(var34);
+                              }
+                           }
+                        }
+
+                        var63 = var15.entrySet().iterator();
+
+                        while(true) {
+                           while(true) {
                               while(true) {
-                                 while(true) {
-                                    while(true) {
-                                       String var42;
-                                       int var43;
-                                       ArrayList var66;
-                                       boolean var68;
-                                       int var69;
-                                       Iterator var71;
-                                       boolean var72;
-                                       IsoSprite var77;
-                                       do {
-                                          if (!var62.hasNext()) {
-                                             var14.clear();
-                                             ++var25;
-                                             continue label731;
-                                          }
+                                 String var42;
+                                 int var43;
+                                 ArrayList var67;
+                                 boolean var69;
+                                 int var70;
+                                 Iterator var72;
+                                 boolean var73;
+                                 IsoSprite var78;
+                                 do {
+                                    if (!var63.hasNext()) {
+                                       var14.clear();
+                                       ++var25;
+                                       continue label755;
+                                    }
 
-                                          Map.Entry var64 = (Map.Entry)var62.next();
-                                          var65 = (String)var64.getKey();
-                                          if (!var19.containsKey(var27)) {
-                                             var19.put(var27, new ArrayList());
-                                          }
+                                    Map.Entry var65 = (Map.Entry)var63.next();
+                                    var66 = (String)var65.getKey();
+                                    if (!var19.containsKey(var27)) {
+                                       var19.put(var27, new ArrayList());
+                                    }
 
-                                          if (!((ArrayList)var19.get(var27)).contains(var65)) {
-                                             ((ArrayList)var19.get(var27)).add(var65);
-                                          }
+                                    if (!((ArrayList)var19.get(var27)).contains(var66)) {
+                                       ((ArrayList)var19.get(var27)).add(var66);
+                                    }
 
-                                          var66 = (ArrayList)var64.getValue();
-                                          if (var66.size() == 1) {
-                                             DebugLog.log("MOVABLES: Object has only one face defined for group: (" + var65 + ") sheet = " + var27);
-                                          }
+                                    var67 = (ArrayList)var65.getValue();
+                                    if (var67.size() == 1) {
+                                       DebugLog.Moveable.println("MOVABLES: Object has only one face defined for group: (" + var66 + ") sheet = " + var27);
+                                    }
 
-                                          if (var66.size() == 3) {
-                                             DebugLog.log("MOVABLES: Object only has 3 sprites, _might_ have a error in settings, group: (" + var65 + ") sheet = " + var27);
-                                          }
+                                    if (var67.size() == 3) {
+                                       DebugLog.Moveable.println("MOVABLES: Object only has 3 sprites, _might_ have a error in settings, group: (" + var66 + ") sheet = " + var27);
+                                    }
 
-                                          String[] var67 = var17;
-                                          int var70 = var17.length;
+                                    String[] var68 = var17;
+                                    int var71 = var17.length;
 
-                                          for(var69 = 0; var69 < var70; ++var69) {
-                                             String var75 = var67[var69];
-                                             ((ArrayList)var16.get(var75)).clear();
-                                          }
+                                    for(var70 = 0; var70 < var71; ++var70) {
+                                       String var76 = var68[var70];
+                                       ((ArrayList)var16.get(var76)).clear();
+                                    }
 
-                                          var68 = ((IsoSprite)var66.get(0)).getProperties().Is("SpriteGridPos") && !((IsoSprite)var66.get(0)).getProperties().Val("SpriteGridPos").equals("None");
-                                          var72 = true;
-                                          var71 = var66.iterator();
+                                    var69 = ((IsoSprite)var67.get(0)).getProperties().Is("SpriteGridPos") && !((IsoSprite)var67.get(0)).getProperties().Val("SpriteGridPos").equals("None");
+                                    var73 = true;
+                                    var72 = var67.iterator();
 
-                                          while(var71.hasNext()) {
-                                             var77 = (IsoSprite)var71.next();
-                                             boolean var41 = var77.getProperties().Is("SpriteGridPos") && !var77.getProperties().Val("SpriteGridPos").equals("None");
-                                             if (var68 != var41) {
-                                                var72 = false;
-                                                DebugLog.log("MOVABLES: Difference in SpriteGrid settings for members of group: (" + var65 + ") sheet = " + var27);
-                                                break;
-                                             }
+                                    while(var72.hasNext()) {
+                                       var78 = (IsoSprite)var72.next();
+                                       boolean var41 = var78.getProperties().Is("SpriteGridPos") && !var78.getProperties().Val("SpriteGridPos").equals("None");
+                                       if (var69 != var41) {
+                                          var73 = false;
+                                          DebugLog.Moveable.println("MOVABLES: Difference in SpriteGrid settings for members of group: (" + var66 + ") sheet = " + var27);
+                                          break;
+                                       }
 
-                                             if (!var77.getProperties().Is("Facing")) {
-                                                var72 = false;
-                                             } else {
-                                                switch (var77.getProperties().Val("Facing")) {
-                                                   case "N":
-                                                      ((ArrayList)var16.get("N")).add(var77);
-                                                      break;
-                                                   case "E":
-                                                      ((ArrayList)var16.get("E")).add(var77);
-                                                      break;
-                                                   case "S":
-                                                      ((ArrayList)var16.get("S")).add(var77);
-                                                      break;
-                                                   case "W":
-                                                      ((ArrayList)var16.get("W")).add(var77);
-                                                      break;
-                                                   default:
-                                                      DebugLog.log("MOVABLES: Invalid face (" + var77.getProperties().Val("Facing") + ") for group: (" + var65 + ") sheet = " + var27);
-                                                      var72 = false;
-                                                }
-                                             }
-
-                                             if (!var72) {
-                                                DebugLog.log("MOVABLES: Not all members have a valid face defined for group: (" + var65 + ") sheet = " + var27);
-                                                break;
-                                             }
-                                          }
-                                       } while(!var72);
-
-                                       int var73;
-                                       if (!var68) {
-                                          if (var66.size() > 4) {
-                                             DebugLog.log("MOVABLES: Object has too many faces defined for group: (" + var65 + ") sheet = " + var27);
-                                          } else {
-                                             String[] var74 = var17;
-                                             var40 = var17.length;
-
-                                             for(var73 = 0; var73 < var40; ++var73) {
-                                                var42 = var74[var73];
-                                                if (((ArrayList)var16.get(var42)).size() > 1) {
-                                                   DebugLog.log("MOVABLES: " + var42 + " face defined more than once for group: (" + var65 + ") sheet = " + var27);
-                                                   var72 = false;
-                                                }
-                                             }
-
-                                             if (var72) {
-                                                ++var22;
-                                                var71 = var66.iterator();
-
-                                                while(var71.hasNext()) {
-                                                   var77 = (IsoSprite)var71.next();
-                                                   String[] var80 = var17;
-                                                   int var81 = var17.length;
-
-                                                   for(var43 = 0; var43 < var81; ++var43) {
-                                                      String var82 = var80[var43];
-                                                      ArrayList var85 = (ArrayList)var16.get(var82);
-                                                      if (var85.size() > 0 && var85.get(0) != var77) {
-                                                         var77.getProperties().Set(var82 + "offset", Integer.toString(var14.indexOf(var85.get(0)) - var14.indexOf(var77)));
-                                                      }
-                                                   }
-                                                }
-                                             }
-                                          }
+                                       if (!var78.getProperties().Is("Facing")) {
+                                          var73 = false;
                                        } else {
-                                          var69 = 0;
-                                          IsoSpriteGrid[] var79 = new IsoSpriteGrid[var17.length];
-
-                                          int var44;
-                                          IsoSprite var46;
-                                          label701:
-                                          for(var73 = 0; var73 < var17.length; ++var73) {
-                                             ArrayList var76 = (ArrayList)var16.get(var17[var73]);
-                                             if (var76.size() > 0) {
-                                                if (var69 == 0) {
-                                                   var69 = var76.size();
-                                                }
-
-                                                if (var69 != var76.size()) {
-                                                   DebugLog.log("MOVABLES: Sprite count mismatch for multi sprite movable, group: (" + var65 + ") sheet = " + var27);
-                                                   var72 = false;
-                                                   break;
-                                                }
-
-                                                var57.clear();
-                                                var43 = -1;
-                                                var44 = -1;
-                                                Iterator var45 = var76.iterator();
-
-                                                while(true) {
-                                                   String var47;
-                                                   String[] var48;
-                                                   int var49;
-                                                   int var50;
-                                                   if (var45.hasNext()) {
-                                                      var46 = (IsoSprite)var45.next();
-                                                      var47 = var46.getProperties().Val("SpriteGridPos");
-                                                      if (!var57.contains(var47)) {
-                                                         var57.add(var47);
-                                                         var48 = var47.split(",");
-                                                         if (var48.length == 2) {
-                                                            var49 = Integer.parseInt(var48[0]);
-                                                            var50 = Integer.parseInt(var48[1]);
-                                                            if (var49 > var43) {
-                                                               var43 = var49;
-                                                            }
-
-                                                            if (var50 > var44) {
-                                                               var44 = var50;
-                                                            }
-                                                            continue;
-                                                         }
-
-                                                         DebugLog.log("MOVABLES: SpriteGrid position error for multi sprite movable, group: (" + var65 + ") sheet = " + var27);
-                                                         var72 = false;
-                                                      } else {
-                                                         DebugLog.log("MOVABLES: double SpriteGrid position (" + var47 + ") for multi sprite movable, group: (" + var65 + ") sheet = " + var27);
-                                                         var72 = false;
-                                                      }
-                                                   }
-
-                                                   if (var43 == -1 || var44 == -1 || (var43 + 1) * (var44 + 1) != var76.size()) {
-                                                      DebugLog.log("MOVABLES: SpriteGrid dimensions error for multi sprite movable, group: (" + var65 + ") sheet = " + var27);
-                                                      var72 = false;
-                                                      break label701;
-                                                   }
-
-                                                   if (!var72) {
-                                                      break label701;
-                                                   }
-
-                                                   var79[var73] = new IsoSpriteGrid(var43 + 1, var44 + 1);
-                                                   var45 = var76.iterator();
-
-                                                   while(var45.hasNext()) {
-                                                      var46 = (IsoSprite)var45.next();
-                                                      var47 = var46.getProperties().Val("SpriteGridPos");
-                                                      var48 = var47.split(",");
-                                                      var49 = Integer.parseInt(var48[0]);
-                                                      var50 = Integer.parseInt(var48[1]);
-                                                      var79[var73].setSprite(var49, var50, var46);
-                                                   }
-
-                                                   if (!var79[var73].validate()) {
-                                                      DebugLog.log("MOVABLES: SpriteGrid didn't validate for multi sprite movable, group: (" + var65 + ") sheet = " + var27);
-                                                      var72 = false;
-                                                      break label701;
-                                                   }
-                                                   break;
-                                                }
-                                             }
-                                          }
-
-                                          if (var72 && var69 != 0) {
-                                             ++var23;
-
-                                             for(var73 = 0; var73 < var17.length; ++var73) {
-                                                IsoSpriteGrid var78 = var79[var73];
-                                                if (var78 != null) {
-                                                   IsoSprite[] var83 = var78.getSprites();
-                                                   var44 = var83.length;
-
-                                                   for(int var84 = 0; var84 < var44; ++var84) {
-                                                      var46 = var83[var84];
-                                                      var46.setSpriteGrid(var78);
-
-                                                      for(int var86 = 0; var86 < var17.length; ++var86) {
-                                                         if (var86 != var73 && var79[var86] != null) {
-                                                            var46.getProperties().Set(var17[var86] + "offset", Integer.toString(var14.indexOf(var79[var86].getAnchorSprite()) - var14.indexOf(var46)));
-                                                         }
-                                                      }
-                                                   }
-                                                }
-                                             }
-                                          } else {
-                                             DebugLog.log("MOVABLES: Error in multi sprite movable, group: (" + var65 + ") sheet = " + var27);
+                                          switch (var78.getProperties().Val("Facing")) {
+                                             case "N":
+                                                ((ArrayList)var16.get("N")).add(var78);
+                                                break;
+                                             case "E":
+                                                ((ArrayList)var16.get("E")).add(var78);
+                                                break;
+                                             case "S":
+                                                ((ArrayList)var16.get("S")).add(var78);
+                                                break;
+                                             case "W":
+                                                ((ArrayList)var16.get("W")).add(var78);
+                                                break;
+                                             default:
+                                                DebugLog.Moveable.println("MOVABLES: Invalid face (" + var78.getProperties().Val("Facing") + ") for group: (" + var66 + ") sheet = " + var27);
+                                                var73 = false;
                                           }
                                        }
+
+                                       if (!var73) {
+                                          DebugLog.Moveable.println("MOVABLES: Not all members have a valid face defined for group: (" + var66 + ") sheet = " + var27);
+                                          break;
+                                       }
+                                    }
+                                 } while(!var73);
+
+                                 int var74;
+                                 if (!var69) {
+                                    if (var67.size() > 4) {
+                                       DebugLog.Moveable.println("MOVABLES: Object has too many faces defined for group: (" + var66 + ") sheet = " + var27);
+                                    } else {
+                                       String[] var75 = var17;
+                                       var40 = var17.length;
+
+                                       for(var74 = 0; var74 < var40; ++var74) {
+                                          var42 = var75[var74];
+                                          if (((ArrayList)var16.get(var42)).size() > 1) {
+                                             DebugLog.Moveable.println("MOVABLES: " + var42 + " face defined more than once for group: (" + var66 + ") sheet = " + var27);
+                                             var73 = false;
+                                          }
+                                       }
+
+                                       if (var73) {
+                                          ++var22;
+                                          var72 = var67.iterator();
+
+                                          while(var72.hasNext()) {
+                                             var78 = (IsoSprite)var72.next();
+                                             String[] var81 = var17;
+                                             int var82 = var17.length;
+
+                                             for(var43 = 0; var43 < var82; ++var43) {
+                                                String var86 = var81[var43];
+                                                ArrayList var90 = (ArrayList)var16.get(var86);
+                                                if (var90.size() > 0 && var90.get(0) != var78) {
+                                                   var78.getProperties().Set(var86 + "offset", Integer.toString(var14.indexOf(var90.get(0)) - var14.indexOf(var78)));
+                                                }
+                                             }
+                                          }
+                                       }
+                                    }
+                                 } else {
+                                    var70 = 0;
+                                    IsoSpriteGrid[] var80 = new IsoSpriteGrid[var17.length];
+
+                                    int var47;
+                                    IsoSprite var94;
+                                    for(var74 = 0; var74 < var17.length; ++var74) {
+                                       ArrayList var77 = (ArrayList)var16.get(var17[var74]);
+                                       if (!var77.isEmpty()) {
+                                          if (var70 == 0) {
+                                             var70 = var77.size();
+                                          }
+
+                                          if (var70 != var77.size()) {
+                                             DebugLog.Moveable.println("MOVABLES: Sprite count mismatch for multi sprite movable, group: (" + var66 + ") sheet = " + var27);
+                                             var73 = false;
+                                             break;
+                                          }
+
+                                          var58.clear();
+
+                                          SpriteGridParseData.Level var50;
+                                          Iterator var85;
+                                          for(var85 = var77.iterator(); var85.hasNext(); var58.height = PZMath.max(var58.height, var50.height)) {
+                                             IsoSprite var44 = (IsoSprite)var85.next();
+                                             String var45 = var44.getProperties().Val("SpriteGridPos");
+                                             String[] var46 = var45.split(",");
+                                             if (var46.length < 2 || var46.length > 3) {
+                                                DebugLog.Moveable.println("MOVABLES: SpriteGrid position error for multi sprite movable, group: (" + var66 + ") sheet = " + var27);
+                                                var73 = false;
+                                                break;
+                                             }
+
+                                             var47 = Integer.parseInt(var46[0]);
+                                             int var48 = Integer.parseInt(var46[1]);
+                                             int var49 = 0;
+                                             if (var46.length == 3) {
+                                                var49 = Integer.parseInt(var46[2]);
+                                             }
+
+                                             if (var44.getProperties().Is("SpriteGridLevel")) {
+                                                var49 = Integer.parseInt(var44.getProperties().Val("SpriteGridLevel"));
+                                                if (var49 < 0) {
+                                                   DebugLog.Moveable.println("MOVABLES: invalid SpriteGirdLevel for multi sprite movable, group: (" + var66 + ") sheet = " + var27);
+                                                   var73 = false;
+                                                   break;
+                                                }
+                                             }
+
+                                             var50 = var58.getOrCreateLevel(var49);
+                                             if (var50.xyToSprite.containsKey(var45)) {
+                                                DebugLog.Moveable.println("MOVABLES: double SpriteGrid position (" + var45 + ") for multi sprite movable, group: (" + var66 + ") sheet = " + var27);
+                                                var73 = false;
+                                                break;
+                                             }
+
+                                             var50.xyToSprite.put(var45, var44);
+                                             var50.width = PZMath.max(var50.width, var47 + 1);
+                                             var50.height = PZMath.max(var50.height, var48 + 1);
+                                             var58.width = PZMath.max(var58.width, var50.width);
+                                          }
+
+                                          if (!var73) {
+                                             break;
+                                          }
+
+                                          if (!var58.isValid()) {
+                                             DebugLog.Moveable.println("MOVABLES: SpriteGrid dimensions error for multi sprite movable, group: (" + var66 + ") sheet = " + var27);
+                                             var73 = false;
+                                             break;
+                                          }
+
+                                          var80[var74] = new IsoSpriteGrid(var58.width, var58.height, var58.levels.size());
+                                          var85 = var58.levels.iterator();
+
+                                          while(var85.hasNext()) {
+                                             SpriteGridParseData.Level var83 = (SpriteGridParseData.Level)var85.next();
+                                             Iterator var87 = var83.xyToSprite.entrySet().iterator();
+
+                                             while(var87.hasNext()) {
+                                                Map.Entry var91 = (Map.Entry)var87.next();
+                                                String var93 = (String)var91.getKey();
+                                                var94 = (IsoSprite)var91.getValue();
+                                                String[] var95 = var93.split(",");
+                                                int var96 = Integer.parseInt(var95[0]);
+                                                int var51 = Integer.parseInt(var95[1]);
+                                                var80[var74].setSprite(var96, var51, var83.z, var94);
+                                             }
+                                          }
+
+                                          if (!var80[var74].validate()) {
+                                             DebugLog.Moveable.println("MOVABLES: SpriteGrid didn't validate for multi sprite movable, group: (" + var66 + ") sheet = " + var27);
+                                             var73 = false;
+                                             break;
+                                          }
+                                       }
+                                    }
+
+                                    if (var73 && var70 != 0) {
+                                       ++var23;
+
+                                       for(var74 = 0; var74 < var17.length; ++var74) {
+                                          IsoSpriteGrid var79 = var80[var74];
+                                          if (var79 != null) {
+                                             IsoSprite[] var88 = var79.getSprites();
+                                             int var84 = var88.length;
+
+                                             for(int var89 = 0; var89 < var84; ++var89) {
+                                                IsoSprite var92 = var88[var89];
+                                                if (var92 != null) {
+                                                   var92.setSpriteGrid(var79);
+
+                                                   for(var47 = 0; var47 < var17.length; ++var47) {
+                                                      if (var47 != var74 && var80[var47] != null) {
+                                                         var94 = var80[var47].getAnchorSprite();
+                                                         var92.getProperties().Set(var17[var47] + "offset", Integer.toString(var94.tileSheetIndex - var92.tileSheetIndex));
+                                                      }
+                                                   }
+                                                }
+                                             }
+                                          }
+                                       }
+                                    } else {
+                                       DebugLog.Moveable.println("MOVABLES: Error in multi sprite movable, group: (" + var66 + ") sheet = " + var27);
                                     }
                                  }
                               }
                            }
-
-                           var34 = (IsoSprite)var62.next();
-                           if (var34.getProperties().Is("StopCar")) {
-                              var34.setType(IsoObjectType.isMoveAbleObject);
-                           }
-                        } while(!var34.getProperties().Is("IsMoveAble"));
-
-                        if (var34.getProperties().Is("CustomName") && !var34.getProperties().Val("CustomName").equals("")) {
-                           ++var20;
-                           if (var34.getProperties().Is("GroupName")) {
-                              String var10000 = var34.getProperties().Val("GroupName");
-                              var65 = var10000 + " " + var34.getProperties().Val("CustomName");
-                              if (!var15.containsKey(var65)) {
-                                 var15.put(var65, new ArrayList());
-                              }
-
-                              ((ArrayList)var15.get(var65)).add(var34);
-                              var24.add(var65);
-                           } else {
-                              if (!var19.containsKey(var27)) {
-                                 var19.put(var27, new ArrayList());
-                              }
-
-                              if (!((ArrayList)var19.get(var27)).contains(var34.getProperties().Val("CustomName"))) {
-                                 ((ArrayList)var19.get(var27)).add(var34.getProperties().Val("CustomName"));
-                              }
-
-                              ++var21;
-                              var24.add(var34.getProperties().Val("CustomName"));
-                           }
-                        } else {
-                           DebugLog.log("[IMPORTANT] MOVABLES: Object has no custom name defined: sheet = " + var27);
                         }
                      }
                   }
                }
-            } catch (Throwable var54) {
+            } catch (Throwable var55) {
                try {
                   var6.close();
-               } catch (Throwable var52) {
-                  var54.addSuppressed(var52);
+               } catch (Throwable var53) {
+                  var55.addSuppressed(var53);
                }
 
-               throw var54;
+               throw var55;
             }
 
             var6.close();
-         } catch (Throwable var55) {
+         } catch (Throwable var56) {
             try {
                var5.close();
-            } catch (Throwable var51) {
-               var55.addSuppressed(var51);
+            } catch (Throwable var52) {
+               var56.addSuppressed(var52);
             }
 
-            throw var55;
+            throw var56;
          }
 
          var5.close();
-      } catch (Exception var56) {
-         ExceptionLogger.logException(var56);
+      } catch (Exception var57) {
+         ExceptionLogger.logException(var57);
       }
 
    }
@@ -1292,7 +1379,7 @@ public final class IsoWorld {
    }
 
    public void LoadTileDefinitionsPropertyStrings(IsoSpriteManager var1, String var2, int var3) {
-      DebugLog.log("tiledef: loading " + var2);
+      DebugLog.DetailedInfo.trace("tiledef: loading " + var2);
       if (!GameServer.bServer) {
          Thread.yield();
          Core.getInstance().DoFrameReady();
@@ -1380,8 +1467,10 @@ public final class IsoWorld {
       ((ArrayList)PropertyValueMap.get("WallSE")).add("WallSE");
       ArrayList var1 = new ArrayList();
 
-      for(int var2 = -96; var2 <= 96; ++var2) {
-         String var3 = Integer.toString(var2);
+      int var2;
+      String var3;
+      for(var2 = -96; var2 <= 96; ++var2) {
+         var3 = Integer.toString(var2);
          var1.add(var3);
       }
 
@@ -1394,6 +1483,20 @@ public final class IsoWorld {
       ((ArrayList)PropertyValueMap.get("lightR")).add("0");
       ((ArrayList)PropertyValueMap.get("lightG")).add("0");
       ((ArrayList)PropertyValueMap.get("lightB")).add("0");
+
+      for(var2 = 0; var2 <= 96; ++var2) {
+         var3 = String.valueOf(var2);
+         ArrayList var4 = (ArrayList)PropertyValueMap.get("ItemHeight");
+         if (!var4.contains(var3)) {
+            var4.add(var3);
+         }
+
+         var4 = (ArrayList)PropertyValueMap.get("Surface");
+         if (!var4.contains(var3)) {
+            var4.add(var3);
+         }
+      }
+
    }
 
    private void setOpenDoorProperties(String var1, ArrayList<IsoSprite> var2) {
@@ -1485,7 +1588,7 @@ public final class IsoWorld {
             int var11 = var8 * var7 + var9;
             IsoSprite var12 = var1.AddSprite(var10 + "_" + var11, var2 * 512 * 512 + var4 * 512 + var11);
 
-            assert GameServer.bServer || !var12.CurrentAnim.Frames.isEmpty() && ((IsoDirectionFrame)var12.CurrentAnim.Frames.get(0)).getTexture(IsoDirections.N) != null;
+            assert GameServer.bServer || !var12.hasNoTextures();
 
             var12.setName(var10 + "_" + var11);
             var12.setType(IsoObjectType.tree);
@@ -1523,31 +1626,55 @@ public final class IsoWorld {
    }
 
    private void loadedTileDefinitions() {
+      CellLoader.glassRemovedWindowSpriteMap.clear();
       CellLoader.smashedWindowSpriteMap.clear();
       Iterator var1 = IsoSpriteManager.instance.NamedMap.values().iterator();
 
       while(true) {
-         IsoSprite var2;
-         PropertyContainer var3;
-         do {
-            if (!var1.hasNext()) {
-               return;
-            }
+         while(var1.hasNext()) {
+            IsoSprite var2 = (IsoSprite)var1.next();
+            PropertyContainer var3 = var2.getProperties();
+            if (var3.Is(IsoFlagType.windowW) || var3.Is(IsoFlagType.windowN)) {
+               String var4 = var3.Val("GlassRemovedOffset");
+               int var5;
+               IsoSprite var6;
+               if (var4 != null) {
+                  var5 = PZMath.tryParseInt(var4, 0);
+                  if (var5 != 0) {
+                     var6 = IsoSprite.getSprite(IsoSpriteManager.instance, var2, var5);
+                     if (var6 != null) {
+                        CellLoader.glassRemovedWindowSpriteMap.put(var6, var2);
+                     }
+                  }
+               }
 
-            var2 = (IsoSprite)var1.next();
-            var3 = var2.getProperties();
-         } while(!var3.Is(IsoFlagType.windowW) && !var3.Is(IsoFlagType.windowN));
-
-         String var4 = var3.Val("SmashedTileOffset");
-         if (var4 != null) {
-            int var5 = PZMath.tryParseInt(var4, 0);
-            if (var5 != 0) {
-               IsoSprite var6 = IsoSprite.getSprite(IsoSpriteManager.instance, var2, var5);
-               if (var6 != null) {
-                  CellLoader.smashedWindowSpriteMap.put(var6, var2);
+               var4 = var3.Val("SmashedTileOffset");
+               if (var4 != null) {
+                  var5 = PZMath.tryParseInt(var4, 0);
+                  if (var5 != 0) {
+                     var6 = IsoSprite.getSprite(IsoSpriteManager.instance, var2, var5);
+                     if (var6 != null) {
+                        CellLoader.smashedWindowSpriteMap.put(var6, var2);
+                     }
+                  }
                }
             }
+
+            if (var2.name != null && var2.name.startsWith("fixtures_railings_01")) {
+               var2.getProperties().Set(IsoFlagType.NeverCutaway);
+            }
+
+            IsoSprite var7 = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(var2.tilesetName + "_on_" + var2.tileSheetIndex);
+            if (var7 != null && !var7.hasNoTextures()) {
+               var2.getProperties().Set(IsoFlagType.HasLightOnSprite);
+            } else {
+               var2.getProperties().UnSet(IsoFlagType.HasLightOnSprite);
+            }
          }
+
+         SpriteModelManager.getInstance().loadedTileDefinitions();
+         TileDepthTextureManager.getInstance().loadedTileDefinitions();
+         return;
       }
    }
 
@@ -1571,44 +1698,34 @@ public final class IsoWorld {
                byte var7 = SliceY.SliceBuffer.get();
                byte var8 = SliceY.SliceBuffer.get();
                byte var9 = SliceY.SliceBuffer.get();
-               int var10 = -1;
+               boolean var10 = true;
                if (var6 == 80 && var7 == 76 && var8 == 89 && var9 == 82) {
-                  var10 = SliceY.SliceBuffer.getInt();
+                  int var14 = SliceY.SliceBuffer.getInt();
                } else {
                   SliceY.SliceBuffer.rewind();
                }
 
-               if (var10 >= 69) {
-                  String var11 = GameWindow.ReadString(SliceY.SliceBuffer);
-                  if (GameClient.bClient && var10 < 71) {
-                     var11 = ServerOptions.instance.ServerPlayerID.getValue();
-                  }
-
-                  if (GameClient.bClient && !IsoPlayer.isServerPlayerIDValid(var11)) {
-                     GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_ServerPlayerIDMismatch");
-                     GameLoadingState.playerWrongIP = true;
-                     return false;
-                  }
-               } else if (GameClient.bClient && ServerOptions.instance.ServerPlayerID.getValue().isEmpty()) {
-                  GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_ServerPlayerIDMissing");
+               String var11 = GameWindow.ReadString(SliceY.SliceBuffer);
+               if (GameClient.bClient && !IsoPlayer.isServerPlayerIDValid(var11)) {
+                  GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_ServerPlayerIDMismatch");
                   GameLoadingState.playerWrongIP = true;
                   return false;
+               } else {
+                  WorldX = SliceY.SliceBuffer.getInt();
+                  WorldY = SliceY.SliceBuffer.getInt();
+                  IsoChunkMap.WorldXA = SliceY.SliceBuffer.getInt();
+                  IsoChunkMap.WorldYA = SliceY.SliceBuffer.getInt();
+                  IsoChunkMap.WorldZA = SliceY.SliceBuffer.getInt();
+                  IsoChunkMap.WorldXA += IsoCell.CellSizeInSquares * saveoffsetx;
+                  IsoChunkMap.WorldYA += IsoCell.CellSizeInSquares * saveoffsety;
+                  IsoChunkMap.SWorldX[0] = WorldX;
+                  IsoChunkMap.SWorldY[0] = WorldY;
+                  int[] var10000 = IsoChunkMap.SWorldX;
+                  var10000[0] += IsoCell.CellSizeInChunks * saveoffsetx;
+                  var10000 = IsoChunkMap.SWorldY;
+                  var10000[0] += IsoCell.CellSizeInChunks * saveoffsety;
+                  return true;
                }
-
-               WorldX = SliceY.SliceBuffer.getInt();
-               WorldY = SliceY.SliceBuffer.getInt();
-               IsoChunkMap.WorldXA = SliceY.SliceBuffer.getInt();
-               IsoChunkMap.WorldYA = SliceY.SliceBuffer.getInt();
-               IsoChunkMap.WorldZA = SliceY.SliceBuffer.getInt();
-               IsoChunkMap.WorldXA += 300 * saveoffsetx;
-               IsoChunkMap.WorldYA += 300 * saveoffsety;
-               IsoChunkMap.SWorldX[0] = WorldX;
-               IsoChunkMap.SWorldY[0] = WorldY;
-               int[] var10000 = IsoChunkMap.SWorldX;
-               var10000[0] += 30 * saveoffsetx;
-               var10000 = IsoChunkMap.SWorldY;
-               var10000[0] += 30 * saveoffsety;
-               return true;
             }
          }
       }
@@ -1634,6 +1751,18 @@ public final class IsoWorld {
          this.randomizedBuildingList.add(new RBOffice());
          this.randomizedBuildingList.add(new RBHairSalon());
          this.randomizedBuildingList.add(new RBClinic());
+         this.randomizedBuildingList.add(new RBGunstoreSiege());
+         this.randomizedBuildingList.add(new RBPoliceSiege());
+         this.randomizedBuildingList.add(new RBHeatBreakAfternoon());
+         this.randomizedBuildingList.add(new RBTrashed());
+         this.randomizedBuildingList.add(new RBBarn());
+         this.randomizedBuildingList.add(new RBDorm());
+         this.randomizedBuildingList.add(new RBNolans());
+         this.randomizedBuildingList.add(new RBJackieJaye());
+         this.randomizedBuildingList.add(new RBJoanHartford());
+         this.randomizedBuildingList.add(new RBMayorWestPoint());
+         this.randomizedBuildingList.add(new RBTwiggy());
+         this.randomizedBuildingList.add(new RBWoodcraft());
          this.randomizedVehicleStoryList.add(new RVSUtilityVehicle());
          this.randomizedVehicleStoryList.add(new RVSConstructionSite());
          this.randomizedVehicleStoryList.add(new RVSBurntCar());
@@ -1647,6 +1776,16 @@ public final class IsoWorld {
          this.randomizedVehicleStoryList.add(new RVSBanditRoad());
          this.randomizedVehicleStoryList.add(new RVSTrailerCrash());
          this.randomizedVehicleStoryList.add(new RVSCrashHorde());
+         this.randomizedVehicleStoryList.add(new RVSCarCrashDeer());
+         this.randomizedVehicleStoryList.add(new RVSDeadEnd());
+         this.randomizedVehicleStoryList.add(new RVSRegionalProfessionVehicle());
+         this.randomizedVehicleStoryList.add(new RVSRoadKill());
+         this.randomizedVehicleStoryList.add(new RVSRoadKillSmall());
+         this.randomizedVehicleStoryList.add(new RVSAnimalOnRoad());
+         this.randomizedVehicleStoryList.add(new RVSHerdOnRoad());
+         this.randomizedVehicleStoryList.add(new RVSAnimalTrailerOnRoad());
+         this.randomizedVehicleStoryList.add(new RVSRichJerk());
+         this.randomizedVehicleStoryList.add(new RVSPlonkies());
          this.randomizedZoneList.add(new RZSForestCamp());
          this.randomizedZoneList.add(new RZSForestCampEaten());
          this.randomizedZoneList.add(new RZSBuryingCamp());
@@ -1659,6 +1798,35 @@ public final class IsoWorld {
          this.randomizedZoneList.add(new RZSBaseball());
          this.randomizedZoneList.add(new RZSMusicFestStage());
          this.randomizedZoneList.add(new RZSMusicFest());
+         this.randomizedZoneList.add(new RZSBurntWreck());
+         this.randomizedZoneList.add(new RZSHermitCamp());
+         this.randomizedZoneList.add(new RZSHillbillyHoedown());
+         this.randomizedZoneList.add(new RZSHogWild());
+         this.randomizedZoneList.add(new RZSRockerParty());
+         this.randomizedZoneList.add(new RZSSadCamp());
+         this.randomizedZoneList.add(new RZSSurvivalistCamp());
+         this.randomizedZoneList.add(new RZSVanCamp());
+         this.randomizedZoneList.add(new RZSEscapedAnimal());
+         this.randomizedZoneList.add(new RZSEscapedHerd());
+         this.randomizedZoneList.add(new RZSAttachedAnimal());
+         this.randomizedZoneList.add(new RZSOrphanedFawn());
+         this.randomizedZoneList.add(new RZSNastyMattress());
+         this.randomizedZoneList.add(new RZSWasteDump());
+         this.randomizedZoneList.add(new RZSMurderScene());
+         this.randomizedZoneList.add(new RZSTragicPicnic());
+         this.randomizedZoneList.add(new RZSRangerSmith());
+         this.randomizedZoneList.add(new RZSOccultActivity());
+         this.randomizedZoneList.add(new RZSWaterPump());
+         this.randomizedZoneList.add(new RZSOldFirepit());
+         this.randomizedZoneList.add(new RZSOldShelter());
+         this.randomizedZoneList.add(new RZSCampsite());
+         this.randomizedZoneList.add(new RZSCharcoalBurner());
+         this.randomizedZoneList.add(new RZSDean());
+         this.randomizedZoneList.add(new RZSDuke());
+         this.randomizedZoneList.add(new RZSFrankHemingway());
+         this.randomizedZoneList.add(new RZJackieJaye());
+         this.randomizedZoneList.add(new RZSKirstyKormick());
+         this.randomizedZoneList.add(new RZSSirTwiggy());
       }
 
       zombie.randomizedWorld.randomizedBuilding.RBBasic.getUniqueRDSSpawned().clear();
@@ -1681,54 +1849,138 @@ public final class IsoWorld {
       }
 
       SavedWorldVersion = this.readWorldVersion();
+      DataInputStream var3;
       int var4;
+      File var43;
+      FileInputStream var44;
       if (!GameServer.bServer) {
-         File var31 = ZomboidFileSystem.instance.getFileInCurrentSave("map_ver.bin");
+         var43 = ZomboidFileSystem.instance.getFileInCurrentSave("map_ver.bin");
 
          try {
-            FileInputStream var34 = new FileInputStream(var31);
+            var44 = new FileInputStream(var43);
 
             try {
-               DataInputStream var3 = new DataInputStream(var34);
+               var3 = new DataInputStream(var44);
 
                try {
                   var4 = var3.readInt();
-                  if (var4 >= 25) {
-                     String var5 = GameWindow.ReadString(var3);
-                     if (!GameClient.bClient) {
-                        Core.GameMap = var5;
-                     }
+                  String var5 = GameWindow.ReadString(var3);
+                  if (!GameClient.bClient) {
+                     Core.GameMap = var5;
                   }
 
-                  if (var4 >= 74) {
-                     this.setDifficulty(GameWindow.ReadString(var3));
-                  }
-               } catch (Throwable var28) {
+                  this.setDifficulty(GameWindow.ReadString(var3));
+               } catch (Throwable var40) {
                   try {
                      var3.close();
-                  } catch (Throwable var25) {
-                     var28.addSuppressed(var25);
+                  } catch (Throwable var36) {
+                     var40.addSuppressed(var36);
                   }
 
-                  throw var28;
+                  throw var40;
                }
 
                var3.close();
-            } catch (Throwable var29) {
+            } catch (Throwable var41) {
                try {
-                  var34.close();
-               } catch (Throwable var24) {
-                  var29.addSuppressed(var24);
+                  var44.close();
+               } catch (Throwable var35) {
+                  var41.addSuppressed(var35);
                }
 
-               throw var29;
+               throw var41;
             }
 
-            var34.close();
-         } catch (FileNotFoundException var30) {
+            var44.close();
+         } catch (FileNotFoundException var42) {
          }
       }
 
+      if (!GameClient.bClient) {
+         var43 = ZomboidFileSystem.instance.getFileInCurrentSave("id_manager_data.bin");
+
+         try {
+            var44 = new FileInputStream(var43);
+
+            try {
+               var3 = new DataInputStream(var44);
+
+               try {
+                  var4 = var3.readInt();
+                  ObjectIDManager.getInstance().load(var3, var4);
+               } catch (Throwable var32) {
+                  try {
+                     var3.close();
+                  } catch (Throwable var31) {
+                     var32.addSuppressed(var31);
+                  }
+
+                  throw var32;
+               }
+
+               var3.close();
+            } catch (Throwable var33) {
+               try {
+                  var44.close();
+               } catch (Throwable var30) {
+                  var33.addSuppressed(var30);
+               }
+
+               throw var33;
+            }
+
+            var44.close();
+         } catch (FileNotFoundException var34) {
+         }
+      }
+
+      int var6;
+      int var52;
+      if (!GameClient.bClient) {
+         var43 = ZomboidFileSystem.instance.getFileInCurrentSave("important_area_data.bin");
+
+         try {
+            var44 = new FileInputStream(var43);
+
+            try {
+               BufferedInputStream var48 = new BufferedInputStream(var44);
+
+               try {
+                  synchronized(SliceY.SliceBufferLock) {
+                     SliceY.SliceBuffer.clear();
+                     var52 = var48.read(SliceY.SliceBuffer.array());
+                     SliceY.SliceBuffer.limit(var52);
+                     var48.close();
+                     var6 = SliceY.SliceBuffer.getInt();
+                     ImportantAreaManager.getInstance().load(SliceY.SliceBuffer, var6);
+                  }
+               } catch (Throwable var27) {
+                  try {
+                     var48.close();
+                  } catch (Throwable var25) {
+                     var27.addSuppressed(var25);
+                  }
+
+                  throw var27;
+               }
+
+               var48.close();
+            } catch (Throwable var28) {
+               try {
+                  var44.close();
+               } catch (Throwable var24) {
+                  var28.addSuppressed(var24);
+               }
+
+               throw var28;
+            }
+
+            var44.close();
+         } catch (FileNotFoundException var29) {
+         }
+      }
+
+      WGParams.instance.load();
       if (!GameServer.bServer || !GameServer.bSoftReset) {
          this.MetaGrid.CreateStep1();
       }
@@ -1736,14 +1988,14 @@ public final class IsoWorld {
       LuaEventManager.triggerEvent("OnPreDistributionMerge");
       LuaEventManager.triggerEvent("OnDistributionMerge");
       LuaEventManager.triggerEvent("OnPostDistributionMerge");
-      ItemPickerJava.Parse();
       VehiclesDB2.instance.init();
       LuaEventManager.triggerEvent("OnInitWorld");
       if (!GameClient.bClient) {
          SandboxOptions.instance.load();
       }
 
-      this.bHydroPowerOn = GameTime.getInstance().NightsSurvived < SandboxOptions.getInstance().getElecShutModifier();
+      ItemPickerJava.Parse();
+      this.bHydroPowerOn = (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) < (float)SandboxOptions.getInstance().getElecShutModifier();
       ZomboidGlobals.toLua();
       ItemPickerJava.InitSandboxLootSettings();
       this.SurvivorDescriptors.clear();
@@ -1752,25 +2004,25 @@ public final class IsoWorld {
          try {
             NetChecksum.comparer.beginCompare();
             GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_Checksum");
-            long var32 = System.currentTimeMillis();
-            long var36 = var32;
+            long var45 = System.currentTimeMillis();
+            long var49 = var45;
 
             while(!GameClient.checksumValid) {
                if (GameWindow.bServerDisconnected) {
                   return;
                }
 
-               if (System.currentTimeMillis() > var32 + 8000L) {
-                  DebugLog.log("checksum: timed out waiting for the server to respond");
+               if (System.currentTimeMillis() > var45 + 8000L) {
+                  DebugLog.Moveable.println("checksum: timed out waiting for the server to respond");
                   GameClient.connection.forceDisconnect("world-timeout-response");
                   GameWindow.bServerDisconnected = true;
                   GameWindow.kickReason = Translator.getText("UI_GameLoad_TimedOut");
                   return;
                }
 
-               if (System.currentTimeMillis() > var36 + 1000L) {
-                  DebugLog.log("checksum: waited one second");
-                  var36 += 1000L;
+               if (System.currentTimeMillis() > var49 + 1000L) {
+                  DebugLog.Moveable.println("checksum: waited one second");
+                  var49 += 1000L;
                }
 
                NetChecksum.comparer.update();
@@ -1780,37 +2032,42 @@ public final class IsoWorld {
 
                Thread.sleep(100L);
             }
-         } catch (Exception var27) {
-            var27.printStackTrace();
+         } catch (Exception var39) {
+            var39.printStackTrace();
          }
       }
 
       GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_LoadTileDef");
-      IsoSpriteManager var33 = IsoSpriteManager.instance;
+      IsoSpriteManager var46 = IsoSpriteManager.instance;
       this.tileImages.clear();
-      ZomboidFileSystem var35 = ZomboidFileSystem.instance;
-      this.LoadTileDefinitionsPropertyStrings(var33, var35.getMediaPath("tiledefinitions.tiles"), 0);
-      this.LoadTileDefinitionsPropertyStrings(var33, var35.getMediaPath("newtiledefinitions.tiles"), 1);
-      this.LoadTileDefinitionsPropertyStrings(var33, var35.getMediaPath("tiledefinitions_erosion.tiles"), 2);
-      this.LoadTileDefinitionsPropertyStrings(var33, var35.getMediaPath("tiledefinitions_apcom.tiles"), 3);
-      this.LoadTileDefinitionsPropertyStrings(var33, var35.getMediaPath("tiledefinitions_overlays.tiles"), 4);
-      this.LoadTileDefinitionsPropertyStrings(var33, var35.getMediaPath("tiledefinitions_noiseworks.patch.tiles"), -1);
+      ZomboidFileSystem var47 = ZomboidFileSystem.instance;
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("tiledefinitions.tiles"), 0);
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("newtiledefinitions.tiles"), 1);
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("tiledefinitions_erosion.tiles"), 2);
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("tiledefinitions_apcom.tiles"), 3);
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("tiledefinitions_overlays.tiles"), 4);
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("tiledefinitions_b42chunkcaching.tiles"), 5);
+      this.LoadTileDefinitionsPropertyStrings(var46, var47.getMediaPath("tiledefinitions_noiseworks.patch.tiles"), -1);
       ZomboidFileSystem.instance.loadModTileDefPropertyStrings();
       this.SetCustomPropertyValues();
       this.GenerateTilePropertyLookupTables();
-      this.LoadTileDefinitions(var33, var35.getMediaPath("tiledefinitions.tiles"), 0);
-      this.LoadTileDefinitions(var33, var35.getMediaPath("newtiledefinitions.tiles"), 1);
-      this.LoadTileDefinitions(var33, var35.getMediaPath("tiledefinitions_erosion.tiles"), 2);
-      this.LoadTileDefinitions(var33, var35.getMediaPath("tiledefinitions_apcom.tiles"), 3);
-      this.LoadTileDefinitions(var33, var35.getMediaPath("tiledefinitions_overlays.tiles"), 4);
-      this.LoadTileDefinitions(var33, var35.getMediaPath("tiledefinitions_noiseworks.patch.tiles"), -1);
-      this.JumboTreeDefinitions(var33, 5);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("tiledefinitions.tiles"), 0);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("newtiledefinitions.tiles"), 1);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("tiledefinitions_erosion.tiles"), 2);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("tiledefinitions_apcom.tiles"), 3);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("tiledefinitions_overlays.tiles"), 4);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("tiledefinitions_b42chunkcaching.tiles"), 5);
+      this.LoadTileDefinitions(var46, var47.getMediaPath("tiledefinitions_noiseworks.patch.tiles"), -1);
+      this.JumboTreeDefinitions(var46, 6);
       ZomboidFileSystem.instance.loadModTileDefs();
       GameLoadingState.GameLoadingString = "";
-      var33.AddSprite("media/ui/missing-tile.png");
-      LuaEventManager.triggerEvent("OnLoadedTileDefinitions", var33);
+      var46.AddSprite("media/ui/missing-tile.png");
+      ScriptManager.instance.PostTileDefinitions();
+      LuaEventManager.triggerEvent("OnLoadedTileDefinitions", var46);
       this.loadedTileDefinitions();
+      AnimalDefinitions.getAnimalDefs();
       if (GameServer.bServer && GameServer.bSoftReset) {
+         IsoRegions.init();
          WorldConverter.instance.softreset();
       }
 
@@ -1823,14 +2080,15 @@ public final class IsoWorld {
       TemplateText.Initialize();
       IsoRegions.init();
       ObjectRenderEffects.init();
-      WorldConverter.instance.convert(Core.GameSaveWorld, var33);
-      if (!GameLoadingState.build23Stop) {
+      WorldConverter.instance.convert(Core.GameSaveWorld, var46);
+      if (!GameLoadingState.worldVersionError) {
          SandboxOptions.instance.handleOldZombiesFile2();
          GameTime.getInstance().init();
          GameTime.getInstance().load();
          ImprovedFog.init();
          ZomboidRadio.getInstance().Init(SavedWorldVersion);
          GlobalModData.instance.init();
+         InstanceTracker.load();
          if (GameServer.bServer && Core.getInstance().getPoisonousBerry() == null) {
             Core.getInstance().initPoisonousBerry();
          }
@@ -1839,9 +2097,12 @@ public final class IsoWorld {
             Core.getInstance().initPoisonousMushroom();
          }
 
-         ErosionGlobals.Boot(var33);
+         ErosionGlobals.Boot(var46);
          WorldDictionary.init();
+         ScriptManager.instance.PostWorldDictionaryInit();
+         FishSchoolManager.getInstance().init();
          WorldMarkers.instance.init();
+         GameEntityManager.Init(SavedWorldVersion);
          if (GameServer.bServer) {
             SharedDescriptors.initSharedDescriptors();
          }
@@ -1858,23 +2119,35 @@ public final class IsoWorld {
             StashSystem.init();
          }
 
+         Basements.getInstance().beforeOnLoadMapZones();
          LuaEventManager.triggerEvent("OnLoadMapZones");
+         Basements.getInstance().beforeLoadMetaGrid();
          this.MetaGrid.load();
-         this.MetaGrid.loadZones();
+         Basements.getInstance().afterLoadMetaGrid();
+         IsoMetaGrid var10000 = this.MetaGrid;
+         IsoMetaGrid var10002 = this.MetaGrid;
+         Objects.requireNonNull(var10002);
+         var10000.load("map_zone.bin", var10002::loadZone);
+         this.MetaGrid.loadCells("metagrid", "metacell_(-?[0-9]+)_(-?[0-9]+)\\.bin", IsoMetaCell::load);
+         var10000 = this.MetaGrid;
+         var10002 = this.MetaGrid;
+         Objects.requireNonNull(var10002);
+         var10000.load("map_animals.bin", var10002::loadAnimalZones);
          this.MetaGrid.processZones();
          LuaEventManager.triggerEvent("OnLoadedMapZones");
          if (GameServer.bServer) {
             ServerMap.instance.init(this.MetaGrid);
          }
 
-         boolean var37 = false;
-         boolean var38 = false;
+         ItemConfigurator.Preprocess();
+         boolean var50 = false;
+         boolean var51 = false;
          if (GameClient.bClient) {
             if (ClientPlayerDB.getInstance().clientLoadNetworkPlayer() && ClientPlayerDB.getInstance().isAliveMainNetworkPlayer()) {
-               var38 = true;
+               var51 = true;
             }
          } else {
-            var38 = PlayerDBHelper.isPlayerAlive(ZomboidFileSystem.instance.getCurrentSaveDir(), 1);
+            var51 = PlayerDBHelper.isPlayerAlive(ZomboidFileSystem.instance.getCurrentSaveDir(), 1);
          }
 
          if (GameServer.bServer) {
@@ -1885,57 +2158,56 @@ public final class IsoWorld {
             PlayerDB.setAllow(true);
          }
 
-         boolean var39 = false;
-         boolean var6 = false;
+         boolean var53 = false;
+         boolean var55 = false;
          boolean var7 = false;
          SafeHouse var9;
-         int var41;
-         if (var38) {
-            var37 = true;
+         if (var51) {
+            var50 = true;
             if (!this.LoadPlayerForInfo()) {
                return;
             }
 
             WorldX = IsoChunkMap.SWorldX[IsoPlayer.getPlayerIndex()];
             WorldY = IsoChunkMap.SWorldY[IsoPlayer.getPlayerIndex()];
-            var41 = IsoChunkMap.WorldXA;
-            int var42 = IsoChunkMap.WorldYA;
-            int var44 = IsoChunkMap.WorldZA;
+            var52 = IsoChunkMap.WorldXA;
+            var6 = IsoChunkMap.WorldYA;
+            int var57 = IsoChunkMap.WorldZA;
          } else {
-            var37 = false;
+            var50 = false;
             if (GameClient.bClient && !ServerOptions.instance.SpawnPoint.getValue().isEmpty()) {
                String[] var8 = ServerOptions.instance.SpawnPoint.getValue().split(",");
                if (var8.length == 3) {
                   try {
-                     IsoChunkMap.MPWorldXA = new Integer(var8[0].trim());
-                     IsoChunkMap.MPWorldYA = new Integer(var8[1].trim());
-                     IsoChunkMap.MPWorldZA = new Integer(var8[2].trim());
+                     IsoChunkMap.MPWorldXA = Integer.valueOf(var8[0].trim());
+                     IsoChunkMap.MPWorldYA = Integer.valueOf(var8[1].trim());
+                     IsoChunkMap.MPWorldZA = Integer.valueOf(var8[2].trim());
                   } catch (NumberFormatException var22) {
-                     DebugLog.log("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
+                     DebugLog.Moveable.println("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
                      IsoChunkMap.MPWorldXA = 0;
                      IsoChunkMap.MPWorldYA = 0;
                      IsoChunkMap.MPWorldZA = 0;
                   }
                } else {
-                  DebugLog.log("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
+                  DebugLog.Moveable.println("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
                }
             }
 
-            if (this.getLuaSpawnCellX() < 0 || GameClient.bClient && (IsoChunkMap.MPWorldXA != 0 || IsoChunkMap.MPWorldYA != 0)) {
+            if (GameClient.bClient && (IsoChunkMap.MPWorldXA != 0 || IsoChunkMap.MPWorldYA != 0)) {
                if (GameClient.bClient) {
                   IsoChunkMap.WorldXA = IsoChunkMap.MPWorldXA;
                   IsoChunkMap.WorldYA = IsoChunkMap.MPWorldYA;
                   IsoChunkMap.WorldZA = IsoChunkMap.MPWorldZA;
-                  WorldX = IsoChunkMap.WorldXA / 10;
-                  WorldY = IsoChunkMap.WorldYA / 10;
+                  WorldX = PZMath.fastfloor((float)IsoChunkMap.WorldXA / 8.0F);
+                  WorldY = PZMath.fastfloor((float)IsoChunkMap.WorldYA / 8.0F);
                }
             } else {
-               IsoChunkMap.WorldXA = this.getLuaPosX() + 300 * this.getLuaSpawnCellX();
-               IsoChunkMap.WorldYA = this.getLuaPosY() + 300 * this.getLuaSpawnCellY();
+               IsoChunkMap.WorldXA = this.getLuaPosX();
+               IsoChunkMap.WorldYA = this.getLuaPosY();
                IsoChunkMap.WorldZA = this.getLuaPosZ();
                if (GameClient.bClient && ServerOptions.instance.SafehouseAllowRespawn.getValue()) {
-                  for(int var45 = 0; var45 < SafeHouse.getSafehouseList().size(); ++var45) {
-                     var9 = (SafeHouse)SafeHouse.getSafehouseList().get(var45);
+                  for(int var58 = 0; var58 < SafeHouse.getSafehouseList().size(); ++var58) {
+                     var9 = (SafeHouse)SafeHouse.getSafehouseList().get(var58);
                      if (var9.getPlayers().contains(GameClient.username) && var9.isRespawnInSafehouse(GameClient.username)) {
                         IsoChunkMap.WorldXA = var9.getX() + var9.getH() / 2;
                         IsoChunkMap.WorldYA = var9.getY() + var9.getW() / 2;
@@ -1944,42 +2216,55 @@ public final class IsoWorld {
                   }
                }
 
-               WorldX = IsoChunkMap.WorldXA / 10;
-               WorldY = IsoChunkMap.WorldYA / 10;
+               WorldX = PZMath.fastfloor((float)IsoChunkMap.WorldXA / 8.0F);
+               WorldY = PZMath.fastfloor((float)IsoChunkMap.WorldYA / 8.0F);
             }
          }
 
          Core.getInstance();
-         KahluaTable var46 = (KahluaTable)LuaManager.env.rawget("selectedDebugScenario");
+         KahluaTable var59 = (KahluaTable)LuaManager.env.rawget("selectedDebugScenario");
          int var10;
          int var11;
          int var12;
-         if (var46 != null) {
-            KahluaTable var47 = (KahluaTable)var46.rawget("startLoc");
-            var10 = ((Double)var47.rawget("x")).intValue();
-            var11 = ((Double)var47.rawget("y")).intValue();
-            var12 = ((Double)var47.rawget("z")).intValue();
+         if (var59 != null) {
+            KahluaTable var60 = (KahluaTable)var59.rawget("startLoc");
+            var10 = ((Double)var60.rawget("x")).intValue();
+            var11 = ((Double)var60.rawget("y")).intValue();
+            var12 = ((Double)var60.rawget("z")).intValue();
             IsoChunkMap.WorldXA = var10;
             IsoChunkMap.WorldYA = var11;
             IsoChunkMap.WorldZA = var12;
-            WorldX = IsoChunkMap.WorldXA / 10;
-            WorldY = IsoChunkMap.WorldYA / 10;
+            WorldX = PZMath.fastfloor((float)IsoChunkMap.WorldXA / 8.0F);
+            WorldY = PZMath.fastfloor((float)IsoChunkMap.WorldYA / 8.0F);
          }
 
          MapCollisionData.instance.init(instance.getMetaGrid());
+         AnimalPopulationManager.getInstance().init(this.getMetaGrid());
          ZombiePopulationManager.instance.init(instance.getMetaGrid());
-         PolygonalMap2.instance.init(instance.getMetaGrid());
+         PathfindNative.USE_NATIVE_CODE = DebugOptions.instance.PathfindUseNativeCode.getValue();
+         if (PathfindNative.USE_NATIVE_CODE) {
+            PathfindNative.instance.init(instance.getMetaGrid());
+         } else {
+            PolygonalMap2.instance.init(instance.getMetaGrid());
+         }
+
          GlobalObjectLookup.init(instance.getMetaGrid());
          if (!GameServer.bServer) {
-            SpawnPoints.instance.initSinglePlayer();
+            SpawnPoints.instance.initSinglePlayer(this.MetaGrid);
          }
 
          WorldStreamer.instance.create();
-         this.CurrentCell = CellLoader.LoadCellBinaryChunk(var33, WorldX, WorldY);
+         this.CurrentCell = CellLoader.LoadCellBinaryChunk(var46, WorldX, WorldY);
          ClimateManager.getInstance().postCellLoadSetSnow();
          GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_LoadWorld");
          MapCollisionData.instance.start();
-         MapItem.LoadWorldMap();
+         if (!GameServer.bServer) {
+            MapItem.LoadWorldMap();
+         }
+
+         if (GameClient.bClient) {
+            WorldMapClient.instance.worldMapLoaded();
+         }
 
          while(WorldStreamer.instance.isBusy()) {
             try {
@@ -1989,17 +2274,18 @@ public final class IsoWorld {
             }
          }
 
-         ArrayList var48 = new ArrayList();
-         var48.addAll(IsoChunk.loadGridSquare);
-         Iterator var49 = var48.iterator();
+         ArrayList var61 = new ArrayList();
+         var61.addAll(IsoChunk.loadGridSquare);
+         Iterator var62 = var61.iterator();
 
-         while(var49.hasNext()) {
-            IsoChunk var50 = (IsoChunk)var49.next();
-            this.CurrentCell.ChunkMap[0].setChunkDirect(var50, false);
+         while(var62.hasNext()) {
+            IsoChunk var64 = (IsoChunk)var62.next();
+            this.CurrentCell.ChunkMap[0].setChunkDirect(var64, false);
          }
 
+         this.CurrentCell.ChunkMap[0].calculateZExtentsForChunkMap();
          IsoChunk.bDoServerRequests = true;
-         if (var37 && SystemDisabler.doPlayerCreation) {
+         if (var50 && SystemDisabler.doPlayerCreation) {
             this.CurrentCell.LoadPlayer(SavedWorldVersion);
             if (GameClient.bClient) {
                IsoPlayer.getInstance().setUsername(GameClient.username);
@@ -2007,136 +2293,190 @@ public final class IsoWorld {
 
             ZomboidRadio.getInstance().getRecordedMedia().handleLegacyListenedLines(IsoPlayer.getInstance());
          } else {
-            ZomboidRadio.getInstance().getRecordedMedia().handleLegacyListenedLines((IsoPlayer)null);
-            var9 = null;
-            if (IsoPlayer.numPlayers == 0) {
-               IsoPlayer.numPlayers = 1;
-            }
+            IsoGridSquare var13;
+            if (GameClient.bClient) {
+               ZomboidRadio.getInstance().getRecordedMedia().handleLegacyListenedLines((IsoPlayer)null);
+               LuaManager.thread.debugOwnerThread = GameWindow.GameThread;
+               LuaManager.debugthread.debugOwnerThread = GameWindow.GameThread;
+               GameClient.sendCreatePlayer((byte)0);
+               long var63 = System.currentTimeMillis();
+               boolean var66 = false;
 
-            var10 = IsoChunkMap.WorldXA;
-            var11 = IsoChunkMap.WorldYA;
-            var12 = IsoChunkMap.WorldZA;
-            if (GameClient.bClient && !ServerOptions.instance.SpawnPoint.getValue().isEmpty()) {
-               String[] var13 = ServerOptions.instance.SpawnPoint.getValue().split(",");
-               if (var13.length != 3) {
-                  DebugLog.log("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
-               } else {
-                  try {
-                     int var14 = new Integer(var13[0].trim());
-                     int var15 = new Integer(var13[1].trim());
-                     int var16 = new Integer(var13[2].trim());
-                     if (GameClient.bClient && ServerOptions.instance.SafehouseAllowRespawn.getValue()) {
-                        for(int var17 = 0; var17 < SafeHouse.getSafehouseList().size(); ++var17) {
-                           SafeHouse var18 = (SafeHouse)SafeHouse.getSafehouseList().get(var17);
-                           if (var18.getPlayers().contains(GameClient.username) && var18.isRespawnInSafehouse(GameClient.username)) {
-                              var14 = var18.getX() + var18.getH() / 2;
-                              var15 = var18.getY() + var18.getW() / 2;
-                              var16 = 0;
-                           }
-                        }
-                     }
-
-                     if (this.CurrentCell.getGridSquare(var14, var15, var16) != null) {
-                        var10 = var14;
-                        var11 = var15;
-                        var12 = var16;
-                     }
-                  } catch (NumberFormatException var26) {
-                     DebugLog.log("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
-                  }
-               }
-            }
-
-            IsoGridSquare var51 = this.CurrentCell.getGridSquare(var10, var11, var12);
-            if (SystemDisabler.doPlayerCreation && !GameServer.bServer) {
-               if (var51 != null && var51.isFree(false) && var51.getRoom() != null) {
-                  IsoGridSquare var52 = var51;
-                  var51 = var51.getRoom().getFreeTile();
-                  if (var51 == null) {
-                     var51 = var52;
-                  }
-               }
-
-               IsoPlayer var53 = null;
-               if (this.getLuaPlayerDesc() != null) {
-                  if (GameClient.bClient && ServerOptions.instance.SafehouseAllowRespawn.getValue()) {
-                     var51 = this.CurrentCell.getGridSquare(IsoChunkMap.WorldXA, IsoChunkMap.WorldYA, IsoChunkMap.WorldZA);
-                     if (var51 != null && var51.isFree(false) && var51.getRoom() != null) {
-                        IsoGridSquare var54 = var51;
-                        var51 = var51.getRoom().getFreeTile();
-                        if (var51 == null) {
-                           var51 = var54;
-                        }
-                     }
-                  }
-
-                  if (var51 == null) {
-                     throw new RuntimeException("can't create player at x,y,z=" + var10 + "," + var11 + "," + var12 + " because the square is null");
-                  }
-
-                  WorldSimulation.instance.create();
-                  var53 = new IsoPlayer(instance.CurrentCell, this.getLuaPlayerDesc(), var51.getX(), var51.getY(), var51.getZ());
-                  if (GameClient.bClient) {
-                     var53.setUsername(GameClient.username);
-                  }
-
-                  var53.setDir(IsoDirections.SE);
-                  var53.sqlID = 1;
-                  IsoPlayer.players[0] = var53;
-                  IsoPlayer.setInstance(var53);
-                  IsoCamera.CamCharacter = var53;
-               }
-
-               IsoPlayer var55 = IsoPlayer.getInstance();
-               var55.applyTraits(this.getLuaTraits());
-               ProfessionFactory.Profession var56 = ProfessionFactory.getProfession(var55.getDescriptor().getProfession());
-               Iterator var57;
-               String var58;
-               if (var56 != null && !var56.getFreeRecipes().isEmpty()) {
-                  var57 = var56.getFreeRecipes().iterator();
-
-                  while(var57.hasNext()) {
-                     var58 = (String)var57.next();
-                     var55.getKnownRecipes().add(var58);
-                  }
-               }
-
-               var57 = this.getLuaTraits().iterator();
-
-               label341:
+               label474:
                while(true) {
-                  TraitFactory.Trait var59;
-                  do {
-                     do {
-                        if (!var57.hasNext()) {
-                           if (var51 != null && var51.getRoom() != null) {
-                              var51.getRoom().def.setExplored(true);
-                              var51.getRoom().building.setAllExplored(true);
-                              if (!GameServer.bServer && !GameClient.bClient) {
-                                 ZombiePopulationManager.instance.playerSpawnedAt(var51.getX(), var51.getY(), var51.getZ());
+                  while(true) {
+                     try {
+                        if (IsoPlayer.players[0] != null) {
+                           var66 = true;
+                        }
+
+                        if (System.currentTimeMillis() - var63 > 30000L || var66) {
+                           break label474;
+                        }
+
+                        Thread.sleep(100L);
+                     } catch (InterruptedException var37) {
+                        var37.printStackTrace();
+                     }
+                  }
+               }
+
+               LuaManager.thread.debugOwnerThread = GameLoadingState.loader;
+               LuaManager.debugthread.debugOwnerThread = GameLoadingState.loader;
+               if (!var66) {
+                  throw new RuntimeException("Character can't be created");
+               }
+
+               IsoPlayer var67 = IsoPlayer.players[0];
+               IsoChunkMap.WorldXA = (int)var67.getX();
+               IsoChunkMap.WorldYA = (int)var67.getY();
+               IsoChunkMap.WorldZA = (int)var67.getZ();
+               var13 = this.CurrentCell.getGridSquare(IsoChunkMap.WorldXA, IsoChunkMap.WorldYA, IsoChunkMap.WorldZA);
+               if (var13 != null && var13.getRoom() != null) {
+                  var13.getRoom().def.setExplored(true);
+                  var13.getRoom().building.setAllExplored(true);
+                  if (!GameServer.bServer && !GameClient.bClient) {
+                     ZombiePopulationManager.instance.playerSpawnedAt(var13.getX(), var13.getY(), var13.getZ());
+                  }
+               }
+
+               if (!GameClient.bClient) {
+                  Core.getInstance().initPoisonousBerry();
+                  Core.getInstance().initPoisonousMushroom();
+               }
+
+               LuaEventManager.triggerEvent("OnNewGame", var67, var13);
+            } else {
+               ZomboidRadio.getInstance().getRecordedMedia().handleLegacyListenedLines((IsoPlayer)null);
+               var9 = null;
+               if (IsoPlayer.numPlayers == 0) {
+                  IsoPlayer.numPlayers = 1;
+               }
+
+               var10 = IsoChunkMap.WorldXA;
+               var11 = IsoChunkMap.WorldYA;
+               var12 = IsoChunkMap.WorldZA;
+               if (GameClient.bClient && !ServerOptions.instance.SpawnPoint.getValue().isEmpty()) {
+                  String[] var68 = ServerOptions.instance.SpawnPoint.getValue().split(",");
+                  if (var68.length != 3) {
+                     DebugLog.Moveable.println("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
+                  } else {
+                     try {
+                        int var14 = Integer.valueOf(var68[1].trim());
+                        int var15 = Integer.valueOf(var68[0].trim());
+                        int var16 = Integer.valueOf(var68[2].trim());
+                        if (GameClient.bClient && ServerOptions.instance.SafehouseAllowRespawn.getValue()) {
+                           for(int var17 = 0; var17 < SafeHouse.getSafehouseList().size(); ++var17) {
+                              SafeHouse var18 = (SafeHouse)SafeHouse.getSafehouseList().get(var17);
+                              if (var18.getPlayers().contains(GameClient.username) && var18.isRespawnInSafehouse(GameClient.username)) {
+                                 var15 = var18.getX() + var18.getH() / 2;
+                                 var14 = var18.getY() + var18.getW() / 2;
+                                 var16 = 0;
                               }
                            }
-
-                           var55.createKeyRing();
-                           if (!GameClient.bClient) {
-                              Core.getInstance().initPoisonousBerry();
-                              Core.getInstance().initPoisonousMushroom();
-                           }
-
-                           LuaEventManager.triggerEvent("OnNewGame", var53, var51);
-                           break label341;
                         }
 
-                        var58 = (String)var57.next();
-                        var59 = TraitFactory.getTrait(var58);
-                     } while(var59 == null);
-                  } while(var59.getFreeRecipes().isEmpty());
+                        if (this.CurrentCell.getGridSquare(var15, var14, var16) != null) {
+                           var10 = var15;
+                           var11 = var14;
+                           var12 = var16;
+                        }
+                     } catch (NumberFormatException var38) {
+                        DebugLog.Moveable.println("ERROR: SpawnPoint must be x,y,z, got \"" + ServerOptions.instance.SpawnPoint.getValue() + "\"");
+                     }
+                  }
+               }
 
-                  Iterator var19 = var59.getFreeRecipes().iterator();
+               IsoGridSquare var65 = this.CurrentCell.getGridSquare(var10, var11, var12);
+               if (SystemDisabler.doPlayerCreation && !GameServer.bServer) {
+                  if (var65 != null && var65.isFree(false) && var65.getRoom() != null) {
+                     var13 = var65;
+                     var65 = var65.getRoom().getFreeTile();
+                     if (var65 == null) {
+                        var65 = var13;
+                     }
+                  }
 
-                  while(var19.hasNext()) {
-                     String var20 = (String)var19.next();
-                     var55.getKnownRecipes().add(var20);
+                  IsoPlayer var69 = null;
+                  if (this.getLuaPlayerDesc() != null) {
+                     if (GameClient.bClient && ServerOptions.instance.SafehouseAllowRespawn.getValue()) {
+                        var65 = this.CurrentCell.getGridSquare(IsoChunkMap.WorldXA, IsoChunkMap.WorldYA, IsoChunkMap.WorldZA);
+                        if (var65 != null && var65.isFree(false) && var65.getRoom() != null) {
+                           IsoGridSquare var70 = var65;
+                           var65 = var65.getRoom().getFreeTile();
+                           if (var65 == null) {
+                              var65 = var70;
+                           }
+                        }
+                     }
+
+                     if (var65 == null) {
+                        throw new RuntimeException("can't create player at x,y,z=" + var10 + "," + var11 + "," + var12 + " because the square is null");
+                     }
+
+                     WorldSimulation.instance.create();
+                     var69 = new IsoPlayer(instance.CurrentCell, this.getLuaPlayerDesc(), var65.getX(), var65.getY(), var65.getZ());
+                     if (GameClient.bClient) {
+                        var69.setUsername(GameClient.username);
+                     }
+
+                     var69.setDir(IsoDirections.SE);
+                     var69.sqlID = 1;
+                     IsoPlayer.players[0] = var69;
+                     IsoPlayer.setInstance(var69);
+                     IsoCamera.setCameraCharacter(var69);
+                  }
+
+                  IsoPlayer var71 = IsoPlayer.getInstance();
+                  var71.applyTraits(this.getLuaTraits());
+                  ProfessionFactory.Profession var72 = ProfessionFactory.getProfession(var71.getDescriptor().getProfession());
+                  Iterator var73;
+                  String var74;
+                  if (var72 != null && !var72.getFreeRecipes().isEmpty()) {
+                     var73 = var72.getFreeRecipes().iterator();
+
+                     while(var73.hasNext()) {
+                        var74 = (String)var73.next();
+                        var71.getKnownRecipes().add(var74);
+                     }
+                  }
+
+                  var73 = this.getLuaTraits().iterator();
+
+                  label493:
+                  while(true) {
+                     TraitFactory.Trait var75;
+                     do {
+                        do {
+                           if (!var73.hasNext()) {
+                              if (var65 != null && var65.getRoom() != null) {
+                                 var65.getRoom().def.setExplored(true);
+                                 var65.getRoom().building.setAllExplored(true);
+                                 if (!GameServer.bServer && !GameClient.bClient) {
+                                    ZombiePopulationManager.instance.playerSpawnedAt(var65.getX(), var65.getY(), var65.getZ());
+                                 }
+                              }
+
+                              if (!GameClient.bClient) {
+                                 Core.getInstance().initPoisonousBerry();
+                                 Core.getInstance().initPoisonousMushroom();
+                              }
+
+                              LuaEventManager.triggerEvent("OnNewGame", var69, var65);
+                              break label493;
+                           }
+
+                           var74 = (String)var73.next();
+                           var75 = TraitFactory.getTrait(var74);
+                        } while(var75 == null);
+                     } while(var75.getFreeRecipes().isEmpty());
+
+                     Iterator var19 = var75.getFreeRecipes().iterator();
+
+                     while(var19.hasNext()) {
+                        String var20 = (String)var19.next();
+                        var71.getKnownRecipes().add(var20);
+                     }
                   }
                }
             }
@@ -2154,22 +2494,24 @@ public final class IsoWorld {
          ReanimatedPlayers.instance.loadReanimatedPlayers();
          if (IsoPlayer.getInstance() != null) {
             if (GameClient.bClient) {
-               int var40 = (int)IsoPlayer.getInstance().getX();
-               var4 = (int)IsoPlayer.getInstance().getY();
-               var41 = (int)IsoPlayer.getInstance().getZ();
+               int var54 = PZMath.fastfloor(IsoPlayer.getInstance().getX());
+               var4 = PZMath.fastfloor(IsoPlayer.getInstance().getY());
+               var52 = PZMath.fastfloor(IsoPlayer.getInstance().getZ());
 
-               while(var41 > 0) {
-                  IsoGridSquare var43 = this.CurrentCell.getGridSquare(var40, var4, var41);
-                  if (var43 != null && var43.TreatAsSolidFloor()) {
+               while(var52 > 0) {
+                  IsoGridSquare var56 = this.CurrentCell.getGridSquare(var54, var4, PZMath.fastfloor((float)var52));
+                  if (var56 != null && var56.TreatAsSolidFloor()) {
                      break;
                   }
 
-                  --var41;
-                  IsoPlayer.getInstance().setZ((float)var41);
+                  --var52;
+                  IsoPlayer.getInstance().setZ((float)var52);
                }
             }
 
-            IsoPlayer.getInstance().setCurrent(this.CurrentCell.getGridSquare((int)IsoPlayer.getInstance().getX(), (int)IsoPlayer.getInstance().getY(), (int)IsoPlayer.getInstance().getZ()));
+            ScriptManager.instance.checkAutoLearn(IsoPlayer.getInstance());
+            ScriptManager.instance.checkMetaRecipes(IsoPlayer.getInstance());
+            IsoPlayer.getInstance().setCurrent(this.CurrentCell.getGridSquare(PZMath.fastfloor(IsoPlayer.getInstance().getX()), PZMath.fastfloor(IsoPlayer.getInstance().getY()), PZMath.fastfloor(IsoPlayer.getInstance().getZ())));
          }
 
          if (!this.bLoaded) {
@@ -2186,9 +2528,17 @@ public final class IsoWorld {
          }
 
          LightingThread.instance.create();
+         MetaTracker.load();
          GameLoadingState.GameLoadingString = "";
          initMessaging();
          WorldDictionary.onWorldLoaded();
+         this.CurrentCell.initWeatherFx();
+         if (ScriptManager.instance.hasLoadErrors(!Core.bDebug) || SpriteConfigManager.HasLoadErrors()) {
+            DebugLogStream var76 = DebugLog.Moveable;
+            boolean var10001 = ScriptManager.instance.hasLoadErrors(!Core.bDebug);
+            var76.println("script error = " + var10001 + ", sprite error = " + SpriteConfigManager.HasLoadErrors());
+            throw new WorldDictionaryException("World loading could not proceed, there are script load errors. (Actual error may be printed earlier in log)");
+         }
       }
    }
 
@@ -2320,7 +2670,7 @@ public final class IsoWorld {
    public void KillCell() {
       this.helicopter.deactivate();
       CollisionManager.instance.ContactMap.clear();
-      IsoDeadBody.Reset();
+      ObjectIDManager.getInstance().clear();
       FliesSound.instance.Reset();
       IsoObjectPicker.Instance.Init();
       IsoChunkMap.SharedChunks.clear();
@@ -2339,9 +2689,12 @@ public final class IsoWorld {
       RainManager.reset();
       IsoFireManager.Reset();
       ObjectAmbientEmitters.Reset();
+      AnimalVocalsManager.Reset();
       ZombieVocalsManager.Reset();
       IsoWaterFlow.Reset();
       this.MetaGrid.Dispose();
+      this.biomeMap.Dispose();
+      IsoBuilding.IDMax = 0;
       instance = new IsoWorld();
    }
 
@@ -2440,21 +2793,82 @@ public final class IsoWorld {
 
    }
 
+   public void sceneCullAnimals() {
+      this.animalWithModel.clear();
+      this.animalWithoutModel.clear();
+
+      int var1;
+      for(var1 = 0; var1 < this.CurrentCell.getObjectList().size(); ++var1) {
+         IsoMovingObject var2 = (IsoMovingObject)this.CurrentCell.getObjectList().get(var1);
+         IsoAnimal var3 = (IsoAnimal)Type.tryCastTo(var2, IsoAnimal.class);
+         if (var3 != null) {
+            boolean var4 = false;
+
+            for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
+               IsoPlayer var6 = IsoPlayer.players[var5];
+               if (var6 != null && var3.current != null) {
+                  float var7 = (float)((int)(IsoUtils.XToScreen(var3.getX(), var3.getY(), var3.getZ(), 0) - IsoCamera.cameras[var5].getOffX()));
+                  float var8 = (float)((int)(IsoUtils.YToScreen(var3.getX(), var3.getY(), var3.getZ(), 0) - IsoCamera.cameras[var5].getOffY()));
+                  if (!(var7 < -100.0F) && !(var8 < -100.0F) && !(var7 > (float)(Core.getInstance().getOffscreenWidth(var5) + 100)) && !(var8 > (float)(Core.getInstance().getOffscreenHeight(var5) + 100)) && (var3.getAlpha(var5) != 0.0F && var3.legsSprite.def.alpha != 0.0F || var3.current.isCouldSee(var5))) {
+                     var4 = true;
+                     break;
+                  }
+               }
+            }
+
+            if (var4 && var3.isCurrentState(FakeDeadZombieState.instance())) {
+               var4 = false;
+            }
+
+            if (var4) {
+               this.animalWithModel.add(var3);
+            } else {
+               this.animalWithoutModel.add(var3);
+            }
+         }
+      }
+
+      IsoAnimal var9;
+      for(var1 = 0; var1 < this.animalWithModel.size(); ++var1) {
+         var9 = (IsoAnimal)this.animalWithModel.get(var1);
+         var9.setSceneCulled(false);
+         if (var9.hasAnimationPlayer()) {
+            var9.getAnimationPlayer().bDoBlending = true;
+         }
+      }
+
+      for(var1 = 0; var1 < this.animalWithoutModel.size(); ++var1) {
+         var9 = (IsoAnimal)this.animalWithoutModel.get(var1);
+         if (var9.hasActiveModel()) {
+            var9.setSceneCulled(true);
+         }
+
+         if (var9.hasAnimationPlayer()) {
+            var9.getAnimationPlayer().bDoBlending = false;
+         }
+      }
+
+   }
+
    public void render() {
       IsoWorld.s_performance.isoWorldRender.invokeAndMeasure(this, IsoWorld::renderInternal);
    }
 
    private void renderInternal() {
       if (this.bDrawWorld) {
-         if (IsoCamera.CamCharacter != null) {
-            SpriteRenderer.instance.doCoreIntParam(0, IsoCamera.CamCharacter.x);
-            SpriteRenderer.instance.doCoreIntParam(1, IsoCamera.CamCharacter.y);
-            SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.CamCharacter.z);
+         IsoGameCharacter var1 = IsoCamera.getCameraCharacter();
+         if (var1 != null) {
+            SpriteRenderer.instance.doCoreIntParam(0, var1.getX());
+            SpriteRenderer.instance.doCoreIntParam(1, var1.getY());
+            SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.frameState.CamCharacterZ);
 
             try {
+               GameProfiler.ProfileArea var2 = GameProfiler.getInstance().startIfEnabled("Cull");
                this.sceneCullZombies();
-            } catch (Throwable var3) {
-               ExceptionLogger.logException(var3);
+               this.sceneCullAnimals();
+               GameProfiler.getInstance().end(var2);
+            } catch (Throwable var4) {
+               ExceptionLogger.logException(var4);
             }
 
             try {
@@ -2464,26 +2878,145 @@ public final class IsoWorld {
                this.CurrentCell.render();
                this.DrawIsoCursorHelper();
                DeadBodyAtlas.instance.renderDebug();
-               PolygonalMap2.instance.render();
+               GameProfiler.getInstance().invokeAndMeasure("renderPathfinding", this::renderPathfinding);
                WorldSoundManager.instance.render();
                WorldFlares.debugRender();
                WorldMarkers.instance.debugRender();
                ObjectAmbientEmitters.getInstance().render();
-               ZombieVocalsManager.instance.render();
+               GameProfiler.getInstance().invokeAndMeasure("renderVocals", this::renderVocals);
+               GameProfiler.getInstance().invokeAndMeasure("renderWeatherFX", this::renderWeatherFX);
+               if (PerformanceSettings.FBORenderChunk) {
+                  FBORenderAreaHighlights.getInstance().render();
+               }
+
+               ParameterInside.renderDebug();
                LineDrawer.render();
-               WeatherFxMask.renderFxMask(IsoCamera.frameState.playerIndex);
                if (GameClient.bClient) {
                   ClientServerMap.render(IsoCamera.frameState.playerIndex);
                   PassengerMap.render(IsoCamera.frameState.playerIndex);
                }
 
-               SkyBox.getInstance().render();
-            } catch (Throwable var2) {
-               ExceptionLogger.logException(var2);
+               GameProfiler var10000 = GameProfiler.getInstance();
+               SkyBox var10002 = SkyBox.getInstance();
+               Objects.requireNonNull(var10002);
+               var10000.invokeAndMeasure("Skybox", var10002::render);
+            } catch (Throwable var3) {
+               ExceptionLogger.logException(var3);
             }
 
          }
       }
+   }
+
+   private void renderPathfinding() {
+      if (PathfindNative.USE_NATIVE_CODE) {
+         PathfindNative.instance.render();
+         PathfindNativeRenderer.instance.render();
+      } else {
+         PolygonalMap2.instance.render();
+      }
+
+      BorderFinderRenderer.instance.render();
+   }
+
+   private void renderVocals() {
+      AnimalVocalsManager.instance.render();
+      ZombieVocalsManager.instance.render();
+   }
+
+   private void renderWeatherFX() {
+      this.getCell().getWeatherFX().getDrawer(IsoWeatherFX.ID_CLOUD).startFrame();
+      this.getCell().getWeatherFX().getDrawer(IsoWeatherFX.ID_FOG).startFrame();
+      this.getCell().getWeatherFX().getDrawer(IsoWeatherFX.ID_SNOW).startFrame();
+      this.getCell().getWeatherFX().getDrawer(IsoWeatherFX.ID_RAIN).startFrame();
+      WeatherFxMask.renderFxMask(IsoCamera.frameState.playerIndex);
+   }
+
+   public void DrawPlayerCone() {
+      int var1 = IsoCamera.frameState.playerIndex;
+      SpriteRenderer.instance.pushIsoView(IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY(), IsoPlayer.getInstance().getZ(), (float)Math.toRadians(180.0), false);
+      IsoPlayer var2 = IsoPlayer.getInstance();
+      float var3 = var2.getStats().fatigue - 0.6F;
+      if (var3 < 0.0F) {
+         var3 = 0.0F;
+      }
+
+      var3 *= 2.5F;
+      if (var2.Traits.HardOfHearing.isSet() && var3 < 0.7F) {
+         var3 = 0.7F;
+      }
+
+      float var4 = 2.0F;
+      if (var2.Traits.KeenHearing.isSet()) {
+         var4 += 3.0F;
+      }
+
+      float var5 = LightingJNI.calculateVisionCone(var2);
+      var5 = -var5;
+      var5 = 1.0F - var5;
+      Vector2 var6 = var2.getLookVector(this.coneTempo1);
+      BaseVehicle var7 = var2.getVehicle();
+      if (var7 != null && !var2.isAiming() && !var2.isLookingWhileInVehicle() && var7.isDriver(var2) && var7.getCurrentSpeedKmHour() < -1.0F) {
+         var6.rotate(3.1415927F);
+      }
+
+      if (var5 < 0.0F) {
+         var5 = Math.abs(var5) + 1.0F;
+      }
+
+      var5 = (float)((double)var5 * 1.5707963267948966);
+      this.coneTempo2.x = var6.x;
+      this.coneTempo2.y = var6.y;
+      this.coneTempo3.x = var6.x;
+      this.coneTempo3.y = var6.y;
+      this.coneTempo2.rotate(-var5);
+      this.coneTempo3.rotate(var5);
+      float var8 = this.coneTempo2.x * 1000.0F;
+      float var9 = this.coneTempo2.y * 1000.0F;
+      float var10 = var8 + -var6.x * 1000.0F;
+      float var11 = var9 + -var6.y * 1000.0F;
+      float var12 = -var6.x * 1000.0F;
+      float var13 = -var6.y * 1000.0F;
+      IndieGL.disableDepthTest();
+      IndieGL.disableScissorTest();
+      SpriteRenderer.instance.glBuffer(8, 0);
+      if (ViewConeTextureFBO.instance.getTexture() != null) {
+         SpriteRenderer.instance.glViewport(0, 0, ViewConeTextureFBO.instance.getTexture().getWidth(), ViewConeTextureFBO.instance.getTexture().getHeight());
+      }
+
+      IndieGL.StartShader(0);
+      SpriteRenderer.instance.renderPoly(0.0F, 0.0F, var8, var9, var10, var11, var12, var13, 0.0F, 0.0F, 0.0F, 0.5F);
+      IndieGL.EndShader();
+      var8 = this.coneTempo3.x * 1000.0F;
+      var9 = this.coneTempo3.y * 1000.0F;
+      var10 = var8 + -var6.x * 1000.0F;
+      var11 = var9 + -var6.y * 1000.0F;
+      var12 = -var6.x * 1000.0F;
+      var13 = -var6.y * 1000.0F;
+      SpriteRenderer.instance.renderPoly(var12, var13, var10, var11, var8, var9, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.5F);
+      SpriteRenderer.instance.glBuffer(9, 0);
+      SpriteRenderer.instance.glViewport(IsoCamera.getScreenLeft(var1), IsoCamera.getScreenTop(var1), IsoCamera.getScreenWidth(var1), IsoCamera.getScreenHeight(var1));
+      SpriteRenderer.instance.popIsoView();
+      IndieGL.enableScissorTest();
+   }
+
+   public void DrawPlayerCone2() {
+      IndieGL.glDepthMask(false);
+      IndieGL.glBlendFunc(770, 771);
+      if (SceneShaderStore.BlurShader != null) {
+         SceneShaderStore.BlurShader.setTexture(ViewConeTextureFBO.instance.getTexture());
+      }
+
+      if (SceneShaderStore.BlurShader != null) {
+         IndieGL.StartShader(SceneShaderStore.BlurShader, IsoPlayer.getPlayerIndex());
+      }
+
+      SpriteRenderer.instance.render(ViewConeTextureFBO.instance.getTexture(), 0.0F, (float)Core.getInstance().getOffscreenHeight(IsoPlayer.getPlayerIndex()), (float)Core.getInstance().getOffscreenWidth(IsoPlayer.getPlayerIndex()), (float)(-Core.getInstance().getOffscreenHeight(IsoPlayer.getPlayerIndex())), 1.0F, 1.0F, 1.0F, 1.0F, (Consumer)null);
+      if (SceneShaderStore.BlurShader != null) {
+         IndieGL.EndShader();
+      }
+
+      IndieGL.glDepthMask(true);
    }
 
    private void DrawIsoCursorHelper() {
@@ -2541,8 +3074,35 @@ public final class IsoWorld {
       }
    }
 
+   private void updateWorld() {
+      this.CurrentCell.update();
+      IsoRegions.update();
+      HaloTextHelper.update();
+      CollisionManager.instance.ResolveContacts();
+      if (DebugOptions.instance.ThreadAnimation.getValue()) {
+         MovingObjectUpdateScheduler var10000 = MovingObjectUpdateScheduler.instance;
+         Objects.requireNonNull(var10000);
+         animationThread = CompletableFuture.runAsync(var10000::postupdate);
+      } else {
+         GameProfiler.getInstance().invokeAndMeasure("Animation", MovingObjectUpdateScheduler.instance, MovingObjectUpdateScheduler::postupdate);
+      }
+
+   }
+
+   public void FinishAnimation() {
+      if (animationThread != null) {
+         GameProfiler var10000 = GameProfiler.getInstance();
+         CompletableFuture var10002 = animationThread;
+         Objects.requireNonNull(var10002);
+         var10000.invokeAndMeasure("Wait Animation", var10002::join);
+         animationThread = null;
+      }
+
+   }
+
    public void update() {
       IsoWorld.s_performance.isoWorldUpdate.invokeAndMeasure(this, IsoWorld::updateInternal);
+      GameProfiler.getInstance().invokeAndMeasure("Update DZ", DesignationZone::update);
    }
 
    private void updateInternal() {
@@ -2552,11 +3112,12 @@ public final class IsoWorld {
          if (GameServer.bServer) {
             VehicleManager.instance.serverUpdate();
          }
-      } catch (Exception var8) {
-         var8.printStackTrace();
+      } catch (Exception var7) {
+         var7.printStackTrace();
       }
 
       WorldSimulation.instance.update();
+      HutchManager.getInstance().updateAll();
       ImprovedFog.update();
       this.helicopter.update();
       long var1 = System.currentTimeMillis();
@@ -2567,8 +3128,7 @@ public final class IsoWorld {
          this.emitterUpdate = false;
       }
 
-      int var3;
-      for(var3 = 0; var3 < this.currentEmitters.size(); ++var3) {
+      for(int var3 = 0; var3 < this.currentEmitters.size(); ++var3) {
          BaseSoundEmitter var4 = (BaseSoundEmitter)this.currentEmitters.get(var3);
          if (this.emitterUpdate || var4.hasSoundsToStart()) {
             var4.tick();
@@ -2592,9 +3152,9 @@ public final class IsoWorld {
       }
 
       if (!GameClient.bClient && !GameServer.bServer) {
-         IsoMetaCell var9 = this.MetaGrid.getCurrentCellData();
-         if (var9 != null) {
-            var9.checkTriggers();
+         IsoMetaCell var8 = this.MetaGrid.getCurrentCellData();
+         if (var8 != null) {
+            var8.checkTriggers();
          }
       }
 
@@ -2602,23 +3162,35 @@ public final class IsoWorld {
       ZombieGroupManager.instance.preupdate();
       OnceEvery.update();
       CollisionManager.instance.initUpdate();
-
-      for(var3 = 0; var3 < this.CurrentCell.getBuildingList().size(); ++var3) {
-         ((IsoBuilding)this.CurrentCell.getBuildingList().get(var3)).update();
+      CompletableFuture var9 = null;
+      if (DebugOptions.instance.ThreadWorld.getValue()) {
+         var9 = CompletableFuture.runAsync(this::updateThread, PZForkJoinPool.commonPool());
       }
 
-      ClimateManager.getInstance().update();
-      ObjectRenderEffects.updateStatic();
-      this.CurrentCell.update();
-      IsoRegions.update();
-      HaloTextHelper.update();
-      CollisionManager.instance.ResolveContacts();
+      GameProfiler.getInstance().invokeAndMeasure("Update Climate", ClimateManager.getInstance(), ClimateManager::update);
+      this.updateWorld();
+      if (var9 != null) {
+         GameProfiler.getInstance().invokeAndMeasure("Wait Thread", var9, CompletableFuture::join);
+      } else {
+         this.updateThread();
+      }
 
-      for(var3 = 0; var3 < this.AddCoopPlayers.size(); ++var3) {
-         AddCoopPlayer var10 = (AddCoopPlayer)this.AddCoopPlayers.get(var3);
-         var10.update();
-         if (var10.isFinished()) {
-            this.AddCoopPlayers.remove(var3--);
+      if (m_animationRecorderDiscard) {
+         AnimationPlayerRecorder.discardOldRecordings();
+         m_animationRecorderDiscard = false;
+      }
+
+   }
+
+   private void updateThread() {
+      GameProfiler.getInstance().invokeAndMeasure("Update Buildings", this, IsoWorld::updateBuildings);
+      GameProfiler.getInstance().invokeAndMeasure("Update Static", ObjectRenderEffects::updateStatic);
+
+      for(int var1 = 0; var1 < this.AddCoopPlayers.size(); ++var1) {
+         AddCoopPlayer var2 = (AddCoopPlayer)this.AddCoopPlayers.get(var1);
+         var2.update();
+         if (var2.isFinished()) {
+            this.AddCoopPlayers.remove(var1--);
          }
       }
 
@@ -2626,6 +3198,27 @@ public final class IsoWorld {
          IsoPlayer.UpdateRemovedEmitters();
       }
 
+      GameProfiler.getInstance().invokeAndMeasure("Update DBs", this, IsoWorld::updateDBs);
+      if (this.updateSafehousePlayers > 0 && (GameServer.bServer || GameClient.bClient)) {
+         --this.updateSafehousePlayers;
+         if (this.updateSafehousePlayers == 0) {
+            this.updateSafehousePlayers = 200;
+            SafeHouse.updateSafehousePlayersConnected();
+         }
+      }
+
+      GameProfiler.getInstance().invokeAndMeasure("Update VA", AnimalZones::updateVirtualAnimals);
+      GameProfiler.getInstance().invokeAndMeasure("Load Animal Defs", AnimalTracksDefinitions::loadTracksDefinitions);
+   }
+
+   private void updateBuildings() {
+      for(int var1 = 0; var1 < this.CurrentCell.getBuildingList().size(); ++var1) {
+         ((IsoBuilding)this.CurrentCell.getBuildingList().get(var1)).update();
+      }
+
+   }
+
+   private void updateDBs() {
       try {
          if (PlayerDB.isAvailable()) {
             PlayerDB.getInstance().updateMain();
@@ -2636,19 +3229,10 @@ public final class IsoWorld {
          }
 
          VehiclesDB2.instance.updateMain();
-      } catch (Exception var7) {
-         ExceptionLogger.logException(var7);
+      } catch (Exception var2) {
+         ExceptionLogger.logException(var2);
       }
 
-      if (this.updateSafehousePlayers > 0 && (GameServer.bServer || GameClient.bClient)) {
-         --this.updateSafehousePlayers;
-         if (this.updateSafehousePlayers == 0) {
-            this.updateSafehousePlayers = 200;
-            SafeHouse.updateSafehousePlayersConnected();
-         }
-      }
-
-      m_animationRecorderDiscard = false;
    }
 
    public IsoCell getCell() {
@@ -2659,11 +3243,11 @@ public final class IsoWorld {
    }
 
    public int getWorldSquareY() {
-      return this.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY * 10;
+      return this.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY * 8;
    }
 
    public int getWorldSquareX() {
-      return this.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldX * 10;
+      return this.CurrentCell.ChunkMap[IsoPlayer.getPlayerIndex()].WorldX * 8;
    }
 
    public IsoMetaChunk getMetaChunk(int var1, int var2) {
@@ -2678,11 +3262,6 @@ public final class IsoWorld {
       return ClimateManager.getInstance().getTemperature();
    }
 
-   /** @deprecated */
-   @Deprecated
-   public void setGlobalTemperature(float var1) {
-   }
-
    public String getWeather() {
       return this.weather;
    }
@@ -2692,19 +3271,21 @@ public final class IsoWorld {
    }
 
    public int getLuaSpawnCellX() {
-      return this.luaSpawnCellX;
+      return PZMath.coordmodulo(this.luaPosX, IsoCell.CellSizeInSquares);
    }
 
+   /** @deprecated */
+   @Deprecated
    public void setLuaSpawnCellX(int var1) {
-      this.luaSpawnCellX = var1;
    }
 
    public int getLuaSpawnCellY() {
-      return this.luaSpawnCellY;
+      return PZMath.coordmodulo(this.luaPosY, IsoCell.CellSizeInSquares);
    }
 
+   /** @deprecated */
+   @Deprecated
    public void setLuaSpawnCellY(int var1) {
-      this.luaSpawnCellY = var1;
    }
 
    public int getLuaPosX() {
@@ -2731,6 +3312,17 @@ public final class IsoWorld {
       this.luaPosZ = var1;
    }
 
+   public void setSpawnRegion(String var1) {
+      if (var1 != null) {
+         this.spawnRegionName = var1;
+      }
+
+   }
+
+   public String getSpawnRegion() {
+      return this.spawnRegionName;
+   }
+
    public String getWorld() {
       return Core.GameSaveWorld;
    }
@@ -2742,11 +3334,22 @@ public final class IsoWorld {
    }
 
    public boolean isValidSquare(int var1, int var2, int var3) {
-      return var3 >= 0 && var3 < 8 ? this.MetaGrid.isValidSquare(var1, var2) : false;
+      return var3 >= -32 && var3 <= 31 ? this.MetaGrid.isValidSquare(var1, var2) : false;
    }
 
    public ArrayList<RandomizedZoneStoryBase> getRandomizedZoneList() {
       return this.randomizedZoneList;
+   }
+
+   public RandomizedZoneStoryBase getRandomizedZoneStoryByName(String var1) {
+      for(int var2 = 0; var2 < this.randomizedZoneList.size(); ++var2) {
+         RandomizedZoneStoryBase var3 = (RandomizedZoneStoryBase)this.randomizedZoneList.get(var2);
+         if (var3.getName().equalsIgnoreCase(var1)) {
+            return var3;
+         }
+      }
+
+      return null;
    }
 
    public ArrayList<RandomizedBuildingBase> getRandomizedBuildingList() {
@@ -2770,6 +3373,10 @@ public final class IsoWorld {
 
    public RandomizedBuildingBase getRBBasic() {
       return this.RBBasic;
+   }
+
+   public RandomizedWorldBase getRandomizedWorldBase() {
+      return this.RandomizedWorldBase;
    }
 
    public String getDifficulty() {
@@ -2797,10 +3404,10 @@ public final class IsoWorld {
    }
 
    public static int getWorldVersion() {
-      return 195;
+      return 219;
    }
 
-   public HashMap<String, ArrayList<Double>> getSpawnedZombieZone() {
+   public HashMap<String, ArrayList<UUID>> getSpawnedZombieZone() {
       return this.spawnedZombieZone;
    }
 
@@ -2850,6 +3457,59 @@ public final class IsoWorld {
       return this.tileImages;
    }
 
+   public static void parseDistributions() {
+      ItemPickerJava.Parse();
+      ItemPickerJava.InitSandboxLootSettings();
+   }
+
+   public void setRules(Rules var1) {
+      this.rules = var1;
+   }
+
+   public Rules getRules() {
+      return this.rules;
+   }
+
+   public void setWgChunk(WGChunk var1) {
+      this.wgChunk = var1;
+   }
+
+   public WGChunk getWgChunk() {
+      return this.wgChunk;
+   }
+
+   public void setBlending(Blending var1) {
+      this.blending = var1;
+   }
+
+   public Blending getBlending() {
+      return this.blending;
+   }
+
+   public void setAttachmentsHandler(AttachmentsHandler var1) {
+      this.attachmentsHandler = var1;
+   }
+
+   public AttachmentsHandler getAttachmentsHandler() {
+      return this.attachmentsHandler;
+   }
+
+   public void setZoneGenerator(ZoneGenerator var1) {
+      this.zoneGenerator = var1;
+   }
+
+   public ZoneGenerator getZoneGenerator() {
+      return this.zoneGenerator;
+   }
+
+   public void setBiomeMap(BiomeMap var1) {
+      this.biomeMap = var1;
+   }
+
+   public BiomeMap getBiomeMap() {
+      return this.biomeMap;
+   }
+
    private static class CompScoreToPlayer implements Comparator<IsoZombie> {
       private CompScoreToPlayer() {
       }
@@ -2887,24 +3547,6 @@ public final class IsoWorld {
       }
    }
 
-   private static class CompDistToPlayer implements Comparator<IsoZombie> {
-      public float px;
-      public float py;
-
-      private CompDistToPlayer() {
-      }
-
-      public int compare(IsoZombie var1, IsoZombie var2) {
-         float var3 = IsoUtils.DistanceManhatten((float)((int)var1.x), (float)((int)var1.y), this.px, this.py);
-         float var4 = IsoUtils.DistanceManhatten((float)((int)var2.x), (float)((int)var2.y), this.px, this.py);
-         if (var3 < var4) {
-            return -1;
-         } else {
-            return var3 > var4 ? 1 : 0;
-         }
-      }
-   }
-
    public class Frame {
       public ArrayList<Integer> xPos = new ArrayList();
       public ArrayList<Integer> yPos = new ArrayList();
@@ -2929,8 +3571,8 @@ public final class IsoWorld {
                var5 = 2;
             }
 
-            this.xPos.add((int)var3.getX());
-            this.yPos.add((int)var3.getY());
+            this.xPos.add(PZMath.fastfloor(var3.getX()));
+            this.yPos.add(PZMath.fastfloor(var3.getY()));
             this.Type.add(Integer.valueOf(var5));
          }
 
@@ -2945,6 +3587,24 @@ public final class IsoWorld {
       public int[][] from = new int[3][3];
 
       public MetaCell() {
+      }
+   }
+
+   private static class CompDistToPlayer implements Comparator<IsoZombie> {
+      public float px;
+      public float py;
+
+      private CompDistToPlayer() {
+      }
+
+      public int compare(IsoZombie var1, IsoZombie var2) {
+         float var3 = IsoUtils.DistanceManhatten((float)PZMath.fastfloor(var1.getX()), (float)PZMath.fastfloor(var1.getY()), this.px, this.py);
+         float var4 = IsoUtils.DistanceManhatten((float)PZMath.fastfloor(var2.getX()), (float)PZMath.fastfloor(var2.getY()), this.px, this.py);
+         if (var3 < var4) {
+            return -1;
+         } else {
+            return var3 > var4 ? 1 : 0;
+         }
       }
    }
 }

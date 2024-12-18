@@ -26,25 +26,45 @@ public final class Input {
    }
 
    public static String getKeyName(int var0) {
-      String var1 = Keyboard.getKeyName(var0);
-      if ("LSHIFT".equals(var1)) {
-         var1 = "Left SHIFT";
-      }
+      if (var0 >= 10000) {
+         return "Mouse Btn " + (var0 - 10000);
+      } else {
+         String var1 = Keyboard.getKeyName(var0);
+         if ("LSHIFT".equals(var1)) {
+            return "Left SHIFT";
+         } else if ("RSHIFT".equals(var1)) {
+            return "Right SHIFT";
+         } else if ("LMENU".equals(var1)) {
+            return "Left ALT";
+         } else if ("RMENU".equals(var1)) {
+            return "Right ALT";
+         } else {
+            if (System.getProperty("os.name").contains("OS X")) {
+               if ("LMETA".equals(var1)) {
+                  return "Left Command";
+               }
 
-      if ("RSHIFT".equals(var1)) {
-         var1 = "Right SHIFT";
-      }
+               if ("RMETA".equals(var1)) {
+                  return "Right Command";
+               }
+            }
 
-      if ("LMENU".equals(var1)) {
-         var1 = "Left ALT";
-      } else if ("RMENU".equals(var1)) {
-         var1 = "Right ALT";
+            return var1;
+         }
       }
-
-      return var1;
    }
 
    public static int getKeyCode(String var0) {
+      if (System.getProperty("os.name").contains("OS X")) {
+         if ("Left ALT".equals(var0)) {
+            return 219;
+         }
+
+         if ("Right ALT".equals(var0)) {
+            return 220;
+         }
+      }
+
       if ("Right SHIFT".equals(var0)) {
          return 54;
       } else if ("Left SHIFT".equals(var0)) {

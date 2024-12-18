@@ -148,4 +148,14 @@ public final class IsoDirectionFrame {
          var6.renderstrip(var1, var2, (int)((float)var6.getWidth() * var4), (int)((float)var6.getHeight() * var4), var8, var9, var10, var7, (Consumer)null);
       }
    }
+
+   public boolean hasNoTextures() {
+      for(int var1 = 0; var1 < this.directions.length; ++var1) {
+         if (this.directions[var1] != null) {
+            return false;
+         }
+      }
+
+      return true;
+   }
 }

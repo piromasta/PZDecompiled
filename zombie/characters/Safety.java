@@ -77,7 +77,12 @@ public class Safety {
          if (GameClient.bClient) {
             GameClient.sendChangeSafety(this);
          } else {
-            this.setToggle((float)ServerOptions.getInstance().SafetyToggleTimer.getValue());
+            if (ServerOptions.getInstance().SafetyToggleTimer.getValue() == 0) {
+               this.setToggle(1.0E-4F);
+            } else {
+               this.setToggle((float)ServerOptions.getInstance().SafetyToggleTimer.getValue());
+            }
+
             this.setLast(this.isEnabled());
             if (this.isEnabled()) {
                this.setEnabled(!this.isEnabled());

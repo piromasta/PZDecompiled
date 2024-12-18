@@ -4,7 +4,7 @@ import java.util.HashMap;
 import zombie.ai.State;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoGridSquare;
@@ -15,6 +15,9 @@ import zombie.util.Type;
 
 public final class PlayerSitOnGroundState extends State {
    private static final PlayerSitOnGroundState _instance = new PlayerSitOnGroundState();
+   private static final long FireCheckBaseTime = 5000L;
+   private static final int ChangeAnimRandomMinTime = 30000;
+   private static final int ChangeAnimRandomMaxTime = 90000;
    private static final int RAND_EXT = 2500;
    private static final Integer PARAM_FIRE = 0;
    private static final Integer PARAM_SITGROUNDANIM = 1;
@@ -42,6 +45,10 @@ public final class PlayerSitOnGroundState extends State {
          var1.clearVariable("SitGroundStarted");
          var1.clearVariable("forceGetUp");
          var1.clearVariable("SitGroundAnim");
+      }
+
+      if (var1.getStateMachine().getPrevious() == FishingState.instance()) {
+         var1.setVariable("SitGroundAnim", "Idle");
       }
 
    }
@@ -84,7 +91,7 @@ public final class PlayerSitOnGroundState extends State {
          var2.put(PARAM_CHECK_FIRE, var4);
       }
 
-      if (var1.hasTimedActions()) {
+      if (var1.hasTimedActions() && var1.getVariableBoolean("SitGroundStarted")) {
          var2.put(PARAM_FIRE, false);
          var1.setVariable("SitGroundAnim", "Idle");
       }
@@ -112,7 +119,7 @@ public final class PlayerSitOnGroundState extends State {
       }
 
       var3.setInitiateAttack(false);
-      var3.attackStarted = false;
+      var3.setAttackStarted(false);
       var3.setAttackType((String)null);
    }
 
@@ -128,10 +135,11 @@ public final class PlayerSitOnGroundState extends State {
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (var2.m_EventName.equalsIgnoreCase("SitGroundStarted")) {
          var1.setVariable("SitGroundStarted", true);
-         boolean var3 = (Boolean)var1.getStateMachineParams(this).get(PARAM_FIRE);
-         if (var3) {
+         boolean var4 = (Boolean)var1.getStateMachineParams(this).get(PARAM_FIRE);
+         if (var4) {
             var1.setVariable("SitGroundAnim", "WarmHands");
          } else {
             var1.setVariable("SitGroundAnim", "Idle");

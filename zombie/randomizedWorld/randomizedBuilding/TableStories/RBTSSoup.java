@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 
 public final class RBTSSoup extends RBTableStoryBase {
@@ -42,7 +42,7 @@ public final class RBTSSoup extends RBTableStoryBase {
             this.addWorldItem(Rand.NextBool(2) ? "Base.PotOfSoup" : "Base.PotOfStew", this.table2.getSquare(), 0.289F, 0.585F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
             this.addWorldItem("Base.Spoon", this.table2.getSquare(), 0.132F, 0.835F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(0, 35));
             if (Rand.NextBool(3)) {
-               this.addWorldItem("farming.Salad", this.table1.getSquare(), 0.992F, 0.726F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
+               this.addWorldItem("Base.Salad", this.table1.getSquare(), 0.992F, 0.726F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
             }
          } else {
             this.addWorldItem(Rand.NextBool(2) ? "Base.SoupBowl" : "Base.Bowl", this.table1.getSquare(), 0.906F, 0.718F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
@@ -72,7 +72,7 @@ public final class RBTSSoup extends RBTableStoryBase {
             this.addWorldItem(Rand.NextBool(2) ? "Base.PotOfSoup" : "Base.PotOfStew", this.table2.getSquare(), 0.679F, 0.289F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
             this.addWorldItem("Base.Spoon", this.table2.getSquare(), 0.937F, 0.187F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(85, 110));
             if (Rand.NextBool(3)) {
-               this.addWorldItem("farming.Salad", this.table1.getSquare(), 0.679F, 0.882F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
+               this.addWorldItem("Base.Salad", this.table1.getSquare(), 0.679F, 0.882F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
             }
          }
       }

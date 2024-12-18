@@ -14,6 +14,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
 import java.util.Stack;
 import java.util.function.Consumer;
 import java.util.logging.Level;
@@ -23,6 +25,7 @@ import se.krka.kahlua.integration.annotations.LuaMethod;
 import se.krka.kahlua.vm.JavaFunction;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.LuaClosure;
+import zombie.GameProfiler;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.IndieGL;
@@ -34,22 +37,26 @@ import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaHookManager;
 import zombie.Lua.LuaManager;
+import zombie.Lua.MapObjects;
 import zombie.ai.astar.Mover;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
 import zombie.core.opengl.Shader;
+import zombie.core.physics.RagdollControllerDebugRenderer;
 import zombie.core.physics.WorldSimulation;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.profiling.PerformanceProfileProbeList;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
@@ -61,17 +68,20 @@ import zombie.debug.DebugType;
 import zombie.debug.LineDrawer;
 import zombie.erosion.utils.Noise2D;
 import zombie.gameStates.GameLoadingState;
+import zombie.input.GameKeyboard;
 import zombie.input.JoypadManager;
 import zombie.inventory.InventoryItem;
-import zombie.inventory.InventoryItemFactory;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.BuildingScore;
 import zombie.iso.areas.IsoBuilding;
 import zombie.iso.areas.IsoRoom;
 import zombie.iso.areas.IsoRoomExit;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
+import zombie.iso.fboRenderChunk.FBORenderCutaways;
+import zombie.iso.fboRenderChunk.FBORenderSnow;
 import zombie.iso.objects.IsoDeadBody;
-import zombie.iso.objects.IsoGenerator;
 import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWorldInventoryObject;
@@ -88,8 +98,8 @@ import zombie.iso.weather.fx.WeatherFxMask;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
-import zombie.network.ServerOptions;
 import zombie.popman.NetworkZombieSimulator;
+import zombie.popman.animal.AnimalSynchronizationManager;
 import zombie.savefile.ClientPlayerDB;
 import zombie.savefile.PlayerDB;
 import zombie.scripting.objects.VehicleScript;
@@ -98,11 +108,14 @@ import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
 
 public final class IsoCell {
-   public static int MaxHeight = 8;
-   private static Shader m_floorRenderShader;
-   private static Shader m_wallRenderShader;
+   public static int CellSizeInChunks = 32;
+   public static int CellSizeInSquares;
+   public static int MaxHeight;
+   public static Shader m_floorRenderShader;
+   public static Shader m_wallRenderShader;
    public ArrayList<IsoGridSquare> Trees = new ArrayList();
-   static final ArrayList<IsoGridSquare> stchoices = new ArrayList();
+   public int minHeight;
+   static final ArrayList<IsoGridSquare> stchoices;
    public final IsoChunkMap[] ChunkMap = new IsoChunkMap[4];
    public final ArrayList<IsoBuilding> BuildingList = new ArrayList();
    private final ArrayList<IsoWindow> WindowList = new ArrayList();
@@ -122,7 +135,7 @@ public final class IsoCell {
    private final ArrayList<IsoWorldInventoryObject> ProcessWorldItems = new ArrayList();
    public final ArrayList<IsoWorldInventoryObject> ProcessWorldItemsRemove = new ArrayList();
    private final IsoGridSquare[][] gridSquares;
-   public static final boolean ENABLE_SQUARE_CACHE = true;
+   public static final boolean ENABLE_SQUARE_CACHE = false;
    private int height;
    private int width;
    private int worldX;
@@ -135,26 +148,24 @@ public final class IsoCell {
    public final ArrayList<BaseVehicle> addVehicles;
    public final ArrayList<BaseVehicle> vehicles;
    public static final int ISOANGLEFACTOR = 3;
-   private static final int ZOMBIESCANBUDGET = 10;
-   private static final float NEARESTZOMBIEDISTSQRMAX = 150.0F;
-   private int zombieScanCursor;
-   private final IsoZombie[] nearestVisibleZombie;
-   private final float[] nearestVisibleZombieDistSqr;
-   private static Stack<BuildingScore> buildingscores = new Stack();
-   static ArrayList<IsoGridSquare> GridStack = null;
+   public static final int ZOMBIESCANBUDGET = 10;
+   public static final float NEARESTZOMBIEDISTSQRMAX = 150.0F;
+   public int zombieScanCursor;
+   public final IsoZombie[] nearestVisibleZombie;
+   public final float[] nearestVisibleZombieDistSqr;
+   private static Stack<BuildingScore> buildingscores;
+   public static ArrayList<IsoGridSquare> GridStack;
    public static final int RTF_SolidFloor = 1;
    public static final int RTF_VegetationCorpses = 2;
    public static final int RTF_MinusFloorCharacters = 4;
    public static final int RTF_ShadedFloor = 8;
    public static final int RTF_Shadows = 16;
-   private static final ArrayList<IsoGridSquare> ShadowSquares = new ArrayList(1000);
-   private static final ArrayList<IsoGridSquare> MinusFloorCharacters = new ArrayList(1000);
-   private static final ArrayList<IsoGridSquare> SolidFloor = new ArrayList(5000);
-   private static final ArrayList<IsoGridSquare> ShadedFloor = new ArrayList(5000);
-   private static final ArrayList<IsoGridSquare> VegetationCorpses = new ArrayList(5000);
-   public static final PerPlayerRender[] perPlayerRender = new PerPlayerRender[4];
-   private final int[] StencilXY;
-   private final int[] StencilXY2z;
+   public static final ArrayList<IsoGridSquare> ShadowSquares;
+   public static final ArrayList<IsoGridSquare> MinusFloorCharacters;
+   public static final ArrayList<IsoGridSquare> SolidFloor;
+   public static final ArrayList<IsoGridSquare> ShadedFloor;
+   public static final ArrayList<IsoGridSquare> VegetationCorpses;
+   public static final PerPlayerRender[] perPlayerRender;
    public int StencilX1;
    public int StencilY1;
    public int StencilX2;
@@ -192,9 +203,9 @@ public final class IsoCell {
    private int currentLX;
    private int currentLY;
    private int currentLZ;
-   int recalcShading;
-   int lastMinX;
-   int lastMinY;
+   public int recalcShading;
+   public int lastMinX;
+   public int lastMinY;
    private float rainScroll;
    private int[] rainX;
    private int[] rainY;
@@ -204,45 +215,46 @@ public final class IsoCell {
    private float[] rainAlpha;
    protected int rainIntensity;
    protected int rainSpeed;
-   int lightUpdateCount;
+   public int lightUpdateCount;
    public boolean bRendering;
-   final boolean[] bHideFloors;
-   final int[] unhideFloorsCounter;
-   boolean bOccludedByOrphanStructureFlag;
-   int playerPeekedRoomId;
-   final ArrayList<ArrayList<IsoBuilding>> playerOccluderBuildings;
-   final IsoBuilding[][] playerOccluderBuildingsArr;
-   final int[] playerWindowPeekingRoomId;
-   final boolean[] playerHidesOrphanStructures;
-   final boolean[] playerCutawaysDirty;
+   public final boolean[] bHideFloors;
+   public final int[] unhideFloorsCounter;
+   public boolean bOccludedByOrphanStructureFlag;
+   public long playerPeekedRoomId;
+   public final ArrayList<ArrayList<IsoBuilding>> playerOccluderBuildings;
+   public final IsoBuilding[][] playerOccluderBuildingsArr;
+   public final long[] playerWindowPeekingRoomId;
+   public final boolean[] playerHidesOrphanStructures;
+   public final boolean[] playerCutawaysDirty;
    final Vector2 tempCutawaySqrVector;
-   ArrayList<Integer> tempPrevPlayerCutawayRoomIDs;
-   ArrayList<Integer> tempPlayerCutawayRoomIDs;
-   final IsoGridSquare[] lastPlayerSquare;
-   final boolean[] lastPlayerSquareHalf;
-   final IsoDirections[] lastPlayerDir;
-   final Vector2[] lastPlayerAngle;
-   int hidesOrphanStructuresAbove;
+   ArrayList<ArrayList<Long>> tempPrevPlayerCutawayRoomIDs;
+   public ArrayList<ArrayList<Long>> tempPlayerCutawayRoomIDs;
+   public final IsoGridSquare[] lastPlayerSquare;
+   public final boolean[] lastPlayerSquareHalf;
+   public final IsoDirections[] lastPlayerDir;
+   public final Vector2[] lastPlayerAngle;
+   public int hidesOrphanStructuresAbove;
    final Rectangle buildingRectTemp;
-   final ArrayList<ArrayList<IsoBuilding>> zombieOccluderBuildings;
-   final IsoBuilding[][] zombieOccluderBuildingsArr;
-   final IsoGridSquare[] lastZombieSquare;
-   final boolean[] lastZombieSquareHalf;
-   final ArrayList<ArrayList<IsoBuilding>> otherOccluderBuildings;
-   final IsoBuilding[][] otherOccluderBuildingsArr;
+   public final ArrayList<ArrayList<IsoBuilding>> zombieOccluderBuildings;
+   public final IsoBuilding[][] zombieOccluderBuildingsArr;
+   public final IsoGridSquare[] lastZombieSquare;
+   public final boolean[] lastZombieSquareHalf;
+   public final ArrayList<ArrayList<IsoBuilding>> otherOccluderBuildings;
+   public final IsoBuilding[][] otherOccluderBuildingsArr;
    final int mustSeeSquaresRadius;
    final int mustSeeSquaresGridSize;
-   final ArrayList<IsoGridSquare> gridSquaresTempLeft;
-   final ArrayList<IsoGridSquare> gridSquaresTempRight;
+   public final ArrayList<IsoGridSquare> gridSquaresTempLeft;
+   public final ArrayList<IsoGridSquare> gridSquaresTempRight;
    private IsoWeatherFX weatherFX;
-   private int minX;
-   private int maxX;
-   private int minY;
-   private int maxY;
-   private int minZ;
-   private int maxZ;
+   public int minX;
+   public int maxX;
+   public int minY;
+   public int maxY;
+   public int minZ;
+   public int maxZ;
    private OnceEvery dangerUpdate;
    private Thread LightInfoUpdate;
+   long lastServerItemsUpdate;
    private final Stack<IsoRoom> SpottedRooms;
    private IsoZombie fakeZombieForHit;
 
@@ -250,9 +262,18 @@ public final class IsoCell {
       return MaxHeight;
    }
 
+   public static int getCellSizeInChunks() {
+      return CellSizeInChunks;
+   }
+
+   public static int getCellSizeInSquares() {
+      return CellSizeInSquares;
+   }
+
    public LotHeader getCurrentLotHeader() {
-      IsoChunk var1 = this.getChunkForGridSquare((int)IsoCamera.CamCharacter.x, (int)IsoCamera.CamCharacter.y, (int)IsoCamera.CamCharacter.z);
-      return var1.lotheader;
+      IsoGameCharacter var1 = IsoCamera.getCameraCharacter();
+      IsoChunk var2 = this.getChunkForGridSquare(PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()));
+      return var2.lotheader;
    }
 
    public IsoChunkMap getChunkMap(int var1) {
@@ -310,9 +331,9 @@ public final class IsoCell {
             var2 = var5 - this.ChunkMap[var6].getWorldYMinTiles();
             if (var1 >= 0 && var2 >= 0) {
                IsoChunkMap var10001 = this.ChunkMap[var6];
-               var1 /= 10;
+               var1 /= 8;
                var10001 = this.ChunkMap[var6];
-               var2 /= 10;
+               var2 /= 8;
                IsoChunk var7 = null;
                var7 = this.ChunkMap[var6].getChunk(var1, var2);
                if (var7 != null) {
@@ -340,7 +361,7 @@ public final class IsoCell {
    }
 
    public IsoCell(int var1, int var2) {
-      this.gridSquares = new IsoGridSquare[4][IsoChunkMap.ChunkWidthInTiles * IsoChunkMap.ChunkWidthInTiles * 8];
+      this.gridSquares = new IsoGridSquare[4][IsoChunkMap.ChunkWidthInTiles * IsoChunkMap.ChunkWidthInTiles * 64];
       this.safeToAdd = true;
       this.LamppostPositions = new Stack();
       this.roomLights = new ArrayList();
@@ -350,8 +371,6 @@ public final class IsoCell {
       this.zombieScanCursor = 0;
       this.nearestVisibleZombie = new IsoZombie[4];
       this.nearestVisibleZombieDistSqr = new float[4];
-      this.StencilXY = new int[]{0, 0, -1, 0, 0, -1, -1, -1, -2, -1, -1, -2, -2, -2, -3, -2, -2, -3, -3, -3};
-      this.StencilXY2z = new int[]{0, 0, -1, 0, 0, -1, -1, -1, -2, -1, -1, -2, -2, -2, -3, -2, -2, -3, -3, -3, -4, -3, -3, -4, -4, -4, -5, -4, -4, -5, -5, -5, -6, -5, -5, -6, -6, -6};
       this.m_stencilTexture = null;
       this.diamondMatrixIterator = new DiamondMatrixIterator(123);
       this.diamondMatrixPos = new Vector2i();
@@ -385,15 +404,15 @@ public final class IsoCell {
       this.bHideFloors = new boolean[4];
       this.unhideFloorsCounter = new int[4];
       this.bOccludedByOrphanStructureFlag = false;
-      this.playerPeekedRoomId = -1;
+      this.playerPeekedRoomId = -1L;
       this.playerOccluderBuildings = new ArrayList(4);
       this.playerOccluderBuildingsArr = new IsoBuilding[4][];
-      this.playerWindowPeekingRoomId = new int[4];
+      this.playerWindowPeekingRoomId = new long[4];
       this.playerHidesOrphanStructures = new boolean[4];
       this.playerCutawaysDirty = new boolean[4];
       this.tempCutawaySqrVector = new Vector2();
-      this.tempPrevPlayerCutawayRoomIDs = new ArrayList();
-      this.tempPlayerCutawayRoomIDs = new ArrayList();
+      this.tempPrevPlayerCutawayRoomIDs = new ArrayList(4);
+      this.tempPlayerCutawayRoomIDs = new ArrayList(4);
       this.lastPlayerSquare = new IsoGridSquare[4];
       this.lastPlayerSquareHalf = new boolean[4];
       this.lastPlayerDir = new IsoDirections[4];
@@ -412,6 +431,7 @@ public final class IsoCell {
       this.gridSquaresTempRight = new ArrayList(100);
       this.dangerUpdate = new OnceEvery(0.4F, false);
       this.LightInfoUpdate = null;
+      this.lastServerItemsUpdate = System.currentTimeMillis();
       this.SpottedRooms = new Stack();
       IsoWorld.instance.CurrentCell = this;
       instance = this;
@@ -422,118 +442,14 @@ public final class IsoCell {
          this.ChunkMap[var3] = new IsoChunkMap(this);
          this.ChunkMap[var3].PlayerID = var3;
          this.ChunkMap[var3].ignore = var3 > 0;
+         this.tempPlayerCutawayRoomIDs.add(new ArrayList());
+         this.tempPrevPlayerCutawayRoomIDs.add(new ArrayList());
          this.playerOccluderBuildings.add(new ArrayList(5));
          this.zombieOccluderBuildings.add(new ArrayList(5));
          this.otherOccluderBuildings.add(new ArrayList(5));
       }
 
       WorldReuserThread.instance.run();
-   }
-
-   public short getStencilValue(int var1, int var2, int var3) {
-      short[][][] var4 = perPlayerRender[IsoCamera.frameState.playerIndex].StencilValues;
-      int var5 = 0;
-      int var6 = 0;
-
-      for(int var7 = 0; var7 < this.StencilXY.length; var7 += 2) {
-         int var8 = -var3 * 3;
-         int var9 = var1 + var8 + this.StencilXY[var7];
-         int var10 = var2 + var8 + this.StencilXY[var7 + 1];
-         if (var9 >= this.minX && var9 < this.maxX && var10 >= this.minY && var10 < this.maxY) {
-            short[] var11 = var4[var9 - this.minX][var10 - this.minY];
-            if (var11[0] != 0) {
-               if (var5 == 0) {
-                  var5 = var11[0];
-                  var6 = var11[1];
-               } else {
-                  var5 = Math.min(var11[0], var5);
-                  var6 = Math.max(var11[1], var6);
-               }
-            }
-         }
-      }
-
-      if (var5 == 0) {
-         return 1;
-      } else if (var5 > 10) {
-         return (short)(var5 - 10);
-      } else {
-         return (short)(var6 + 1);
-      }
-   }
-
-   public void setStencilValue(int var1, int var2, int var3, int var4) {
-      short[][][] var5 = perPlayerRender[IsoCamera.frameState.playerIndex].StencilValues;
-
-      for(int var6 = 0; var6 < this.StencilXY.length; var6 += 2) {
-         int var7 = -var3 * 3;
-         int var8 = var1 + var7 + this.StencilXY[var6];
-         int var9 = var2 + var7 + this.StencilXY[var6 + 1];
-         if (var8 >= this.minX && var8 < this.maxX && var9 >= this.minY && var9 < this.maxY) {
-            short[] var10 = var5[var8 - this.minX][var9 - this.minY];
-            if (var10[0] == 0) {
-               var10[0] = (short)var4;
-               var10[1] = (short)var4;
-            } else {
-               var10[0] = (short)Math.min(var10[0], var4);
-               var10[1] = (short)Math.max(var10[1], var4);
-            }
-         }
-      }
-
-   }
-
-   public short getStencilValue2z(int var1, int var2, int var3) {
-      short[][][] var4 = perPlayerRender[IsoCamera.frameState.playerIndex].StencilValues;
-      int var5 = 0;
-      int var6 = 0;
-      int var7 = -var3 * 3;
-
-      for(int var8 = 0; var8 < this.StencilXY2z.length; var8 += 2) {
-         int var9 = var1 + var7 + this.StencilXY2z[var8];
-         int var10 = var2 + var7 + this.StencilXY2z[var8 + 1];
-         if (var9 >= this.minX && var9 < this.maxX && var10 >= this.minY && var10 < this.maxY) {
-            short[] var11 = var4[var9 - this.minX][var10 - this.minY];
-            if (var11[0] != 0) {
-               if (var5 == 0) {
-                  var5 = var11[0];
-                  var6 = var11[1];
-               } else {
-                  var5 = Math.min(var11[0], var5);
-                  var6 = Math.max(var11[1], var6);
-               }
-            }
-         }
-      }
-
-      if (var5 == 0) {
-         return 1;
-      } else if (var5 > 10) {
-         return (short)(var5 - 10);
-      } else {
-         return (short)(var6 + 1);
-      }
-   }
-
-   public void setStencilValue2z(int var1, int var2, int var3, int var4) {
-      short[][][] var5 = perPlayerRender[IsoCamera.frameState.playerIndex].StencilValues;
-      int var6 = -var3 * 3;
-
-      for(int var7 = 0; var7 < this.StencilXY2z.length; var7 += 2) {
-         int var8 = var1 + var6 + this.StencilXY2z[var7];
-         int var9 = var2 + var6 + this.StencilXY2z[var7 + 1];
-         if (var8 >= this.minX && var8 < this.maxX && var9 >= this.minY && var9 < this.maxY) {
-            short[] var10 = var5[var8 - this.minX][var9 - this.minY];
-            if (var10[0] == 0) {
-               var10[0] = (short)var4;
-               var10[1] = (short)var4;
-            } else {
-               var10[0] = (short)Math.min(var10[0], var4);
-               var10[1] = (short)Math.max(var10[1], var4);
-            }
-         }
-      }
-
    }
 
    public void CalculateVertColoursForTile(IsoGridSquare var1, int var2, int var3, int var4, int var5) {
@@ -563,6 +479,7 @@ public final class IsoCell {
       Texture var1 = this.getStencilTexture();
       if (var1 != null) {
          IndieGL.glStencilMask(255);
+         IndieGL.glDepthMask(false);
          IndieGL.glClear(1280);
          int var2 = IsoCamera.getOffscreenWidth(IsoPlayer.getPlayerIndex()) / 2;
          int var3 = IsoCamera.getOffscreenHeight(IsoPlayer.getPlayerIndex()) / 2;
@@ -628,7 +545,7 @@ public final class IsoCell {
 
                for(int var10 = 0; var10 < GridStack.size(); ++var10) {
                   IsoGridSquare var11 = (IsoGridSquare)GridStack.get(var10);
-                  var11.setPlayerCutawayFlag(var2, this.IsCutawaySquare(var11, var5), var5);
+                  var11.setPlayerCutawayFlag(var2, this.IsCutawaySquare(var11, var5) ? 3 : 0, var5);
                }
             }
          }
@@ -651,7 +568,7 @@ public final class IsoCell {
       }
    }
 
-   private void initTileShaders() {
+   public void initTileShaders() {
       if (DebugLog.isEnabled(DebugType.Shader)) {
          DebugLog.Shader.debugln("Loading shader: \"floorTile\"");
       }
@@ -662,9 +579,11 @@ public final class IsoCell {
       }
 
       m_wallRenderShader = new Shader("wallTile");
+      IsoGridSquare.CircleStencilShader var1 = IsoGridSquare.CircleStencilShader.instance;
+      IsoGridSquare.CutawayNoDepthShader.getInstance();
    }
 
-   private PerPlayerRender getPerPlayerRenderAt(int var1) {
+   public PerPlayerRender getPerPlayerRenderAt(int var1) {
       if (perPlayerRender[var1] == null) {
          perPlayerRender[var1] = new PerPlayerRender();
       }
@@ -683,115 +602,127 @@ public final class IsoCell {
          int var11 = -1;
          int var12 = -1;
          WeatherFxMask.setDiamondIterDone(var3);
+         int var13 = this.ChunkMap[var3].maxHeight;
+         int var14 = this.ChunkMap[var3].minHeight;
+         if (IsoPlayer.getInstance().getZ() < 0.0F) {
+            var13 = Math.min(-1, PZMath.fastfloor(IsoPlayer.getInstance().getZ()));
+            var14 = Math.max(var14, PZMath.fastfloor(IsoPlayer.getInstance().getZ()));
+         }
 
-         for(int var13 = var2; var13 >= 0; --var13) {
-            GridStack = (ArrayList)var7.Squares.get(var13);
+         int var15;
+         for(var15 = 0; var15 < 64; ++var15) {
+            GridStack = (ArrayList)var7.Squares.get(var15);
             GridStack.clear();
-            if (var13 < this.maxZ) {
-               boolean var18;
-               if (DebugOptions.instance.Terrain.RenderTiles.NewRender.getValue()) {
-                  DiamondMatrixIterator var22 = this.diamondMatrixIterator.reset(this.maxX - this.minX);
-                  IsoGridSquare var23 = null;
-                  Vector2i var26 = this.diamondMatrixPos;
+         }
 
-                  while(var22.next(var26)) {
-                     if (var26.y < this.maxY - this.minY + 1) {
-                        var23 = this.ChunkMap[var3].getGridSquare(var26.x + this.minX, var26.y + this.minY, var13);
-                        if (var13 == 0) {
-                           var8[var26.x][var26.y][0] = false;
-                           var8[var26.x][var26.y][1] = false;
-                           var9[var26.x][var26.y] = false;
+         for(var15 = var13; var15 >= var14; --var15) {
+            GridStack = (ArrayList)var7.Squares.get(var15 + 32);
+            GridStack.clear();
+            if (var15 < this.maxZ) {
+               boolean var20;
+               if (DebugOptions.instance.Terrain.RenderTiles.NewRender.getValue()) {
+                  DiamondMatrixIterator var24 = this.diamondMatrixIterator.reset(this.maxX - this.minX);
+                  IsoGridSquare var26 = null;
+                  Vector2i var28 = this.diamondMatrixPos;
+
+                  while(var24.next(var28)) {
+                     if (var28.y < this.maxY - this.minY + 1) {
+                        var26 = this.ChunkMap[var3].getGridSquare(var28.x + this.minX, var28.y + this.minY, var15);
+                        if (var15 == 0) {
+                           var8[var28.x][var28.y][0] = false;
+                           var8[var28.x][var28.y][1] = false;
+                           var9[var28.x][var28.y] = false;
                         }
 
-                        if (var23 == null) {
-                           WeatherFxMask.addMaskLocation((IsoGridSquare)null, var26.x + this.minX, var26.y + this.minY, var13);
+                        if (var26 == null) {
+                           WeatherFxMask.addMaskLocation((IsoGridSquare)null, var28.x + this.minX, var28.y + this.minY, var15);
                         } else {
-                           IsoChunk var24 = var23.getChunk();
-                           if (var24 != null && var23.IsOnScreen(true)) {
-                              WeatherFxMask.addMaskLocation(var23, var26.x + this.minX, var26.y + this.minY, var13);
-                              var18 = this.IsDissolvedSquare(var23, var3);
-                              var23.setIsDissolved(var3, var18, var4);
-                              if (!var23.getIsDissolved(var3, var4)) {
-                                 var23.cacheLightInfo();
-                                 GridStack.add(var23);
+                           IsoChunk var27 = var26.getChunk();
+                           if (var27 != null && var26.IsOnScreen(true)) {
+                              WeatherFxMask.addMaskLocation(var26, var28.x + this.minX, var28.y + this.minY, var15);
+                              var20 = this.IsDissolvedSquare(var26, var3);
+                              var26.setIsDissolved(var3, var20, var4);
+                              if (!var26.getIsDissolved(var3, var4)) {
+                                 var26.cacheLightInfo();
+                                 GridStack.add(var26);
                               }
                            }
                         }
                      }
                   }
                } else {
-                  label106:
-                  for(int var14 = this.minY; var14 < this.maxY; ++var14) {
-                     int var15 = this.minX;
-                     IsoGridSquare var16 = this.ChunkMap[var3].getGridSquare(var15, var14, var13);
-                     int var17 = IsoDirections.E.index();
+                  label113:
+                  for(int var16 = this.minY; var16 < this.maxY; ++var16) {
+                     int var17 = this.minX;
+                     IsoGridSquare var18 = this.ChunkMap[var3].getGridSquare(var17, var16, var15);
+                     int var19 = IsoDirections.E.index();
 
                      while(true) {
                         while(true) {
-                           if (var15 >= this.maxX) {
-                              continue label106;
+                           if (var17 >= this.maxX) {
+                              continue label113;
                            }
 
-                           if (var13 == 0) {
-                              var8[var15 - this.minX][var14 - this.minY][0] = false;
-                              var8[var15 - this.minX][var14 - this.minY][1] = false;
-                              var9[var15 - this.minX][var14 - this.minY] = false;
+                           if (var15 == 0) {
+                              var8[var17 - this.minX][var16 - this.minY][0] = false;
+                              var8[var17 - this.minX][var16 - this.minY][1] = false;
+                              var9[var17 - this.minX][var16 - this.minY] = false;
                            }
 
-                           if (var16 != null && var16.getY() != var14) {
-                              var16 = null;
+                           if (var18 != null && var18.getY() != var16) {
+                              var18 = null;
                            }
 
-                           var18 = true;
-                           boolean var19 = true;
+                           var20 = true;
+                           boolean var21 = true;
                            IsoChunkMap var10002 = this.ChunkMap[var3];
                            int var10001 = this.ChunkMap[var3].WorldX - IsoChunkMap.ChunkGridWidth / 2;
                            var10002 = this.ChunkMap[var3];
-                           int var20 = var15 - var10001 * 10;
+                           int var22 = var17 - var10001 * 8;
                            var10002 = this.ChunkMap[var3];
                            var10001 = this.ChunkMap[var3].WorldY - IsoChunkMap.ChunkGridWidth / 2;
                            var10002 = this.ChunkMap[var3];
-                           int var21 = var14 - var10001 * 10;
+                           int var23 = var16 - var10001 * 8;
                            IsoChunkMap var25 = this.ChunkMap[var3];
-                           IsoChunk var27 = var20 / 10;
+                           IsoChunk var29 = var22 / 8;
                            var25 = this.ChunkMap[var3];
-                           var21 /= 10;
-                           if (var27 != var10 || var21 != var11) {
-                              var27 = this.ChunkMap[var3].getChunkForGridSquare(var15, var14);
-                              if (var27 != null) {
-                                 var12 = var27.maxLevel;
+                           var23 /= 8;
+                           if (var29 != var10 || var23 != var11) {
+                              var29 = this.ChunkMap[var3].getChunkForGridSquare(var17, var16);
+                              if (var29 != null) {
+                                 var12 = var29.maxLevel;
                               }
                            }
 
-                           var10 = var27;
-                           var11 = var21;
-                           if (var12 < var13) {
-                              ++var15;
+                           var10 = var29;
+                           var11 = var23;
+                           if (var12 < var15) {
+                              ++var17;
                            } else {
-                              if (var16 == null) {
-                                 var16 = this.getGridSquare(var15, var14, var13);
-                                 if (var16 == null) {
-                                    var16 = this.ChunkMap[var3].getGridSquare(var15, var14, var13);
-                                    if (var16 == null) {
-                                       ++var15;
+                              if (var18 == null) {
+                                 var18 = this.getGridSquare(var17, var16, var15);
+                                 if (var18 == null) {
+                                    var18 = this.ChunkMap[var3].getGridSquare(var17, var16, var15);
+                                    if (var18 == null) {
+                                       ++var17;
                                        continue;
                                     }
                                  }
                               }
 
-                              var27 = var16.getChunk();
-                              if (var27 != null && var16.IsOnScreen(true)) {
-                                 WeatherFxMask.addMaskLocation(var16, var16.x, var16.y, var13);
-                                 boolean var28 = this.IsDissolvedSquare(var16, var3);
-                                 var16.setIsDissolved(var3, var28, var4);
-                                 if (!var16.getIsDissolved(var3, var4)) {
-                                    var16.cacheLightInfo();
-                                    GridStack.add(var16);
+                              var29 = var18.getChunk();
+                              if (var29 != null && var18.IsOnScreen(true)) {
+                                 WeatherFxMask.addMaskLocation(var18, var18.x, var18.y, var15);
+                                 boolean var30 = this.IsDissolvedSquare(var18, var3);
+                                 var18.setIsDissolved(var3, var30, var4);
+                                 if (!var18.getIsDissolved(var3, var4)) {
+                                    var18.cacheLightInfo();
+                                    GridStack.add(var18);
                                  }
                               }
 
-                              var16 = var16.nav[var17];
-                              ++var15;
+                              var18 = var18.nav[var19];
+                              ++var17;
                            }
                         }
                      }
@@ -804,28 +735,25 @@ public final class IsoCell {
       }
    }
 
-   private void flattenAnyFoliage(PerPlayerRender var1, int var2) {
-      short[][][] var3 = var1.StencilValues;
-      boolean[][] var4 = var1.FlattenGrassEtc;
+   public void flattenAnyFoliage(PerPlayerRender var1, int var2) {
+      boolean[][] var3 = var1.FlattenGrassEtc;
 
-      int var5;
-      for(var5 = this.minY; var5 <= this.maxY; ++var5) {
-         for(int var6 = this.minX; var6 <= this.maxX; ++var6) {
-            var3[var6 - this.minX][var5 - this.minY][0] = 0;
-            var3[var6 - this.minX][var5 - this.minY][1] = 0;
-            var4[var6 - this.minX][var5 - this.minY] = false;
+      int var4;
+      for(var4 = this.minY; var4 <= this.maxY; ++var4) {
+         for(int var5 = this.minX; var5 <= this.maxX; ++var5) {
+            var3[var5 - this.minX][var4 - this.minY] = false;
          }
       }
 
-      for(var5 = 0; var5 < this.vehicles.size(); ++var5) {
-         BaseVehicle var11 = (BaseVehicle)this.vehicles.get(var5);
-         if (!(var11.getAlpha(var2) <= 0.0F)) {
-            for(int var7 = -2; var7 < 5; ++var7) {
-               for(int var8 = -2; var8 < 5; ++var8) {
-                  int var9 = (int)var11.x + var8;
-                  int var10 = (int)var11.y + var7;
-                  if (var9 >= this.minX && var9 <= this.maxX && var10 >= this.minY && var10 <= this.maxY) {
-                     var4[var9 - this.minX][var10 - this.minY] = true;
+      for(var4 = 0; var4 < this.vehicles.size(); ++var4) {
+         BaseVehicle var10 = (BaseVehicle)this.vehicles.get(var4);
+         if (!(var10.getAlpha(var2) <= 0.0F)) {
+            for(int var6 = -2; var6 < 5; ++var6) {
+               for(int var7 = -2; var7 < 5; ++var7) {
+                  int var8 = PZMath.fastfloor(var10.getX()) + var7;
+                  int var9 = PZMath.fastfloor(var10.getY()) + var6;
+                  if (var8 >= this.minX && var8 <= this.maxX && var9 >= this.minY && var9 <= this.maxY) {
+                     var3[var8 - this.minX][var9 - this.minY] = true;
                   }
                }
             }
@@ -847,9 +775,9 @@ public final class IsoCell {
          var9 = m_wallRenderShader;
       }
 
-      for(int var10 = 0; var10 < var2 + 1; ++var10) {
-         s_performance.renderTiles.PperformRenderTilesLayer var11 = (s_performance.renderTiles.PperformRenderTilesLayer)IsoCell.s_performance.renderTiles.performRenderTilesLayers.start(var10);
-         GridStack = (ArrayList)var6.Squares.get(var10);
+      for(int var10 = -32; var10 < var2 + 1; ++var10) {
+         s_performance.renderTiles.PerformRenderTilesLayer var11 = (s_performance.renderTiles.PerformRenderTilesLayer)IsoCell.s_performance.renderTiles.performRenderTilesLayers.start(var10 + 32);
+         GridStack = (ArrayList)var6.Squares.get(var10 + 32);
          ShadowSquares.clear();
          SolidFloor.clear();
          ShadedFloor.clear();
@@ -858,7 +786,7 @@ public final class IsoCell {
          IndieGL.glClear(256);
          if (var10 == 0 && DebugOptions.instance.Terrain.RenderTiles.Water.getValue() && DebugOptions.instance.Terrain.RenderTiles.WaterBody.getValue()) {
             var11.renderIsoWater.start();
-            IsoWater.getInstance().render(GridStack, false);
+            IsoWater.getInstance().render(GridStack);
             var11.renderIsoWater.end();
          }
 
@@ -866,7 +794,6 @@ public final class IsoCell {
 
          int var12;
          IsoGridSquare var13;
-         boolean var17;
          for(var12 = 0; var12 < GridStack.size(); ++var12) {
             var13 = (IsoGridSquare)GridStack.get(var12);
             if (var13.chunk == null || !var13.chunk.bLightingNeverDone[var3]) {
@@ -890,7 +817,7 @@ public final class IsoCell {
 
                for(int var15 = 0; var15 < var13.getMovingObjects().size(); ++var15) {
                   IsoMovingObject var16 = (IsoMovingObject)var13.getMovingObjects().get(var15);
-                  var17 = var16.bOnFloor;
+                  boolean var17 = var16.bOnFloor;
                   if (var17 && var16 instanceof IsoZombie) {
                      IsoZombie var18 = (IsoZombie)var16;
                      var17 = var18.isProne();
@@ -944,7 +871,7 @@ public final class IsoCell {
          var11.renderPuddles.end();
          if (var10 == 0 && DebugOptions.instance.Terrain.RenderTiles.Water.getValue() && DebugOptions.instance.Terrain.RenderTiles.WaterShore.getValue()) {
             var11.renderShore.start();
-            IsoWater.getInstance().render((ArrayList)null, true);
+            IsoWater.getInstance().renderShore(GridStack);
             var11.renderShore.end();
          }
 
@@ -981,12 +908,18 @@ public final class IsoCell {
 
          IsoMarkers.instance.renderIsoMarkers(var1, var10, var3);
          IsoMarkers.instance.renderCircleIsoMarkers(var1, var10, var3);
+         int var29;
          if (DebugOptions.instance.Terrain.RenderTiles.VegetationCorpses.getValue()) {
             var11.vegetationCorpses.start();
 
             for(var12 = 0; var12 < VegetationCorpses.size(); ++var12) {
                var13 = (IsoGridSquare)VegetationCorpses.get(var12);
-               var13.renderMinusFloor(this.maxZ, false, true, false, false, false, var9);
+               byte var31 = 0;
+               byte var24 = 0;
+               byte var26 = 0;
+               byte var28 = 0;
+               var29 = 0;
+               var13.renderMinusFloor(this.maxZ, false, true, var31, var24, var26, var28, var29, var9);
                var13.renderCharacters(this.maxZ, true, true);
             }
 
@@ -996,36 +929,34 @@ public final class IsoCell {
          ImprovedFog.startRender(var3, var10);
          if (DebugOptions.instance.Terrain.RenderTiles.MinusFloorCharacters.getValue()) {
             var11.minusFloorCharacters.start();
-            var12 = 0;
 
-            while(true) {
-               if (var12 >= MinusFloorCharacters.size()) {
-                  var11.minusFloorCharacters.end();
-                  break;
-               }
-
+            for(var12 = 0; var12 < MinusFloorCharacters.size(); ++var12) {
                var13 = (IsoGridSquare)MinusFloorCharacters.get(var12);
-               IsoGridSquare var23 = var13.nav[IsoDirections.S.index()];
-               IsoGridSquare var20 = var13.nav[IsoDirections.E.index()];
-               boolean var21 = var23 != null && var23.getPlayerCutawayFlag(var3, var4);
-               var17 = var13.getPlayerCutawayFlag(var3, var4);
-               boolean var22 = var20 != null && var20.getPlayerCutawayFlag(var3, var4);
+               IsoGridSquare var32 = var13.nav[IsoDirections.N.index()];
+               IsoGridSquare var25 = var13.nav[IsoDirections.S.index()];
+               IsoGridSquare var27 = var13.nav[IsoDirections.W.index()];
+               IsoGridSquare var30 = var13.nav[IsoDirections.E.index()];
+               var29 = var13.getPlayerCutawayFlag(var3, var4);
+               int var19 = var32 == null ? 0 : var32.getPlayerCutawayFlag(var3, var4);
+               int var20 = var25 == null ? 0 : var25.getPlayerCutawayFlag(var3, var4);
+               int var21 = var27 == null ? 0 : var27.getPlayerCutawayFlag(var3, var4);
+               int var22 = var30 == null ? 0 : var30.getPlayerCutawayFlag(var3, var4);
                this.currentLY = var13.getY() - this.minY;
                this.currentLZ = var10;
                ImprovedFog.renderRowsBehind(var13);
-               boolean var19 = var13.renderMinusFloor(this.maxZ, false, false, var21, var17, var22, var9);
+               boolean var23 = var13.renderMinusFloor(this.maxZ, false, false, var29, var19, var20, var21, var22, var9);
                var13.renderDeferredCharacters(this.maxZ);
                var13.renderCharacters(this.maxZ, false, true);
                if (var13.hasFlies()) {
                   CorpseFlies.render(var13.x, var13.y, var13.z);
                }
 
-               if (var19) {
-                  var13.renderMinusFloor(this.maxZ, true, false, var21, var17, var22, var9);
+               if (var23) {
+                  var13.renderMinusFloor(this.maxZ, true, false, var29, var19, var20, var21, var22, var9);
                }
-
-               ++var12;
             }
+
+            var11.minusFloorCharacters.end();
          }
 
          IsoMarkers.instance.renderIsoMarkersDeferred(var1, var10, var3);
@@ -1035,7 +966,7 @@ public final class IsoCell {
 
    }
 
-   private void renderShadows() {
+   public void renderShadows() {
       boolean var1 = Core.getInstance().getOptionCorpseShadows();
 
       for(int var2 = 0; var2 < ShadowSquares.size(); ++var2) {
@@ -1069,21 +1000,21 @@ public final class IsoCell {
 
    }
 
-   private void renderDebugPhysics(int var1) {
-      if (Core.bDebug && DebugOptions.instance.PhysicsRender.getValue()) {
+   public void renderDebugPhysics(int var1) {
+      if (Core.bDebug && (DebugOptions.instance.PhysicsRender.getValue() || RagdollControllerDebugRenderer.renderDebugPhysics() || DebugOptions.instance.PhysicsRenderBallisticsTargets.getValue() || DebugOptions.instance.PhysicsRenderBallisticsControllers.getValue())) {
          TextureDraw.GenericDrawer var2 = WorldSimulation.getDrawer(var1);
          SpriteRenderer.instance.drawGeneric(var2);
       }
 
    }
 
-   private void renderDebugLighting(PerPlayerRender var1, int var2) {
+   public void renderDebugLighting(PerPlayerRender var1, int var2) {
       if (Core.bDebug && DebugOptions.instance.LightingRender.getValue()) {
          IsoGridStack var3 = var1.GridStacks;
          byte var4 = 1;
 
-         for(int var5 = 0; var5 < var2 + 1; ++var5) {
-            GridStack = (ArrayList)var3.Squares.get(var5);
+         for(int var5 = this.ChunkMap[IsoPlayer.getPlayerIndex()].minHeight; var5 < var2 + 1; ++var5) {
+            GridStack = (ArrayList)var3.Squares.get(var5 + 32);
 
             for(int var6 = 0; var6 < GridStack.size(); ++var6) {
                IsoGridSquare var7 = (IsoGridSquare)GridStack.get(var6);
@@ -1145,14 +1076,14 @@ public final class IsoCell {
 
       int var5;
       for(var5 = 1; var5 < MaxHeight + 1; ++var5) {
-         var4 += ((ArrayList)var1.Squares.get(var5)).size();
+         var4 += ((ArrayList)var1.Squares.get(var5 + 32)).size();
       }
 
       if (var4 >= 500) {
          var5 = 0;
 
-         for(int var6 = MaxHeight; var6 >= 0; --var6) {
-            GridStack = (ArrayList)var1.Squares.get(var6);
+         for(int var6 = this.ChunkMap[IsoPlayer.getPlayerIndex()].maxHeight; var6 >= this.ChunkMap[IsoPlayer.getPlayerIndex()].minHeight; --var6) {
+            GridStack = (ArrayList)var1.Squares.get(var6 + 32);
 
             for(int var7 = GridStack.size() - 1; var7 >= 0; --var7) {
                IsoGridSquare var8 = (IsoGridSquare)GridStack.get(var7);
@@ -1219,7 +1150,7 @@ public final class IsoCell {
                      boolean var13 = false;
                      int var14;
                      if (var11 || var12) {
-                        var13 = ((float)var8.x > IsoCamera.frameState.CamCharacterX || (float)var8.y > IsoCamera.frameState.CamCharacterY) && var8.z >= (int)IsoCamera.frameState.CamCharacterZ;
+                        var13 = ((float)var8.x > IsoCamera.frameState.CamCharacterX || (float)var8.y > IsoCamera.frameState.CamCharacterY) && var8.z >= PZMath.fastfloor(IsoCamera.frameState.CamCharacterZ);
                         if (var13) {
                            var14 = (int)(var8.CachedScreenX - IsoCamera.frameState.OffX);
                            int var15 = (int)(var8.CachedScreenY - IsoCamera.frameState.OffY);
@@ -1353,7 +1284,7 @@ public final class IsoCell {
    }
 
    public boolean IsPlayerWindowPeeking(int var1) {
-      return this.playerWindowPeekingRoomId[var1] != -1;
+      return this.playerWindowPeekingRoomId[var1] != -1L;
    }
 
    public boolean CanBuildingSquareOccludePlayer(IsoGridSquare var1, int var2) {
@@ -1374,70 +1305,78 @@ public final class IsoCell {
       return false;
    }
 
-   public int GetEffectivePlayerRoomId() {
+   public long GetEffectivePlayerRoomId() {
       int var1 = IsoCamera.frameState.playerIndex;
-      int var2 = this.playerWindowPeekingRoomId[var1];
+      long var2 = this.playerWindowPeekingRoomId[var1];
       if (IsoPlayer.players[var1] != null && IsoPlayer.players[var1].isClimbing()) {
-         var2 = -1;
+         var2 = -1L;
       }
 
-      if (var2 != -1) {
+      if (var2 != -1L) {
          return var2;
       } else {
-         IsoGridSquare var3 = IsoPlayer.players[var1].current;
-         return var3 != null ? var3.getRoomID() : -1;
+         IsoGridSquare var4 = IsoPlayer.players[var1].current;
+         return var4 != null ? var4.getRoomID() : -1L;
       }
    }
 
-   private boolean SetCutawayRoomsForPlayer() {
+   public boolean SetCutawayRoomsForPlayer() {
       int var1 = IsoCamera.frameState.playerIndex;
       IsoPlayer var2 = IsoPlayer.players[var1];
-      ArrayList var3 = this.tempPrevPlayerCutawayRoomIDs;
-      this.tempPrevPlayerCutawayRoomIDs = this.tempPlayerCutawayRoomIDs;
-      this.tempPlayerCutawayRoomIDs = var3;
-      this.tempPlayerCutawayRoomIDs.clear();
+      ArrayList var3 = (ArrayList)this.tempPrevPlayerCutawayRoomIDs.get(var1);
+      this.tempPrevPlayerCutawayRoomIDs.set(var1, (ArrayList)this.tempPlayerCutawayRoomIDs.get(var1));
+      this.tempPlayerCutawayRoomIDs.set(var1, var3);
+      ((ArrayList)this.tempPlayerCutawayRoomIDs.get(var1)).clear();
       IsoGridSquare var4 = var2.getSquare();
       if (var4 == null) {
          return false;
       } else {
          IsoBuilding var5 = var4.getBuilding();
-         int var6 = var4.getRoomID();
-         boolean var7 = false;
-         if (var6 == -1) {
-            if (this.playerWindowPeekingRoomId[var1] != -1) {
-               this.tempPlayerCutawayRoomIDs.add(this.playerWindowPeekingRoomId[var1]);
+         long var6 = var4.getRoomID();
+         if (var6 == -1L && FBORenderCutaways.getInstance().isRoofRoomSquare(var4)) {
+            var6 = var4.associatedBuilding.getRoofRoomID(var4.z);
+         }
+
+         boolean var8 = false;
+         if (var6 == -1L) {
+            if (this.playerWindowPeekingRoomId[var1] != -1L) {
+               ((ArrayList)this.tempPlayerCutawayRoomIDs.get(var1)).add(this.playerWindowPeekingRoomId[var1]);
             } else {
-               var7 = this.playerCutawaysDirty[var1];
+               var8 = this.playerCutawaysDirty[var1];
             }
          } else {
-            int var8 = (int)(var2.getX() - 1.5F);
-            int var9 = (int)(var2.getY() - 1.5F);
-            int var10 = (int)(var2.getX() + 1.5F);
-            int var11 = (int)(var2.getY() + 1.5F);
+            int var9 = (int)(var2.getX() - 1.5F);
+            int var10 = (int)(var2.getY() - 1.5F);
+            int var11 = (int)(var2.getX() + 1.5F);
+            int var12 = (int)(var2.getY() + 1.5F);
 
-            for(int var12 = var8; var12 <= var10; ++var12) {
-               for(int var13 = var9; var13 <= var11; ++var13) {
-                  IsoGridSquare var14 = this.getGridSquare(var12, var13, var4.getZ());
-                  if (var14 != null) {
-                     int var15 = var14.getRoomID();
-                     if (var14.getCanSee(var1) && var15 != -1 && !this.tempPlayerCutawayRoomIDs.contains(var15)) {
-                        this.tempCutawaySqrVector.set((float)var14.getX() + 0.5F - var2.getX(), (float)var14.getY() + 0.5F - var2.getY());
-                        if (var4 == var14 || var2.getForwardDirection().dot(this.tempCutawaySqrVector) > 0.0F) {
-                           this.tempPlayerCutawayRoomIDs.add(var15);
+            for(int var13 = var9; var13 <= var11; ++var13) {
+               for(int var14 = var10; var14 <= var12; ++var14) {
+                  IsoGridSquare var15 = this.getGridSquare(var13, var14, var4.getZ());
+                  if (var15 != null) {
+                     long var16 = var15.getRoomID();
+                     if (var16 == -1L && FBORenderCutaways.getInstance().isRoofRoomSquare(var15)) {
+                        var16 = var15.associatedBuilding.getRoofRoomID(var15.z);
+                     }
+
+                     if ((var15.getCanSee(var1) || var4 == var15) && var16 != -1L && !((ArrayList)this.tempPlayerCutawayRoomIDs.get(var1)).contains(var16)) {
+                        this.tempCutawaySqrVector.set((float)var15.getX() + 0.5F - var2.getX(), (float)var15.getY() + 0.5F - var2.getY());
+                        if (var4 == var15 || var2.getForwardDirection().dot(this.tempCutawaySqrVector) > 0.0F) {
+                           ((ArrayList)this.tempPlayerCutawayRoomIDs.get(var1)).add(var16);
                         }
                      }
                   }
                }
             }
 
-            Collections.sort(this.tempPlayerCutawayRoomIDs);
+            Collections.sort((List)this.tempPlayerCutawayRoomIDs.get(var1));
          }
 
-         return var7 || !this.tempPlayerCutawayRoomIDs.equals(this.tempPrevPlayerCutawayRoomIDs);
+         return var8 || !((ArrayList)this.tempPlayerCutawayRoomIDs.get(var1)).equals(this.tempPrevPlayerCutawayRoomIDs.get(var1));
       }
    }
 
-   private boolean IsCutawaySquare(IsoGridSquare var1, long var2) {
+   public boolean IsCutawaySquare(IsoGridSquare var1, long var2) {
       int var4 = IsoCamera.frameState.playerIndex;
       IsoPlayer var5 = IsoPlayer.players[var4];
       if (var5.current == null) {
@@ -1452,7 +1391,7 @@ public final class IsoCell {
             IsoGridSquare var7;
             IsoGridSquare var8;
             IsoGridSquare var9;
-            if (!this.tempPlayerCutawayRoomIDs.isEmpty()) {
+            if (!((ArrayList)this.tempPlayerCutawayRoomIDs.get(var4)).isEmpty()) {
                var7 = var1.nav[IsoDirections.N.index()];
                var8 = var1.nav[IsoDirections.E.index()];
                var9 = var1.nav[IsoDirections.S.index()];
@@ -1472,7 +1411,7 @@ public final class IsoCell {
                   }
                }
 
-               if (!this.tempPlayerCutawayRoomIDs.contains(var1.getRoomID())) {
+               if (!((ArrayList)this.tempPlayerCutawayRoomIDs.get(var4)).contains(var1.getRoomID())) {
                   var16 = true;
                }
 
@@ -1486,7 +1425,7 @@ public final class IsoCell {
                         break;
                      }
 
-                     if (var20.getRoomID() != -1 && this.tempPlayerCutawayRoomIDs.contains(var20.getRoomID())) {
+                     if (var20.getRoomID() != -1L && ((ArrayList)this.tempPlayerCutawayRoomIDs.get(var4)).contains(var20.getRoomID())) {
                         if ((var15 || var16) && var20.getCanSee(var4)) {
                            return true;
                         }
@@ -1502,7 +1441,7 @@ public final class IsoCell {
                   return this.DoesSquareHaveValidCutaways(var6, var1, var4, var2);
                }
 
-               if (var6.getRoomID() == -1 && (var11 != null && var11.getRoomID() != -1 || var12 != null && var12.getRoomID() != -1 || var13 != null && var13.getRoomID() != -1 || var14 != null && var14.getRoomID() != -1)) {
+               if (var6.getRoomID() == -1L && (var11 != null && var11.getRoomID() != -1L || var12 != null && var12.getRoomID() != -1L || var13 != null && var13.getRoomID() != -1L || var14 != null && var14.getRoomID() != -1L)) {
                   var17 = var6.x - var1.x;
                   var18 = var6.y - var1.y;
                   if (var17 < 0 && var18 < 0) {
@@ -1511,15 +1450,15 @@ public final class IsoCell {
                            return true;
                         }
 
-                        if (var7 != null && var9 != null && var1.getWall(false) != null && var7.getWall(false) != null && var9.getWall(false) != null && var9.getPlayerCutawayFlag(var4, var2)) {
+                        if (var7 != null && var9 != null && var1.getWall(false) != null && var7.getWall(false) != null && var9.getWall(false) != null && var9.getPlayerCutawayFlag(var4, var2) != 0) {
                            return true;
                         }
                      } else if (var8 != null && var19 != null) {
-                        if (var1.getWall(true) != null && var19.getWall(true) != null && var8.getWall(true) != null && var8.getPlayerCutawayFlag(var4, var2)) {
+                        if (var1.getWall(true) != null && var19.getWall(true) != null && var8.getWall(true) != null && var8.getPlayerCutawayFlag(var4, var2) != 0) {
                            return true;
                         }
 
-                        if (var1.getWall(true) != null && var19.getWall(true) != null && var8.getWall(true) != null && var8.getPlayerCutawayFlag(var4, var2)) {
+                        if (var1.getWall(true) != null && var19.getWall(true) != null && var8.getWall(true) != null && var8.getPlayerCutawayFlag(var4, var2) != 0) {
                            return true;
                         }
                      }
@@ -1551,7 +1490,7 @@ public final class IsoCell {
                   }
                }
 
-               if (var7 != null && var7.getRoomID() == -1 && var8 != null && var8.getRoomID() == -1) {
+               if (var7 != null && var7.getRoomID() == -1L && var8 != null && var8.getRoomID() == -1L) {
                   return this.DoesSquareHaveValidCutaways(var6, var1, var4, var2);
                }
             }
@@ -1561,7 +1500,7 @@ public final class IsoCell {
       }
    }
 
-   private boolean DoesSquareHaveValidCutaways(IsoGridSquare var1, IsoGridSquare var2, int var3, long var4) {
+   public boolean DoesSquareHaveValidCutaways(IsoGridSquare var1, IsoGridSquare var2, int var3, long var4) {
       IsoGridSquare var6 = var2.nav[IsoDirections.N.index()];
       IsoGridSquare var7 = var2.nav[IsoDirections.E.index()];
       IsoGridSquare var8 = var2.nav[IsoDirections.S.index()];
@@ -1611,21 +1550,21 @@ public final class IsoCell {
          }
       } else if (var2.DistTo(var1) <= 6.0F && var2.nav[IsoDirections.NW.index()] != null && var2.nav[IsoDirections.NW.index()].getRoomID() == var2.getRoomID() && (var2.getWall(true) == null || var2.getWall(true) == var10) && (var2.getWall(false) == null || var2.getWall(false) == var11)) {
          if (var8 != null && var6 != null && var15 != 0) {
-            if (var15 > 0 && var11 != null && var8.getWall(false) != null && var6.getWall(false) != null && var8.getPlayerCutawayFlag(var3, var4)) {
+            if (var15 > 0 && var11 != null && var8.getWall(false) != null && var6.getWall(false) != null && var8.getPlayerCutawayFlag(var3, var4) != 0) {
                return true;
             }
 
-            if (var15 < 0 && var11 != null && var6.getWall(false) != null && var6.getPlayerCutawayFlag(var3, var4)) {
+            if (var15 < 0 && var11 != null && var6.getWall(false) != null && var6.getPlayerCutawayFlag(var3, var4) != 0) {
                return true;
             }
          }
 
          if (var7 != null && var9 != null && var18 != 0) {
-            if (var18 > 0 && var10 != null && var7.getWall(true) != null && var9.getWall(true) != null && var7.getPlayerCutawayFlag(var3, var4)) {
+            if (var18 > 0 && var10 != null && var7.getWall(true) != null && var9.getWall(true) != null && var7.getPlayerCutawayFlag(var3, var4) != 0) {
                return true;
             }
 
-            if (var18 < 0 && var10 != null && var9.getWall(true) != null && var9.getPlayerCutawayFlag(var3, var4)) {
+            if (var18 < 0 && var10 != null && var9.getWall(true) != null && var9.getPlayerCutawayFlag(var3, var4) != 0) {
                return true;
             }
          }
@@ -1641,14 +1580,14 @@ public final class IsoCell {
          }
       }
 
-      if (var6 != null && var9 != null && var18 != 0 && var15 != 0 && var13 != null && var12 != null && var6.getPlayerCutawayFlag(var3, var4) && var9.getPlayerCutawayFlag(var3, var4)) {
+      if (var6 != null && var9 != null && var18 != 0 && var15 != 0 && var13 != null && var12 != null && var6.getPlayerCutawayFlag(var3, var4) != 0 && var9.getPlayerCutawayFlag(var3, var4) != 0) {
          return true;
       } else {
          return var18 < 0 && var18 >= -6 && var15 < 0 && var15 >= -6 && (var11 != null && var2.getWall(true) == null || var10 != null && var2.getWall(false) == null);
       }
    }
 
-   private boolean IsCollapsibleBuildingSquare(IsoGridSquare var1) {
+   public boolean IsCollapsibleBuildingSquare(IsoGridSquare var1) {
       if (var1.getProperties().Is(IsoFlagType.forceRender)) {
          return false;
       } else {
@@ -1714,22 +1653,22 @@ public final class IsoCell {
       }
    }
 
-   private boolean collapsibleBuildingSquareAlgorithm(BuildingDef var1, IsoGridSquare var2, IsoGridSquare var3) {
+   public boolean collapsibleBuildingSquareAlgorithm(BuildingDef var1, IsoGridSquare var2, IsoGridSquare var3) {
       int var4 = var1.getX();
       int var5 = var1.getY();
-      int var6 = var1.getX2() - var4;
-      int var7 = var1.getY2() - var5;
+      int var6 = var1.getW();
+      int var7 = var1.getH();
       this.buildingRectTemp.setBounds(var4, var5, var6, var7);
-      if (var3.getRoomID() == -1 && this.buildingRectTemp.contains(var3.getX(), var3.getY())) {
+      if (var3.getRoomID() == -1L && this.buildingRectTemp.contains(var3.getX(), var3.getY())) {
          this.buildingRectTemp.setBounds(var4 - 1, var5 - 1, var6 + 2, var7 + 2);
          IsoGridSquare var8 = var2.nav[IsoDirections.N.index()];
          IsoGridSquare var9 = var2.nav[IsoDirections.W.index()];
          IsoGridSquare var10 = var2.nav[IsoDirections.NW.index()];
          if (var10 != null && var8 != null && var9 != null) {
-            boolean var11 = var2.getRoomID() == -1;
-            boolean var12 = var8.getRoomID() == -1;
-            boolean var13 = var9.getRoomID() == -1;
-            boolean var14 = var10.getRoomID() == -1;
+            boolean var11 = var2.getRoomID() == -1L;
+            boolean var12 = var8.getRoomID() == -1L;
+            boolean var13 = var9.getRoomID() == -1L;
+            boolean var14 = var10.getRoomID() == -1L;
             boolean var15 = var3.getY() < var2.getY();
             boolean var16 = var3.getX() < var2.getX();
             return this.buildingRectTemp.contains(var2.getX(), var2.getY()) && (var3.getZ() < var2.getZ() || var11 && (!var12 && var15 || !var13 && var16) || var11 && var12 && var13 && !var14 || !var11 && (var14 || var12 == var13 || var12 && var16 || var13 && var15));
@@ -1838,6 +1777,14 @@ public final class IsoCell {
             this.snowGridCur.init(var1);
             this.snowFadeTime = System.currentTimeMillis();
             DebugLog.log("snow from " + this.snowGridPrev.frac + " to " + this.snowGridCur.frac);
+            if (PerformanceSettings.FBORenderChunk) {
+               for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
+                  IsoPlayer var3 = IsoPlayer.players[var2];
+                  if (var3 != null) {
+                     var3.dirtyRecalcGridStack = true;
+                  }
+               }
+            }
          }
 
       }
@@ -1851,26 +1798,34 @@ public final class IsoCell {
       this.snowFracTarget = var1;
    }
 
+   public int getSnowTarget() {
+      return this.snowFracTarget;
+   }
+
    public boolean gridSquareIsSnow(int var1, int var2, int var3) {
-      IsoGridSquare var4 = this.getGridSquare(var1, var2, var3);
-      if (var4 != null) {
-         if (!var4.getProperties().Is(IsoFlagType.solidfloor)) {
-            return false;
-         } else if (var4.getProperties().Is(IsoFlagType.water)) {
-            return false;
-         } else if (var4.getProperties().Is(IsoFlagType.exterior) && var4.room == null && !var4.isInARoom()) {
-            int var5 = var4.getX() % this.snowGridCur.w;
-            int var6 = var4.getY() % this.snowGridCur.h;
-            return this.snowGridCur.check(var5, var6);
+      if (PerformanceSettings.FBORenderChunk) {
+         return FBORenderSnow.getInstance().gridSquareIsSnow(var1, var2, var3);
+      } else {
+         IsoGridSquare var4 = this.getGridSquare(var1, var2, var3);
+         if (var4 != null && this.snowGridCur != null) {
+            if (!var4.getProperties().Is(IsoFlagType.solidfloor)) {
+               return false;
+            } else if (var4.getProperties().Is(IsoFlagType.water) || var4.getWater() != null && var4.getWater().isValid()) {
+               return false;
+            } else if (var4.getProperties().Is(IsoFlagType.exterior) && var4.room == null && !var4.isInARoom()) {
+               int var5 = var4.getX() % this.snowGridCur.w;
+               int var6 = var4.getY() % this.snowGridCur.h;
+               return this.snowGridCur.check(var5, var6);
+            } else {
+               return false;
+            }
          } else {
             return false;
          }
-      } else {
-         return false;
       }
    }
 
-   private void RenderSnow(int var1) {
+   public void RenderSnow(int var1) {
       if (DebugOptions.instance.Weather.Snow.getValue()) {
          this.updateSnow(this.snowFracTarget);
          SnowGrid var2 = this.snowGridCur;
@@ -1885,6 +1840,11 @@ public final class IsoCell {
                   float var10 = (float)var8 / this.snowTransitionTime;
                   var4 = var10;
                   var5 = 1.0F - var10;
+               }
+
+               if (PerformanceSettings.FBORenderChunk && FBORenderChunkManager.instance.isCaching()) {
+                  var4 = 1.0F;
+                  var5 = 0.0F;
                }
 
                Shader var27 = null;
@@ -1902,13 +1862,13 @@ public final class IsoCell {
                   IsoGridSquare var14 = (IsoGridSquare)SolidFloor.get(var13);
                   if (var14.room == null && var14.getProperties().Is(IsoFlagType.exterior) && var14.getProperties().Is(IsoFlagType.solidfloor)) {
                      int var15;
-                     if (var14.getProperties().Is(IsoFlagType.water)) {
+                     if (!var14.getProperties().Is(IsoFlagType.water) && (var14.getWater() == null || !var14.getWater().isValid())) {
+                        var15 = 0;
+                     } else {
                         var15 = getShoreInt(var14);
                         if (var15 == 0) {
                            continue;
                         }
-                     } else {
-                        var15 = 0;
                      }
 
                      int var16 = var14.getX() % var2.w;
@@ -1917,6 +1877,13 @@ public final class IsoCell {
                      float var19 = IsoUtils.YToScreen((float)var14.getX(), (float)var14.getY(), (float)var1, 0);
                      var18 -= (float)var11;
                      var19 -= (float)var12;
+                     if (PerformanceSettings.FBORenderChunk && FBORenderChunkManager.instance.isCaching()) {
+                        var18 = IsoUtils.XToScreen((float)(var14.getX() % 8), (float)(var14.getY() % 8), (float)var1, 0);
+                        var19 = IsoUtils.YToScreen((float)(var14.getX() % 8), (float)(var14.getY() % 8), (float)var1, 0);
+                        var18 += FBORenderChunkManager.instance.getXOffset();
+                        var19 += FBORenderChunkManager.instance.getYOffset();
+                     }
+
                      float var20 = (float)(32 * Core.TileScale);
                      float var21 = (float)(96 * Core.TileScale);
                      var18 -= var20;
@@ -2207,9 +2174,21 @@ public final class IsoCell {
    private void ProcessObjects(Iterator<IsoMovingObject> var1) {
       MovingObjectUpdateScheduler.instance.update();
 
-      for(int var2 = 0; var2 < this.ZombieList.size(); ++var2) {
-         IsoZombie var3 = (IsoZombie)this.ZombieList.get(var2);
-         var3.updateVocalProperties();
+      for(int var2 = 0; var2 < this.ObjectList.size(); ++var2) {
+         IsoAnimal var3 = (IsoAnimal)Type.tryCastTo((IsoMovingObject)this.ObjectList.get(var2), IsoAnimal.class);
+         if (var3 != null) {
+            var3.updateVocalProperties();
+            var3.updateLoopingSounds();
+         }
+      }
+
+      GameProfiler.getInstance().invokeAndMeasure("Zombie Vocals", this, IsoCell::updateZombieVocals);
+   }
+
+   private void updateZombieVocals() {
+      for(int var1 = 0; var1 < this.ZombieList.size(); ++var1) {
+         IsoZombie var2 = (IsoZombie)this.ZombieList.get(var1);
+         var2.updateVocalProperties();
       }
 
    }
@@ -2270,7 +2249,7 @@ public final class IsoCell {
    }
 
    public void addToProcessItems(InventoryItem var1) {
-      if (var1 != null) {
+      if (var1 != null && !GameClient.bClient) {
          this.ProcessItemsRemove.remove(var1);
          if (!this.ProcessItems.contains(var1)) {
             this.ProcessItems.add(var1);
@@ -2280,7 +2259,7 @@ public final class IsoCell {
    }
 
    public void addToProcessItems(ArrayList<InventoryItem> var1) {
-      if (var1 != null) {
+      if (var1 != null && !GameClient.bClient) {
          for(int var2 = 0; var2 < var1.size(); ++var2) {
             InventoryItem var3 = (InventoryItem)var1.get(var2);
             if (var3 != null) {
@@ -2416,7 +2395,7 @@ public final class IsoCell {
    }
 
    public void PlaceLot(IsoLot var1, int var2, int var3, int var4, boolean var5) {
-      int var6 = Math.min(var4 + var1.info.levels, var4 + 8);
+      int var6 = Math.min(var4 + var1.info.maxLevel - var1.info.minLevel + 1, 32);
 
       for(int var7 = var2; var7 < var2 + var1.info.width; ++var7) {
          for(int var8 = var3; var8 < var3 + var1.info.height; ++var8) {
@@ -2425,7 +2404,7 @@ public final class IsoCell {
                int var11 = var8 - var3;
                int var12 = var9 - var4;
                if (var7 < this.width && var8 < this.height && var7 >= 0 && var8 >= 0 && var9 >= 0) {
-                  int var13 = var10 + var11 * 10 + var12 * 100;
+                  int var13 = var10 + var11 * 8 + var12 * 64;
                   int var14 = var1.m_offsetInData[var13];
                   if (var14 != -1) {
                      int var15 = var1.m_data.getQuick(var14);
@@ -2469,113 +2448,125 @@ public final class IsoCell {
 
    }
 
-   public void PlaceLot(IsoLot var1, int var2, int var3, int var4, IsoChunk var5, int var6, int var7) {
-      var6 *= 10;
-      var7 *= 10;
-      IsoMetaGrid var8 = IsoWorld.instance.getMetaGrid();
-      int var9 = Math.min(var4 + var1.info.levels, var4 + 8);
+   public int PlaceLot(IsoLot var1, int var2, int var3, int var4, IsoChunk var5, int var6, int var7, boolean[] var8) {
+      var6 *= 8;
+      var7 *= 8;
+      IsoMetaGrid var9 = IsoWorld.instance.getMetaGrid();
+      int var10 = Math.max(var4, -32);
+      int var11 = Math.min(var4 + (var1.maxLevel - var1.minLevel) - 1, 31);
+      int var12 = 0;
 
-      int var11;
-      int var12;
-      int var13;
+      int var14;
+      int var15;
+      int var16;
       try {
-         for(int var10 = var6 + var2; var10 < var6 + var2 + 10; ++var10) {
-            for(var11 = var7 + var3; var11 < var7 + var3 + 10; ++var11) {
-               for(var12 = var4; var12 < var9; ++var12) {
-                  var13 = var10 - var6 - var2;
-                  int var14 = var11 - var7 - var3;
-                  int var15 = var12 - var4;
-                  if (var10 < var6 + 10 && var11 < var7 + 10 && var10 >= var6 && var11 >= var7 && var12 >= 0) {
-                     int var16 = var13 + var14 * 10 + var15 * 100;
-                     int var17 = var1.m_offsetInData[var16];
-                     if (var17 != -1) {
-                        int var18 = var1.m_data.getQuick(var17);
-                        if (var18 > 0) {
-                           IsoGridSquare var19 = var5.getGridSquare(var10 - var6, var11 - var7, var12);
-                           if (var19 == null) {
-                              if (IsoGridSquare.loadGridSquareCache != null) {
-                                 var19 = IsoGridSquare.getNew(IsoGridSquare.loadGridSquareCache, this, (SliceY)null, var10, var11, var12);
-                              } else {
-                                 var19 = IsoGridSquare.getNew(this, (SliceY)null, var10, var11, var12);
+         for(int var13 = var6 + var2; var13 < var6 + var2 + 8; ++var13) {
+            for(var14 = var7 + var3; var14 < var7 + var3 + 8; ++var14) {
+               if (var13 >= var6 && var14 >= var7 && var13 < var6 + 8 && var14 < var7 + 8) {
+                  if (var8[var13 - var6 + (var14 - var7) * 8]) {
+                     ++var12;
+                  } else {
+                     for(var15 = var10; var15 <= var11; ++var15) {
+                        var16 = var13 - var6 - var2;
+                        int var17 = var14 - var7 - var3;
+                        int var18 = var15 - var1.info.minLevel;
+                        int var19 = var16 + var17 * 8 + var18 * 64;
+                        int var20 = var1.m_offsetInData[var19];
+                        if (var20 != -1) {
+                           int var21 = var1.m_data.getQuick(var20);
+                           if (var21 > 0) {
+                              if (!var8[var13 - var6 + (var14 - var7) * 8]) {
+                                 var8[var13 - var6 + (var14 - var7) * 8] = true;
+                                 ++var12;
                               }
 
-                              var19.setX(var10);
-                              var19.setY(var11);
-                              var19.setZ(var12);
-                              var5.setSquare(var10 - var6, var11 - var7, var12, var19);
-                           }
+                              IsoGridSquare var22 = var5.getGridSquare(var13 - var6, var14 - var7, var15);
+                              if (var22 == null) {
+                                 if (IsoGridSquare.loadGridSquareCache != null) {
+                                    var22 = IsoGridSquare.getNew(IsoGridSquare.loadGridSquareCache, this, (SliceY)null, var13, var14, var15);
+                                 } else {
+                                    var22 = IsoGridSquare.getNew(this, (SliceY)null, var13, var14, var15);
+                                 }
 
-                           int var21;
-                           for(int var20 = -1; var20 <= 1; ++var20) {
-                              for(var21 = -1; var21 <= 1; ++var21) {
-                                 if ((var20 != 0 || var21 != 0) && var20 + var10 - var6 >= 0 && var20 + var10 - var6 < 10 && var21 + var11 - var7 >= 0 && var21 + var11 - var7 < 10) {
-                                    IsoGridSquare var22 = var5.getGridSquare(var10 + var20 - var6, var11 + var21 - var7, var12);
-                                    if (var22 == null) {
-                                       var22 = IsoGridSquare.getNew(this, (SliceY)null, var10 + var20, var11 + var21, var12);
-                                       var5.setSquare(var10 + var20 - var6, var11 + var21 - var7, var12, var22);
+                                 var22.setX(var13);
+                                 var22.setY(var14);
+                                 var22.setZ(var15);
+                                 var5.setSquare(var13 - var6, var14 - var7, var15, var22);
+                              }
+
+                              for(int var23 = -1; var23 <= 1; ++var23) {
+                                 for(int var24 = -1; var24 <= 1; ++var24) {
+                                    if ((var23 != 0 || var24 != 0) && var23 + var13 - var6 >= 0 && var23 + var13 - var6 < 8 && var24 + var14 - var7 >= 0 && var24 + var14 - var7 < 8) {
+                                       IsoGridSquare var25 = var5.getGridSquare(var13 + var23 - var6, var14 + var24 - var7, var15);
+                                       if (var25 == null) {
+                                          var25 = IsoGridSquare.getNew(this, (SliceY)null, var13 + var23, var14 + var24, var15);
+                                          var5.setSquare(var13 + var23 - var6, var14 + var24 - var7, var15, var25);
+                                       }
                                     }
                                  }
                               }
-                           }
 
-                           RoomDef var27 = var8.getRoomAt(var10, var11, var12);
-                           var21 = var27 != null ? var27.ID : -1;
-                           var19.setRoomID(var21);
-                           var19.ResetIsoWorldRegion();
-                           var27 = var8.getEmptyOutsideAt(var10, var11, var12);
-                           if (var27 != null) {
-                              IsoRoom var28 = var5.getRoom(var27.ID);
-                              var19.roofHideBuilding = var28 == null ? null : var28.building;
-                           }
-
-                           boolean var29 = true;
-
-                           for(int var23 = 0; var23 < var18; ++var23) {
-                              String var24 = (String)var1.info.tilesUsed.get(var1.m_data.get(var17 + 1 + var23));
-                              if (!var1.info.bFixed2x) {
-                                 var24 = IsoChunk.Fix2x(var24);
+                              RoomDef var31 = var9.getRoomAt(var13, var14, var15);
+                              long var32 = var31 != null ? var31.ID : -1L;
+                              var22.setRoomID(var32);
+                              var22.ResetIsoWorldRegion();
+                              var31 = var9.getEmptyOutsideAt(var13, var14, var15);
+                              if (var31 != null) {
+                                 IsoRoom var26 = var5.getRoom(var31.ID);
+                                 var22.roofHideBuilding = var26 == null ? null : var26.building;
                               }
 
-                              IsoSprite var25 = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(var24);
-                              if (var25 == null) {
-                                 Logger.getLogger(GameWindow.class.getName()).log(Level.SEVERE, "Missing tile definition: " + var24);
-                              } else {
-                                 if (var23 == 0 && var25.getProperties().Is(IsoFlagType.solidfloor) && (!var25.Properties.Is(IsoFlagType.hidewalls) || var18 > 1)) {
-                                    var29 = true;
+                              boolean var33 = true;
+
+                              for(int var27 = 0; var27 < var21; ++var27) {
+                                 String var28 = (String)var1.info.tilesUsed.get(var1.m_data.get(var20 + 1 + var27));
+                                 if (!var1.info.bFixed2x) {
+                                    var28 = IsoChunk.Fix2x(var28);
                                  }
 
-                                 if (var29 && var23 == 0) {
-                                    var19.getObjects().clear();
-                                 }
+                                 IsoSprite var29 = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(var28);
+                                 if (var29 == null) {
+                                    Logger.getLogger(GameWindow.class.getName()).log(Level.SEVERE, "Missing tile definition: " + var28);
+                                 } else {
+                                    if (var27 == 0 && var29.getProperties().Is(IsoFlagType.solidfloor) && (!var29.Properties.Is(IsoFlagType.hidewalls) || var21 > 1)) {
+                                       var33 = true;
+                                    }
 
-                                 CellLoader.DoTileObjectCreation(var25, var25.getType(), var19, this, var10, var11, var12, var24);
+                                    if (var33 && var27 == 0) {
+                                       var22.getObjects().clear();
+                                    }
+
+                                    CellLoader.DoTileObjectCreation(var29, var29.getType(), var22, this, var13, var14, var15, var28);
+                                 }
                               }
-                           }
 
-                           var19.FixStackableObjects();
+                              var22.FixStackableObjects();
+                           }
                         }
                      }
                   }
                }
             }
          }
-      } catch (Exception var26) {
+      } catch (Exception var30) {
          DebugLog.log("Failed to load chunk, blocking out area");
-         ExceptionLogger.logException(var26);
+         ExceptionLogger.logException(var30);
 
-         for(var11 = var6 + var2; var11 < var6 + var2 + 10; ++var11) {
-            for(var12 = var7 + var3; var12 < var7 + var3 + 10; ++var12) {
-               for(var13 = var4; var13 < var9; ++var13) {
-                  var5.setSquare(var11 - var6 - var2, var12 - var7 - var3, var13 - var4, (IsoGridSquare)null);
-                  this.setCacheGridSquare(var11, var12, var13, (IsoGridSquare)null);
+         for(var14 = var6 + var2; var14 < var6 + var2 + 8; ++var14) {
+            for(var15 = var7 + var3; var15 < var7 + var3 + 8; ++var15) {
+               for(var16 = var10; var16 <= var11; ++var16) {
+                  var5.setSquare(var14 - var6 - var2, var15 - var7 - var3, var16 - var4, (IsoGridSquare)null);
+                  this.setCacheGridSquare(var14, var15, var16, (IsoGridSquare)null);
                }
             }
          }
       }
 
+      return var12;
    }
 
    public void setDrag(KahluaTable var1, int var2) {
+      LuaEventManager.triggerEvent("SetDragItem", var1, var2);
       if (var2 >= 0 && var2 < 4) {
          if (this.drag[var2] != null && this.drag[var2] != var1) {
             Object var3 = this.drag[var2].rawget("deactivate");
@@ -2606,31 +2597,38 @@ public final class IsoCell {
 
    private boolean doBuildingInternal(int var1, boolean var2) {
       if (UIManager.getPickedTile() != null && this.drag[var1] != null && JoypadManager.instance.getFromPlayer(var1) == null) {
-         if (!IsoWorld.instance.isValidSquare((int)UIManager.getPickedTile().x, (int)UIManager.getPickedTile().y, (int)IsoCamera.CamCharacter.getZ())) {
+         int var3 = PZMath.fastfloor(UIManager.getPickedTile().x);
+         int var4 = PZMath.fastfloor(UIManager.getPickedTile().y);
+         int var5 = PZMath.fastfloor(IsoCamera.getCameraCharacterZ());
+         if (!IsoWorld.instance.isValidSquare(var3, var4, var5)) {
             return false;
          }
 
-         IsoGridSquare var3 = this.getGridSquare((int)UIManager.getPickedTile().x, (int)UIManager.getPickedTile().y, (int)IsoCamera.CamCharacter.getZ());
+         IsoGridSquare var6 = this.getGridSquare(var3, var4, var5);
          if (!var2) {
-            if (var3 == null) {
-               var3 = this.createNewGridSquare((int)UIManager.getPickedTile().x, (int)UIManager.getPickedTile().y, (int)IsoCamera.CamCharacter.getZ(), true);
-               if (var3 == null) {
+            if (var6 == null) {
+               var6 = this.createNewGridSquare(var3, var4, var5, true);
+               if (var6 == null) {
                   return false;
                }
             }
 
-            var3.EnsureSurroundNotNull();
+            var6.EnsureSurroundNotNull();
          }
 
-         LuaEventManager.triggerEvent("OnDoTileBuilding2", this.drag[var1], var2, (int)UIManager.getPickedTile().x, (int)UIManager.getPickedTile().y, (int)IsoCamera.CamCharacter.getZ(), var3);
+         LuaEventManager.triggerEvent("OnDoTileBuilding2", this.drag[var1], var2, var3, var4, var5, var6);
       }
 
       if (this.drag[var1] != null && JoypadManager.instance.getFromPlayer(var1) != null) {
-         LuaEventManager.triggerEvent("OnDoTileBuilding3", this.drag[var1], var2, (int)IsoPlayer.players[var1].getX(), (int)IsoPlayer.players[var1].getY(), (int)IsoCamera.CamCharacter.getZ());
+         LuaEventManager.triggerEvent("OnDoTileBuilding3", this.drag[var1], var2, PZMath.fastfloor(IsoPlayer.players[var1].getX()), PZMath.fastfloor(IsoPlayer.players[var1].getY()), PZMath.fastfloor(IsoCamera.getCameraCharacterZ()));
       }
 
       if (var2) {
-         IndieGL.glBlendFunc(770, 771);
+         if (PerformanceSettings.FBORenderChunk) {
+            IndieGL.glBlendFuncSeparate(770, 771, 770, 1);
+         } else {
+            IndieGL.glBlendFunc(770, 771);
+         }
       }
 
       return false;
@@ -2786,7 +2784,11 @@ public final class IsoCell {
    public void addLamppost(IsoLightSource var1) {
       if (var1 != null && !this.LamppostPositions.contains(var1)) {
          this.LamppostPositions.add(var1);
-         IsoGridSquare.RecalcLightTime = -1;
+         IsoGridSquare.RecalcLightTime = -1.0F;
+         if (PerformanceSettings.FBORenderChunk) {
+            ++Core.dirtyGlobalLightsCount;
+         }
+
          GameTime.instance.lightSourceUpdate = 100.0F;
       }
    }
@@ -2794,7 +2796,11 @@ public final class IsoCell {
    public IsoLightSource addLamppost(int var1, int var2, int var3, float var4, float var5, float var6, int var7) {
       IsoLightSource var8 = new IsoLightSource(var1, var2, var3, var4, var5, var6, var7);
       this.LamppostPositions.add(var8);
-      IsoGridSquare.RecalcLightTime = -1;
+      IsoGridSquare.RecalcLightTime = -1.0F;
+      if (PerformanceSettings.FBORenderChunk) {
+         ++Core.dirtyGlobalLightsCount;
+      }
+
       GameTime.instance.lightSourceUpdate = 100.0F;
       return var8;
    }
@@ -2805,7 +2811,11 @@ public final class IsoCell {
          if (var5.getX() == var1 && var5.getY() == var2 && var5.getZ() == var3) {
             var5.clearInfluence();
             this.LamppostPositions.remove(var5);
-            IsoGridSquare.RecalcLightTime = -1;
+            IsoGridSquare.RecalcLightTime = -1.0F;
+            if (PerformanceSettings.FBORenderChunk) {
+               ++Core.dirtyGlobalLightsCount;
+            }
+
             GameTime.instance.lightSourceUpdate = 100.0F;
             return;
          }
@@ -2815,7 +2825,11 @@ public final class IsoCell {
 
    public void removeLamppost(IsoLightSource var1) {
       var1.life = 0;
-      IsoGridSquare.RecalcLightTime = -1;
+      IsoGridSquare.RecalcLightTime = -1.0F;
+      if (PerformanceSettings.FBORenderChunk) {
+         ++Core.dirtyGlobalLightsCount;
+      }
+
       GameTime.instance.lightSourceUpdate = 100.0F;
    }
 
@@ -2931,7 +2945,7 @@ public final class IsoCell {
       IsoGridSquare var1 = null;
 
       do {
-         var1 = this.getGridSquare(this.ChunkMap[IsoPlayer.getPlayerIndex()].getWorldXMin() * 10 + Rand.Next(this.width), this.ChunkMap[IsoPlayer.getPlayerIndex()].getWorldYMin() * 10 + Rand.Next(this.height), 0);
+         var1 = this.getGridSquare(this.ChunkMap[IsoPlayer.getPlayerIndex()].getWorldXMin() * 8 + Rand.Next(this.width), this.ChunkMap[IsoPlayer.getPlayerIndex()].getWorldYMin() * 8 + Rand.Next(this.height), 0);
          if (var1 != null) {
             var1.setCachedIsFree(false);
          }
@@ -3087,12 +3101,20 @@ public final class IsoCell {
          }
       }
 
+      if (this.weatherFX != null) {
+         this.weatherFX.Reset();
+         this.weatherFX = null;
+      }
+
    }
 
    @LuaMethod(
       name = "getGridSquare"
    )
    public IsoGridSquare getGridSquare(double var1, double var3, double var5) {
+      var1 = (double)PZMath.fastfloor(var1);
+      var3 = (double)PZMath.fastfloor(var3);
+      var5 = (double)PZMath.fastfloor(var5);
       return GameServer.bServer ? ServerMap.instance.getGridSquare((int)var1, (int)var3, (int)var5) : this.getGridSquare((int)var1, (int)var3, (int)var5);
    }
 
@@ -3100,6 +3122,9 @@ public final class IsoCell {
       name = "getOrCreateGridSquare"
    )
    public IsoGridSquare getOrCreateGridSquare(double var1, double var3, double var5) {
+      var1 = (double)PZMath.fastfloor(var1);
+      var3 = (double)PZMath.fastfloor(var3);
+      var5 = (double)PZMath.fastfloor(var5);
       IsoGridSquare var7;
       if (GameServer.bServer) {
          var7 = ServerMap.instance.getGridSquare((int)var1, (int)var3, (int)var5);
@@ -3123,82 +3148,28 @@ public final class IsoCell {
 
    public void setCacheGridSquare(int var1, int var2, int var3, IsoGridSquare var4) {
       assert var4 == null || var1 == var4.getX() && var2 == var4.getY() && var3 == var4.getZ();
-
-      if (!GameServer.bServer) {
-         assert this.getChunkForGridSquare(var1, var2, var3) != null;
-
-         int var5 = IsoChunkMap.ChunkWidthInTiles;
-
-         for(int var6 = 0; var6 < IsoPlayer.numPlayers; ++var6) {
-            if (!this.ChunkMap[var6].ignore) {
-               this.ChunkMap[var6].YMinTiles = -1;
-               this.ChunkMap[var6].XMinTiles = -1;
-               this.ChunkMap[var6].YMaxTiles = -1;
-               this.ChunkMap[var6].XMaxTiles = -1;
-               int var7 = var1 - this.ChunkMap[var6].getWorldXMinTiles();
-               int var8 = var2 - this.ChunkMap[var6].getWorldYMinTiles();
-               if (var3 < 8 && var3 >= 0 && var7 >= 0 && var7 < var5 && var8 >= 0 && var8 < var5) {
-                  this.gridSquares[var6][var7 + var8 * var5 + var3 * var5 * var5] = var4;
-               }
-            }
-         }
-
-      }
    }
 
    public void setCacheChunk(IsoChunk var1) {
       if (!GameServer.bServer) {
-         for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
-            this.setCacheChunk(var1, var2);
-         }
-
+         ;
       }
    }
 
    public void setCacheChunk(IsoChunk var1, int var2) {
       if (!GameServer.bServer) {
-         int var3 = IsoChunkMap.ChunkWidthInTiles;
-         IsoChunkMap var4 = this.ChunkMap[var2];
-         if (!var4.ignore) {
-            int var5 = var1.wx - var4.getWorldXMin();
-            int var6 = var1.wy - var4.getWorldYMin();
-            if (var5 >= 0 && var5 < IsoChunkMap.ChunkGridWidth && var6 >= 0 && var6 < IsoChunkMap.ChunkGridWidth) {
-               IsoGridSquare[] var7 = this.gridSquares[var2];
-
-               for(int var8 = 0; var8 < 8; ++var8) {
-                  for(int var9 = 0; var9 < 10; ++var9) {
-                     for(int var10 = 0; var10 < 10; ++var10) {
-                        IsoGridSquare var11 = var1.squares[var8][var10 + var9 * 10];
-                        int var12 = var5 * 10 + var10;
-                        int var13 = var6 * 10 + var9;
-                        var7[var12 + var13 * var3 + var8 * var3 * var3] = var11;
-                     }
-                  }
-               }
-
-            }
-         }
+         ;
       }
    }
 
    public void clearCacheGridSquare(int var1) {
-      if (!GameServer.bServer) {
-         int var2 = IsoChunkMap.ChunkWidthInTiles;
-         this.gridSquares[var1] = new IsoGridSquare[var2 * var2 * 8];
-      }
    }
 
    public void setCacheGridSquareLocal(int var1, int var2, int var3, IsoGridSquare var4, int var5) {
-      if (!GameServer.bServer) {
-         int var6 = IsoChunkMap.ChunkWidthInTiles;
-         if (var3 < 8 && var3 >= 0 && var1 >= 0 && var1 < var6 && var2 >= 0 && var2 < var6) {
-            this.gridSquares[var5][var1 + var2 * var6 + var3 * var6 * var6] = var4;
-         }
-      }
    }
 
    public IsoGridSquare getGridSquare(Double var1, Double var2, Double var3) {
-      return this.getGridSquare(var1.intValue(), var2.intValue(), var3.intValue());
+      return this.getGridSquare(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3));
    }
 
    public IsoGridSquare getGridSquare(int var1, int var2, int var3) {
@@ -3208,17 +3179,19 @@ public final class IsoCell {
          int var4 = IsoChunkMap.ChunkWidthInTiles;
 
          for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
-            if (!this.ChunkMap[var5].ignore) {
+            IsoChunkMap var6 = this.ChunkMap[var5];
+            if (!var6.ignore) {
                if (var3 == 0) {
-                  boolean var6 = false;
+                  boolean var7 = false;
                }
 
-               int var9 = var1 - this.ChunkMap[var5].getWorldXMinTiles();
-               int var7 = var2 - this.ChunkMap[var5].getWorldYMinTiles();
-               if (var3 < 8 && var3 >= 0 && var9 >= 0 && var9 < var4 && var7 >= 0 && var7 < var4) {
-                  IsoGridSquare var8 = this.gridSquares[var5][var9 + var7 * var4 + var3 * var4 * var4];
-                  if (var8 != null) {
-                     return var8;
+               int var11 = var1 - var6.getWorldXMinTiles();
+               int var8 = var2 - var6.getWorldYMinTiles();
+               int var9 = var3 + 32;
+               if (var3 <= 31 && var3 >= -32 && var11 >= 0 && var11 < var4 && var8 >= 0 && var8 < var4) {
+                  IsoGridSquare var10 = var6.getGridSquareDirect(var11, var8, var3);
+                  if (var10 != null) {
+                     return var10;
                   }
                }
             }
@@ -3245,7 +3218,7 @@ public final class IsoCell {
       name = "getMaxFloors"
    )
    public int getMaxFloors() {
-      return 8;
+      return 32;
    }
 
    public KahluaTable getLuaObjectList() {
@@ -3369,7 +3342,17 @@ public final class IsoCell {
    }
 
    public void render() {
-      IsoCell.s_performance.isoCellRender.invokeAndMeasure(this, IsoCell::renderInternal);
+      if (IsoCamera.frameState.playerIndex == 0 && GameKeyboard.isKeyPressed(199)) {
+         PerformanceSettings.FBORenderChunk = !PerformanceSettings.FBORenderChunk;
+      }
+
+      if (PerformanceSettings.FBORenderChunk) {
+         FBORenderCell.instance.cell = this;
+         FBORenderCutaways.getInstance().cell = this;
+         IsoCell.s_performance.isoCellRender.invokeAndMeasure(FBORenderCell.instance, FBORenderCell::renderInternal);
+      } else {
+         IsoCell.s_performance.isoCellRender.invokeAndMeasure(this, IsoCell::renderInternal);
+      }
    }
 
    private void renderInternal() {
@@ -3392,8 +3375,8 @@ public final class IsoCell {
          }
       }
 
-      int var3 = 8;
-      if (var3 < 8) {
+      int var3 = 32;
+      if (var3 < 32) {
          ++var3;
       }
 
@@ -3413,37 +3396,36 @@ public final class IsoCell {
       this.minX -= 2;
       this.minY -= 2;
       this.maxZ = MaxHeight;
-      if (IsoCamera.CamCharacter == null) {
+      IsoGameCharacter var12 = IsoCamera.getCameraCharacter();
+      if (var12 == null) {
          this.maxZ = 1;
       }
 
-      boolean var12 = false;
-      var12 = true;
+      boolean var13 = false;
+      var13 = true;
       if (GameTime.instance.FPSMultiplier > 1.5F) {
-         var12 = true;
+         var13 = true;
       }
 
       if (this.minX != this.lastMinX || this.minY != this.lastMinY) {
          this.lightUpdateCount = 10;
       }
 
-      IsoGridSquare var13;
-      IsoGridSquare var14;
       if (!PerformanceSettings.NewRoofHiding) {
-         var13 = IsoCamera.CamCharacter == null ? null : IsoCamera.CamCharacter.getCurrentSquare();
-         if (var13 != null) {
-            var14 = this.getGridSquare((double)Math.round(IsoCamera.CamCharacter.getX()), (double)Math.round(IsoCamera.CamCharacter.getY()), (double)IsoCamera.CamCharacter.getZ());
-            if (var14 != null && this.IsBehindStuff(var14)) {
+         IsoGridSquare var14 = var12 == null ? null : var12.getCurrentSquare();
+         if (var14 != null) {
+            IsoGridSquare var15 = this.getGridSquare((double)Math.round(var12.getX()), (double)Math.round(var12.getY()), (double)var12.getZ());
+            if (var15 != null && this.IsBehindStuff(var15)) {
                this.bHideFloors[var1] = true;
             }
 
-            if (!this.bHideFloors[var1] && var13.getProperties().Is(IsoFlagType.hidewalls) || !var13.getProperties().Is(IsoFlagType.exterior)) {
+            if (!this.bHideFloors[var1] && var14.getProperties().Is(IsoFlagType.hidewalls) || !var14.getProperties().Is(IsoFlagType.exterior)) {
                this.bHideFloors[var1] = true;
             }
          }
 
          if (this.bHideFloors[var1]) {
-            this.maxZ = (int)IsoCamera.CamCharacter.getZ() + 1;
+            this.maxZ = (int)var12.getZ() + 1;
          }
       }
 
@@ -3451,24 +3433,21 @@ public final class IsoCell {
          this.DrawStencilMask();
       }
 
-      int var15;
-      int var30;
-      int var31;
+      int var19;
       if (PerformanceSettings.LightingFrameSkip == 3) {
-         var30 = IsoCamera.getOffscreenWidth(var1) / 2;
-         var31 = IsoCamera.getOffscreenHeight(var1) / 2;
-         var15 = 409;
-         var30 -= var15 / (2 / Core.TileScale);
-         var31 -= var15 / (2 / Core.TileScale);
-         this.StencilX1 = var30 - (int)IsoCamera.cameras[var1].RightClickX;
-         this.StencilY1 = var31 - (int)IsoCamera.cameras[var1].RightClickY;
-         this.StencilX2 = this.StencilX1 + var15 * Core.TileScale;
-         this.StencilY2 = this.StencilY1 + var15 * Core.TileScale;
+         var19 = IsoCamera.getOffscreenWidth(var1) / 2;
+         int var20 = IsoCamera.getOffscreenHeight(var1) / 2;
+         short var16 = 409;
+         var19 -= var16 / (2 / Core.TileScale);
+         var20 -= var16 / (2 / Core.TileScale);
+         this.StencilX1 = var19 - (int)IsoCamera.cameras[var1].RightClickX;
+         this.StencilY1 = var20 - (int)IsoCamera.cameras[var1].RightClickY;
+         this.StencilX2 = this.StencilX1 + var16 * Core.TileScale;
+         this.StencilY2 = this.StencilY1 + var16 * Core.TileScale;
       }
 
       if (PerformanceSettings.NewRoofHiding && var2.dirtyRecalcGridStack) {
          this.hidesOrphanStructuresAbove = var3;
-         var13 = null;
          ((ArrayList)this.otherOccluderBuildings.get(var1)).clear();
          if (this.otherOccluderBuildingsArr[var1] != null) {
             this.otherOccluderBuildingsArr[var1][0] = null;
@@ -3476,221 +3455,22 @@ public final class IsoCell {
             this.otherOccluderBuildingsArr[var1] = new IsoBuilding[500];
          }
 
-         if (IsoCamera.CamCharacter != null && IsoCamera.CamCharacter.getCurrentSquare() != null) {
-            var14 = IsoCamera.CamCharacter.getCurrentSquare();
-            var15 = 10;
-            if (this.ZombieList.size() < 10) {
-               var15 = this.ZombieList.size();
-            }
-
-            if (this.nearestVisibleZombie[var1] != null) {
-               if (this.nearestVisibleZombie[var1].isDead()) {
-                  this.nearestVisibleZombie[var1] = null;
-               } else {
-                  float var16 = this.nearestVisibleZombie[var1].x - IsoCamera.CamCharacter.x;
-                  float var17 = this.nearestVisibleZombie[var1].y - IsoCamera.CamCharacter.y;
-                  this.nearestVisibleZombieDistSqr[var1] = var16 * var16 + var17 * var17;
-               }
-            }
-
-            IsoGridSquare var18;
-            int var34;
-            for(var34 = 0; var34 < var15; ++this.zombieScanCursor) {
-               if (this.zombieScanCursor >= this.ZombieList.size()) {
-                  this.zombieScanCursor = 0;
-               }
-
-               IsoZombie var37 = (IsoZombie)this.ZombieList.get(this.zombieScanCursor);
-               if (var37 != null) {
-                  var18 = var37.getCurrentSquare();
-                  if (var18 != null && var14.z == var18.z && var18.getCanSee(var1)) {
-                     float var19;
-                     float var20;
-                     if (this.nearestVisibleZombie[var1] == null) {
-                        this.nearestVisibleZombie[var1] = var37;
-                        var19 = this.nearestVisibleZombie[var1].x - IsoCamera.CamCharacter.x;
-                        var20 = this.nearestVisibleZombie[var1].y - IsoCamera.CamCharacter.y;
-                        this.nearestVisibleZombieDistSqr[var1] = var19 * var19 + var20 * var20;
-                     } else {
-                        var19 = var37.x - IsoCamera.CamCharacter.x;
-                        var20 = var37.y - IsoCamera.CamCharacter.y;
-                        float var21 = var19 * var19 + var20 * var20;
-                        if (var21 < this.nearestVisibleZombieDistSqr[var1]) {
-                           this.nearestVisibleZombie[var1] = var37;
-                           this.nearestVisibleZombieDistSqr[var1] = var21;
-                        }
-                     }
-                  }
-               }
-
-               ++var34;
-            }
-
-            IsoBuilding var25;
-            for(var34 = 0; var34 < 4; ++var34) {
-               IsoPlayer var38 = IsoPlayer.players[var34];
-               if (var38 != null && var38.getCurrentSquare() != null) {
-                  var18 = var38.getCurrentSquare();
-                  if (var34 == var1) {
-                     var13 = var18;
-                  }
-
-                  double var43 = (double)var38.x - Math.floor((double)var38.x);
-                  double var45 = (double)var38.y - Math.floor((double)var38.y);
-                  boolean var23 = var43 > var45;
-                  if (this.lastPlayerAngle[var34] == null) {
-                     this.lastPlayerAngle[var34] = new Vector2(var38.getForwardDirection());
-                     this.playerCutawaysDirty[var34] = true;
-                  } else if (var38.getForwardDirection().dot(this.lastPlayerAngle[var34]) < 0.98F) {
-                     this.lastPlayerAngle[var34].set(var38.getForwardDirection());
-                     this.playerCutawaysDirty[var34] = true;
-                  }
-
-                  IsoDirections var24 = IsoDirections.fromAngle(var38.getForwardDirection());
-                  if (this.lastPlayerSquare[var34] != var18 || this.lastPlayerSquareHalf[var34] != var23 || this.lastPlayerDir[var34] != var24) {
-                     this.playerCutawaysDirty[var34] = true;
-                     this.lastPlayerSquare[var34] = var18;
-                     this.lastPlayerSquareHalf[var34] = var23;
-                     this.lastPlayerDir[var34] = var24;
-                     var25 = var18.getBuilding();
-                     this.playerWindowPeekingRoomId[var34] = -1;
-                     this.GetBuildingsInFrontOfCharacter((ArrayList)this.playerOccluderBuildings.get(var34), var18, var23);
-                     if (this.playerOccluderBuildingsArr[var1] == null) {
-                        this.playerOccluderBuildingsArr[var1] = new IsoBuilding[500];
-                     }
-
-                     this.playerHidesOrphanStructures[var34] = this.bOccludedByOrphanStructureFlag;
-                     if (var25 == null && !var38.bRemote) {
-                        var25 = this.GetPeekedInBuilding(var18, var24);
-                        if (var25 != null) {
-                           this.playerWindowPeekingRoomId[var34] = this.playerPeekedRoomId;
-                        }
-                     }
-
-                     if (var25 != null) {
-                        this.AddUniqueToBuildingList((ArrayList)this.playerOccluderBuildings.get(var34), var25);
-                     }
-
-                     ArrayList var26 = (ArrayList)this.playerOccluderBuildings.get(var34);
-
-                     for(int var27 = 0; var27 < var26.size(); ++var27) {
-                        IsoBuilding var28 = (IsoBuilding)var26.get(var27);
-                        this.playerOccluderBuildingsArr[var1][var27] = var28;
-                     }
-
-                     this.playerOccluderBuildingsArr[var1][var26.size()] = null;
-                  }
-
-                  if (var34 == var1 && var13 != null) {
-                     this.gridSquaresTempLeft.clear();
-                     this.gridSquaresTempRight.clear();
-                     this.GetSquaresAroundPlayerSquare(var38, var13, this.gridSquaresTempLeft, this.gridSquaresTempRight);
-
-                     boolean[] var10000;
-                     int var48;
-                     IsoGridSquare var49;
-                     ArrayList var52;
-                     int var53;
-                     for(var48 = 0; var48 < this.gridSquaresTempLeft.size(); ++var48) {
-                        var49 = (IsoGridSquare)this.gridSquaresTempLeft.get(var48);
-                        if (var49.getCanSee(var1) && (var49.getBuilding() == null || var49.getBuilding() == var13.getBuilding())) {
-                           var52 = this.GetBuildingsInFrontOfMustSeeSquare(var49, IsoGridOcclusionData.OcclusionFilter.Right);
-
-                           for(var53 = 0; var53 < var52.size(); ++var53) {
-                              this.AddUniqueToBuildingList((ArrayList)this.otherOccluderBuildings.get(var1), (IsoBuilding)var52.get(var53));
-                           }
-
-                           var10000 = this.playerHidesOrphanStructures;
-                           var10000[var1] |= this.bOccludedByOrphanStructureFlag;
-                        }
-                     }
-
-                     for(var48 = 0; var48 < this.gridSquaresTempRight.size(); ++var48) {
-                        var49 = (IsoGridSquare)this.gridSquaresTempRight.get(var48);
-                        if (var49.getCanSee(var1) && (var49.getBuilding() == null || var49.getBuilding() == var13.getBuilding())) {
-                           var52 = this.GetBuildingsInFrontOfMustSeeSquare(var49, IsoGridOcclusionData.OcclusionFilter.Left);
-
-                           for(var53 = 0; var53 < var52.size(); ++var53) {
-                              this.AddUniqueToBuildingList((ArrayList)this.otherOccluderBuildings.get(var1), (IsoBuilding)var52.get(var53));
-                           }
-
-                           var10000 = this.playerHidesOrphanStructures;
-                           var10000[var1] |= this.bOccludedByOrphanStructureFlag;
-                        }
-                     }
-
-                     ArrayList var51 = (ArrayList)this.otherOccluderBuildings.get(var1);
-                     if (this.otherOccluderBuildingsArr[var1] == null) {
-                        this.otherOccluderBuildingsArr[var1] = new IsoBuilding[500];
-                     }
-
-                     for(int var50 = 0; var50 < var51.size(); ++var50) {
-                        IsoBuilding var54 = (IsoBuilding)var51.get(var50);
-                        this.otherOccluderBuildingsArr[var1][var50] = var54;
-                     }
-
-                     this.otherOccluderBuildingsArr[var1][var51.size()] = null;
-                  }
-
-                  if (this.playerHidesOrphanStructures[var34] && this.hidesOrphanStructuresAbove > var18.getZ()) {
-                     this.hidesOrphanStructuresAbove = var18.getZ();
-                  }
-               }
-            }
-
-            if (var13 != null && this.hidesOrphanStructuresAbove < var13.getZ()) {
-               this.hidesOrphanStructuresAbove = var13.getZ();
-            }
-
-            boolean var39 = false;
-            if (this.nearestVisibleZombie[var1] != null && this.nearestVisibleZombieDistSqr[var1] < 150.0F) {
-               IsoGridSquare var40 = this.nearestVisibleZombie[var1].getCurrentSquare();
-               if (var40 != null && var40.getCanSee(var1)) {
-                  double var42 = (double)this.nearestVisibleZombie[var1].x - Math.floor((double)this.nearestVisibleZombie[var1].x);
-                  double var44 = (double)this.nearestVisibleZombie[var1].y - Math.floor((double)this.nearestVisibleZombie[var1].y);
-                  boolean var22 = var42 > var44;
-                  var39 = true;
-                  if (this.lastZombieSquare[var1] != var40 || this.lastZombieSquareHalf[var1] != var22) {
-                     this.lastZombieSquare[var1] = var40;
-                     this.lastZombieSquareHalf[var1] = var22;
-                     this.GetBuildingsInFrontOfCharacter((ArrayList)this.zombieOccluderBuildings.get(var1), var40, var22);
-                     ArrayList var46 = (ArrayList)this.zombieOccluderBuildings.get(var1);
-                     if (this.zombieOccluderBuildingsArr[var1] == null) {
-                        this.zombieOccluderBuildingsArr[var1] = new IsoBuilding[500];
-                     }
-
-                     for(int var47 = 0; var47 < var46.size(); ++var47) {
-                        var25 = (IsoBuilding)var46.get(var47);
-                        this.zombieOccluderBuildingsArr[var1][var47] = var25;
-                     }
-
-                     this.zombieOccluderBuildingsArr[var1][var46.size()] = null;
-                  }
-               }
-            }
-
-            if (!var39) {
-               ((ArrayList)this.zombieOccluderBuildings.get(var1)).clear();
-               if (this.zombieOccluderBuildingsArr[var1] != null) {
-                  this.zombieOccluderBuildingsArr[var1][0] = null;
-               } else {
-                  this.zombieOccluderBuildingsArr[var1] = new IsoBuilding[500];
-               }
-            }
+         if (var12 != null && var12.getCurrentSquare() != null) {
+            GameProfiler.getInstance().invokeAndMeasure("updateZombies", var12, var1, this::updateZombiesForRender);
          } else {
-            for(var31 = 0; var31 < 4; ++var31) {
-               ((ArrayList)this.playerOccluderBuildings.get(var31)).clear();
-               if (this.playerOccluderBuildingsArr[var31] != null) {
-                  this.playerOccluderBuildingsArr[var31][0] = null;
+            for(var19 = 0; var19 < 4; ++var19) {
+               ((ArrayList)this.playerOccluderBuildings.get(var19)).clear();
+               if (this.playerOccluderBuildingsArr[var19] != null) {
+                  this.playerOccluderBuildingsArr[var19][0] = null;
                } else {
-                  this.playerOccluderBuildingsArr[var31] = new IsoBuilding[500];
+                  this.playerOccluderBuildingsArr[var19] = new IsoBuilding[500];
                }
 
-               this.lastPlayerSquare[var31] = null;
-               this.playerCutawaysDirty[var31] = true;
+               this.lastPlayerSquare[var19] = null;
+               this.playerCutawaysDirty[var19] = true;
             }
 
-            this.playerWindowPeekingRoomId[var1] = -1;
+            this.playerWindowPeekingRoomId[var1] = -1L;
             ((ArrayList)this.zombieOccluderBuildings.get(var1)).clear();
             if (this.zombieOccluderBuildingsArr[var1] != null) {
                this.zombieOccluderBuildingsArr[var1][0] = null;
@@ -3703,69 +3483,279 @@ public final class IsoCell {
       }
 
       if (!PerformanceSettings.NewRoofHiding) {
-         for(var30 = 0; var30 < IsoPlayer.numPlayers; ++var30) {
-            this.playerWindowPeekingRoomId[var30] = -1;
-            IsoPlayer var32 = IsoPlayer.players[var30];
-            if (var32 != null) {
-               IsoBuilding var33 = var32.getCurrentBuilding();
-               if (var33 == null) {
-                  IsoDirections var41 = IsoDirections.fromAngle(var32.getForwardDirection());
-                  var33 = this.GetPeekedInBuilding(var32.getCurrentSquare(), var41);
-                  if (var33 != null) {
-                     this.playerWindowPeekingRoomId[var30] = this.playerPeekedRoomId;
+         for(var19 = 0; var19 < IsoPlayer.numPlayers; ++var19) {
+            this.playerWindowPeekingRoomId[var19] = -1L;
+            IsoPlayer var21 = IsoPlayer.players[var19];
+            if (var21 != null) {
+               IsoBuilding var22 = var21.getCurrentBuilding();
+               if (var22 == null) {
+                  IsoDirections var17 = IsoDirections.fromAngle(var21.getForwardDirection());
+                  var22 = this.GetPeekedInBuilding(var21.getCurrentSquare(), var17);
+                  if (var22 != null) {
+                     this.playerWindowPeekingRoomId[var19] = this.playerPeekedRoomId;
                   }
                }
             }
          }
       }
 
-      if (IsoCamera.CamCharacter != null && IsoCamera.CamCharacter.getCurrentSquare() != null && IsoCamera.CamCharacter.getCurrentSquare().getProperties().Is(IsoFlagType.hidewalls)) {
-         this.maxZ = (int)IsoCamera.CamCharacter.getZ() + 1;
+      if (var12 != null && var12.getCurrentSquare() != null && var12.getCurrentSquare().getProperties().Is(IsoFlagType.hidewalls)) {
+         this.maxZ = (int)var12.getZ() + 1;
       }
 
       this.bRendering = true;
 
       try {
          this.RenderTiles(var3);
-      } catch (Exception var29) {
+      } catch (Exception var18) {
          this.bRendering = false;
-         Logger.getLogger(GameWindow.class.getName()).log(Level.SEVERE, (String)null, var29);
+         Logger.getLogger(GameWindow.class.getName()).log(Level.SEVERE, (String)null, var18);
       }
 
       this.bRendering = false;
-      if (IsoGridSquare.getRecalcLightTime() < 0) {
-         IsoGridSquare.setRecalcLightTime(60);
+      if (IsoGridSquare.getRecalcLightTime() < 0.0F) {
+         IsoGridSquare.setRecalcLightTime(60.0F);
       }
 
       if (IsoGridSquare.getLightcache() <= 0) {
          IsoGridSquare.setLightcache(90);
       }
 
-      for(var30 = 0; var30 < this.ObjectList.size(); ++var30) {
-         IsoMovingObject var35 = (IsoMovingObject)this.ObjectList.get(var30);
-         var35.renderlast();
-      }
-
-      for(var30 = 0; var30 < this.StaticUpdaterObjectList.size(); ++var30) {
-         IsoObject var36 = (IsoObject)this.StaticUpdaterObjectList.get(var30);
-         var36.renderlast();
-      }
-
+      GameProfiler.getInstance().invokeAndMeasure("renderLast", this::renderLast);
       IsoTree.renderChopTreeIndicators();
       if (Core.bDebug) {
       }
 
       this.lastMinX = this.minX;
       this.lastMinY = this.minY;
-      this.DoBuilding(IsoPlayer.getPlayerIndex(), true);
-      this.renderRain();
+      GameProfiler.getInstance().invokeAndMeasure("DoBuilding", IsoPlayer.getPlayerIndex(), true, this::DoBuilding);
+      GameProfiler.getInstance().invokeAndMeasure("renderRain", this::renderRain);
+   }
+
+   private void renderLast() {
+      int var1;
+      for(var1 = 0; var1 < this.ObjectList.size(); ++var1) {
+         IsoMovingObject var2 = (IsoMovingObject)this.ObjectList.get(var1);
+         var2.renderlast();
+      }
+
+      for(var1 = 0; var1 < this.StaticUpdaterObjectList.size(); ++var1) {
+         IsoObject var3 = (IsoObject)this.StaticUpdaterObjectList.get(var1);
+         var3.renderlast();
+      }
+
+   }
+
+   private void updateZombiesForRender(IsoGameCharacter var1, int var2) {
+      IsoGridSquare var3 = var1.getCurrentSquare();
+      IsoGridSquare var4 = null;
+      int var5 = 10;
+      if (this.ZombieList.size() < 10) {
+         var5 = this.ZombieList.size();
+      }
+
+      if (this.nearestVisibleZombie[var2] != null) {
+         if (this.nearestVisibleZombie[var2].isDead()) {
+            this.nearestVisibleZombie[var2] = null;
+         } else {
+            float var6 = this.nearestVisibleZombie[var2].getX() - var1.getX();
+            float var7 = this.nearestVisibleZombie[var2].getY() - var1.getY();
+            this.nearestVisibleZombieDistSqr[var2] = var6 * var6 + var7 * var7;
+         }
+      }
+
+      IsoGridSquare var8;
+      int var19;
+      for(var19 = 0; var19 < var5; ++this.zombieScanCursor) {
+         if (this.zombieScanCursor >= this.ZombieList.size()) {
+            this.zombieScanCursor = 0;
+         }
+
+         IsoZombie var20 = (IsoZombie)this.ZombieList.get(this.zombieScanCursor);
+         if (var20 != null) {
+            var8 = var20.getCurrentSquare();
+            if (var8 != null && var3.z == var8.z && var8.getCanSee(var2)) {
+               float var9;
+               float var10;
+               if (this.nearestVisibleZombie[var2] == null) {
+                  this.nearestVisibleZombie[var2] = var20;
+                  var9 = this.nearestVisibleZombie[var2].getX() - var1.getX();
+                  var10 = this.nearestVisibleZombie[var2].getY() - var1.getY();
+                  this.nearestVisibleZombieDistSqr[var2] = var9 * var9 + var10 * var10;
+               } else {
+                  var9 = var20.getX() - var1.getX();
+                  var10 = var20.getY() - var1.getY();
+                  float var11 = var9 * var9 + var10 * var10;
+                  if (var11 < this.nearestVisibleZombieDistSqr[var2]) {
+                     this.nearestVisibleZombie[var2] = var20;
+                     this.nearestVisibleZombieDistSqr[var2] = var11;
+                  }
+               }
+            }
+         }
+
+         ++var19;
+      }
+
+      IsoBuilding var15;
+      for(var19 = 0; var19 < 4; ++var19) {
+         IsoPlayer var21 = IsoPlayer.players[var19];
+         if (var21 != null && var21.getCurrentSquare() != null) {
+            var8 = var21.getCurrentSquare();
+            if (var19 == var2) {
+               var4 = var8;
+            }
+
+            double var25 = (double)(var21.getX() - (float)PZMath.fastfloor(var21.getX()));
+            double var27 = (double)(var21.getY() - (float)PZMath.fastfloor(var21.getY()));
+            boolean var13 = var25 > var27;
+            if (this.lastPlayerAngle[var19] == null) {
+               this.lastPlayerAngle[var19] = new Vector2(var21.getForwardDirection());
+               this.playerCutawaysDirty[var19] = true;
+            } else if (var21.getForwardDirection().dot(this.lastPlayerAngle[var19]) < 0.98F) {
+               this.lastPlayerAngle[var19].set(var21.getForwardDirection());
+               this.playerCutawaysDirty[var19] = true;
+            }
+
+            IsoDirections var14 = IsoDirections.fromAngle(var21.getForwardDirection());
+            if (this.lastPlayerSquare[var19] != var8 || this.lastPlayerSquareHalf[var19] != var13 || this.lastPlayerDir[var19] != var14) {
+               this.playerCutawaysDirty[var19] = true;
+               this.lastPlayerSquare[var19] = var8;
+               this.lastPlayerSquareHalf[var19] = var13;
+               this.lastPlayerDir[var19] = var14;
+               var15 = var8.getBuilding();
+               this.playerWindowPeekingRoomId[var19] = -1L;
+               this.GetBuildingsInFrontOfCharacter((ArrayList)this.playerOccluderBuildings.get(var19), var8, var13);
+               if (this.playerOccluderBuildingsArr[var2] == null) {
+                  this.playerOccluderBuildingsArr[var2] = new IsoBuilding[500];
+               }
+
+               this.playerHidesOrphanStructures[var19] = this.bOccludedByOrphanStructureFlag;
+               if (var15 == null && !var21.bRemote) {
+                  var15 = this.GetPeekedInBuilding(var8, var14);
+                  if (var15 != null) {
+                     this.playerWindowPeekingRoomId[var19] = this.playerPeekedRoomId;
+                  }
+               }
+
+               if (var15 != null) {
+                  this.AddUniqueToBuildingList((ArrayList)this.playerOccluderBuildings.get(var19), var15);
+               }
+
+               ArrayList var16 = (ArrayList)this.playerOccluderBuildings.get(var19);
+
+               for(int var17 = 0; var17 < var16.size(); ++var17) {
+                  IsoBuilding var18 = (IsoBuilding)var16.get(var17);
+                  this.playerOccluderBuildingsArr[var2][var17] = var18;
+               }
+
+               this.playerOccluderBuildingsArr[var2][var16.size()] = null;
+            }
+
+            if (var19 == var2 && var4 != null) {
+               this.gridSquaresTempLeft.clear();
+               this.gridSquaresTempRight.clear();
+               this.GetSquaresAroundPlayerSquare(var21, var4, this.gridSquaresTempLeft, this.gridSquaresTempRight);
+
+               boolean[] var10000;
+               int var30;
+               IsoGridSquare var31;
+               ArrayList var34;
+               int var35;
+               for(var30 = 0; var30 < this.gridSquaresTempLeft.size(); ++var30) {
+                  var31 = (IsoGridSquare)this.gridSquaresTempLeft.get(var30);
+                  if (var31.getCanSee(var2) && (var31.getBuilding() == null || var31.getBuilding() == var4.getBuilding())) {
+                     var34 = this.GetBuildingsInFrontOfMustSeeSquare(var31, IsoGridOcclusionData.OcclusionFilter.Right);
+
+                     for(var35 = 0; var35 < var34.size(); ++var35) {
+                        this.AddUniqueToBuildingList((ArrayList)this.otherOccluderBuildings.get(var2), (IsoBuilding)var34.get(var35));
+                     }
+
+                     var10000 = this.playerHidesOrphanStructures;
+                     var10000[var2] |= this.bOccludedByOrphanStructureFlag;
+                  }
+               }
+
+               for(var30 = 0; var30 < this.gridSquaresTempRight.size(); ++var30) {
+                  var31 = (IsoGridSquare)this.gridSquaresTempRight.get(var30);
+                  if (var31.getCanSee(var2) && (var31.getBuilding() == null || var31.getBuilding() == var4.getBuilding())) {
+                     var34 = this.GetBuildingsInFrontOfMustSeeSquare(var31, IsoGridOcclusionData.OcclusionFilter.Left);
+
+                     for(var35 = 0; var35 < var34.size(); ++var35) {
+                        this.AddUniqueToBuildingList((ArrayList)this.otherOccluderBuildings.get(var2), (IsoBuilding)var34.get(var35));
+                     }
+
+                     var10000 = this.playerHidesOrphanStructures;
+                     var10000[var2] |= this.bOccludedByOrphanStructureFlag;
+                  }
+               }
+
+               ArrayList var33 = (ArrayList)this.otherOccluderBuildings.get(var2);
+               if (this.otherOccluderBuildingsArr[var2] == null) {
+                  this.otherOccluderBuildingsArr[var2] = new IsoBuilding[500];
+               }
+
+               for(int var32 = 0; var32 < var33.size(); ++var32) {
+                  IsoBuilding var36 = (IsoBuilding)var33.get(var32);
+                  this.otherOccluderBuildingsArr[var2][var32] = var36;
+               }
+
+               this.otherOccluderBuildingsArr[var2][var33.size()] = null;
+            }
+
+            if (this.playerHidesOrphanStructures[var19] && this.hidesOrphanStructuresAbove > var8.getZ()) {
+               this.hidesOrphanStructuresAbove = var8.getZ();
+            }
+         }
+      }
+
+      if (var4 != null && this.hidesOrphanStructuresAbove < var4.getZ()) {
+         this.hidesOrphanStructuresAbove = var4.getZ();
+      }
+
+      boolean var22 = false;
+      if (this.nearestVisibleZombie[var2] != null && this.nearestVisibleZombieDistSqr[var2] < 150.0F) {
+         IsoGridSquare var23 = this.nearestVisibleZombie[var2].getCurrentSquare();
+         if (var23 != null && var23.getCanSee(var2)) {
+            double var24 = (double)(this.nearestVisibleZombie[var2].getX() - (float)PZMath.fastfloor(this.nearestVisibleZombie[var2].getX()));
+            double var26 = (double)(this.nearestVisibleZombie[var2].getY() - (float)PZMath.fastfloor(this.nearestVisibleZombie[var2].getY()));
+            boolean var12 = var24 > var26;
+            var22 = true;
+            if (this.lastZombieSquare[var2] != var23 || this.lastZombieSquareHalf[var2] != var12) {
+               this.lastZombieSquare[var2] = var23;
+               this.lastZombieSquareHalf[var2] = var12;
+               this.GetBuildingsInFrontOfCharacter((ArrayList)this.zombieOccluderBuildings.get(var2), var23, var12);
+               ArrayList var28 = (ArrayList)this.zombieOccluderBuildings.get(var2);
+               if (this.zombieOccluderBuildingsArr[var2] == null) {
+                  this.zombieOccluderBuildingsArr[var2] = new IsoBuilding[500];
+               }
+
+               for(int var29 = 0; var29 < var28.size(); ++var29) {
+                  var15 = (IsoBuilding)var28.get(var29);
+                  this.zombieOccluderBuildingsArr[var2][var29] = var15;
+               }
+
+               this.zombieOccluderBuildingsArr[var2][var28.size()] = null;
+            }
+         }
+      }
+
+      if (!var22) {
+         ((ArrayList)this.zombieOccluderBuildings.get(var2)).clear();
+         if (this.zombieOccluderBuildingsArr[var2] != null) {
+            this.zombieOccluderBuildingsArr[var2][0] = null;
+         } else {
+            this.zombieOccluderBuildingsArr[var2] = new IsoBuilding[500];
+         }
+      }
+
    }
 
    public void invalidatePeekedRoom(int var1) {
       this.lastPlayerDir[var1] = IsoDirections.Max;
    }
 
-   private boolean initWeatherFx() {
+   protected boolean initWeatherFx() {
       if (GameServer.bServer) {
          return false;
       } else {
@@ -3796,7 +3786,7 @@ public final class IsoCell {
       return this.weatherFX;
    }
 
-   private void renderRain() {
+   public void renderRain() {
    }
 
    public void setRainAlpha(int var1) {
@@ -3807,6 +3797,10 @@ public final class IsoCell {
       this.rainIntensity = var1;
    }
 
+   public int getRainIntensity() {
+      return this.rainIntensity;
+   }
+
    public void setRainSpeed(int var1) {
       this.rainSpeed = var1;
    }
@@ -3814,7 +3808,7 @@ public final class IsoCell {
    public void reloadRainTextures() {
    }
 
-   private void GetBuildingsInFrontOfCharacter(ArrayList<IsoBuilding> var1, IsoGridSquare var2, boolean var3) {
+   public void GetBuildingsInFrontOfCharacter(ArrayList<IsoBuilding> var1, IsoGridSquare var2, boolean var3) {
       var1.clear();
       this.bOccludedByOrphanStructureFlag = false;
       if (var2 != null) {
@@ -3857,14 +3851,14 @@ public final class IsoCell {
       }
    }
 
-   private ArrayList<IsoBuilding> GetBuildingsInFrontOfMustSeeSquare(IsoGridSquare var1, IsoGridOcclusionData.OcclusionFilter var2) {
+   public ArrayList<IsoBuilding> GetBuildingsInFrontOfMustSeeSquare(IsoGridSquare var1, IsoGridOcclusionData.OcclusionFilter var2) {
       IsoGridOcclusionData var3 = var1.getOrCreateOcclusionData();
       this.bOccludedByOrphanStructureFlag = var3.getCouldBeOccludedByOrphanStructures(IsoGridOcclusionData.OcclusionFilter.All);
       return var3.getBuildingsCouldBeOccluders(var2);
    }
 
-   private IsoBuilding GetPeekedInBuilding(IsoGridSquare var1, IsoDirections var2) {
-      this.playerPeekedRoomId = -1;
+   public IsoBuilding GetPeekedInBuilding(IsoGridSquare var1, IsoDirections var2) {
+      this.playerPeekedRoomId = -1L;
       if (var1 == null) {
          return null;
       } else {
@@ -3918,18 +3912,18 @@ public final class IsoCell {
       }
    }
 
-   void GetSquaresAroundPlayerSquare(IsoPlayer var1, IsoGridSquare var2, ArrayList<IsoGridSquare> var3, ArrayList<IsoGridSquare> var4) {
-      float var5 = var1.x - 4.0F;
-      float var6 = var1.y - 4.0F;
-      int var7 = (int)var5;
-      int var8 = (int)var6;
+   public void GetSquaresAroundPlayerSquare(IsoPlayer var1, IsoGridSquare var2, ArrayList<IsoGridSquare> var3, ArrayList<IsoGridSquare> var4) {
+      float var5 = var1.getX() - 4.0F;
+      float var6 = var1.getY() - 4.0F;
+      int var7 = PZMath.fastfloor(var5);
+      int var8 = PZMath.fastfloor(var6);
       int var9 = var2.getZ();
 
       for(int var10 = var8; var10 < var8 + 10; ++var10) {
          for(int var11 = var7; var11 < var7 + 10; ++var11) {
-            if ((var11 >= (int)var1.x || var10 >= (int)var1.y) && (var11 != (int)var1.x || var10 != (int)var1.y)) {
-               float var12 = (float)var11 - var1.x;
-               float var13 = (float)var10 - var1.y;
+            if ((var11 >= PZMath.fastfloor(var1.getX()) || var10 >= PZMath.fastfloor(var1.getY())) && (var11 != PZMath.fastfloor(var1.getX()) || var10 != PZMath.fastfloor(var1.getY()))) {
+               float var12 = (float)var11 - var1.getX();
+               float var13 = (float)var10 - var1.getY();
                if ((double)var13 < (double)var12 + 4.5 && (double)var13 > (double)var12 - 4.5) {
                   IsoGridSquare var14 = this.getGridSquare(var11, var10, var9);
                   if (var14 != null) {
@@ -3948,11 +3942,11 @@ public final class IsoCell {
 
    }
 
-   private boolean IsBehindStuff(IsoGridSquare var1) {
+   public boolean IsBehindStuff(IsoGridSquare var1) {
       if (!var1.getProperties().Is(IsoFlagType.exterior)) {
          return true;
       } else {
-         for(int var2 = 1; var2 < 8 && var1.getZ() + var2 < MaxHeight; ++var2) {
+         for(int var2 = 1; var2 < 64 && var1.getZ() + var2 < MaxHeight; ++var2) {
             for(int var3 = -5; var3 <= 6; ++var3) {
                for(int var4 = -5; var4 <= 6; ++var4) {
                   if (var4 >= var3 - 5 && var4 <= var3 + 5) {
@@ -4001,37 +3995,57 @@ public final class IsoCell {
 
    private void updateInternal() {
       MovingObjectUpdateScheduler.instance.startFrame();
-      IsoSprite.alphaStep = 0.075F * (GameTime.getInstance().getMultiplier() / 1.6F);
+      IsoSprite.alphaStep = 0.075F * GameTime.getInstance().getThirtyFPSMultiplier();
       ++IsoGridSquare.gridSquareCacheEmptyTimer;
-      this.ProcessSpottedRooms();
+      GameProfiler.getInstance().invokeAndMeasure("SpottedRooms", this::ProcessSpottedRooms);
       if (!GameServer.bServer) {
          for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
             if (IsoPlayer.players[var1] != null && (!IsoPlayer.players[var1].isDead() || IsoPlayer.players[var1].ReanimatedCorpse != null)) {
                IsoPlayer.setInstance(IsoPlayer.players[var1]);
-               IsoCamera.CamCharacter = IsoPlayer.players[var1];
+               IsoCamera.setCameraCharacter(IsoPlayer.players[var1]);
                this.ChunkMap[var1].update();
             }
          }
       }
 
+      Object var2 = null;
       this.ProcessRemoveItems((Iterator)null);
-      this.ProcessItems((Iterator)null);
+      if (!GameClient.bClient && !GameServer.bServer || GameServer.bServer && System.currentTimeMillis() - this.lastServerItemsUpdate > 5000L) {
+         this.lastServerItemsUpdate = System.currentTimeMillis();
+         GameProfiler.getInstance().invokeAndMeasure("Items", (Object)null, this::ProcessItems);
+      }
+
       this.ProcessRemoveItems((Iterator)null);
-      this.ProcessIsoObject();
+      GameProfiler.getInstance().invokeAndMeasure("IsoObject", this::ProcessIsoObject);
       this.safeToAdd = false;
-      this.ProcessObjects((Iterator)null);
-      if (GameClient.bClient && (NetworkZombieSimulator.getInstance().anyUnknownZombies() && GameClient.instance.sendZombieRequestsTimer.Check() || GameClient.instance.sendZombieTimer.Check())) {
-         NetworkZombieSimulator.getInstance().send();
-         GameClient.instance.sendZombieTimer.Reset();
-         GameClient.instance.sendZombieRequestsTimer.Reset();
+      GameProfiler.getInstance().invokeAndMeasure("Objects", (Object)null, this::ProcessObjects);
+      GameProfiler var10000;
+      if (GameClient.bClient) {
+         if (NetworkZombieSimulator.getInstance().anyUnknownZombies() && GameClient.instance.sendZombieRequestsTimer.Check() || GameClient.instance.sendZombieTimer.Check()) {
+            NetworkZombieSimulator.getInstance().send();
+            GameClient.instance.sendZombieTimer.Reset();
+            GameClient.instance.sendZombieRequestsTimer.Reset();
+         }
+
+         var10000 = GameProfiler.getInstance();
+         AnimalSynchronizationManager var10002 = AnimalSynchronizationManager.getInstance();
+         Objects.requireNonNull(var10002);
+         var10000.invokeAndMeasure("Animal Sync", var10002::updateInternal);
+      }
+
+      if (var2 != null) {
+         var10000 = GameProfiler.getInstance();
+         Objects.requireNonNull(var2);
+         var10000.invokeAndMeasure("Items", var2::join);
       }
 
       this.safeToAdd = true;
-      this.ProcessStaticUpdaters();
+      GameProfiler.getInstance().invokeAndMeasure("Static Updaters", this::ProcessStaticUpdaters);
       this.ObjectDeletionAddition();
-      IsoDeadBody.updateBodies();
+      GameProfiler.getInstance().invokeAndMeasure("Update Dead Bodies", IsoDeadBody::updateBodies);
+      GameProfiler.getInstance().invokeAndMeasure("Update Fish", FishSchoolManager.getInstance(), FishSchoolManager::update);
       IsoGridSquare.setLightcache(IsoGridSquare.getLightcache() - 1);
-      IsoGridSquare.setRecalcLightTime(IsoGridSquare.getRecalcLightTime() - 1);
+      IsoGridSquare.setRecalcLightTime(IsoGridSquare.getRecalcLightTime() - GameTime.getInstance().getThirtyFPSMultiplier());
       if (GameServer.bServer) {
          this.LamppostPositions.clear();
          this.roomLights.clear();
@@ -4045,7 +4059,7 @@ public final class IsoCell {
       }
 
       if (!GameServer.bServer) {
-         this.updateWeatherFx();
+         GameProfiler.getInstance().invokeAndMeasure("Update Weather", this, IsoCell::updateWeatherFx);
       }
 
    }
@@ -4144,35 +4158,42 @@ public final class IsoCell {
                var3.def.bDoneSpawn = true;
                LuaEventManager.triggerEvent("OnSeeNewRoom", var3);
                VirtualZombieManager.instance.roomSpotted(var3);
-               if (!GameClient.bClient && !Core.bLastStand && ("shed".equals(var3.def.name) || "garagestorage".equals(var3.def.name) || "storageunit".equals(var3.def.name))) {
+               if (!GameClient.bClient && !Core.bLastStand && ("shed".equals(var3.def.name) || "garage".equals(var3.def.name) || "garagestorage".equals(var3.def.name) || "storageunit".equals(var3.def.name) || "farmstorage".equals(var3.def.name))) {
                   int var4 = 7;
-                  if ("shed".equals(var3.def.name) || "garagestorage".equals(var3.def.name)) {
+                  if ("shed".equals(var3.def.name) || "garagestorage".equals(var3.def.name) || "farmstorage".equals(var3.def.name)) {
                      var4 = 4;
                   }
 
                   switch (SandboxOptions.instance.GeneratorSpawning.getValue()) {
                      case 1:
-                        var4 += 3;
+                        var4 = 0;
                         break;
                      case 2:
-                        var4 += 2;
+                        var4 += 20;
+                        break;
                      case 3:
-                     default:
+                        var4 += 3;
                         break;
                      case 4:
+                        var4 += 2;
+                     case 5:
+                     default:
+                        break;
+                     case 6:
                         var4 -= 2;
                         break;
-                     case 5:
+                     case 7:
                         var4 -= 3;
                   }
 
-                  if (Rand.Next(var4) == 0) {
-                     IsoGridSquare var5 = var3.getRandomFreeSquare();
+                  if (var4 != 0 && Rand.Next(var4) == 0) {
+                     var3.spawnRandomWorkstation();
+                  }
+
+                  if (var4 != 0 && Rand.Next(var4) == 0) {
+                     IsoGridSquare var5 = var3.getRandomDoorFreeSquare();
                      if (var5 != null) {
-                        IsoGenerator var6 = new IsoGenerator(InventoryItemFactory.CreateItem("Base.Generator"), this, var5);
-                        if (GameServer.bServer) {
-                           var6.transmitCompleteItemToClients();
-                        }
+                        var5.spawnRandomGenerator();
                      }
                   }
                }
@@ -4183,12 +4204,16 @@ public final class IsoCell {
       }
    }
 
-   public void savePlayer() throws IOException {
-      if (IsoPlayer.players[0] != null && !IsoPlayer.players[0].isDead()) {
-         IsoPlayer.players[0].save();
+   public IsoObject addTileObject(IsoGridSquare var1, String var2) {
+      if (var1 == null) {
+         return null;
+      } else {
+         IsoObject var3 = IsoObject.getNew(var1, var2, (String)null, false);
+         var1.AddTileObject(var3);
+         MapObjects.newGridSquare(var1);
+         MapObjects.loadGridSquare(var1);
+         return var3;
       }
-
-      GameClient.instance.sendPlayerSave(IsoPlayer.players[0]);
    }
 
    public void save(DataOutputStream var1, boolean var2) throws IOException {
@@ -4246,21 +4271,15 @@ public final class IsoCell {
                   SliceY.SliceBuffer.rewind();
                }
 
-               if (var1 >= 69) {
-                  String var11 = GameWindow.ReadString(SliceY.SliceBuffer);
-                  if (GameClient.bClient && var1 < 71) {
-                     var11 = ServerOptions.instance.ServerPlayerID.getValue();
-                  }
-
-                  if (GameClient.bClient && !IsoPlayer.isServerPlayerIDValid(var11)) {
-                     GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_ServerPlayerIDMismatch");
-                     GameLoadingState.playerWrongIP = true;
-                     return false;
-                  }
+               String var11 = GameWindow.ReadString(SliceY.SliceBuffer);
+               if (GameClient.bClient && !IsoPlayer.isServerPlayerIDValid(var11)) {
+                  GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_ServerPlayerIDMismatch");
+                  GameLoadingState.playerWrongIP = true;
+                  return false;
                }
 
-               instance.ChunkMap[IsoPlayer.getPlayerIndex()].WorldX = SliceY.SliceBuffer.getInt() + IsoWorld.saveoffsetx * 30;
-               instance.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY = SliceY.SliceBuffer.getInt() + IsoWorld.saveoffsety * 30;
+               instance.ChunkMap[IsoPlayer.getPlayerIndex()].WorldX = SliceY.SliceBuffer.getInt() + IsoWorld.saveoffsetx * CellSizeInChunks;
+               instance.ChunkMap[IsoPlayer.getPlayerIndex()].WorldY = SliceY.SliceBuffer.getInt() + IsoWorld.saveoffsety * CellSizeInChunks;
                SliceY.SliceBuffer.getInt();
                SliceY.SliceBuffer.getInt();
                SliceY.SliceBuffer.getInt();
@@ -4284,10 +4303,10 @@ public final class IsoCell {
    public IsoGridSquare getRelativeGridSquare(int var1, int var2, int var3) {
       int var10000 = this.ChunkMap[0].getWorldXMin();
       IsoChunkMap var10001 = this.ChunkMap[0];
-      int var4 = var10000 * 10;
+      int var4 = var10000 * 8;
       var10000 = this.ChunkMap[0].getWorldYMin();
       var10001 = this.ChunkMap[0];
-      int var5 = var10000 * 10;
+      int var5 = var10000 * 8;
       var1 += var4;
       var2 += var5;
       return this.getGridSquare(var1, var2, var3);
@@ -4302,8 +4321,8 @@ public final class IsoCell {
             return var5;
          } else {
             if (GameServer.bServer) {
-               int var6 = var1 / 10;
-               int var7 = var2 / 10;
+               int var6 = var1 / 8;
+               int var7 = var2 / 8;
                if (ServerMap.instance.getChunk(var6, var7) != null) {
                   var5 = IsoGridSquare.getNew(this, (SliceY)null, var1, var2, var3);
                   ServerMap.instance.setGridSquare(var1, var2, var3, var5);
@@ -4324,7 +4343,7 @@ public final class IsoCell {
 
    public IsoGridSquare getGridSquareDirect(int var1, int var2, int var3, int var4) {
       int var5 = IsoChunkMap.ChunkWidthInTiles;
-      return this.gridSquares[var4][var1 + var2 * var5 + var3 * var5 * var5];
+      return this.ChunkMap[var4].getGridSquareDirect(var1, var2, var3);
    }
 
    public boolean isInChunkMap(int var1, int var2) {
@@ -4348,7 +4367,7 @@ public final class IsoCell {
    public void checkHaveRoof(int var1, int var2) {
       boolean var3 = false;
 
-      for(int var4 = 8; var4 >= 0; --var4) {
+      for(int var4 = 31; var4 >= 0; --var4) {
          IsoGridSquare var5 = this.getGridSquare(var1, var2, var4);
          if (var5 != null) {
             if (var3 != var5.haveRoof) {
@@ -4356,7 +4375,7 @@ public final class IsoCell {
                var5.RecalcAllWithNeighbours(true);
             }
 
-            if (var5.Is(IsoFlagType.solidfloor)) {
+            if (var5.hasRainBlockingTile()) {
                var3 = true;
             }
          }
@@ -4465,18 +4484,18 @@ public final class IsoCell {
 
    public void putInVehicle(IsoGameCharacter var1) {
       if (var1 != null && var1.savedVehicleSeat != -1) {
-         int var2 = ((int)var1.getX() - 4) / 10;
-         int var3 = ((int)var1.getY() - 4) / 10;
-         int var4 = ((int)var1.getX() + 4) / 10;
-         int var5 = ((int)var1.getY() + 4) / 10;
+         int var2 = (PZMath.fastfloor(var1.getX()) - 4) / 8;
+         int var3 = (PZMath.fastfloor(var1.getY()) - 4) / 8;
+         int var4 = (PZMath.fastfloor(var1.getX()) + 4) / 8;
+         int var5 = (PZMath.fastfloor(var1.getY()) + 4) / 8;
 
          for(int var6 = var3; var6 <= var5; ++var6) {
             for(int var7 = var2; var7 <= var4; ++var7) {
-               IsoChunk var8 = this.getChunkForGridSquare(var7 * 10, var6 * 10, (int)var1.getZ());
+               IsoChunk var8 = this.getChunkForGridSquare(var7 * 8, var6 * 8, PZMath.fastfloor(var1.getZ()));
                if (var8 != null) {
                   for(int var9 = 0; var9 < var8.vehicles.size(); ++var9) {
                      BaseVehicle var10 = (BaseVehicle)var8.vehicles.get(var9);
-                     if ((int)var10.getZ() == (int)var1.getZ() && IsoUtils.DistanceToSquared(var10.getX(), var10.getY(), var1.savedVehicleX, var1.savedVehicleY) < 0.010000001F) {
+                     if (PZMath.fastfloor(var10.getZ()) == PZMath.fastfloor(var1.getZ()) && IsoUtils.DistanceToSquared(var10.getX(), var10.getY(), var1.savedVehicleX, var1.savedVehicleY) < 0.010000001F) {
                         if (var10.VehicleID == -1) {
                            return;
                         }
@@ -4504,14 +4523,14 @@ public final class IsoCell {
    @Deprecated
    public void resumeVehicleSounds(IsoGameCharacter var1) {
       if (var1 != null && var1.savedVehicleSeat != -1) {
-         int var2 = ((int)var1.getX() - 4) / 10;
-         int var3 = ((int)var1.getY() - 4) / 10;
-         int var4 = ((int)var1.getX() + 4) / 10;
-         int var5 = ((int)var1.getY() + 4) / 10;
+         int var2 = (PZMath.fastfloor(var1.getX()) - 4) / 8;
+         int var3 = (PZMath.fastfloor(var1.getY()) - 4) / 8;
+         int var4 = (PZMath.fastfloor(var1.getX()) + 4) / 8;
+         int var5 = (PZMath.fastfloor(var1.getY()) + 4) / 8;
 
          for(int var6 = var3; var6 <= var5; ++var6) {
             for(int var7 = var2; var7 <= var4; ++var7) {
-               IsoChunk var8 = this.getChunkForGridSquare(var7 * 10, var6 * 10, (int)var1.getZ());
+               IsoChunk var8 = this.getChunkForGridSquare(var7 * 8, var6 * 8, PZMath.fastfloor(var1.getZ()));
                if (var8 != null) {
                   for(int var9 = 0; var9 < var8.vehicles.size(); ++var9) {
                      BaseVehicle var10 = (BaseVehicle)var8.vehicles.get(var9);
@@ -4526,7 +4545,7 @@ public final class IsoCell {
       }
    }
 
-   private void AddUniqueToBuildingList(ArrayList<IsoBuilding> var1, IsoBuilding var2) {
+   public void AddUniqueToBuildingList(ArrayList<IsoBuilding> var1, IsoBuilding var2) {
       for(int var3 = 0; var3 < var1.size(); ++var3) {
          if (var1.get(var3) == var2) {
             return;
@@ -4540,11 +4559,64 @@ public final class IsoCell {
       return IsoSpriteManager.instance;
    }
 
+   static {
+      CellSizeInSquares = 8 * CellSizeInChunks;
+      MaxHeight = 32;
+      stchoices = new ArrayList();
+      buildingscores = new Stack();
+      GridStack = null;
+      ShadowSquares = new ArrayList(1000);
+      MinusFloorCharacters = new ArrayList(1000);
+      SolidFloor = new ArrayList(5000);
+      ShadedFloor = new ArrayList(5000);
+      VegetationCorpses = new ArrayList(5000);
+      perPlayerRender = new PerPlayerRender[4];
+   }
+
+   public static class s_performance {
+      static final PerformanceProfileProbe isoCellUpdate = new PerformanceProfileProbe("IsoCell.update");
+      static final PerformanceProfileProbe isoCellRender = new PerformanceProfileProbe("IsoCell.render");
+      public static final PerformanceProfileProbe isoCellRenderTiles = new PerformanceProfileProbe("IsoCell.renderTiles");
+      static final PerformanceProfileProbe isoCellDoBuilding = new PerformanceProfileProbe("IsoCell.doBuilding");
+
+      public s_performance() {
+      }
+
+      public static class renderTiles {
+         public static final PerformanceProfileProbe performRenderTiles = new PerformanceProfileProbe("performRenderTiles");
+         public static final PerformanceProfileProbe recalculateAnyGridStacks = new PerformanceProfileProbe("recalculateAnyGridStacks");
+         public static final PerformanceProfileProbe flattenAnyFoliage = new PerformanceProfileProbe("flattenAnyFoliage");
+         public static final PerformanceProfileProbe renderDebugPhysics = new PerformanceProfileProbe("renderDebugPhysics");
+         public static final PerformanceProfileProbe renderDebugLighting = new PerformanceProfileProbe("renderDebugLighting");
+         static PerformanceProfileProbeList<PerformRenderTilesLayer> performRenderTilesLayers = PerformanceProfileProbeList.construct("performRenderTiles", 8, PerformRenderTilesLayer.class, PerformRenderTilesLayer::new);
+
+         public renderTiles() {
+         }
+
+         static class PerformRenderTilesLayer extends PerformanceProfileProbe {
+            final PerformanceProfileProbe renderIsoWater = new PerformanceProfileProbe("renderIsoWater");
+            final PerformanceProfileProbe renderFloor = new PerformanceProfileProbe("renderFloor");
+            final PerformanceProfileProbe renderPuddles = new PerformanceProfileProbe("renderPuddles");
+            final PerformanceProfileProbe renderShore = new PerformanceProfileProbe("renderShore");
+            final PerformanceProfileProbe renderSnow = new PerformanceProfileProbe("renderSnow");
+            final PerformanceProfileProbe renderBlood = new PerformanceProfileProbe("renderBlood");
+            final PerformanceProfileProbe vegetationCorpses = new PerformanceProfileProbe("vegetationCorpses");
+            final PerformanceProfileProbe renderFloorShading = new PerformanceProfileProbe("renderFloorShading");
+            final PerformanceProfileProbe renderShadows = new PerformanceProfileProbe("renderShadows");
+            final PerformanceProfileProbe luaOnPostFloorLayerDraw = new PerformanceProfileProbe("luaOnPostFloorLayerDraw");
+            final PerformanceProfileProbe minusFloorCharacters = new PerformanceProfileProbe("minusFloorCharacters");
+
+            PerformRenderTilesLayer(String var1) {
+               super(var1);
+            }
+         }
+      }
+   }
+
    public static final class PerPlayerRender {
-      public final IsoGridStack GridStacks = new IsoGridStack(9);
+      public final IsoGridStack GridStacks = new IsoGridStack(65);
       public boolean[][][] VisiOccludedFlags;
       public boolean[][] VisiCulledFlags;
-      public short[][][] StencilValues;
       public boolean[][] FlattenGrassEtc;
       public int minX;
       public int minY;
@@ -4558,50 +4630,9 @@ public final class IsoCell {
          if (this.VisiOccludedFlags == null || this.VisiOccludedFlags.length < var1 || this.VisiOccludedFlags[0].length < var2) {
             this.VisiOccludedFlags = new boolean[var1][var2][2];
             this.VisiCulledFlags = new boolean[var1][var2];
-            this.StencilValues = new short[var1][var2][2];
             this.FlattenGrassEtc = new boolean[var1][var2];
          }
 
-      }
-   }
-
-   private static class s_performance {
-      static final PerformanceProfileProbe isoCellUpdate = new PerformanceProfileProbe("IsoCell.update");
-      static final PerformanceProfileProbe isoCellRender = new PerformanceProfileProbe("IsoCell.render");
-      static final PerformanceProfileProbe isoCellRenderTiles = new PerformanceProfileProbe("IsoCell.renderTiles");
-      static final PerformanceProfileProbe isoCellDoBuilding = new PerformanceProfileProbe("IsoCell.doBuilding");
-
-      private s_performance() {
-      }
-
-      static class renderTiles {
-         static final PerformanceProfileProbe performRenderTiles = new PerformanceProfileProbe("performRenderTiles");
-         static final PerformanceProfileProbe recalculateAnyGridStacks = new PerformanceProfileProbe("recalculateAnyGridStacks");
-         static final PerformanceProfileProbe flattenAnyFoliage = new PerformanceProfileProbe("flattenAnyFoliage");
-         static final PerformanceProfileProbe renderDebugPhysics = new PerformanceProfileProbe("renderDebugPhysics");
-         static final PerformanceProfileProbe renderDebugLighting = new PerformanceProfileProbe("renderDebugLighting");
-         static PerformanceProfileProbeList<PperformRenderTilesLayer> performRenderTilesLayers = PerformanceProfileProbeList.construct("performRenderTiles", 8, PperformRenderTilesLayer.class, PperformRenderTilesLayer::new);
-
-         renderTiles() {
-         }
-
-         static class PperformRenderTilesLayer extends PerformanceProfileProbe {
-            final PerformanceProfileProbe renderIsoWater = new PerformanceProfileProbe("renderIsoWater");
-            final PerformanceProfileProbe renderFloor = new PerformanceProfileProbe("renderFloor");
-            final PerformanceProfileProbe renderPuddles = new PerformanceProfileProbe("renderPuddles");
-            final PerformanceProfileProbe renderShore = new PerformanceProfileProbe("renderShore");
-            final PerformanceProfileProbe renderSnow = new PerformanceProfileProbe("renderSnow");
-            final PerformanceProfileProbe renderBlood = new PerformanceProfileProbe("renderBlood");
-            final PerformanceProfileProbe vegetationCorpses = new PerformanceProfileProbe("vegetationCorpses");
-            final PerformanceProfileProbe renderFloorShading = new PerformanceProfileProbe("renderFloorShading");
-            final PerformanceProfileProbe renderShadows = new PerformanceProfileProbe("renderShadows");
-            final PerformanceProfileProbe luaOnPostFloorLayerDraw = new PerformanceProfileProbe("luaOnPostFloorLayerDraw");
-            final PerformanceProfileProbe minusFloorCharacters = new PerformanceProfileProbe("minusFloorCharacters");
-
-            PperformRenderTilesLayer(String var1) {
-               super(var1);
-            }
-         }
       }
    }
 

@@ -1,12 +1,10 @@
 package zombie.iso;
 
-import fmod.fmod.Audio;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import org.joml.Vector2f;
+import org.lwjgl.util.vector.Vector3f;
 import zombie.CollisionManager;
 import zombie.GameTime;
 import zombie.MovingObjectUpdateScheduler;
@@ -24,19 +22,27 @@ import zombie.ai.states.PathFindState;
 import zombie.ai.states.StaggerBackState;
 import zombie.ai.states.WalkTowardState;
 import zombie.ai.states.ZombieFallDownState;
-import zombie.ai.states.ZombieIdleState;
-import zombie.audio.BaseSoundEmitter;
+import zombie.ai.states.ZombieHitReactionState;
+import zombie.ai.states.animals.AnimalAttackState;
+import zombie.ai.states.animals.AnimalClimbOverFenceState;
+import zombie.ai.states.animals.AnimalZoneState;
+import zombie.audio.TreeSoundManager;
+import zombie.characters.Capability;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.Role;
 import zombie.characters.BodyDamage.BodyPart;
 import zombie.characters.BodyDamage.BodyPartType;
+import zombie.characters.Moodles.MoodleType;
+import zombie.characters.animals.AnimalPopulationManager;
+import zombie.characters.animals.IsoAnimal;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.model.Model;
-import zombie.core.textures.ColorInfo;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
@@ -56,16 +62,17 @@ import zombie.iso.objects.interfaces.Thumpable;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.iso.zones.Zone;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
 import zombie.network.ServerOptions;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.PolygonalMap2;
 import zombie.popman.ZombiePopulationManager;
 import zombie.util.StringUtils;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PolygonalMap2;
 
 public class IsoMovingObject extends IsoObject implements Mover {
    public static TreeSoundManager treeSoundMgr = new TreeSoundManager();
@@ -74,14 +81,15 @@ public class IsoMovingObject extends IsoObject implements Mover {
    private static final Vector2 tempo = new Vector2();
    public boolean noDamage = false;
    public IsoGridSquare last = null;
-   public float lx;
-   public float ly;
-   public float lz;
-   public float nx;
-   public float ny;
-   public float x;
-   public float y;
-   public float z;
+   private float m_lastX;
+   private float ly;
+   private float lz;
+   private float nx;
+   private float ny;
+   private float x;
+   private float y;
+   private float z;
+   public Vector2 reqMovement = new Vector2();
    public IsoSpriteInstance def = null;
    protected IsoGridSquare current = null;
    protected Vector2 hitDir = new Vector2();
@@ -91,8 +99,8 @@ public class IsoMovingObject extends IsoObject implements Mover {
    protected float width = 0.24F;
    protected boolean shootable = true;
    protected boolean Collidable = true;
-   protected float scriptnx = 0.0F;
-   protected float scriptny = 0.0F;
+   private float scriptnx = 0.0F;
+   private float scriptny = 0.0F;
    protected String ScriptModule = "none";
    protected Vector2 movementLastFrame = new Vector2();
    protected float weight = 1.0F;
@@ -123,8 +131,6 @@ public class IsoMovingObject extends IsoObject implements Mover {
    private boolean bAltCollide = false;
    private IsoZombie lastTargettedBy = null;
    private float feelersize = 0.5F;
-   public final boolean[] bOutline = new boolean[4];
-   public final ColorInfo[] outlineColor = new ColorInfo[4];
    private final ArrayList<IsoZombie> eatingZombies = new ArrayList();
    private boolean zombiesDontAttack = false;
 
@@ -172,6 +178,11 @@ public class IsoMovingObject extends IsoObject implements Mover {
       this.getCell().getAddList().add(this);
    }
 
+   public String toString() {
+      String var10000 = this.getClass().getSimpleName();
+      return var10000 + "{  Name:" + this.getName() + ",  ID:" + this.getID() + " }";
+   }
+
    public static int getIDCount() {
       return IDCount;
    }
@@ -206,7 +217,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public void onMouseRightClick(int var1, int var2) {
-      if (this.square.getZ() == (int)IsoPlayer.getInstance().getZ() && this.DistToProper(IsoPlayer.getInstance()) <= 2.0F) {
+      if (this.square.getZ() == PZMath.fastfloor(IsoPlayer.getInstance().getZ()) && this.DistToProper(IsoPlayer.getInstance()) <= 2.0F) {
          IsoPlayer.getInstance().setDragObject(this);
       }
 
@@ -231,9 +242,12 @@ public class IsoMovingObject extends IsoObject implements Mover {
    public void doStairs() {
       if (this.current != null) {
          if (this.last != null) {
+            if (this instanceof IsoGameCharacter && ((IsoGameCharacter)this).isAnimal() && !((IsoAnimal)this).canClimbStairs()) {
+            }
+
             if (!(this instanceof IsoPhysicsObject)) {
                IsoGridSquare var1 = this.current;
-               if (var1.z > 0 && (var1.Has(IsoObjectType.stairsTN) || var1.Has(IsoObjectType.stairsTW)) && this.z - (float)((int)this.z) < 0.1F) {
+               if ((var1.Has(IsoObjectType.stairsTN) || var1.Has(IsoObjectType.stairsTW)) && this.getZ() - (float)PZMath.fastfloor(this.getZ()) < 0.1F) {
                   IsoGridSquare var2 = IsoWorld.instance.CurrentCell.getGridSquare(var1.x, var1.y, var1.z - 1);
                   if (var2 != null && (var2.Has(IsoObjectType.stairsTN) || var2.Has(IsoObjectType.stairsTW))) {
                      var1 = var2;
@@ -241,29 +255,50 @@ public class IsoMovingObject extends IsoObject implements Mover {
                }
 
                if (this instanceof IsoGameCharacter && (this.last.Has(IsoObjectType.stairsTN) || this.last.Has(IsoObjectType.stairsTW))) {
-                  this.z = (float)Math.round(this.z);
+                  this.setZ((float)Math.round(this.getZ()));
                }
 
-               float var4 = this.z;
+               float var4 = this.getZ();
                if (var1.HasStairs()) {
-                  var4 = var1.getApparentZ(this.x - (float)var1.getX(), this.y - (float)var1.getY());
+                  var4 = var1.getApparentZ(this.getX() - (float)var1.getX(), this.getY() - (float)var1.getY());
                }
 
                if (this instanceof IsoGameCharacter) {
                   State var3 = ((IsoGameCharacter)this).getCurrentState();
                   if (var3 == ClimbOverFenceState.instance() || var3 == ClimbThroughWindowState.instance()) {
-                     if (var1.HasStairs() && this.z > var4) {
-                        this.z = Math.max(var4, this.z - 0.075F * GameTime.getInstance().getMultiplier());
+                     if (var1.HasStairs() && this.getZ() > var4) {
+                        this.setZ(Math.max(var4, this.getZ() - 0.075F * GameTime.getInstance().getMultiplier()));
                      }
 
                      return;
                   }
                }
 
-               if (Math.abs(var4 - this.z) < 0.95F) {
-                  this.z = var4;
+               if (Math.abs(var4 - this.getZ()) < 0.95F) {
+                  this.setZ(var4);
                }
 
+            }
+         }
+      }
+   }
+
+   private void handleSlopedSurface() {
+      if (!(this instanceof IsoPhysicsObject)) {
+         if (this.current != null) {
+            if (!(this instanceof IsoGameCharacter) || ((IsoGameCharacter)this).getVehicle() == null) {
+               float var1;
+               if (this.last != null && this.last != this.current && this.last.hasSlopedSurface()) {
+                  var1 = this.last.getSlopedSurfaceHeightMax();
+                  if (var1 == 1.0F) {
+                     this.setZ((float)Math.round(this.getZ()));
+                  }
+               }
+
+               var1 = this.current.getSlopedSurfaceHeight(this.getX() % 1.0F, this.getY() % 1.0F);
+               if (!(var1 <= 0.0F)) {
+                  this.setZ((float)this.current.z + var1);
+               }
             }
          }
       }
@@ -286,11 +321,11 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public float getScreenX() {
-      return IsoUtils.XToScreen(this.x, this.y, this.z, 0);
+      return IsoUtils.XToScreen(this.getX(), this.getY(), this.getZ(), 0);
    }
 
    public float getScreenY() {
-      return IsoUtils.YToScreen(this.x, this.y, this.z, 0);
+      return IsoUtils.YToScreen(this.getX(), this.getY(), this.getZ(), 0);
    }
 
    public Thumpable getThumpTarget() {
@@ -356,33 +391,74 @@ public class IsoMovingObject extends IsoObject implements Mover {
       return var1;
    }
 
+   public Vector3f getPosition(Vector3f var1) {
+      var1.set(this.getX(), this.getY(), this.getZ());
+      return var1;
+   }
+
+   public void setPosition(float var1, float var2) {
+      this.setX(var1);
+      this.setY(var2);
+   }
+
+   public void setPosition(Vector2 var1) {
+      this.setPosition(var1.x, var1.y);
+   }
+
+   public void setPosition(float var1, float var2, float var3) {
+      this.setX(var1);
+      this.setY(var2);
+      this.setZ(var3);
+   }
+
    public float getX() {
       return this.x;
    }
 
-   public void setX(float var1) {
+   public float setX(float var1) {
       this.x = var1;
-      this.nx = var1;
-      this.scriptnx = var1;
+      this.setNextX(var1);
+      this.setScriptNextX(var1);
+      return this.x;
+   }
+
+   public void setForceX(float var1) {
+      this.setX(var1);
+      this.setNextX(var1);
+      this.setLastX(var1);
+      this.setScriptNextX(var1);
    }
 
    public float getY() {
       return this.y;
    }
 
-   public void setY(float var1) {
+   public float setY(float var1) {
       this.y = var1;
-      this.ny = var1;
-      this.scriptny = var1;
+      this.setNextY(var1);
+      this.setScriptNextY(var1);
+      return this.y;
+   }
+
+   public void setForceY(float var1) {
+      if (this instanceof IsoPlayer && this != IsoPlayer.getInstance()) {
+         boolean var2 = false;
+      }
+
+      this.setY(var1);
+      this.setNextY(var1);
+      this.setLastY(var1);
+      this.setScriptNextY(var1);
    }
 
    public float getZ() {
       return this.z;
    }
 
-   public void setZ(float var1) {
+   public float setZ(float var1) {
       this.z = var1;
-      this.lz = var1;
+      this.setLastZ(var1);
+      return this.z;
    }
 
    public IsoGridSquare getSquare() {
@@ -402,19 +478,23 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public void Move(Vector2 var1) {
-      this.nx += var1.x * GameTime.instance.getMultiplier();
-      this.ny += var1.y * GameTime.instance.getMultiplier();
+      this.setNextX(this.getNextX() + var1.x * GameTime.instance.getMultiplier());
+      this.setNextY(this.getNextY() + var1.y * GameTime.instance.getMultiplier());
+      this.reqMovement.x = var1.x;
+      this.reqMovement.y = var1.y;
       if (this instanceof IsoPlayer) {
-         this.current = IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)this.y, (double)((int)this.z));
+         this.setCurrent(IsoWorld.instance.CurrentCell.getGridSquare((double)this.getX(), (double)this.getY(), (double)PZMath.fastfloor(this.getZ())));
       }
 
    }
 
    public void MoveUnmodded(Vector2 var1) {
-      this.nx += var1.x;
-      this.ny += var1.y;
+      this.setNextX(this.getNextX() + var1.x);
+      this.setNextY(this.getNextY() + var1.y);
+      this.reqMovement.x = var1.x;
+      this.reqMovement.y = var1.y;
       if (this instanceof IsoPlayer) {
-         this.current = IsoWorld.instance.CurrentCell.getGridSquare((double)this.x, (double)this.y, (double)((int)this.z));
+         this.setCurrent(IsoWorld.instance.CurrentCell.getGridSquare((double)this.getX(), (double)this.getY(), (double)PZMath.fastfloor(this.getZ())));
       }
 
    }
@@ -424,31 +504,31 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public float DistTo(int var1, int var2) {
-      return IsoUtils.DistanceManhatten((float)var1, (float)var2, this.x, this.y);
+      return IsoUtils.DistanceManhatten((float)var1, (float)var2, this.getX(), this.getY());
    }
 
    public float DistTo(IsoMovingObject var1) {
-      return IsoUtils.DistanceManhatten(this.x, this.y, var1.x, var1.y);
+      return var1 == null ? 0.0F : IsoUtils.DistanceManhatten(this.getX(), this.getY(), var1.getX(), var1.getY());
    }
 
    public float DistToProper(IsoObject var1) {
-      return IsoUtils.DistanceTo(this.x, this.y, var1.getX(), var1.getY());
+      return IsoUtils.DistanceTo(this.getX(), this.getY(), var1.getX(), var1.getY());
    }
 
    public float DistToSquared(IsoMovingObject var1) {
-      return IsoUtils.DistanceToSquared(this.x, this.y, var1.x, var1.y);
+      return IsoUtils.DistanceToSquared(this.getX(), this.getY(), var1.getX(), var1.getY());
    }
 
    public float DistToSquared(float var1, float var2) {
-      return IsoUtils.DistanceToSquared(var1, var2, this.x, this.y);
+      return IsoUtils.DistanceToSquared(var1, var2, this.getX(), this.getY());
    }
 
    public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
       float var4 = var1.getFloat();
       float var5 = var1.getFloat();
-      this.x = this.lx = this.nx = this.scriptnx = var1.getFloat() + (float)(IsoWorld.saveoffsetx * 300);
-      this.y = this.ly = this.ny = this.scriptny = var1.getFloat() + (float)(IsoWorld.saveoffsety * 300);
-      this.z = this.lz = var1.getFloat();
+      this.setX(this.setLastX(this.setNextX(this.setScriptNextX(var1.getFloat() + (float)(IsoWorld.saveoffsetx * IsoCell.CellSizeInSquares)))));
+      this.setY(this.setLastY(this.setNextY(this.setScriptNextY(var1.getFloat() + (float)(IsoWorld.saveoffsety * IsoCell.CellSizeInSquares)))));
+      this.setZ(this.setLastZ(var1.getFloat()));
       this.dir = IsoDirections.fromIndex(var1.getInt());
       if (var1.get() != 0) {
          if (this.table == null) {
@@ -460,14 +540,20 @@ public class IsoMovingObject extends IsoObject implements Mover {
 
    }
 
+   public String getDescription(String var1) {
+      String var2 = this.getClass().getSimpleName() + " [" + var1 + "offset=(" + this.offsetX + ", " + this.offsetY + ") | " + var1 + "pos=(" + this.getX() + ", " + this.getY() + ", " + this.getZ() + ") | " + var1 + "dir=" + this.dir.name() + " ] ";
+      return var2;
+   }
+
    public void save(ByteBuffer var1, boolean var2) throws IOException {
+      DebugLog.Saving.trace("Saving: %s", this);
       var1.put((byte)(this.Serialize() ? 1 : 0));
       var1.put(IsoObject.factoryGetClassID(this.getObjectName()));
       var1.putFloat(this.offsetX);
       var1.putFloat(this.offsetY);
-      var1.putFloat(this.x);
-      var1.putFloat(this.y);
-      var1.putFloat(this.z);
+      var1.putFloat(this.getX());
+      var1.putFloat(this.getY());
+      var1.putFloat(this.getZ());
       var1.putInt(this.dir.index());
       if (this.table != null && !this.table.isEmpty()) {
          var1.put((byte)1);
@@ -529,8 +615,8 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public float getGlobalMovementMod(boolean var1) {
-      if (this.current != null && this.z - (float)((int)this.z) < 0.5F) {
-         if (this.current.Has(IsoObjectType.tree) || this.current.getProperties() != null && this.current.getProperties().Is("Bush")) {
+      if (this.current != null && this.getZ() - (float)PZMath.fastfloor(this.getZ()) < 0.5F) {
+         if (this.current.Has(IsoObjectType.tree) || this.current.hasBush()) {
             if (var1) {
                this.doTreeNoises();
             }
@@ -539,14 +625,14 @@ public class IsoMovingObject extends IsoObject implements Mover {
                IsoObject var3 = (IsoObject)this.current.getObjects().get(var2);
                if (var3 instanceof IsoTree) {
                   var3.setRenderEffect(RenderEffectType.Vegetation_Rustle);
-               } else if (var3.getProperties() != null && var3.getProperties().Is("Bush")) {
+               } else if (var3.isBush()) {
                   var3.setRenderEffect(RenderEffectType.Vegetation_Rustle);
                }
             }
          }
 
          IsoGridSquare var5 = this.getFeelerTile(this.feelersize);
-         if (var5 != null && var5 != this.current && (var5.Has(IsoObjectType.tree) || var5.getProperties() != null && var5.getProperties().Is("Bush"))) {
+         if (var5 != null && var5 != this.current && (var5.Has(IsoObjectType.tree) || var5.hasBush())) {
             if (var1) {
                this.doTreeNoises();
             }
@@ -555,7 +641,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
                IsoObject var4 = (IsoObject)var5.getObjects().get(var6);
                if (var4 instanceof IsoTree) {
                   var4.setRenderEffect(RenderEffectType.Vegetation_Rustle);
-               } else if (var4.getSprite() != null && var4.getProperties().Is("Bush")) {
+               } else if (var4.isBush()) {
                   var4.setRenderEffect(RenderEffectType.Vegetation_Rustle);
                }
             }
@@ -569,7 +655,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
       if (!GameServer.bServer) {
          if (!(this instanceof IsoPhysicsObject)) {
             if (this.current != null) {
-               if (Rand.Next(Rand.AdjustForFramerate(50)) == 0) {
+               if (SoundManager.instance.isListenerInRange(this.getX(), this.getY(), 20.0F)) {
                   treeSoundMgr.addSquare(this.current);
                }
             }
@@ -581,14 +667,11 @@ public class IsoMovingObject extends IsoObject implements Mover {
       IsoGameCharacter var1 = (IsoGameCharacter)Type.tryCastTo(this, IsoGameCharacter.class);
       IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
       IsoZombie var3 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
-      this.slideAwayFromWalls();
-      if (var3 != null && GameServer.bServer && !var3.isCurrentState(ZombieIdleState.instance())) {
-         boolean var4 = false;
-      }
-
+      this.slideFeetAwayFromWalls();
+      this.slideHeadAwayFromWalls();
       if (var2 != null && var2.isLocalPlayer()) {
          IsoPlayer.setInstance(var2);
-         IsoCamera.CamCharacter = var2;
+         IsoCamera.setCameraCharacter(var2);
       }
 
       this.ensureOnTile();
@@ -615,189 +698,191 @@ public class IsoMovingObject extends IsoObject implements Mover {
          this.CollidedWithDoor = false;
          this.last = this.current;
          this.CollidedObject = null;
-         this.nx += this.impulsex;
-         this.ny += this.impulsey;
-         if (this.nx < 0.0F) {
-            this.nx = 0.0F;
-         }
-
-         if (this.ny < 0.0F) {
-            this.ny = 0.0F;
-         }
-
-         tempo.set(this.nx - this.x, this.ny - this.y);
+         this.setNextX(this.getNextX() + this.impulsex);
+         this.setNextY(this.getNextY() + this.impulsey);
+         tempo.set(this.getNextX() - this.getX(), this.getNextY() - this.getY());
          if (tempo.getLength() > 1.0F) {
             tempo.normalize();
-            this.nx = this.x + tempo.getX();
-            this.ny = this.y + tempo.getY();
+            this.setNextX(this.getX() + tempo.getX());
+            this.setNextY(this.getY() + tempo.getY());
          }
 
          this.impulsex = 0.0F;
          this.impulsey = 0.0F;
-         if (var3 != null && (int)this.z == 0 && this.getCurrentBuilding() == null && !this.isInLoadedArea((int)this.nx, (int)this.ny) && (var3.isCurrentState(PathFindState.instance()) || var3.isCurrentState(WalkTowardState.instance()))) {
-            ZombiePopulationManager.instance.virtualizeZombie(var3);
+         if (var3 == null || PZMath.fastfloor(this.getZ()) != 0 || this.getCurrentBuilding() != null || this.isInLoadedArea(PZMath.fastfloor(this.getNextX()), PZMath.fastfloor(this.getNextY())) || !var3.isCurrentState(PathFindState.instance()) && !var3.isCurrentState(WalkTowardState.instance())) {
+            IsoAnimal var4 = (IsoAnimal)Type.tryCastTo(this, IsoAnimal.class);
+            if (var4 != null && (int)this.getZ() == 0 && this.getCurrentBuilding() == null && !this.isInLoadedArea((int)this.getNextX(), (int)this.getNextY()) && var4.isCurrentState(AnimalZoneState.instance())) {
+               AnimalPopulationManager.getInstance().virtualizeAnimal(var4);
+            } else {
+               float var5 = this.getNextX();
+               float var6 = this.getNextY();
+               this.collidedWithVehicle = false;
+               if (var1 != null && !this.isOnFloor() && var1.getVehicle() == null && this.isCollidable() && (var2 == null || !var2.isNoClip())) {
+                  int var7 = PZMath.fastfloor(this.getX());
+                  int var8 = PZMath.fastfloor(this.getY());
+                  int var9 = PZMath.fastfloor(this.getNextX());
+                  int var10 = PZMath.fastfloor(this.getNextY());
+                  int var11 = PZMath.fastfloor(this.getZ());
+                  if (var1.getCurrentState() == null || !var1.getCurrentState().isIgnoreCollide(var1, var7, var8, var11, var9, var10, var11)) {
+                     Vector2f var13 = PolygonalMap2.instance.resolveCollision(var1, this.getNextX(), this.getNextY(), IsoMovingObject.L_postUpdate.vector2f);
+                     if (var13.x != this.getNextX() || var13.y != this.getNextY()) {
+                        this.setNextX(var13.x);
+                        this.setNextY(var13.y);
+                        this.collidedWithVehicle = true;
+                     }
+                  }
+               }
+
+               float var15 = this.getNextX();
+               float var16 = this.getNextY();
+               float var17 = 0.0F;
+               boolean var18 = false;
+               float var12;
+               float var19;
+               if (this.Collidable) {
+                  if (this.bAltCollide) {
+                     this.DoCollide(2);
+                  } else {
+                     this.DoCollide(1);
+                  }
+
+                  if (this.collidedN || this.collidedS) {
+                     this.setNextY(this.getLastY());
+                     this.DoCollideNorS();
+                  }
+
+                  if (this.collidedW || this.collidedE) {
+                     this.setNextX(this.getLastX());
+                     this.DoCollideWorE();
+                  }
+
+                  if (this.bAltCollide) {
+                     this.DoCollide(1);
+                  } else {
+                     this.DoCollide(2);
+                  }
+
+                  this.bAltCollide = !this.bAltCollide;
+                  if (this.collidedN || this.collidedS) {
+                     this.setNextY(this.getLastY());
+                     this.DoCollideNorS();
+                     var18 = true;
+                  }
+
+                  if (this.collidedW || this.collidedE) {
+                     this.setNextX(this.getLastX());
+                     this.DoCollideWorE();
+                     var18 = true;
+                  }
+
+                  var17 = Math.abs(this.getNextX() - this.getLastX()) + Math.abs(this.getNextY() - this.getLastY());
+                  var19 = this.getNextX();
+                  var12 = this.getNextY();
+                  this.setNextX(var15);
+                  this.setNextY(var16);
+                  if (this.Collidable && var18) {
+                     if (this.bAltCollide) {
+                        this.DoCollide(2);
+                     } else {
+                        this.DoCollide(1);
+                     }
+
+                     if (this.collidedN || this.collidedS) {
+                        this.setNextY(this.getLastY());
+                        this.DoCollideNorS();
+                     }
+
+                     if (this.collidedW || this.collidedE) {
+                        this.setNextX(this.getLastX());
+                        this.DoCollideWorE();
+                     }
+
+                     if (this.bAltCollide) {
+                        this.DoCollide(1);
+                     } else {
+                        this.DoCollide(2);
+                     }
+
+                     if (this.collidedN || this.collidedS) {
+                        this.setNextY(this.getLastY());
+                        this.DoCollideNorS();
+                        var18 = true;
+                     }
+
+                     if (this.collidedW || this.collidedE) {
+                        this.setNextX(this.getLastX());
+                        this.DoCollideWorE();
+                        var18 = true;
+                     }
+
+                     if (Math.abs(this.getNextX() - this.getLastX()) + Math.abs(this.getNextY() - this.getLastY()) < var17) {
+                        this.setNextX(var19);
+                        this.setNextY(var12);
+                     }
+                  }
+               }
+
+               if (this.collidedThisFrame) {
+                  this.setCurrent(this.last);
+               }
+
+               this.checkHitWall();
+               if (var2 != null && !var2.isCurrentState(CollideWithWallState.instance()) && !this.collidedN && !this.collidedS && !this.collidedW && !this.collidedE) {
+                  this.setCollideType((String)null);
+               }
+
+               var19 = this.getNextX() - this.getX();
+               var12 = this.getNextY() - this.getY();
+               float var20 = !(Math.abs(var19) > 0.0F) && !(Math.abs(var12) > 0.0F) ? 0.0F : this.getGlobalMovementMod();
+               if (Math.abs(var19) > 0.01F || Math.abs(var12) > 0.01F) {
+                  var19 *= var20;
+                  var12 *= var20;
+               }
+
+               this.setX(this.getX() + var19);
+               this.setY(this.getY() + var12);
+               this.doStairs();
+               this.handleSlopedSurface();
+               this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ())));
+               if (this.current == null) {
+                  for(int var14 = PZMath.fastfloor(this.getZ()); var14 >= 0; --var14) {
+                     this.current = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor((float)var14));
+                     if (this.current != null) {
+                        this.setZ(this.setLastZ(PZMath.min(this.getZ(), (float)this.current.getZ() + 0.99999F)));
+                        break;
+                     }
+                  }
+
+                  if (this.current == null && this.last != null) {
+                     this.setCurrent(this.last);
+                     this.setX(this.setNextX(this.setScriptNextX((float)this.current.getX() + 0.5F)));
+                     this.setY(this.setNextY(this.setScriptNextY((float)this.current.getY() + 0.5F)));
+                  }
+               }
+
+               if (this.movingSq != null) {
+                  this.movingSq.getMovingObjects().remove(this);
+                  this.movingSq = null;
+               }
+
+               if (this.current != null && !this.current.getMovingObjects().contains(this)) {
+                  this.current.getMovingObjects().add(this);
+                  this.movingSq = this.current;
+               }
+
+               this.ensureOnTile();
+               this.square = this.current;
+               this.setScriptNextX(this.getNextX());
+               this.setScriptNextY(this.getNextY());
+               this.firstUpdate = false;
+            }
          } else {
-            float var14 = this.nx;
-            float var5 = this.ny;
-            this.collidedWithVehicle = false;
-            if (var1 != null && !this.isOnFloor() && var1.getVehicle() == null && this.isCollidable() && (var2 == null || !var2.isNoClip())) {
-               int var6 = (int)this.x;
-               int var7 = (int)this.y;
-               int var8 = (int)this.nx;
-               int var9 = (int)this.ny;
-               int var10 = (int)this.z;
-               if (var1.getCurrentState() == null || !var1.getCurrentState().isIgnoreCollide(var1, var6, var7, var10, var8, var9, var10)) {
-                  Vector2f var12 = PolygonalMap2.instance.resolveCollision(var1, this.nx, this.ny, IsoMovingObject.L_postUpdate.vector2f);
-                  if (var12.x != this.nx || var12.y != this.ny) {
-                     this.nx = var12.x;
-                     this.ny = var12.y;
-                     this.collidedWithVehicle = true;
-                  }
-               }
-            }
-
-            float var15 = this.nx;
-            float var16 = this.ny;
-            float var17 = 0.0F;
-            boolean var18 = false;
-            float var11;
-            float var19;
-            if (this.Collidable) {
-               if (this.bAltCollide) {
-                  this.DoCollide(2);
-               } else {
-                  this.DoCollide(1);
-               }
-
-               if (this.collidedN || this.collidedS) {
-                  this.ny = this.ly;
-                  this.DoCollideNorS();
-               }
-
-               if (this.collidedW || this.collidedE) {
-                  this.nx = this.lx;
-                  this.DoCollideWorE();
-               }
-
-               if (this.bAltCollide) {
-                  this.DoCollide(1);
-               } else {
-                  this.DoCollide(2);
-               }
-
-               this.bAltCollide = !this.bAltCollide;
-               if (this.collidedN || this.collidedS) {
-                  this.ny = this.ly;
-                  this.DoCollideNorS();
-                  var18 = true;
-               }
-
-               if (this.collidedW || this.collidedE) {
-                  this.nx = this.lx;
-                  this.DoCollideWorE();
-                  var18 = true;
-               }
-
-               var17 = Math.abs(this.nx - this.lx) + Math.abs(this.ny - this.ly);
-               var19 = this.nx;
-               var11 = this.ny;
-               this.nx = var15;
-               this.ny = var16;
-               if (this.Collidable && var18) {
-                  if (this.bAltCollide) {
-                     this.DoCollide(2);
-                  } else {
-                     this.DoCollide(1);
-                  }
-
-                  if (this.collidedN || this.collidedS) {
-                     this.ny = this.ly;
-                     this.DoCollideNorS();
-                  }
-
-                  if (this.collidedW || this.collidedE) {
-                     this.nx = this.lx;
-                     this.DoCollideWorE();
-                  }
-
-                  if (this.bAltCollide) {
-                     this.DoCollide(1);
-                  } else {
-                     this.DoCollide(2);
-                  }
-
-                  if (this.collidedN || this.collidedS) {
-                     this.ny = this.ly;
-                     this.DoCollideNorS();
-                     var18 = true;
-                  }
-
-                  if (this.collidedW || this.collidedE) {
-                     this.nx = this.lx;
-                     this.DoCollideWorE();
-                     var18 = true;
-                  }
-
-                  if (Math.abs(this.nx - this.lx) + Math.abs(this.ny - this.ly) < var17) {
-                     this.nx = var19;
-                     this.ny = var11;
-                  }
-               }
-            }
-
-            if (this.collidedThisFrame) {
-               this.current = this.last;
-            }
-
-            this.checkHitWall();
-            if (var2 != null && !var2.isCurrentState(CollideWithWallState.instance()) && !this.collidedN && !this.collidedS && !this.collidedW && !this.collidedE) {
-               this.setCollideType((String)null);
-            }
-
-            var19 = this.nx - this.x;
-            var11 = this.ny - this.y;
-            float var20 = !(Math.abs(var19) > 0.0F) && !(Math.abs(var11) > 0.0F) ? 0.0F : this.getGlobalMovementMod();
-            if (Math.abs(var19) > 0.01F || Math.abs(var11) > 0.01F) {
-               var19 *= var20;
-               var11 *= var20;
-            }
-
-            this.x += var19;
-            this.y += var11;
-            this.doStairs();
-            this.current = this.getCell().getGridSquare((int)this.x, (int)this.y, (int)this.z);
-            if (this.current == null) {
-               for(int var13 = (int)this.z; var13 >= 0; --var13) {
-                  this.current = this.getCell().getGridSquare((int)this.x, (int)this.y, var13);
-                  if (this.current != null) {
-                     break;
-                  }
-               }
-
-               if (this.current == null && this.last != null) {
-                  this.current = this.last;
-                  this.x = this.nx = this.scriptnx = (float)this.current.getX() + 0.5F;
-                  this.y = this.ny = this.scriptny = (float)this.current.getY() + 0.5F;
-               }
-            }
-
-            if (this.movingSq != null) {
-               this.movingSq.getMovingObjects().remove(this);
-               this.movingSq = null;
-            }
-
-            if (this.current != null && !this.current.getMovingObjects().contains(this)) {
-               this.current.getMovingObjects().add(this);
-               this.movingSq = this.current;
-            }
-
-            this.ensureOnTile();
-            this.square = this.current;
-            this.scriptnx = this.nx;
-            this.scriptny = this.ny;
-            this.firstUpdate = false;
+            ZombiePopulationManager.instance.virtualizeZombie(var3);
          }
       }
+   }
+
+   public void updateAnimation() {
    }
 
    public void ensureOnTile() {
@@ -812,34 +897,40 @@ public class IsoMovingObject extends IsoObject implements Mover {
          }
 
          boolean var1 = true;
-         boolean var2 = false;
          if (this.last != null && (this.last.Has(IsoObjectType.stairsTN) || this.last.Has(IsoObjectType.stairsTW))) {
-            this.current = this.getCell().getGridSquare((int)this.x, (int)this.y, (int)this.z + 1);
+            this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), (int)PZMath.floor(this.getZ() + 1.0F)));
             var1 = false;
          }
 
          if (this.current == null) {
-            this.current = this.getCell().getGridSquare((int)this.x, (int)this.y, (int)this.z);
+            this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), (int)PZMath.floor(this.getZ())));
+            if (this.current == null) {
+               this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), (int)PZMath.floor(this.getZ()) + 1));
+               if (this.current != null) {
+                  this.setZ((float)this.current.z);
+               }
+            }
+
             return;
          }
 
          if (var1) {
-            this.x = this.nx = this.scriptnx = (float)this.current.getX() + 0.5F;
-            this.y = this.ny = this.scriptny = (float)this.current.getY() + 0.5F;
+            this.setX(this.setNextX(this.setScriptNextX((float)this.current.getX() + 0.5F)));
+            this.setY(this.setNextY(this.setScriptNextY((float)this.current.getY() + 0.5F)));
          }
 
-         this.z = (float)this.current.getZ();
+         this.setZ((float)this.current.getZ());
       }
 
    }
 
    public void preupdate() {
-      this.nx = this.x;
-      this.ny = this.y;
+      this.setNextX(this.getX());
+      this.setNextY(this.getY());
    }
 
    public void renderlast() {
-      this.bOutline[IsoCamera.frameState.playerIndex] = false;
+      this.setOutlineHighlight(IsoCamera.frameState.playerIndex, false);
    }
 
    public void spotted(IsoMovingObject var1, boolean var2) {
@@ -850,11 +941,11 @@ public class IsoMovingObject extends IsoObject implements Mover {
          this.def = IsoSpriteInstance.get(this.sprite);
       }
 
-      this.movementLastFrame.x = this.x - this.lx;
-      this.movementLastFrame.y = this.y - this.ly;
-      this.lx = this.x;
-      this.ly = this.y;
-      this.lz = this.z;
+      this.movementLastFrame.x = this.getX() - this.getLastX();
+      this.movementLastFrame.y = this.getY() - this.getLastY();
+      this.setLastX(this.getX());
+      this.setLastY(this.getY());
+      this.setLastZ(this.getZ());
       this.square = this.current;
       if (this.sprite != null) {
          this.sprite.update(this.def);
@@ -875,8 +966,8 @@ public class IsoMovingObject extends IsoObject implements Mover {
       } else if (this.sprite == null) {
          return 1;
       } else {
-         float var2 = IsoUtils.YToScreen(this.x, this.y, this.z, 0);
-         float var3 = IsoUtils.YToScreen(var1.x, var1.y, var1.z, 0);
+         float var2 = IsoUtils.YToScreen(this.getX(), this.getY(), this.getZ(), 0);
+         float var3 = IsoUtils.YToScreen(var1.getX(), var1.getY(), var1.getZ(), 0);
          if ((double)var2 > (double)var3) {
             return 1;
          } else {
@@ -915,7 +1006,11 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public boolean isPushedByForSeparate(IsoMovingObject var1) {
-      return true;
+      if (!(this instanceof IsoAnimal) || ((IsoAnimal)this).adef.collidable && !((IsoAnimal)this).getBehavior().blockMovement) {
+         return !(var1 instanceof IsoAnimal) || ((IsoAnimal)var1).adef.collidable && !((IsoAnimal)var1).getBehavior().blockMovement;
+      } else {
+         return false;
+      }
    }
 
    public void separate() {
@@ -923,9 +1018,6 @@ public class IsoMovingObject extends IsoObject implements Mover {
          if (this.isPushableForSeparate()) {
             IsoGameCharacter var1 = (IsoGameCharacter)Type.tryCastTo(this, IsoGameCharacter.class);
             IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
-            if (this.z < 0.0F) {
-               this.z = 0.0F;
-            }
 
             for(int var3 = 0; var3 <= 8; ++var3) {
                IsoGridSquare var4 = var3 == 8 ? this.current : this.current.nav[var3];
@@ -935,13 +1027,13 @@ public class IsoMovingObject extends IsoObject implements Mover {
 
                   for(int var7 = var4.getMovingObjects().size(); var6 < var7; ++var6) {
                      IsoMovingObject var8 = (IsoMovingObject)var4.getMovingObjects().get(var6);
-                     if (var8 != this && var8.isSolidForSeparate() && !(Math.abs(this.z - var8.z) > 0.3F)) {
+                     if (var8 != this && var8.isSolidForSeparate() && !(Math.abs(this.getZ() - var8.getZ()) > 0.3F)) {
                         IsoGameCharacter var9 = (IsoGameCharacter)Type.tryCastTo(var8, IsoGameCharacter.class);
                         IsoPlayer var10 = (IsoPlayer)Type.tryCastTo(var8, IsoPlayer.class);
                         float var11 = this.width + var8.width;
                         Vector2 var12 = tempo;
-                        var12.x = this.nx - var8.nx;
-                        var12.y = this.ny - var8.ny;
+                        var12.x = this.getNextX() - var8.getNextX();
+                        var12.y = this.getNextY() - var8.getNextY();
                         float var13 = var12.getLength();
                         if (var1 == null || var9 == null && !(var8 instanceof BaseVehicle)) {
                            if (var13 < var11) {
@@ -955,7 +1047,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
                            if (var2 != null && var2.getBumpedChr() != var8 && var13 < var11 + var5 && (double)var2.getForwardDirection().angleBetween(var12) > 2.6179938155736564 && var2.getBeenSprintingFor() >= 70.0F && WeaponType.getWeaponType((IsoGameCharacter)var2) == WeaponType.spear) {
                               var2.reportEvent("ChargeSpearConnect");
                               var2.setAttackType("charge");
-                              var2.attackStarted = true;
+                              var2.setAttackStarted(true);
                               var2.setVariable("StartedAttackWhileSprinting", true);
                               var2.setBeenSprintingFor(0.0F);
                               return;
@@ -978,6 +1070,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
                                     int var16 = 10 - var1.bumpNbr * 3;
                                     var16 += var1.getPerkLevel(PerkFactory.Perks.Fitness);
                                     var16 += var1.getPerkLevel(PerkFactory.Perks.Strength);
+                                    var16 -= var1.getMoodles().getMoodleLevel(MoodleType.Drunk) * 2;
                                     if (var1.Traits.Clumsy.isSet()) {
                                        var16 -= 5;
                                     }
@@ -1034,15 +1127,15 @@ public class IsoMovingObject extends IsoObject implements Mover {
                                  var9.setBumpType(var18);
                                  var9.setHitFromBehind(var19);
                                  if (var15 | GameClient.bClient) {
-                                    var1.actionContext.reportEvent("wasBumped");
+                                    var1.getActionContext().reportEvent("wasBumped");
                                  }
                               }
 
                               if (GameServer.bServer || this.distToNearestCamCharacter() < 60.0F) {
                                  if (this.isPushedByForSeparate(var8)) {
                                     var12.setLength((var13 - var11) / 8.0F);
-                                    this.nx -= var12.x;
-                                    this.ny -= var12.y;
+                                    this.setNextX(this.getNextX() - var12.x);
+                                    this.setNextY(this.getNextY() - var12.y);
                                  }
 
                                  this.collideWith(var8);
@@ -1059,8 +1152,8 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public String getBumpedType(IsoGameCharacter var1) {
-      float var2 = this.x - var1.x;
-      float var3 = this.y - var1.y;
+      float var2 = this.getX() - var1.getX();
+      float var3 = this.getY() - var1.getY();
       String var4 = "left";
       if (this.dir == IsoDirections.S || this.dir == IsoDirections.SE || this.dir == IsoDirections.SW) {
          if (var2 < 0.0F) {
@@ -1097,7 +1190,70 @@ public class IsoMovingObject extends IsoObject implements Mover {
       return var4;
    }
 
-   private void slideAwayFromWalls() {
+   public float getLastX() {
+      return this.m_lastX;
+   }
+
+   public float setLastX(float var1) {
+      this.m_lastX = var1;
+      return this.m_lastX;
+   }
+
+   public float getLastY() {
+      return this.ly;
+   }
+
+   public float setLastY(float var1) {
+      this.ly = var1;
+      return this.ly;
+   }
+
+   public float getLastZ() {
+      return this.lz;
+   }
+
+   public float setLastZ(float var1) {
+      this.lz = var1;
+      return this.lz;
+   }
+
+   public float getNextX() {
+      return this.nx;
+   }
+
+   public float setNextX(float var1) {
+      this.nx = var1;
+      return this.nx;
+   }
+
+   public float getNextY() {
+      return this.ny;
+   }
+
+   public float setNextY(float var1) {
+      this.ny = var1;
+      return this.ny;
+   }
+
+   public float getScriptNextX() {
+      return this.scriptnx;
+   }
+
+   public float setScriptNextX(float var1) {
+      this.scriptnx = var1;
+      return this.scriptnx;
+   }
+
+   public float getScriptNextY() {
+      return this.scriptny;
+   }
+
+   public float setScriptNextY(float var1) {
+      this.scriptny = var1;
+      return this.scriptny;
+   }
+
+   private void slideHeadAwayFromWalls() {
       if (this.current != null) {
          IsoZombie var1 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
          if (var1 != null && (this.isOnFloor() || var1.isKnockedDown())) {
@@ -1106,11 +1262,11 @@ public class IsoMovingObject extends IsoObject implements Mover {
                   if (var1.hasAnimationPlayer() && var1.getAnimationPlayer().isReady()) {
                      Vector3 var2 = IsoMovingObject.L_slideAwayFromWalls.vector3;
                      Model.BoneToWorldCoords((IsoGameCharacter)var1, var1.getAnimationPlayer().getSkinningBoneIndex("Bip01_Head", -1), var2);
-                     if (Core.bDebug && DebugOptions.instance.CollideWithObstaclesRenderRadius.getValue()) {
-                        LineDrawer.DrawIsoCircle(var2.x, var2.y, this.z, 0.3F, 16, 1.0F, 1.0F, 0.0F, 1.0F);
+                     if (Core.bDebug && DebugOptions.instance.CollideWithObstacles.Render.Radius.getValue()) {
+                        LineDrawer.DrawIsoCircle(var2.x, var2.y, this.getZ(), 0.3F, 16, 1.0F, 1.0F, 0.0F, 1.0F);
                      }
 
-                     Vector2 var3 = IsoMovingObject.L_slideAwayFromWalls.vector2.set(var2.x - this.x, var2.y - this.y);
+                     Vector2 var3 = IsoMovingObject.L_slideAwayFromWalls.vector2.set(var2.x - this.getX(), var2.y - this.getY());
                      var3.normalize();
                      var2.x += var3.x * 0.3F;
                      var2.y += var3.y * 0.3F;
@@ -1119,27 +1275,71 @@ public class IsoMovingObject extends IsoObject implements Mover {
                         Vector2f var4 = PolygonalMap2.instance.resolveCollision(var1, var2.x, var2.y, IsoMovingObject.L_slideAwayFromWalls.vector2f);
                         if (var4.x != var2.x || var4.y != var2.y) {
                            var5 = GameTime.getInstance().getMultiplier() / 5.0F;
-                           this.nx += (var4.x - var2.x) * var5;
-                           this.ny += (var4.y - var2.y) * var5;
+                           this.setNextX(this.getNextX() + (var4.x - var2.x) * var5);
+                           this.setNextY(this.getNextY() + (var4.y - var2.y) * var5);
                            return;
                         }
                      }
 
-                     if ((int)var2.x != this.current.x || (int)var2.y != this.current.y) {
-                        IsoGridSquare var6 = this.getCell().getGridSquare((int)var2.x, (int)var2.y, (int)this.z);
+                     if (PZMath.fastfloor(var2.x) != this.current.x || PZMath.fastfloor(var2.y) != this.current.y) {
+                        IsoGridSquare var6 = this.getCell().getGridSquare(PZMath.fastfloor(var2.x), PZMath.fastfloor(var2.y), PZMath.fastfloor(this.getZ()));
                         if (var6 != null) {
                            if (this.current.testCollideAdjacent(this, var6.x - this.current.x, var6.y - this.current.y, 0)) {
                               var5 = GameTime.getInstance().getMultiplier() / 5.0F;
                               if (var6.x < this.current.x) {
-                                 this.nx += ((float)this.current.x - var2.x) * var5;
+                                 this.setNextX(this.getNextX() + ((float)this.current.x - var2.x) * var5);
                               } else if (var6.x > this.current.x) {
-                                 this.nx += ((float)var6.x - var2.x) * var5;
+                                 this.setNextX(this.getNextX() + ((float)var6.x - var2.x) * var5);
                               }
 
                               if (var6.y < this.current.y) {
-                                 this.ny += ((float)this.current.y - var2.y) * var5;
+                                 this.setNextY(this.getNextY() + ((float)this.current.y - var2.y) * var5);
                               } else if (var6.y > this.current.y) {
-                                 this.ny += ((float)var6.y - var2.y) * var5;
+                                 this.setNextY(this.getNextY() + ((float)var6.y - var2.y) * var5);
+                              }
+
+                           }
+                        }
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   private void slideFeetAwayFromWalls() {
+      if (this.current != null) {
+         IsoZombie var1 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
+         if (var1 != null && (this.isOnFloor() || var1.isKnockedDown())) {
+            if (var1.isCurrentState(ZombieHitReactionState.instance())) {
+               if (StringUtils.equalsIgnoreCase(var1.getVariableString("HitReaction"), "FenceWindow")) {
+                  if (var1.hasAnimationPlayer() && var1.getAnimationPlayer().isReady()) {
+                     Vector3 var2 = IsoMovingObject.L_slideAwayFromWalls.vector3;
+                     Model.BoneToWorldCoords((IsoGameCharacter)var1, var1.getAnimationPlayer().getSkinningBoneIndex("Bip01_L_Foot", -1), var2);
+                     if (Core.bDebug && DebugOptions.instance.CollideWithObstacles.Render.Radius.getValue()) {
+                        LineDrawer.DrawIsoCircle(var2.x, var2.y, this.getZ(), 0.3F, 16, 1.0F, 1.0F, 0.0F, 1.0F);
+                     }
+
+                     Vector2 var3 = IsoMovingObject.L_slideAwayFromWalls.vector2.set(var2.x - this.getX(), var2.y - this.getY());
+                     var3.normalize();
+                     var2.x += var3.x * 0.3F;
+                     var2.y += var3.y * 0.3F;
+                     if (PZMath.fastfloor(var2.x) != this.current.x || PZMath.fastfloor(var2.y) != this.current.y) {
+                        IsoGridSquare var4 = this.getCell().getGridSquare(PZMath.fastfloor(var2.x), PZMath.fastfloor(var2.y), PZMath.fastfloor(this.getZ()));
+                        if (var4 != null) {
+                           if (this.current.testCollideAdjacent(this, var4.x - this.current.x, var4.y - this.current.y, 0)) {
+                              float var5 = GameTime.getInstance().getMultiplier() / 5.0F;
+                              if (var4.x < this.current.x) {
+                                 this.setNextX(this.getNextX() + ((float)this.current.x - var2.x) * var5);
+                              } else if (var4.x > this.current.x) {
+                                 this.setNextX(this.getNextX() + ((float)var4.x - var2.x) * var5);
+                              }
+
+                              if (var4.y < this.current.y) {
+                                 this.setNextY(this.getNextY() + ((float)this.current.y - var2.y) * var5);
+                              } else if (var4.y > this.current.y) {
+                                 this.setNextY(this.getNextY() + ((float)var4.y - var2.y) * var5);
                               }
 
                            }
@@ -1154,181 +1354,188 @@ public class IsoMovingObject extends IsoObject implements Mover {
 
    private boolean DoCollide(int var1) {
       IsoGameCharacter var2 = (IsoGameCharacter)Type.tryCastTo(this, IsoGameCharacter.class);
-      this.current = this.getCell().getGridSquare((int)this.nx, (int)this.ny, (int)this.z);
-      int var3;
-      int var4;
-      int var5;
-      if (this instanceof IsoMolotovCocktail) {
-         for(var3 = (int)this.z; var3 > 0; --var3) {
-            for(var4 = -1; var4 <= 1; ++var4) {
-               for(var5 = -1; var5 <= 1; ++var5) {
-                  IsoGridSquare var6 = this.getCell().createNewGridSquare((int)this.nx + var5, (int)this.ny + var4, var3, false);
-                  if (var6 != null) {
-                     var6.RecalcAllWithNeighbours(true);
+      this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getNextX()), PZMath.fastfloor(this.getNextY()), (int)PZMath.floor(this.getZ())));
+      if (var2 != null && var2.isRagdollSimulationActive()) {
+         return false;
+      } else {
+         int var3;
+         int var4;
+         int var5;
+         if (this instanceof IsoMolotovCocktail) {
+            for(var3 = PZMath.fastfloor(this.getZ()); var3 > 0; --var3) {
+               for(var4 = -1; var4 <= 1; ++var4) {
+                  for(var5 = -1; var5 <= 1; ++var5) {
+                     IsoGridSquare var6 = this.getCell().createNewGridSquare(PZMath.fastfloor(this.getNextX()) + var5, PZMath.fastfloor(this.getNextY()) + var4, var3, false);
+                     if (var6 != null) {
+                        var6.RecalcAllWithNeighbours(true);
+                     }
                   }
                }
             }
          }
-      }
 
-      if (this.current != null) {
-         if (!this.current.TreatAsSolidFloor()) {
-            this.current = this.getCell().getGridSquare((int)this.nx, (int)this.ny, (int)this.z);
-         }
-
-         if (this.current == null) {
-            return false;
-         }
-
-         this.current = this.getCell().getGridSquare((int)this.nx, (int)this.ny, (int)this.z);
-      }
-
-      if (this.current != this.last && this.last != null && this.current != null) {
-         if (var2 != null && var2.getCurrentState() != null && var2.getCurrentState().isIgnoreCollide(var2, this.last.x, this.last.y, this.last.z, this.current.x, this.current.y, this.current.z)) {
-            return false;
-         }
-
-         if (this == IsoCamera.CamCharacter) {
-            IsoWorld.instance.CurrentCell.lightUpdateCount = 10;
-         }
-
-         var3 = this.current.getX() - this.last.getX();
-         var4 = this.current.getY() - this.last.getY();
-         var5 = this.current.getZ() - this.last.getZ();
-         boolean var9 = false;
-         if (this.last.testCollideAdjacent(this, var3, var4, var5) || this.current == null) {
-            var9 = true;
-         }
-
-         if (var9) {
-            if (this.last.getX() < this.current.getX()) {
-               this.collidedE = true;
+         if (this.current != null) {
+            if (!this.current.TreatAsSolidFloor()) {
+               this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getNextX()), PZMath.fastfloor(this.getNextY()), (int)PZMath.floor(this.getZ())));
             }
 
-            if (this.last.getX() > this.current.getX()) {
-               this.collidedW = true;
+            if (this.current == null) {
+               return false;
             }
 
-            if (this.last.getY() < this.current.getY()) {
-               this.collidedS = true;
+            this.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(this.getNextX()), PZMath.fastfloor(this.getNextY()), (int)PZMath.floor(this.getZ())));
+         }
+
+         if (this.current != this.last && this.last != null && this.current != null) {
+            if (var2 != null && var2.getCurrentState() != null && var2.getCurrentState().isIgnoreCollide(var2, this.last.x, this.last.y, this.last.z, this.current.x, this.current.y, this.current.z)) {
+               return false;
             }
 
-            if (this.last.getY() > this.current.getY()) {
-               this.collidedN = true;
+            if (this == IsoCamera.getCameraCharacter()) {
+               IsoWorld.instance.CurrentCell.lightUpdateCount = 10;
             }
 
-            this.current = this.last;
-            this.checkBreakHoppable();
-            this.checkHitHoppable();
-            if (var1 == 2) {
-               if ((this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
-                  this.collidedS = false;
-                  this.collidedN = false;
+            var3 = this.current.getX() - this.last.getX();
+            var4 = this.current.getY() - this.last.getY();
+            var5 = this.current.getZ() - this.last.getZ();
+            boolean var9 = false;
+            if (this.last.testCollideAdjacent(this, var3, var4, var5) || this.current == null) {
+               var9 = true;
+            }
+
+            if (var9) {
+               if (this.last.getX() < this.current.getX()) {
+                  this.collidedE = true;
                }
-            } else if (var1 == 1 && (this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
-               this.collidedW = false;
-               this.collidedE = false;
-            }
 
-            this.Collided();
-            return true;
-         }
-      } else if (this.nx != this.lx || this.ny != this.ly) {
-         if (this instanceof IsoZombie && Core.GameMode.equals("Tutorial")) {
-            return true;
-         }
+               if (this.last.getX() > this.current.getX()) {
+                  this.collidedW = true;
+               }
 
-         if (this.current == null) {
-            if (this.nx < this.lx) {
-               this.collidedW = true;
-            }
+               if (this.last.getY() < this.current.getY()) {
+                  this.collidedS = true;
+               }
 
-            if (this.nx > this.lx) {
-               this.collidedE = true;
-            }
+               if (this.last.getY() > this.current.getY()) {
+                  this.collidedN = true;
+               }
 
-            if (this.ny < this.ly) {
-               this.collidedN = true;
-            }
-
-            if (this.ny > this.ly) {
-               this.collidedS = true;
-            }
-
-            this.nx = this.lx;
-            this.ny = this.ly;
-            this.current = this.last;
-            this.Collided();
-            return true;
-         }
-
-         if (var2 != null && var2.getPath2() != null) {
-            PathFindBehavior2 var7 = var2.getPathFindBehavior2();
-            if ((int)var7.getTargetX() == (int)this.x && (int)var7.getTargetY() == (int)this.y && (int)var7.getTargetZ() == (int)this.z) {
-               return false;
-            }
-         }
-
-         IsoGridSquare var8 = this.getFeelerTile(this.feelersize);
-         if (var2 != null) {
-            if (var2.isClimbing()) {
-               var8 = this.current;
-            }
-
-            if (var8 != null && var8 != this.current && var2.getPath2() != null && !var2.getPath2().crossesSquare(var8.x, var8.y, var8.z)) {
-               var8 = this.current;
-            }
-         }
-
-         if (var8 != null && var8 != this.current && this.current != null) {
-            if (var2 != null && var2.getCurrentState() != null && var2.getCurrentState().isIgnoreCollide(var2, this.current.x, this.current.y, this.current.z, var8.x, var8.y, var8.z)) {
-               return false;
-            }
-
-            if (this.current.testCollideAdjacent(this, var8.getX() - this.current.getX(), var8.getY() - this.current.getY(), var8.getZ() - this.current.getZ())) {
-               if (this.last != null) {
-                  if (this.current.getX() < var8.getX()) {
-                     this.collidedE = true;
-                  }
-
-                  if (this.current.getX() > var8.getX()) {
-                     this.collidedW = true;
-                  }
-
-                  if (this.current.getY() < var8.getY()) {
-                     this.collidedS = true;
-                  }
-
-                  if (this.current.getY() > var8.getY()) {
-                     this.collidedN = true;
-                  }
-
-                  this.checkBreakHoppable();
-                  this.checkHitHoppable();
-                  if (var1 == 2 && (this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
+               this.setCurrent(this.last);
+               this.checkBreakHoppable();
+               this.checkHitHoppable();
+               if (var1 == 2) {
+                  if ((this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
                      this.collidedS = false;
                      this.collidedN = false;
                   }
-
-                  if (var1 == 1 && (this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
-                     this.collidedW = false;
-                     this.collidedE = false;
-                  }
+               } else if (var1 == 1 && (this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
+                  this.collidedW = false;
+                  this.collidedE = false;
                }
 
                this.Collided();
                return true;
             }
-         }
-      }
+         } else if (this.getNextX() != this.getLastX() || this.getNextY() != this.getLastY()) {
+            if (this instanceof IsoZombie && Core.GameMode.equals("Tutorial")) {
+               return true;
+            }
 
-      return false;
+            if (this.current == null) {
+               if (this.getNextX() < this.getLastX()) {
+                  this.collidedW = true;
+               }
+
+               if (this.getNextX() > this.getLastX()) {
+                  this.collidedE = true;
+               }
+
+               if (this.getNextY() < this.getLastY()) {
+                  this.collidedN = true;
+               }
+
+               if (this.getNextY() > this.getLastY()) {
+                  this.collidedS = true;
+               }
+
+               this.setNextX(this.getLastX());
+               this.setNextY(this.getLastY());
+               this.setCurrent(this.last);
+               this.Collided();
+               return true;
+            }
+
+            if (var2 != null && var2.getPath2() != null) {
+               PathFindBehavior2 var7 = var2.getPathFindBehavior2();
+               if (PZMath.fastfloor(var7.getTargetX()) == PZMath.fastfloor(this.getX()) && PZMath.fastfloor(var7.getTargetY()) == PZMath.fastfloor(this.getY()) && PZMath.fastfloor(var7.getTargetZ()) == PZMath.fastfloor(this.getZ())) {
+                  return false;
+               }
+            }
+
+            if (var2 != null && var2.isSittingOnFurniture()) {
+               return false;
+            }
+
+            IsoGridSquare var8 = this.getFeelerTile(this.feelersize);
+            if (var2 != null) {
+               if (var2.isClimbing()) {
+                  var8 = this.current;
+               }
+
+               if (var8 != null && var8 != this.current && var2.getPath2() != null && !var2.getPath2().crossesSquare(var8.x, var8.y, var8.z)) {
+                  var8 = this.current;
+               }
+            }
+
+            if (var8 != null && var8 != this.current && this.current != null) {
+               if (var2 != null && var2.getCurrentState() != null && var2.getCurrentState().isIgnoreCollide(var2, this.current.x, this.current.y, this.current.z, var8.x, var8.y, var8.z)) {
+                  return false;
+               }
+
+               if (this.current.testCollideAdjacent(this, var8.getX() - this.current.getX(), var8.getY() - this.current.getY(), var8.getZ() - this.current.getZ())) {
+                  if (this.last != null) {
+                     if (this.current.getX() < var8.getX()) {
+                        this.collidedE = true;
+                     }
+
+                     if (this.current.getX() > var8.getX()) {
+                        this.collidedW = true;
+                     }
+
+                     if (this.current.getY() < var8.getY()) {
+                        this.collidedS = true;
+                     }
+
+                     if (this.current.getY() > var8.getY()) {
+                        this.collidedN = true;
+                     }
+
+                     this.checkBreakHoppable();
+                     this.checkHitHoppable();
+                     if (var1 == 2 && (this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
+                        this.collidedS = false;
+                        this.collidedN = false;
+                     }
+
+                     if (var1 == 1 && (this.collidedS || this.collidedN) && (this.collidedE || this.collidedW)) {
+                        this.collidedW = false;
+                        this.collidedE = false;
+                     }
+                  }
+
+                  this.Collided();
+                  return true;
+               }
+            }
+         }
+
+         return false;
+      }
    }
 
-   private void checkHitHoppable() {
-      IsoZombie var1 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
-      if (var1 != null && !var1.bCrawling) {
-         if (!var1.isCurrentState(AttackState.instance()) && !var1.isCurrentState(StaggerBackState.instance()) && !var1.isCurrentState(ClimbOverFenceState.instance()) && !var1.isCurrentState(ClimbThroughWindowState.instance())) {
+   private void checkHitHoppableAnimal(IsoAnimal var1) {
+      if (var1.adef.canClimbFences) {
+         if (!var1.isCurrentState(AnimalAttackState.instance()) && !var1.isCurrentState(AnimalClimbOverFenceState.instance())) {
             if (this.collidedW && !this.collidedN && !this.collidedS && this.last.Is(IsoFlagType.HoppableW)) {
                var1.climbOverFence(IsoDirections.W);
             }
@@ -1352,6 +1559,48 @@ public class IsoMovingObject extends IsoObject implements Mover {
                }
             }
 
+         }
+      }
+   }
+
+   private void checkHitHoppable() {
+      IsoAnimal var1 = (IsoAnimal)Type.tryCastTo(this, IsoAnimal.class);
+      if (var1 != null) {
+         this.checkHitHoppableAnimal(var1);
+      } else {
+         IsoZombie var2 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
+         if (var2 != null && !var2.bCrawling) {
+            if (!var2.isCurrentState(AttackState.instance()) && !var2.isCurrentState(StaggerBackState.instance()) && !var2.isCurrentState(ClimbOverFenceState.instance()) && !var2.isCurrentState(ClimbThroughWindowState.instance())) {
+               IsoGridSquare var3;
+               if (this.collidedW && !this.collidedN && !this.collidedS) {
+                  var3 = this.last.nav[IsoDirections.W.index()];
+                  if (this.last.Is(IsoFlagType.HoppableW) && !this.last.HasStairsNorth() && (var3 == null || !var3.HasStairsNorth())) {
+                     var2.climbOverFence(IsoDirections.W);
+                  }
+               }
+
+               if (this.collidedN && !this.collidedE && !this.collidedW) {
+                  var3 = this.last.nav[IsoDirections.N.index()];
+                  if (this.last.Is(IsoFlagType.HoppableN) && !this.last.HasStairsWest() && (var3 == null || !var3.HasStairsWest())) {
+                     var2.climbOverFence(IsoDirections.N);
+                  }
+               }
+
+               if (this.collidedS && !this.collidedE && !this.collidedW) {
+                  var3 = this.last.nav[IsoDirections.S.index()];
+                  if (var3 != null && var3.Is(IsoFlagType.HoppableN) && !this.last.HasStairsWest() && !var3.HasStairsWest()) {
+                     var2.climbOverFence(IsoDirections.S);
+                  }
+               }
+
+               if (this.collidedE && !this.collidedN && !this.collidedS) {
+                  var3 = this.last.nav[IsoDirections.E.index()];
+                  if (var3 != null && var3.Is(IsoFlagType.HoppableW) && !this.last.HasStairsNorth() && !var3.HasStairsNorth()) {
+                     var2.climbOverFence(IsoDirections.E);
+                  }
+               }
+
+            }
          }
       }
    }
@@ -1434,7 +1683,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
    private boolean checkVaultOver() {
       IsoPlayer var1 = (IsoPlayer)this;
       if (!var1.isCurrentState(ClimbOverFenceState.instance()) && !var1.isIgnoreAutoVault()) {
-         if (!var1.IsRunning() && !var1.isSprinting() && var1.isLocalPlayer()) {
+         if (!var1.IsRunning() && !var1.isSprinting() && !var1.isRemoteAndHasObstacleOnPath()) {
             return false;
          } else {
             IsoDirections var2 = this.getDir();
@@ -1503,18 +1752,18 @@ public class IsoMovingObject extends IsoObject implements Mover {
 
    public IsoGridSquare getFeelerTile(float var1) {
       Vector2 var2 = tempo;
-      var2.x = this.nx - this.lx;
-      var2.y = this.ny - this.ly;
+      var2.x = this.getNextX() - this.getLastX();
+      var2.y = this.getNextY() - this.getLastY();
       var2.setLength(var1);
-      return this.getCell().getGridSquare((int)(this.x + var2.x), (int)(this.y + var2.y), (int)this.z);
+      return this.getCell().getGridSquare(PZMath.fastfloor(this.getX() + var2.x), PZMath.fastfloor(this.getY() + var2.y), PZMath.fastfloor(this.getZ()));
    }
 
    public void DoCollideNorS() {
-      this.ny = this.ly;
+      this.setNextY(this.getLastY());
    }
 
    public void DoCollideWorE() {
-      this.nx = this.lx;
+      this.setNextX(this.getLastX());
    }
 
    public int getTimeSinceZombieAttack() {
@@ -1589,7 +1838,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
       return this.current;
    }
 
-   public IsoMetaGrid.Zone getCurrentZone() {
+   public Zone getCurrentZone() {
       return this.current != null ? this.current.getZone() : null;
    }
 
@@ -1677,46 +1926,6 @@ public class IsoMovingObject extends IsoObject implements Mover {
       this.last = var1;
    }
 
-   public float getLx() {
-      return this.lx;
-   }
-
-   public void setLx(float var1) {
-      this.lx = var1;
-   }
-
-   public float getLy() {
-      return this.ly;
-   }
-
-   public void setLy(float var1) {
-      this.ly = var1;
-   }
-
-   public float getLz() {
-      return this.lz;
-   }
-
-   public void setLz(float var1) {
-      this.lz = var1;
-   }
-
-   public float getNx() {
-      return this.nx;
-   }
-
-   public void setNx(float var1) {
-      this.nx = var1;
-   }
-
-   public float getNy() {
-      return this.ny;
-   }
-
-   public void setNy(float var1) {
-      this.ny = var1;
-   }
-
    public boolean getNoDamage() {
       return this.noDamage;
    }
@@ -1782,19 +1991,19 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public float getScriptnx() {
-      return this.scriptnx;
+      return this.getScriptNextX();
    }
 
    public void setScriptnx(float var1) {
-      this.scriptnx = var1;
+      this.setScriptNextX(var1);
    }
 
    public float getScriptny() {
-      return this.scriptny;
+      return this.getScriptNextY();
    }
 
    public void setScriptny(float var1) {
-      this.scriptny = var1;
+      this.setScriptNextY(var1);
    }
 
    public String getScriptModule() {
@@ -1830,16 +2039,16 @@ public class IsoMovingObject extends IsoObject implements Mover {
          IsoPlayer var5 = (IsoPlayer)Type.tryCastTo(var4, IsoPlayer.class);
          if (var5 != null) {
             HandWeapon var6 = (HandWeapon)Type.tryCastTo(var5.getPrimaryHandItem(), HandWeapon.class);
-            if (var6 == null || var5.bDoShove || var5.isForceShove()) {
+            if (var6 == null || var5.isDoShove() || var5.isForceShove()) {
                var6 = var5.bareHands;
             }
 
-            float var7 = IsoUtils.DistanceTo(var5.x, var5.y, this.x, this.y);
+            float var7 = IsoUtils.DistanceTo(var5.getX(), var5.getY(), this.getX(), this.getY());
             float var8 = var6.getMaxRange() * var6.getRangeMod(var5) + 2.0F;
             if (!(var7 > var8)) {
-               float var9 = var5.getDotWithForwardDirection(this.x, this.y);
-               if (!((double)var7 > 2.5) || !(var9 < 0.1F)) {
-                  LosUtil.TestResults var10 = LosUtil.lineClear(var5.getCell(), (int)var5.getX(), (int)var5.getY(), (int)var5.getZ(), (int)this.getX(), (int)this.getY(), (int)this.getZ(), false);
+               float var9 = var5.getDotWithForwardDirection(this.getX(), this.getY());
+               if (!(var7 > 2.5F) || !(var9 < 0.1F)) {
+                  LosUtil.TestResults var10 = LosUtil.lineClear(var5.getCell(), PZMath.fastfloor(var5.getX()), PZMath.fastfloor(var5.getY()), PZMath.fastfloor(var5.getZ()), PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), false);
                   if (var10 != LosUtil.TestResults.Blocked && var10 != LosUtil.TestResults.ClearThroughClosedDoor) {
                      ++var1;
                      if (var1 >= 2) {
@@ -1883,7 +2092,7 @@ public class IsoMovingObject extends IsoObject implements Mover {
       if (GameServer.bServer) {
          for(var3 = 0; var3 < ServerMap.instance.LoadedCells.size(); ++var3) {
             ServerMap.ServerCell var4 = (ServerMap.ServerCell)ServerMap.instance.LoadedCells.get(var3);
-            if (var1 >= var4.WX * 50 && var1 < (var4.WX + 1) * 50 && var2 >= var4.WY * 50 && var2 < (var4.WY + 1) * 50) {
+            if (var1 >= var4.WX * 64 && var1 < (var4.WX + 1) * 64 && var2 >= var4.WY * 64 && var2 < (var4.WY + 1) * 64) {
                return true;
             }
          }
@@ -1933,120 +2142,31 @@ public class IsoMovingObject extends IsoObject implements Mover {
    }
 
    public float getDistanceSq(IsoMovingObject var1) {
-      float var2 = this.x - var1.x;
-      float var3 = this.y - var1.y;
+      float var2 = this.getX() - var1.getX();
+      float var3 = this.getY() - var1.getY();
       var2 *= var2;
       var3 *= var3;
       return var2 + var3;
    }
 
    public void setZombiesDontAttack(boolean var1) {
-      this.zombiesDontAttack = var1;
+      if (!Role.haveCapability(this, Capability.UseZombieDontAttackCheat)) {
+         this.zombiesDontAttack = false;
+      } else {
+         this.zombiesDontAttack = var1;
+      }
    }
 
    public boolean isZombiesDontAttack() {
       return this.zombiesDontAttack;
    }
 
-   public static class TreeSoundManager {
-      private ArrayList<IsoGridSquare> squares = new ArrayList();
-      private long[] soundTime = new long[6];
-      private Comparator<IsoGridSquare> comp = (var1, var2) -> {
-         float var3 = this.getClosestListener((float)var1.x + 0.5F, (float)var1.y + 0.5F, (float)var1.z);
-         float var4 = this.getClosestListener((float)var2.x + 0.5F, (float)var2.y + 0.5F, (float)var2.z);
-         if (var3 > var4) {
-            return 1;
-         } else {
-            return var3 < var4 ? -1 : 0;
-         }
-      };
+   public boolean isExistInTheWorld() {
+      return this.square != null ? this.square.getMovingObjects().contains(this) : false;
+   }
 
-      public TreeSoundManager() {
-      }
-
-      public void addSquare(IsoGridSquare var1) {
-         if (!this.squares.contains(var1)) {
-            this.squares.add(var1);
-         }
-
-      }
-
-      public void update() {
-         if (!this.squares.isEmpty()) {
-            Collections.sort(this.squares, this.comp);
-            long var1 = System.currentTimeMillis();
-
-            for(int var3 = 0; var3 < this.soundTime.length && var3 < this.squares.size(); ++var3) {
-               IsoGridSquare var4 = (IsoGridSquare)this.squares.get(var3);
-               if (!(this.getClosestListener((float)var4.x + 0.5F, (float)var4.y + 0.5F, (float)var4.z) > 20.0F)) {
-                  int var5 = this.getFreeSoundSlot(var1);
-                  if (var5 == -1) {
-                     break;
-                  }
-
-                  Audio var6 = null;
-                  float var7 = 0.05F;
-                  float var8 = 16.0F;
-                  float var9 = 0.29999998F;
-                  if (GameClient.bClient) {
-                     var6 = SoundManager.instance.PlayWorldSoundImpl("Bushes", false, var4.getX(), var4.getY(), var4.getZ(), var7, var8, var9, false);
-                  } else {
-                     BaseSoundEmitter var10 = IsoWorld.instance.getFreeEmitter((float)var4.x + 0.5F, (float)var4.y + 0.5F, (float)var4.z);
-                     if (var10.playSound("Bushes") != 0L) {
-                        this.soundTime[var5] = var1;
-                     }
-                  }
-
-                  if (var6 != null) {
-                     this.soundTime[var5] = var1;
-                  }
-               }
-            }
-
-            this.squares.clear();
-         }
-      }
-
-      private float getClosestListener(float var1, float var2, float var3) {
-         float var4 = 3.4028235E38F;
-
-         for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
-            IsoPlayer var6 = IsoPlayer.players[var5];
-            if (var6 != null && var6.getCurrentSquare() != null) {
-               float var7 = var6.getX();
-               float var8 = var6.getY();
-               float var9 = var6.getZ();
-               float var10 = IsoUtils.DistanceTo(var7, var8, var9 * 3.0F, var1, var2, var3 * 3.0F);
-               if (var6.Traits.HardOfHearing.isSet()) {
-                  var10 *= 4.5F;
-               }
-
-               if (var10 < var4) {
-                  var4 = var10;
-               }
-            }
-         }
-
-         return var4;
-      }
-
-      private int getFreeSoundSlot(long var1) {
-         long var3 = 9223372036854775807L;
-         int var5 = -1;
-
-         for(int var6 = 0; var6 < this.soundTime.length; ++var6) {
-            if (this.soundTime[var6] < var3) {
-               var3 = this.soundTime[var6];
-               var5 = var6;
-            }
-         }
-
-         if (var1 - var3 < 1000L) {
-            return -1;
-         } else {
-            return var5;
-         }
-      }
+   public boolean shouldIgnoreCollisionWithSquare(IsoGridSquare var1) {
+      return false;
    }
 
    private static final class L_postUpdate {

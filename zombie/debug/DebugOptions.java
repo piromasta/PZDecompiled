@@ -13,16 +13,24 @@ import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.opengl.RenderThread;
 import zombie.debug.options.Animation;
+import zombie.debug.options.Asset;
 import zombie.debug.options.Character;
+import zombie.debug.options.Cheat;
+import zombie.debug.options.CollideWithObstacles;
+import zombie.debug.options.DeadBodyAtlas;
 import zombie.debug.options.IDebugOption;
 import zombie.debug.options.IDebugOptionGroup;
 import zombie.debug.options.IsoSprite;
+import zombie.debug.options.Model;
+import zombie.debug.options.Multiplayer;
 import zombie.debug.options.Network;
 import zombie.debug.options.OffscreenBuffer;
 import zombie.debug.options.OptionGroup;
 import zombie.debug.options.Terrain;
 import zombie.debug.options.Weather;
+import zombie.debug.options.WorldItemAtlas;
 import zombie.gameStates.GameLoadingState;
+import zombie.iso.fboRenderChunk.FBORenderDebugOptions;
 import zombie.util.PZXmlParserException;
 import zombie.util.PZXmlUtil;
 import zombie.util.Type;
@@ -31,79 +39,51 @@ import zombie.util.list.PZArrayUtil;
 public final class DebugOptions implements IDebugOptionGroup {
    public static final int VERSION = 1;
    public static final DebugOptions instance = new DebugOptions();
+   private static PredicatedFileWatcher m_triggerWatcher;
    private final ArrayList<BooleanDebugOption> options = new ArrayList();
    private final ArrayList<IDebugOption> m_options = new ArrayList();
-   public final BooleanDebugOption AssetSlowLoad = this.newOption("Asset.SlowLoad", false);
-   public final BooleanDebugOption MultiplayerShowZombieMultiplier = this.newDebugOnlyOption("Multiplayer.Debug.ZombieMultiplier", false);
-   public final BooleanDebugOption MultiplayerShowZombieOwner = this.newDebugOnlyOption("Multiplayer.Debug.ZombieOwner", false);
-   public final BooleanDebugOption MultiplayerShowPosition = this.newDebugOnlyOption("Multiplayer.Debug.Position", false);
-   public final BooleanDebugOption MultiplayerShowTeleport = this.newDebugOnlyOption("Multiplayer.Debug.Teleport", false);
-   public final BooleanDebugOption MultiplayerShowHit = this.newDebugOnlyOption("Multiplayer.Debug.Hit", false);
-   public final BooleanDebugOption MultiplayerLogPrediction = this.newDebugOnlyOption("Multiplayer.Debug.LogPrediction", false);
-   public final BooleanDebugOption MultiplayerShowPlayerPrediction = this.newDebugOnlyOption("Multiplayer.Debug.PlayerPrediction", false);
-   public final BooleanDebugOption MultiplayerShowPlayerStatus = this.newDebugOnlyOption("Multiplayer.Debug.PlayerStatus", false);
-   public final BooleanDebugOption MultiplayerShowZombiePrediction = this.newDebugOnlyOption("Multiplayer.Debug.ZombiePrediction", false);
-   public final BooleanDebugOption MultiplayerShowZombieDesync = this.newDebugOnlyOption("Multiplayer.Debug.ZombieDesync", false);
-   public final BooleanDebugOption MultiplayerShowZombieStatus = this.newDebugOnlyOption("Multiplayer.Debug.ZombieStatus", false);
-   public final BooleanDebugOption MultiplayerCriticalHit = this.newDebugOnlyOption("Multiplayer.Debug.CriticalHit", false);
-   public final BooleanDebugOption MultiplayerTorsoHit = this.newDebugOnlyOption("Multiplayer.Debug.TorsoHit", false);
-   public final BooleanDebugOption MultiplayerZombieCrawler = this.newDebugOnlyOption("Multiplayer.Debug.ZombieCrawler", false);
-   public final BooleanDebugOption MultiplayerHotKey = this.newDebugOnlyOption("Multiplayer.Debug.HotKey", false);
-   public final BooleanDebugOption MultiplayerPlayerZombie = this.newDebugOnlyOption("Multiplayer.Debug.PlayerZombie", false);
-   public final BooleanDebugOption MultiplayerAttackPlayer = this.newDebugOnlyOption("Multiplayer.Debug.Attack.Player", false);
-   public final BooleanDebugOption MultiplayerFollowPlayer = this.newDebugOnlyOption("Multiplayer.Debug.Follow.Player", false);
-   public final BooleanDebugOption MultiplayerAutoEquip = this.newDebugOnlyOption("Multiplayer.Debug.AutoEquip", false);
-   public final BooleanDebugOption MultiplayerSeeNonPvpZones = this.newDebugOnlyOption("Multiplayer.Debug.SeeNonPvpZones", false);
-   public final BooleanDebugOption MultiplayerFailChecksum = this.newDebugOnlyOption("Multiplayer.Debug.FailChecksum", false);
-   public final BooleanDebugOption CheatClockVisible = this.newDebugOnlyOption("Cheat.Clock.Visible", false);
-   public final BooleanDebugOption CheatDoorUnlock = this.newDebugOnlyOption("Cheat.Door.Unlock", false);
-   public final BooleanDebugOption CheatPlayerStartInvisible = this.newDebugOnlyOption("Cheat.Player.StartInvisible", false);
-   public final BooleanDebugOption CheatPlayerInvisibleSprint = this.newDebugOnlyOption("Cheat.Player.InvisibleSprint", false);
-   public final BooleanDebugOption CheatPlayerSeeEveryone = this.newDebugOnlyOption("Cheat.Player.SeeEveryone", false);
-   public final BooleanDebugOption CheatUnlimitedAmmo = this.newDebugOnlyOption("Cheat.Player.UnlimitedAmmo", false);
-   public final BooleanDebugOption CheatRecipeKnowAll = this.newDebugOnlyOption("Cheat.Recipe.KnowAll", false);
-   public final BooleanDebugOption CheatTimedActionInstant = this.newDebugOnlyOption("Cheat.TimedAction.Instant", false);
-   public final BooleanDebugOption CheatVehicleMechanicsAnywhere = this.newDebugOnlyOption("Cheat.Vehicle.MechanicsAnywhere", false);
-   public final BooleanDebugOption CheatVehicleStartWithoutKey = this.newDebugOnlyOption("Cheat.Vehicle.StartWithoutKey", false);
-   public final BooleanDebugOption CheatWindowUnlock = this.newDebugOnlyOption("Cheat.Window.Unlock", false);
-   public final BooleanDebugOption CollideWithObstaclesRenderRadius = this.newOption("CollideWithObstacles.Render.Radius", false);
-   public final BooleanDebugOption CollideWithObstaclesRenderObstacles = this.newOption("CollideWithObstacles.Render.Obstacles", false);
-   public final BooleanDebugOption CollideWithObstaclesRenderNormals = this.newOption("CollideWithObstacles.Render.Normals", false);
-   public final BooleanDebugOption DeadBodyAtlasRender = this.newOption("DeadBodyAtlas.Render", false);
-   public final BooleanDebugOption WorldItemAtlasRender = this.newDebugOnlyOption("WorldItemAtlas.Render", false);
+   public final Asset Asset = (Asset)this.newOptionGroup(new Asset());
+   public final Multiplayer Multiplayer = (Multiplayer)this.newOptionGroup(new Multiplayer());
+   public final Cheat Cheat = (Cheat)this.newOptionGroup(new Cheat());
+   public final CollideWithObstacles CollideWithObstacles = (CollideWithObstacles)this.newOptionGroup(new CollideWithObstacles());
+   public final DeadBodyAtlas DeadBodyAtlas = (DeadBodyAtlas)this.newOptionGroup(new DeadBodyAtlas());
+   public final WorldItemAtlas WorldItemAtlas = (WorldItemAtlas)this.newOptionGroup(new WorldItemAtlas());
    public final BooleanDebugOption DebugScenarioForceLaunch = this.newOption("DebugScenario.ForceLaunch", false);
    public final BooleanDebugOption MechanicsRenderHitbox = this.newOption("Mechanics.Render.Hitbox", false);
    public final BooleanDebugOption JoypadRenderUI = this.newDebugOnlyOption("Joypad.Render.UI", false);
-   public final BooleanDebugOption ModelRenderAttachments = this.newOption("Model.Render.Attachments", false);
-   public final BooleanDebugOption ModelRenderAxis = this.newOption("Model.Render.Axis", false);
-   public final BooleanDebugOption ModelRenderBones = this.newOption("Model.Render.Bones", false);
-   public final BooleanDebugOption ModelRenderBounds = this.newOption("Model.Render.Bounds", false);
-   public final BooleanDebugOption ModelRenderLights = this.newOption("Model.Render.Lights", false);
-   public final BooleanDebugOption ModelRenderMuzzleflash = this.newOption("Model.Render.Muzzleflash", false);
-   public final BooleanDebugOption ModelRenderSkipVehicles = this.newOption("Model.Render.SkipVehicles", false);
-   public final BooleanDebugOption ModelRenderWeaponHitPoint = this.newOption("Model.Render.WeaponHitPoint", false);
-   public final BooleanDebugOption ModelRenderWireframe = this.newOption("Model.Render.Wireframe", false);
-   public final BooleanDebugOption ModelSkeleton = this.newOption("Model.Force.Skeleton", false);
+   public final Model Model = (Model)this.newOptionGroup(new Model());
    public final BooleanDebugOption ModRenderLoaded = this.newDebugOnlyOption("Mod.Render.Loaded", false);
    public final BooleanDebugOption PathfindPathToMouseAllowCrawl = this.newOption("Pathfind.PathToMouse.AllowCrawl", false);
    public final BooleanDebugOption PathfindPathToMouseAllowThump = this.newOption("Pathfind.PathToMouse.AllowThump", false);
    public final BooleanDebugOption PathfindPathToMouseEnable = this.newOption("Pathfind.PathToMouse.Enable", false);
    public final BooleanDebugOption PathfindPathToMouseIgnoreCrawlCost = this.newOption("Pathfind.PathToMouse.IgnoreCrawlCost", false);
+   public final BooleanDebugOption PathfindPathToMouseRenderSuccessors = this.newOption("Pathfind.PathToMouse.RenderSuccessors", false);
+   public final BooleanDebugOption PathfindRenderChunkRegions = this.newOption("Pathfind.Render.ChunkRegions", false);
    public final BooleanDebugOption PathfindRenderPath = this.newOption("Pathfind.Render.Path", false);
    public final BooleanDebugOption PathfindRenderWaiting = this.newOption("Pathfind.Render.Waiting", false);
+   public final BooleanDebugOption PathfindSmoothPlayerPath = this.newOption("Pathfind.SmoothPlayerPath", true);
+   public final BooleanDebugOption PathfindUseNativeCode = this.newOption("Pathfind.UseNativeCode", true);
+   public final BooleanDebugOption PathfindBorderFinder = this.newOption("Pathfind.BorderFinder", false);
+   public final BooleanDebugOption ThreadPathfinding = this.newOption("Threading.Pathfinding", false);
    public final BooleanDebugOption PhysicsRender = this.newOption("Physics.Render", false);
-   public final BooleanDebugOption PolymapRenderClusters = this.newOption("Pathfind.Render.Clusters", false);
-   public final BooleanDebugOption PolymapRenderConnections = this.newOption("Pathfind.Render.Connections", false);
-   public final BooleanDebugOption PolymapRenderCrawling = this.newOption("Pathfind.Render.Crawling", false);
-   public final BooleanDebugOption PolymapRenderLineClearCollide = this.newOption("Pathfind.Render.LineClearCollide", false);
-   public final BooleanDebugOption PolymapRenderNodes = this.newOption("Pathfind.Render.Nodes", false);
+   public final BooleanDebugOption PhysicsRenderPlayerLevelOnly = this.newOption("Physics.Render.PlayerLevelOnly", false);
+   public final BooleanDebugOption PhysicsRenderBallisticsControllers = this.newOption("Physics.Debug.Render.BallisticsControllers", false);
+   public final BooleanDebugOption PhysicsRenderBallisticsTargets = this.newOption("Physics.Debug.Render.BallisticsTargets", false);
+   public final BooleanDebugOption PhysicsRenderHighlightBallisticsTargets = this.newOption("Physics.Debug.Render.HighlightBallisticsTargets", false);
+   public final BooleanDebugOption PolymapRenderClusters = this.newOption("Polymap.Render.Clusters", false);
+   public final BooleanDebugOption PolymapRenderConnections = this.newOption("Polymap.Render.Connections", false);
+   public final BooleanDebugOption PolymapRenderCrawling = this.newOption("Polymap.Render.Crawling", false);
+   public final BooleanDebugOption PolymapRenderLineClearCollide = this.newOption("Polymap.Render.LineClearCollide", false);
+   public final BooleanDebugOption PolymapRenderNodes = this.newOption("Polymap.Render.Nodes", false);
    public final BooleanDebugOption TooltipInfo = this.newOption("Tooltip.Info", false);
+   public final BooleanDebugOption TooltipAttributes = this.newDebugOnlyOption("Tooltip.Attributes", false);
    public final BooleanDebugOption TooltipModName = this.newDebugOnlyOption("Tooltip.ModName", false);
    public final BooleanDebugOption TranslationPrefix = this.newOption("Translation.Prefix", false);
    public final BooleanDebugOption UIRenderOutline = this.newOption("UI.Render.Outline", false);
    public final BooleanDebugOption UIDebugConsoleStartVisible = this.newOption("UI.DebugConsole.StartVisible", true);
    public final BooleanDebugOption UIDebugConsoleDebugLog = this.newOption("UI.DebugConsole.DebugLog", true);
    public final BooleanDebugOption UIDebugConsoleEchoCommand = this.newOption("UI.DebugConsole.EchoCommand", true);
+   public final BooleanDebugOption UIDisableLogoState = this.newDebugOnlyOption("UI.DisableLogoState", true);
    public final BooleanDebugOption UIDisableWelcomeMessage = this.newOption("UI.DisableWelcomeMessage", false);
    public final BooleanDebugOption VehicleCycleColor = this.newDebugOnlyOption("Vehicle.CycleColor", false);
    public final BooleanDebugOption VehicleRenderBlood0 = this.newDebugOnlyOption("Vehicle.Render.Blood0", false);
@@ -124,26 +104,58 @@ public final class DebugOptions implements IDebugOptionGroup {
    public final BooleanDebugOption VehicleRenderIntersectedSquares = this.newOption("Vehicle.Render.IntersectedSquares", false);
    public final BooleanDebugOption VehicleRenderTrailerPositions = this.newDebugOnlyOption("Vehicle.Render.TrailerPositions", false);
    public final BooleanDebugOption VehicleSpawnEverywhere = this.newDebugOnlyOption("Vehicle.Spawn.Everywhere", false);
+   public final BooleanDebugOption AmbientWallEmittersRender = this.newDebugOnlyOption("Sound.AmbientWallEmitters.Render", false);
    public final BooleanDebugOption WorldSoundRender = this.newOption("Sound.WorldSound.Render", false);
    public final BooleanDebugOption ObjectAmbientEmitterRender = this.newDebugOnlyOption("Sound.ObjectAmbientEmitter.Render", false);
+   public final BooleanDebugOption ParameterInsideRender = this.newDebugOnlyOption("Sound.ParameterInside.Render", false);
    public final BooleanDebugOption LightingRender = this.newOption("Lighting.Render", false);
    public final BooleanDebugOption SkyboxShow = this.newOption("Skybox.Show", false);
    public final BooleanDebugOption WorldStreamerSlowLoad = this.newOption("WorldStreamer.SlowLoad", false);
    public final BooleanDebugOption DebugDraw_SkipVBODraw = this.newOption("DebugDraw.SkipVBODraw", false);
    public final BooleanDebugOption DebugDraw_SkipDrawNonSkinnedModel = this.newOption("DebugDraw.SkipDrawNonSkinnedModel", false);
    public final BooleanDebugOption DebugDraw_SkipWorldShading = this.newOption("DebugDraw.SkipWorldShading", false);
+   public final BooleanDebugOption DebugDraw_FishingZones = this.newOption("DebugDraw.FishingZones", false);
    public final BooleanDebugOption GameProfilerEnabled = this.newOption("GameProfiler.Enabled", false);
    public final BooleanDebugOption GameTimeSpeedHalf = this.newOption("GameTime.Speed.Half", false);
    public final BooleanDebugOption GameTimeSpeedQuarter = this.newOption("GameTime.Speed.Quarter", false);
+   public final BooleanDebugOption GameTimeSpeedEighth = this.newOption("GameTime.Speed.Eighth", false);
+   public final BooleanDebugOption FreezeTimeOfDay = this.newOption("GameTime.TimeOfDay.Freeze", false);
    public final BooleanDebugOption ThreadCrash_Enabled = this.newDebugOnlyOption("ThreadCrash.Enable", false);
    public final BooleanDebugOption[] ThreadCrash_GameThread = new BooleanDebugOption[]{this.newDebugOnlyOption("ThreadCrash.MainThread.0", false), this.newDebugOnlyOption("ThreadCrash.MainThread.1", false), this.newDebugOnlyOption("ThreadCrash.MainThread.2", false)};
-   public final BooleanDebugOption[] ThreadCrash_GameLoadingThread = new BooleanDebugOption[]{this.newDebugOnlyOption("ThreadCrash.GameLoadingThread.0", false)};
    public final BooleanDebugOption[] ThreadCrash_RenderThread = new BooleanDebugOption[]{this.newDebugOnlyOption("ThreadCrash.RenderThread.0", false), this.newDebugOnlyOption("ThreadCrash.RenderThread.1", false), this.newDebugOnlyOption("ThreadCrash.RenderThread.2", false)};
+   public final BooleanDebugOption[] ThreadCrash_GameLoadingThread = new BooleanDebugOption[]{this.newDebugOnlyOption("ThreadCrash.GameLoadingThread.0", false)};
    public final BooleanDebugOption WorldChunkMap5x5 = this.newDebugOnlyOption("World.ChunkMap.5x5", false);
+   public final BooleanDebugOption WorldChunkMap7x7 = this.newDebugOnlyOption("World.ChunkMap.7x7", false);
+   public final BooleanDebugOption WorldChunkMap9x9 = this.newDebugOnlyOption("World.ChunkMap.9x9", false);
+   public final BooleanDebugOption WorldChunkMap11x11 = this.newDebugOnlyOption("World.ChunkMap.11x11", false);
+   public final BooleanDebugOption WorldChunkMap13x13 = this.newDebugOnlyOption("World.ChunkMap.13x13", false);
    public final BooleanDebugOption ZombieRenderCanCrawlUnderVehicle = this.newDebugOnlyOption("Zombie.Render.CanCrawlUnderVehicle", false);
    public final BooleanDebugOption ZombieRenderFakeDead = this.newDebugOnlyOption("Zombie.Render.FakeDead", false);
    public final BooleanDebugOption ZombieRenderMemory = this.newDebugOnlyOption("Zombie.Render.Memory", false);
+   public final BooleanDebugOption ZombieRenderViewDistance = this.newDebugOnlyOption("Zombie.Render.ViewDistance", false);
    public final BooleanDebugOption ZombieOutfitRandom = this.newDebugOnlyOption("Zombie.Outfit.Random", false);
+   public final BooleanDebugOption EntityDebugUI = this.newDebugOnlyOption("Entity.DebugUI", true);
+   public final BooleanDebugOption ZombieImposterRendering = this.newDebugOnlyOption("Zombie.Imposter.RenderImposters", false);
+   public final BooleanDebugOption ZombieBlendPreview = this.newDebugOnlyOption("Zombie.Imposter.PreviewBlend", false);
+   public final BooleanDebugOption ZombieImposterPreview = this.newDebugOnlyOption("Zombie.Imposter.PreviewCard", false);
+   public final BooleanDebugOption ZombieImposterBlend = this.newDebugOnlyOption("Zombie.Imposter.Blend", false);
+   public final BooleanDebugOption RenderTestFSQuad = this.newDebugOnlyOption("Render.Test.FSQuad", false);
+   public final BooleanDebugOption ZombieAnimationDelay = this.newDebugOnlyOption("Zombie.Animation.DelayInvisible", true);
+   public final BooleanDebugOption ZombieRenderInstanced = this.newDebugOnlyOption("Zombie.Render.Instanced", false);
+   public final BooleanDebugOption InstancingBufferCopy = this.newDebugOnlyOption("Instancing.Buffer.Copy", false);
+   public final BooleanDebugOption ThreadLighting = this.newOption("Threading.Lighting", false);
+   public final BooleanDebugOption LightingSplitUpdate = this.newDebugOnlyOption("Lighting.SplitUpdate", false);
+   public final BooleanDebugOption ThreadAmbient = this.newOption("Threading.Ambient", false);
+   public final BooleanDebugOption DisplayVisibilityPolygon = this.newDebugOnlyOption("Visibility.DisplayLines", false);
+   public final BooleanDebugOption UseNewVisibility = this.newOption("Visibility.UseNew", true);
+   public final BooleanDebugOption PreviewTiles = this.newDebugOnlyOption("Visibility.PreviewTiles", false);
+   public final BooleanDebugOption CheapOcclusionCount = this.newOption("FBORenderLevels.CheapOcclusionCount", true);
+   public final BooleanDebugOption ThreadGridStacks = this.newOption("Threading.RecalculateGridStacks", false);
+   public final BooleanDebugOption ThreadSound = this.newOption("Threading.Sound", false);
+   public final BooleanDebugOption ThreadWorld = this.newOption("Threading.World", false);
+   public final BooleanDebugOption ThreadModelSlotInit = this.newOption("Threading.ModelSlotInit", true);
+   public final BooleanDebugOption ThreadAnimation = this.newOption("Threading.Animation", false);
+   public final BooleanDebugOption DelayObjectRender = this.newOption("Rendering.DelayObjects", false);
    public final Checks Checks = (Checks)this.newOptionGroup(new Checks());
    public final IsoSprite IsoSprite = (IsoSprite)this.newOptionGroup(new IsoSprite());
    public final Network Network = (Network)this.newOptionGroup(new Network());
@@ -152,9 +164,13 @@ public final class DebugOptions implements IDebugOptionGroup {
    public final Weather Weather = (Weather)this.newOptionGroup(new Weather());
    public final Animation Animation = (Animation)this.newOptionGroup(new Animation());
    public final Character Character = (Character)this.newOptionGroup(new Character());
-   private static PredicatedFileWatcher m_triggerWatcher;
+   public final FBORenderDebugOptions FBORenderChunk = (FBORenderDebugOptions)this.newOptionGroup(new FBORenderDebugOptions());
 
    public DebugOptions() {
+   }
+
+   public static void testThreadCrash(int var0) {
+      instance.testThreadCrashInternal(var0);
    }
 
    public void init() {
@@ -196,6 +212,8 @@ public final class DebugOptions implements IDebugOptionGroup {
             DebugLog.General.println("DebugMode: %s", var2.debugMode ? "ON" : "OFF");
             Core.bDebug = var2.debugMode;
          }
+
+         this.save();
       } catch (PZXmlParserException var5) {
          ExceptionLogger.logException(var5, "Exception thrown parsing Trigger_SetDebugOptions.xml");
       }
@@ -209,9 +227,18 @@ public final class DebugOptions implements IDebugOptionGroup {
    }
 
    public void addChild(IDebugOption var1) {
-      this.m_options.add(var1);
-      var1.setParent(this);
-      this.onChildAdded(var1);
+      if (!this.m_options.contains(var1)) {
+         this.m_options.add(var1);
+         var1.setParent(this);
+         this.onChildAdded(var1);
+      }
+   }
+
+   public void removeChild(IDebugOption var1) {
+      if (this.m_options.contains(var1)) {
+         this.m_options.remove(var1);
+         var1.setParent((IDebugOptionGroup)null);
+      }
    }
 
    public void onChildAdded(IDebugOption var1) {
@@ -249,29 +276,20 @@ public final class DebugOptions implements IDebugOptionGroup {
       return "DebugOptions";
    }
 
+   public String getCombinedName(String var1) {
+      return var1;
+   }
+
    public IDebugOptionGroup getParent() {
       return null;
    }
 
    public void setParent(IDebugOptionGroup var1) {
-      throw new UnsupportedOperationException("DebugOptions is a root not. Cannot have a parent.");
+      throw new UnsupportedOperationException("DebugOptions is a root node. Cannot have a parent.");
    }
 
-   private BooleanDebugOption newOption(String var1, boolean var2) {
-      BooleanDebugOption var3 = OptionGroup.newOption(var1, var2);
-      this.addChild(var3);
-      return var3;
-   }
-
-   private BooleanDebugOption newDebugOnlyOption(String var1, boolean var2) {
-      BooleanDebugOption var3 = OptionGroup.newDebugOnlyOption(var1, var2);
-      this.addChild(var3);
-      return var3;
-   }
-
-   private <E extends IDebugOptionGroup> E newOptionGroup(E var1) {
-      this.addChild(var1);
-      return var1;
+   public void onFullPathChanged() {
+      throw new UnsupportedOperationException("DebugOptions is a root node. Cannot have a parent.");
    }
 
    public BooleanDebugOption getOptionByName(String var1) {
@@ -327,10 +345,6 @@ public final class DebugOptions implements IDebugOptionGroup {
 
    }
 
-   public static void testThreadCrash(int var0) {
-      instance.testThreadCrashInternal(var0);
-   }
-
    private void testThreadCrashInternal(int var1) {
       if (Core.bDebug) {
          if (this.ThreadCrash_Enabled.getValue()) {
@@ -356,13 +370,13 @@ public final class DebugOptions implements IDebugOptionGroup {
    }
 
    public static final class Checks extends OptionGroup {
-      public final BooleanDebugOption BoundTextures;
-      public final BooleanDebugOption SlowLuaEvents;
+      public final BooleanDebugOption BoundShader = this.newDebugOnlyOption("BoundShader", false);
+      public final BooleanDebugOption BoundTextures = this.newDebugOnlyOption("BoundTextures", false);
+      public final BooleanDebugOption LuaOwnerThread = this.newDebugOnlyOption("LuaOwnerThread", true);
+      public final BooleanDebugOption ObjectPoolContains = this.newDebugOnlyOption("ObjectPool.Contains", false);
+      public final BooleanDebugOption SlowLuaEvents = this.newDebugOnlyOption("SlowLuaEvents", false);
 
       public Checks() {
-         super("Checks");
-         this.BoundTextures = newDebugOnlyOption(this.Group, "BoundTextures", false);
-         this.SlowLuaEvents = newDebugOnlyOption(this.Group, "SlowLuaEvents", false);
       }
    }
 }

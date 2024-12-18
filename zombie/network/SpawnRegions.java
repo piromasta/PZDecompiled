@@ -88,19 +88,35 @@ public class SpawnRegions {
    }
 
    private Point parsePointTable(KahluaTable var1) {
-      Object var2 = var1.rawget("worldX");
-      Object var3 = var1.rawget("worldY");
-      Object var4 = var1.rawget("posX");
-      Object var5 = var1.rawget("posY");
-      Object var6 = var1.rawget("posZ");
-      if (var2 instanceof Double && var3 instanceof Double && var4 instanceof Double && var5 instanceof Double) {
-         Point var7 = new Point();
-         var7.worldX = ((Double)var2).intValue();
-         var7.worldY = ((Double)var3).intValue();
-         var7.posX = ((Double)var4).intValue();
-         var7.posY = ((Double)var5).intValue();
-         var7.posZ = var6 instanceof Double ? ((Double)var6).intValue() : 0;
-         return var7;
+      Object var2;
+      Object var3;
+      Object var4;
+      if (var1.rawget("worldX") != null) {
+         var2 = var1.rawget("worldX");
+         var3 = var1.rawget("worldY");
+         var4 = var1.rawget("posX");
+         Object var5 = var1.rawget("posY");
+         Object var6 = var1.rawget("posZ");
+         if (var2 instanceof Double && var3 instanceof Double && var4 instanceof Double && var5 instanceof Double) {
+            Point var7 = new Point();
+            int var8 = ((Double)var2).intValue();
+            int var9 = ((Double)var3).intValue();
+            var7.posX = var8 * 300 + ((Double)var4).intValue();
+            var7.posY = var9 * 300 + ((Double)var5).intValue();
+            var7.posZ = var6 instanceof Double ? ((Double)var6).intValue() : 0;
+            return var7;
+         }
+      }
+
+      var2 = var1.rawget("posX");
+      var3 = var1.rawget("posY");
+      var4 = var1.rawget("posZ");
+      if (var2 instanceof Double && var3 instanceof Double) {
+         Point var10 = new Point();
+         var10.posX = ((Double)var2).intValue();
+         var10.posY = ((Double)var3).intValue();
+         var10.posZ = var4 instanceof Double ? ((Double)var4).intValue() : 0;
+         return var10;
       } else {
          return null;
       }
@@ -210,7 +226,7 @@ public class SpawnRegions {
 
                         while(var10.hasNext()) {
                            Point var11 = (Point)var10.next();
-                           var4.write("\t\t\t\t\t{ worldX = " + var11.worldX + ", worldY = " + var11.worldY + ", posX = " + var11.posX + ", posY = " + var11.posY + ", posZ = " + var11.posZ + " }," + var5);
+                           var4.write("\t\t\t\t\t{ posX = " + var11.posX + ", posY = " + var11.posY + ", posZ = " + var11.posZ + " }," + var5);
                         }
 
                         var4.write("\t\t\t\t}," + var5);
@@ -299,7 +315,7 @@ public class SpawnRegions {
 
                while(var8.hasNext()) {
                   Point var9 = (Point)var8.next();
-                  var4.write("\t\t\t{ worldX = " + var9.worldX + ", worldY = " + var9.worldY + ", posX = " + var9.posX + ", posY = " + var9.posY + ", posZ = " + var9.posZ + " }," + var5);
+                  var4.write("\t\t\t{ posX = " + var9.posX + ", posY = " + var9.posY + ", posZ = " + var9.posZ + " }," + var5);
                }
 
                var4.write("\t\t}," + var5);
@@ -336,8 +352,6 @@ public class SpawnRegions {
             for(int var7 = 0; var7 < var5.points.size(); ++var7) {
                Point var8 = (Point)var5.points.get(var7);
                KahluaTable var9 = LuaManager.platform.newTable();
-               var9.rawset("worldX", (double)var8.worldX);
-               var9.rawset("worldY", (double)var8.worldY);
                var9.rawset("posX", (double)var8.posX);
                var9.rawset("posY", (double)var8.posY);
                var9.rawset("posZ", (double)var8.posZ);
@@ -411,10 +425,10 @@ public class SpawnRegions {
       var2.points = new ArrayList();
       var1.add(var2);
       Point var3 = new Point();
-      var3.worldX = 40;
-      var3.worldY = 22;
-      var3.posX = 67;
-      var3.posY = 201;
+      byte var4 = 40;
+      byte var5 = 22;
+      var3.posX = var4 * 300 + 67;
+      var3.posY = var5 * 300 + 201;
       var3.posZ = 0;
       var2.points.add(var3);
       return var1;
@@ -439,8 +453,6 @@ public class SpawnRegions {
    }
 
    public static class Point {
-      public int worldX;
-      public int worldY;
       public int posX;
       public int posY;
       public int posZ;

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import zombie.Lua.LuaManager;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
 import zombie.scripting.ScriptManager;
@@ -65,7 +65,7 @@ public final class VehicleType {
             String var11 = var10.getKey().toString();
             VehicleScript var12 = ScriptManager.instance.getVehicle(var11);
             if (var12 == null) {
-               DebugLog.General.warn("vehicle type \"" + var11 + "\" doesn't exist");
+               DebugLog.Vehicle.warn("vehicle type \"" + var11 + "\" doesn't exist");
             }
 
             KahluaTableImpl var13 = (KahluaTableImpl)var10.getValue();
@@ -80,15 +80,12 @@ public final class VehicleType {
          }
 
          var20 = 100.0F / var20;
-         if (var0) {
-            DebugLog.Lua.println("Vehicle spawn rate:");
-         }
 
          for(var21 = 0; var21 < var6.size(); ++var21) {
             VehicleTypeDefinition var10000 = (VehicleTypeDefinition)var6.get(var21);
             var10000.spawnChance *= var20;
             if (var0) {
-               DebugLog.Lua.println(var4 + ": " + ((VehicleTypeDefinition)var6.get(var21)).vehicleType + " " + ((VehicleTypeDefinition)var6.get(var21)).spawnChance + "%");
+               DebugLog.Vehicle.println(var4 + ": " + ((VehicleTypeDefinition)var6.get(var21)).vehicleType + " " + ((VehicleTypeDefinition)var6.get(var21)).spawnChance + "%");
             }
          }
 
@@ -160,7 +157,6 @@ public final class VehicleType {
       while(var15.hasNext()) {
          VehicleScript var17 = (VehicleScript)var15.next();
          if (!var14.contains(var17.getFullName())) {
-            DebugLog.General.warn("vehicle type \"" + var17.getFullName() + "\" isn't in VehicleZoneDistribution");
          }
       }
 

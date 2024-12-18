@@ -3,10 +3,13 @@ package zombie.randomizedWorld.randomizedDeadSurvivor;
 import java.util.ArrayList;
 import java.util.List;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.stash.StashSystem;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.RoomDef;
+import zombie.iso.SpawnPoints;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.util.list.PZArrayUtil;
@@ -19,12 +22,16 @@ public final class RDSBandPractice extends RandomizedDeadSurvivorBase {
       this.setChance(10);
       this.setMaximumDays(60);
       this.instrumentsList.add("GuitarAcoustic");
-      this.instrumentsList.add("GuitarElectricBlack");
-      this.instrumentsList.add("GuitarElectricBlue");
-      this.instrumentsList.add("GuitarElectricRed");
-      this.instrumentsList.add("GuitarElectricBassBlue");
-      this.instrumentsList.add("GuitarElectricBassBlack");
-      this.instrumentsList.add("GuitarElectricBassRed");
+      this.instrumentsList.add("GuitarElectric");
+      this.instrumentsList.add("GuitarElectric");
+      this.instrumentsList.add("GuitarElectric");
+      this.instrumentsList.add("GuitarElectricBass");
+      this.instrumentsList.add("GuitarElectricBass");
+      this.instrumentsList.add("GuitarElectricBass");
+      this.instrumentsList.add("Harmonica");
+      this.instrumentsList.add("Microphone");
+      this.instrumentsList.add("Bag_ProtectiveCaseBulky_Audio");
+      this.instrumentsList.add("Speaker");
    }
 
    public void randomizeDeadSurvivor(BuildingDef var1) {
@@ -41,13 +48,13 @@ public final class RDSBandPractice extends RandomizedDeadSurvivorBase {
       this.addZombies(var1, Rand.Next(2, 4), "Rocker", 20, var2);
       IsoGridSquare var3 = getRandomSpawnSquare(var2);
       if (var3 != null) {
-         var3.AddWorldInventoryItem((String)PZArrayUtil.pickRandom((List)this.instrumentsList), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+         ItemSpawner.spawnItem((String)PZArrayUtil.pickRandom((List)this.instrumentsList), var3, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
          if (Rand.Next(4) == 0) {
-            var3.AddWorldInventoryItem((String)PZArrayUtil.pickRandom((List)this.instrumentsList), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+            ItemSpawner.spawnItem((String)PZArrayUtil.pickRandom((List)this.instrumentsList), var3, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
          }
 
          if (Rand.Next(4) == 0) {
-            var3.AddWorldInventoryItem((String)PZArrayUtil.pickRandom((List)this.instrumentsList), Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
+            ItemSpawner.spawnItem((String)PZArrayUtil.pickRandom((List)this.instrumentsList), var3, Rand.Next(0.0F, 0.5F), Rand.Next(0.0F, 0.5F), 0.0F);
          }
 
          var1.bAlarmed = false;
@@ -59,6 +66,12 @@ public final class RDSBandPractice extends RandomizedDeadSurvivorBase {
       if (GameClient.bClient) {
          return false;
       } else if (var1.isAllExplored() && !var2) {
+         return false;
+      } else if (SpawnPoints.instance.isSpawnBuilding(var1)) {
+         this.debugLine = "Spawn houses are invalid";
+         return false;
+      } else if (StashSystem.isStashBuilding(var1)) {
+         this.debugLine = "Stash buildings are invalid";
          return false;
       } else {
          if (!var2) {

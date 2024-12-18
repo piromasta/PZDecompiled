@@ -1,6 +1,7 @@
 package zombie.ui;
 
 import zombie.GameTime;
+import zombie.IndieGL;
 import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
@@ -27,15 +28,20 @@ public final class ActionProgressBar extends UIElement {
 
    public void render() {
       if (this.isVisible() && UIManager.VisibleAllUI) {
-         this.DrawUVSliceTexture(this.background, 0.0, 0.0, (double)this.background.getWidth(), (double)this.background.getHeight(), Color.white, 0.0, 0.0, 1.0, 1.0);
+         float var1 = (float)Core.getInstance().getOptionActionProgressBarSize();
+         IndieGL.glBlendFuncSeparate(770, 771, 1, 771);
+         this.DrawUVSliceTexture(this.background, 0.0, 0.0, (double)((float)this.background.getWidth() * var1), (double)((float)this.background.getHeight() * var1), Color.white, 0.0, 0.0, 1.0, 1.0);
+         float var2 = this.foreground.offsetY * var1 - this.foreground.offsetY;
+         float var3 = (float)(this.foreground.getHeight() + 1);
+         float var4 = (float)(this.foreground.getWidth() + 1);
          if (this.deltaValue == 1.0F / 0.0F) {
             if (this.animationProgress < 0.5F) {
-               this.DrawUVSliceTexture(this.foreground, 3.0, 0.0, (double)this.foreground.getWidth(), (double)this.foreground.getHeight(), Color.white, 0.0, 0.0, (double)(this.animationProgress * 2.0F), 1.0);
+               this.DrawUVSliceTexture(this.foreground, (double)(3.0F * var1), (double)var2, (double)(var4 * var1), (double)(var3 * var1), Color.white, 0.0, 0.0, (double)(this.animationProgress * 2.0F), 1.0);
             } else {
-               this.DrawUVSliceTexture(this.foreground, 3.0, 0.0, (double)this.foreground.getWidth(), (double)this.foreground.getHeight(), Color.white, (double)((this.animationProgress - 0.5F) * 2.0F), 0.0, 1.0, 1.0);
+               this.DrawUVSliceTexture(this.foreground, (double)(3.0F * var1), (double)var2, (double)(var4 * var1), (double)(var3 * var1), Color.white, (double)((this.animationProgress - 0.5F) * 2.0F), 0.0, 1.0, 1.0);
             }
          } else {
-            this.DrawUVSliceTexture(this.foreground, 3.0, 0.0, (double)this.foreground.getWidth(), (double)this.foreground.getHeight(), Color.white, 0.0, 0.0, (double)this.deltaValue, 1.0);
+            this.DrawUVSliceTexture(this.foreground, (double)(3.0F * var1), (double)var2, (double)(var4 * var1), (double)(var3 * var1), Color.white, 0.0, 0.0, (double)this.deltaValue, 1.0);
          }
 
       }
@@ -81,21 +87,24 @@ public final class ActionProgressBar extends UIElement {
    private void updateScreenPos(int var1) {
       IsoPlayer var2 = IsoPlayer.players[var1];
       if (var2 != null) {
-         float var3 = IsoUtils.XToScreen(var2.getX(), var2.getY(), var2.getZ(), 0);
-         float var4 = IsoUtils.YToScreen(var2.getX(), var2.getY(), var2.getZ(), 0);
-         var3 = var3 - IsoCamera.getOffX() - var2.offsetX;
-         var4 = var4 - IsoCamera.getOffY() - var2.offsetY;
-         var4 -= (float)(128 / (2 / Core.TileScale));
-         var3 /= Core.getInstance().getZoom(var1);
+         float var3 = (float)Core.getInstance().getOptionActionProgressBarSize();
+         this.width = (float)this.background.getWidth() * var3;
+         this.height = (float)this.background.getHeight() * var3;
+         float var4 = IsoUtils.XToScreen(var2.getX(), var2.getY(), var2.getZ(), 0);
+         float var5 = IsoUtils.YToScreen(var2.getX(), var2.getY(), var2.getZ(), 0);
+         var4 = var4 - IsoCamera.getOffX() - var2.offsetX;
+         var5 = var5 - IsoCamera.getOffY() - var2.offsetY;
+         var5 -= (float)(128 / (2 / Core.TileScale));
          var4 /= Core.getInstance().getZoom(var1);
-         var3 -= this.width / 2.0F;
-         var4 -= this.height;
+         var5 /= Core.getInstance().getZoom(var1);
+         var4 -= this.width / 2.0F;
+         var5 -= this.height;
          if (var2.getUserNameHeight() > 0) {
-            var4 -= (float)(var2.getUserNameHeight() + 2);
+            var5 -= (float)(var2.getUserNameHeight() + 2);
          }
 
-         this.setX((double)(var3 + (float)this.offsetX));
-         this.setY((double)(var4 + (float)this.offsetY));
+         this.setX((double)(var4 + (float)this.offsetX));
+         this.setY((double)(var5 + (float)this.offsetY));
       }
    }
 }

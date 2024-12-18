@@ -4,11 +4,11 @@ import org.joml.Matrix4f;
 import zombie.config.ConfigOption;
 import zombie.input.Mouse;
 import zombie.inventory.types.MapItem;
+import zombie.iso.IsoCell;
 import zombie.worldMap.markers.WorldMapMarkers;
 import zombie.worldMap.markers.WorldMapMarkersV1;
 import zombie.worldMap.styles.WorldMapStyle;
 import zombie.worldMap.styles.WorldMapStyleV1;
-import zombie.worldMap.symbols.WorldMapSymbols;
 import zombie.worldMap.symbols.WorldMapSymbolsV1;
 
 public class UIWorldMapV1 {
@@ -17,7 +17,6 @@ public class UIWorldMapV1 {
    protected final WorldMapStyle m_style;
    protected final WorldMapRenderer m_renderer;
    protected final WorldMapMarkers m_markers;
-   protected WorldMapSymbols m_symbols;
    protected WorldMapMarkersV1 m_markersV1 = null;
    protected WorldMapStyleV1 m_styleV1 = null;
    protected WorldMapSymbolsV1 m_symbolsV1 = null;
@@ -28,12 +27,10 @@ public class UIWorldMapV1 {
       this.m_style = this.m_ui.m_style;
       this.m_renderer = this.m_ui.m_renderer;
       this.m_markers = this.m_ui.m_markers;
-      this.m_symbols = this.m_ui.m_symbols;
    }
 
    public void setMapItem(MapItem var1) {
       this.m_ui.setMapItem(var1);
-      this.m_symbols = this.m_ui.m_symbols;
    }
 
    public WorldMapRenderer getRenderer() {
@@ -66,7 +63,7 @@ public class UIWorldMapV1 {
 
    public WorldMapSymbolsV1 getSymbolsAPI() {
       if (this.m_symbolsV1 == null) {
-         this.m_symbolsV1 = new WorldMapSymbolsV1(this.m_ui, this.m_symbols);
+         this.m_symbolsV1 = new WorldMapSymbolsV1(this.m_ui, this.m_ui.m_symbols);
       }
 
       return this.m_symbolsV1;
@@ -75,7 +72,7 @@ public class UIWorldMapV1 {
    public void addData(String var1) {
       boolean var2 = this.m_worldMap.hasData();
       this.m_worldMap.addData(var1);
-      if (!var2) {
+      if (!var2 && this.m_ui.getWidth() > 0.0 && this.m_ui.getHeight() > 0.0) {
          this.m_renderer.setMap(this.m_worldMap, this.m_ui.getAbsoluteX().intValue(), this.m_ui.getAbsoluteY().intValue(), this.m_ui.getWidth().intValue(), this.m_ui.getHeight().intValue());
          this.resetView();
       }
@@ -102,7 +99,7 @@ public class UIWorldMapV1 {
    public void addImages(String var1) {
       boolean var2 = this.m_worldMap.hasImages();
       this.m_worldMap.addImages(var1);
-      if (!var2) {
+      if (!var2 && this.m_ui.getWidth() > 0.0 && this.m_ui.getHeight() > 0.0) {
          this.m_renderer.setMap(this.m_worldMap, this.m_ui.getAbsoluteX().intValue(), this.m_ui.getAbsoluteY().intValue(), this.m_ui.getWidth().intValue(), this.m_ui.getHeight().intValue());
          this.resetView();
       }
@@ -114,9 +111,10 @@ public class UIWorldMapV1 {
    }
 
    public void setBoundsInCells(int var1, int var2, int var3, int var4) {
-      boolean var5 = var1 * 300 != this.m_worldMap.m_minX || var2 * 300 != this.m_worldMap.m_minY || var3 * 300 + 299 != this.m_worldMap.m_maxX || var4 + 300 + 299 != this.m_worldMap.m_maxY;
+      int var5 = IsoCell.CellSizeInSquares;
+      boolean var6 = var1 * var5 != this.m_worldMap.m_minX || var2 * var5 != this.m_worldMap.m_minY || var3 * var5 + var5 - 1 != this.m_worldMap.m_maxX || var4 + var5 + var5 - 1 != this.m_worldMap.m_maxY;
       this.m_worldMap.setBoundsInCells(var1, var2, var3, var4);
-      if (var5 && this.m_worldMap.hasData()) {
+      if (var6 && this.m_worldMap.hasData()) {
          this.resetView();
       }
 
@@ -125,7 +123,11 @@ public class UIWorldMapV1 {
    public void setBoundsInSquares(int var1, int var2, int var3, int var4) {
       boolean var5 = var1 != this.m_worldMap.m_minX || var2 != this.m_worldMap.m_minY || var3 != this.m_worldMap.m_maxX || var4 != this.m_worldMap.m_maxY;
       this.m_worldMap.setBoundsInSquares(var1, var2, var3, var4);
-      if (var5 && this.m_worldMap.hasData()) {
+      if (this.m_renderer.getWorldMap() == null && this.m_ui.getWidth() > 0.0) {
+         this.m_renderer.setMap(this.m_worldMap, this.m_ui.getAbsoluteX().intValue(), this.m_ui.getAbsoluteY().intValue(), this.m_ui.getWidth().intValue(), this.m_ui.getHeight().intValue());
+      }
+
+      if (var5 && (this.m_worldMap.hasData() || this.m_worldMap.hasImages())) {
          this.resetView();
       }
 
@@ -286,8 +288,10 @@ public class UIWorldMapV1 {
    }
 
    public void resetView() {
-      if (this.m_worldMap.hasData() || this.m_worldMap.hasImages()) {
-         this.m_renderer.resetView();
+      if (this.m_worldMap.hasData() && this.m_worldMap.isDataLoaded() || this.m_worldMap.hasImages()) {
+         if (this.m_renderer.getWorldMap() != null) {
+            this.m_renderer.resetView();
+         }
       }
    }
 

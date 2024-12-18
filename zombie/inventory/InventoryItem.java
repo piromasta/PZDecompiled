@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Objects;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.GameTime;
@@ -15,17 +17,28 @@ import zombie.Lua.LuaManager;
 import zombie.audio.BaseSoundEmitter;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characterTextures.BloodClothingType;
+import zombie.characters.BaseCharacterSoundEmitter;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.UnderwearDefinition;
+import zombie.characters.ZombiesZoneDefinition;
+import zombie.characters.animals.AnimalDefinitions;
+import zombie.characters.animals.AnimalTracks;
+import zombie.characters.animals.IsoAnimal;
+import zombie.characters.animals.datas.AnimalBreed;
+import zombie.characters.skills.PerkFactory;
 import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.Core;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.model.WorldItemAtlas;
 import zombie.core.skinnedmodel.population.ClothingItem;
+import zombie.core.skinnedmodel.population.Outfit;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.stash.StashSystem;
 import zombie.core.textures.ColorInfo;
@@ -33,6 +46,14 @@ import zombie.core.textures.Texture;
 import zombie.core.utils.Bits;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
+import zombie.entity.ComponentType;
+import zombie.entity.GameEntity;
+import zombie.entity.GameEntityType;
+import zombie.entity.components.attributes.Attribute;
+import zombie.entity.components.fluids.Fluid;
+import zombie.entity.components.fluids.FluidContainer;
+import zombie.entity.components.fluids.FluidType;
+import zombie.inventory.types.AnimalInventoryItem;
 import zombie.inventory.types.Clothing;
 import zombie.inventory.types.Drainable;
 import zombie.inventory.types.DrainableComboItem;
@@ -40,13 +61,20 @@ import zombie.inventory.types.Food;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.InventoryContainer;
 import zombie.inventory.types.Key;
+import zombie.inventory.types.WeaponType;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
+import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.objects.IsoFireManager;
+import zombie.iso.objects.IsoFireplace;
 import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.iso.objects.RainManager;
 import zombie.network.GameClient;
+import zombie.network.GameServer;
+import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.radio.ZomboidRadio;
 import zombie.radio.media.MediaData;
 import zombie.scripting.ScriptManager;
@@ -60,11 +88,12 @@ import zombie.util.Type;
 import zombie.util.io.BitHeader;
 import zombie.util.io.BitHeaderRead;
 import zombie.util.io.BitHeaderWrite;
+import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.VehiclePart;
 import zombie.world.ItemInfo;
 import zombie.world.WorldDictionary;
 
-public class InventoryItem {
+public class InventoryItem extends GameEntity {
    protected IsoGameCharacter previousOwner = null;
    protected Item ScriptItem = null;
    protected ItemType cat;
@@ -102,10 +131,17 @@ public class InventoryItem {
    protected String FreshString;
    protected String StaleString;
    protected String CookedString;
+   protected String ToastedString;
+   protected String GrilledString;
    protected String UnCookedString;
    protected String FrozenString;
    protected String BurntString;
+   protected String EmptyString;
    private String brokenString;
+   private String bluntString;
+   private String dullString;
+   private final String wornString;
+   private final String bloodyString;
    protected String module;
    protected float boredomChange;
    protected float unhappyChange;
@@ -116,8 +152,6 @@ public class InventoryItem {
    private KahluaTable table;
    public String ReplaceOnUseOn;
    public Color col;
-   public boolean IsWaterSource;
-   public boolean CanStoreWater;
    public boolean CanStack;
    private boolean activated;
    private boolean isTorchCone;
@@ -125,6 +159,7 @@ public class InventoryItem {
    private int Count;
    public float fatigueChange;
    public IsoWorldInventoryObject worldItem;
+   public IsoDeadBody deadBodyObject;
    private String customMenuOption;
    private String tooltip;
    private String displayCategory;
@@ -144,7 +179,6 @@ public class InventoryItem {
    private boolean customWeight;
    private boolean customColor;
    private int keyId;
-   private boolean taintedWater;
    private boolean remoteController;
    private boolean canBeRemote;
    private int remoteControlID;
@@ -167,12 +201,11 @@ public class InventoryItem {
    protected ArrayList<String> requireInHandOrInventory;
    private String map;
    private String stashMap;
-   public boolean keepOnDeplete;
    private boolean zombieInfected;
-   private boolean rainFactorZero;
    private float itemCapacity;
    private int maxCapacity;
    private float brakeForce;
+   private float durability;
    private int chanceToSpawnDamaged;
    private float conditionLowerNormal;
    private float conditionLowerOffroad;
@@ -203,7 +236,16 @@ public class InventoryItem {
    private byte mediaType;
    private boolean isInitialised;
    public WorldItemAtlas.ItemTexture atlasTexture;
+   protected Texture textureColorMask;
+   protected Texture textureFluidMask;
+   private AnimalTracks animalTracks;
+   private ArrayList<String> staticModelsByIndex;
+   private ArrayList<String> worldStaticModelsByIndex;
+   private int modelIndex;
    private final int maxTextLength;
+   private IsoPlayer equippedAndActivatedPlayer;
+   private long equippedAndActivatedSound;
+   private boolean isCraftingConsumed;
    public float jobDelta;
    public String jobType;
    static ByteBuffer tempBuffer = ByteBuffer.allocate(20000);
@@ -222,7 +264,17 @@ public class InventoryItem {
    }
 
    public void setEquipParent(IsoGameCharacter var1) {
+      this.setEquipParent(var1, true);
+   }
+
+   public void setEquipParent(IsoGameCharacter var1, boolean var2) {
       this.equipParent = var1;
+      if (this.equipParent == null) {
+         this.onUnEquip();
+      } else {
+         this.onEquip(var2);
+      }
+
    }
 
    public IsoGameCharacter getEquipParent() {
@@ -239,6 +291,30 @@ public class InventoryItem {
 
    public String getUnequipSound() {
       return this.getScriptItem().getUnequipSound();
+   }
+
+   public String getDropSound() {
+      if (StringUtils.equalsIgnoreCase(this.getType(), "CorpseAnimal")) {
+         IsoDeadBody var1 = this.loadCorpseFromByteData((IsoGridSquare)null);
+         if (var1 != null && var1.isAnimal()) {
+            AnimalDefinitions var2 = AnimalDefinitions.getDef(var1.getAnimalType());
+            if (var2 == null) {
+               return this.getScriptItem().getDropSound();
+            } else {
+               AnimalBreed var3 = var2.getBreedByName(var1.getBreed());
+               if (var3 == null) {
+                  return this.getScriptItem().getDropSound();
+               } else {
+                  AnimalBreed.Sound var4 = var3.getSound("put_down_corpse");
+                  return var4 == null ? this.getScriptItem().getDropSound() : var4.soundName;
+               }
+            }
+         } else {
+            return this.getScriptItem().getDropSound();
+         }
+      } else {
+         return this.getScriptItem().getDropSound();
+      }
    }
 
    public void setWorldItem(IsoWorldInventoryObject var1) {
@@ -294,13 +370,148 @@ public class InventoryItem {
       this.byteData.put((byte)86);
       this.byteData.put((byte)69);
       this.byteData.put((byte)82);
-      this.byteData.putInt(195);
+      this.byteData.putInt(219);
       this.byteData.put(tempBuffer);
       this.byteData.flip();
    }
 
    public ByteBuffer getByteData() {
       return this.byteData;
+   }
+
+   public IsoDeadBody loadCorpseFromByteData(IsoGridSquare var1) {
+      if (this.getByteData() == null) {
+         return this.createAndStoreDefaultDeadBody(var1);
+      } else {
+         Object var4;
+         try {
+            IsoDeadBody var2 = this.tryLoadCorpseFromByteData(var1);
+            return var2;
+         } catch (IOException var10) {
+            ExceptionLogger.logException(var10);
+
+            try {
+               IsoDeadBody var3 = this.createDefaultDeadBody(var1);
+               return var3;
+            } catch (Throwable var9) {
+               ExceptionLogger.logException(var9);
+               var4 = null;
+            }
+         } finally {
+            this.getByteData().rewind();
+         }
+
+         return (IsoDeadBody)var4;
+      }
+   }
+
+   private IsoDeadBody tryLoadCorpseFromByteData(IsoGridSquare var1) throws IOException {
+      this.getByteData().rewind();
+      byte var2 = this.getByteData().get();
+      byte var3 = this.getByteData().get();
+      byte var4 = this.getByteData().get();
+      byte var5 = this.getByteData().get();
+      if (var2 == 87 && var3 == 86 && var4 == 69 && var5 == 82) {
+         int var6 = this.getByteData().getInt();
+         IsoDeadBody var7 = new IsoDeadBody(IsoWorld.instance.CurrentCell);
+         var7.load(this.getByteData(), var6);
+         if ("CorpseAnimal".equalsIgnoreCase(this.getType())) {
+            Object var8 = this.hasModData() ? this.getModData().rawget("skeleton") : null;
+            if (var8 != null && "true".equalsIgnoreCase(var8.toString())) {
+               var7.getModData().rawset("skeleton", "true");
+            }
+         }
+
+         if (var1 != null) {
+            var7.setSquare(var1);
+            var7.setCurrent(var1);
+         }
+
+         return var7;
+      } else {
+         throw new IOException("expected 'WVER' signature in byteData");
+      }
+   }
+
+   private IsoDeadBody createDefaultDeadBody(IsoGridSquare var1) throws Throwable {
+      if (!"CorpseFemale".equalsIgnoreCase(this.getType()) && !"CorpseMale".equalsIgnoreCase(this.getType())) {
+         if ("CorpseAnimal".equalsIgnoreCase(this.getType())) {
+            AnimalDefinitions var6 = (AnimalDefinitions)PZArrayUtil.pickRandom((List)AnimalDefinitions.getAnimalDefsArray());
+            if (var6 == null) {
+               return null;
+            } else {
+               AnimalBreed var7 = var6.getRandomBreed();
+               if (var7 == null) {
+                  return null;
+               } else {
+                  IsoAnimal var8 = new IsoAnimal(IsoWorld.instance.CurrentCell, 0, 0, 0, var6.getAnimalType(), var7.getName());
+                  var8.setDir(IsoDirections.fromIndex(Rand.Next(8)));
+                  var8.getForwardDirection().set(var8.getDir().ToVector());
+                  var8.setHealth(0.0F);
+                  if (var1 != null) {
+                     var8.setSquare(var1);
+                     var8.setCurrent(var1);
+                  }
+
+                  IsoDeadBody var5 = new IsoDeadBody(var8, true, var1 != null);
+                  this.copyModData(var5.getModData());
+                  this.setIcon(Texture.getSharedTexture(var5.invIcon));
+                  if (var5.isAnimalSkeleton()) {
+                     this.setName(Translator.getText("IGUI_Item_AnimalSkeleton", var5.customName));
+                  } else {
+                     this.setName(Translator.getText("IGUI_Item_AnimalCorpse", var5.customName));
+                  }
+
+                  this.setCustomName(true);
+                  this.setActualWeight(var5.weight);
+                  this.setWeight(var5.weight);
+                  this.setCustomWeight(true);
+                  return var5;
+               }
+            }
+         } else {
+            return null;
+         }
+      } else {
+         IsoZombie var2 = new IsoZombie(IsoWorld.instance.CurrentCell);
+         var2.setDir(IsoDirections.fromIndex(Rand.Next(8)));
+         var2.getForwardDirection().set(var2.dir.ToVector());
+         var2.setFakeDead(false);
+         var2.setHealth(0.0F);
+         var2.upKillCount = false;
+         IsoDeadBody var3;
+         if (var1 != null) {
+            var2.dressInRandomOutfit();
+         } else if (!var2.isSkeleton()) {
+            var3 = null;
+            Outfit var4 = ZombiesZoneDefinition.getRandomDefaultOutfit(var2.isFemale(), var3);
+            UnderwearDefinition.addRandomUnderwear(var2);
+            var2.dressInPersistentOutfit(var4.m_Name);
+         }
+
+         var2.DoZombieInventory();
+         if (var1 != null) {
+            var2.setSquare(var1);
+            var2.setCurrent(var1);
+         }
+
+         var3 = new IsoDeadBody(var2, true, var1 != null);
+         return var3;
+      }
+   }
+
+   public IsoDeadBody createAndStoreDefaultDeadBody(IsoGridSquare var1) {
+      try {
+         IsoDeadBody var2 = this.createDefaultDeadBody(var1);
+         if (var2 != null) {
+            this.storeInByteData(var2);
+         }
+
+         return var2;
+      } catch (Throwable var3) {
+         ExceptionLogger.logException(var3);
+         return null;
+      }
    }
 
    public boolean isRequiresEquippedBothHands() {
@@ -349,10 +560,17 @@ public class InventoryItem {
       this.FreshString = Translator.getText("Tooltip_food_Fresh");
       this.StaleString = Translator.getText("Tooltip_food_Stale");
       this.CookedString = Translator.getText("Tooltip_food_Cooked");
+      this.ToastedString = Translator.getText("Tooltip_food_Toasted");
+      this.GrilledString = Translator.getText("Tooltip_food_Grilled");
       this.UnCookedString = Translator.getText("Tooltip_food_Uncooked");
       this.FrozenString = Translator.getText("Tooltip_food_Frozen");
       this.BurntString = Translator.getText("Tooltip_food_Burnt");
+      this.EmptyString = Translator.getText("ContextMenu_Empty");
       this.brokenString = Translator.getText("Tooltip_broken");
+      this.bluntString = Translator.getText("Tooltip_blunt");
+      this.dullString = Translator.getText("Tooltip_dull");
+      this.wornString = Translator.getText("IGUI_ClothingName_Worn");
+      this.bloodyString = Translator.getText("IGUI_ClothingName_Bloody");
       this.module = "Base";
       this.boredomChange = 0.0F;
       this.unhappyChange = 0.0F;
@@ -363,8 +581,6 @@ public class InventoryItem {
       this.table = null;
       this.ReplaceOnUseOn = null;
       this.col = Color.white;
-      this.IsWaterSource = false;
-      this.CanStoreWater = false;
       this.CanStack = false;
       this.activated = false;
       this.isTorchCone = false;
@@ -372,10 +588,11 @@ public class InventoryItem {
       this.Count = 1;
       this.fatigueChange = 0.0F;
       this.worldItem = null;
+      this.deadBodyObject = null;
       this.customMenuOption = null;
       this.tooltip = null;
       this.displayCategory = null;
-      this.haveBeenRepaired = 1;
+      this.haveBeenRepaired = 0;
       this.broken = false;
       this.originalName = null;
       this.id = 0;
@@ -389,7 +606,6 @@ public class InventoryItem {
       this.customWeight = false;
       this.customColor = false;
       this.keyId = -1;
-      this.taintedWater = false;
       this.remoteController = false;
       this.canBeRemote = false;
       this.remoteControlID = -1;
@@ -411,12 +627,11 @@ public class InventoryItem {
       this.requireInHandOrInventory = null;
       this.map = null;
       this.stashMap = null;
-      this.keepOnDeplete = false;
       this.zombieInfected = false;
-      this.rainFactorZero = false;
       this.itemCapacity = -1.0F;
       this.maxCapacity = -1;
       this.brakeForce = 0.0F;
+      this.durability = 0.0F;
       this.chanceToSpawnDamaged = 0;
       this.conditionLowerNormal = 0.0F;
       this.conditionLowerOffroad = 0.0F;
@@ -447,7 +662,13 @@ public class InventoryItem {
       this.mediaType = -1;
       this.isInitialised = false;
       this.atlasTexture = null;
+      this.staticModelsByIndex = null;
+      this.worldStaticModelsByIndex = null;
+      this.modelIndex = -1;
       this.maxTextLength = 256;
+      this.equippedAndActivatedPlayer = null;
+      this.equippedAndActivatedSound = 0L;
+      this.isCraftingConsumed = false;
       this.jobDelta = 0.0F;
       this.jobType = null;
       this.mainCategory = null;
@@ -494,10 +715,17 @@ public class InventoryItem {
       this.FreshString = Translator.getText("Tooltip_food_Fresh");
       this.StaleString = Translator.getText("Tooltip_food_Stale");
       this.CookedString = Translator.getText("Tooltip_food_Cooked");
+      this.ToastedString = Translator.getText("Tooltip_food_Toasted");
+      this.GrilledString = Translator.getText("Tooltip_food_Grilled");
       this.UnCookedString = Translator.getText("Tooltip_food_Uncooked");
       this.FrozenString = Translator.getText("Tooltip_food_Frozen");
       this.BurntString = Translator.getText("Tooltip_food_Burnt");
+      this.EmptyString = Translator.getText("ContextMenu_Empty");
       this.brokenString = Translator.getText("Tooltip_broken");
+      this.bluntString = Translator.getText("Tooltip_blunt");
+      this.dullString = Translator.getText("Tooltip_dull");
+      this.wornString = Translator.getText("IGUI_ClothingName_Worn");
+      this.bloodyString = Translator.getText("IGUI_ClothingName_Bloody");
       this.module = "Base";
       this.boredomChange = 0.0F;
       this.unhappyChange = 0.0F;
@@ -508,8 +736,6 @@ public class InventoryItem {
       this.table = null;
       this.ReplaceOnUseOn = null;
       this.col = Color.white;
-      this.IsWaterSource = false;
-      this.CanStoreWater = false;
       this.CanStack = false;
       this.activated = false;
       this.isTorchCone = false;
@@ -517,10 +743,11 @@ public class InventoryItem {
       this.Count = 1;
       this.fatigueChange = 0.0F;
       this.worldItem = null;
+      this.deadBodyObject = null;
       this.customMenuOption = null;
       this.tooltip = null;
       this.displayCategory = null;
-      this.haveBeenRepaired = 1;
+      this.haveBeenRepaired = 0;
       this.broken = false;
       this.originalName = null;
       this.id = 0;
@@ -534,7 +761,6 @@ public class InventoryItem {
       this.customWeight = false;
       this.customColor = false;
       this.keyId = -1;
-      this.taintedWater = false;
       this.remoteController = false;
       this.canBeRemote = false;
       this.remoteControlID = -1;
@@ -556,12 +782,11 @@ public class InventoryItem {
       this.requireInHandOrInventory = null;
       this.map = null;
       this.stashMap = null;
-      this.keepOnDeplete = false;
       this.zombieInfected = false;
-      this.rainFactorZero = false;
       this.itemCapacity = -1.0F;
       this.maxCapacity = -1;
       this.brakeForce = 0.0F;
+      this.durability = 0.0F;
       this.chanceToSpawnDamaged = 0;
       this.conditionLowerNormal = 0.0F;
       this.conditionLowerOffroad = 0.0F;
@@ -592,7 +817,13 @@ public class InventoryItem {
       this.mediaType = -1;
       this.isInitialised = false;
       this.atlasTexture = null;
+      this.staticModelsByIndex = null;
+      this.worldStaticModelsByIndex = null;
+      this.modelIndex = -1;
       this.maxTextLength = 256;
+      this.equippedAndActivatedPlayer = null;
+      this.equippedAndActivatedSound = 0L;
+      this.isCraftingConsumed = false;
       this.jobDelta = 0.0F;
       this.jobType = null;
       this.mainCategory = null;
@@ -620,6 +851,10 @@ public class InventoryItem {
       return this.mainCategory != null ? this.mainCategory : "Item";
    }
 
+   public boolean UseForCrafting(int var1) {
+      return false;
+   }
+
    public boolean IsRotten() {
       return this.Age > (float)this.OffAge;
    }
@@ -628,8 +863,7 @@ public class InventoryItem {
       if (this.OffAgeMax - this.OffAge == 0) {
          return this.Age > (float)this.OffAge ? 1.0F : 0.0F;
       } else {
-         float var1 = (this.Age - (float)this.OffAge) / (float)(this.OffAgeMax - this.OffAge);
-         return var1;
+         return (this.Age - (float)this.OffAge) / (float)(this.OffAgeMax - this.OffAge);
       }
    }
 
@@ -667,322 +901,393 @@ public class InventoryItem {
    }
 
    public void DoTooltip(ObjectTooltip var1) {
+      this.DoTooltipEmbedded(var1, (ObjectTooltip.Layout)null, 0);
+   }
+
+   public void DoTooltipEmbedded(ObjectTooltip var1, ObjectTooltip.Layout var2, int var3) {
       var1.render();
-      UIFont var2 = var1.getFont();
-      int var3 = var1.getLineSpacing();
-      int var4 = 5;
-      String var5 = "";
-      if (this.Burnt) {
-         var5 = var5 + this.BurntString + " ";
-      } else if (this.OffAge < 1000000000 && this.Age < (float)this.OffAge) {
-         var5 = var5 + this.FreshString + " ";
-      } else if (this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAgeMax) {
-         var5 = var5 + this.OffString + " ";
-      } else if (this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAge) {
-         var5 = var5 + this.StaleString + " ";
-      }
-
-      if (this.isCooked() && !this.Burnt && !this.hasTag("HideCooked")) {
-         var5 = var5 + this.CookedString + " ";
-      } else if (this.IsCookable && !this.Burnt && !(this instanceof DrainableComboItem) && !this.hasTag("HideCooked")) {
-         var5 = var5 + this.UnCookedString + " ";
-      }
-
-      if (this instanceof Food && ((Food)this).isFrozen()) {
-         var5 = var5 + this.FrozenString + " ";
-      }
-
-      var5 = var5.trim();
-      String var6;
-      if (var5.isEmpty()) {
-         var1.DrawText(var2, var6 = this.getName(), 5.0, (double)var4, 1.0, 1.0, 0.800000011920929, 1.0);
-      } else if (this.OffAgeMax < 1000000000 && this.Age >= (float)this.OffAgeMax) {
-         var1.DrawText(var2, var6 = Translator.getText("IGUI_FoodNaming", var5, this.name), 5.0, (double)var4, 1.0, 0.10000000149011612, 0.10000000149011612, 1.0);
-      } else {
-         var1.DrawText(var2, var6 = Translator.getText("IGUI_FoodNaming", var5, this.name), 5.0, (double)var4, 1.0, 1.0, 0.800000011920929, 1.0);
-      }
-
-      var1.adjustWidth(5, var6);
-      var4 += var3 + 5;
-      int var7;
+      UIFont var4 = var1.getFont();
+      int var5 = var1.getLineSpacing();
+      int var6 = var1.padTop + var3;
+      String var7 = this.getName();
+      var1.DrawText(var4, var7, (double)var1.padLeft, (double)var6, 1.0, 1.0, 0.800000011920929, 1.0);
+      var1.adjustWidth(var1.padLeft, var7);
+      var6 += var5 + 5;
       int var8;
       int var9;
-      InventoryItem var10;
+      int var10;
+      InventoryItem var11;
       if (this.extraItems != null) {
-         var1.DrawText(var2, Translator.getText("Tooltip_item_Contains"), 5.0, (double)var4, 1.0, 1.0, 0.800000011920929, 1.0);
-         var7 = 5 + TextManager.instance.MeasureStringX(var2, Translator.getText("Tooltip_item_Contains")) + 4;
-         var8 = (var3 - 10) / 2;
+         var1.DrawText(var4, Translator.getText("Tooltip_item_Contains"), (double)var1.padLeft, (double)var6, 1.0, 1.0, 0.800000011920929, 1.0);
+         var8 = var1.padLeft + TextManager.instance.MeasureStringX(var4, Translator.getText("Tooltip_item_Contains")) + 4;
+         var9 = (var5 - 10) / 2;
 
-         for(var9 = 0; var9 < this.extraItems.size(); ++var9) {
-            var10 = InventoryItemFactory.CreateItem((String)this.extraItems.get(var9));
-            if (!this.IsCookable && var10.IsCookable) {
-               var10.setCooked(true);
+         for(var10 = 0; var10 < this.extraItems.size(); ++var10) {
+            var11 = InventoryItemFactory.CreateItem((String)this.extraItems.get(var10));
+            if (!this.IsCookable && var11.IsCookable) {
+               var11.setCooked(true);
             }
 
-            if (this.isCooked() && var10.IsCookable) {
-               var10.setCooked(true);
+            if (this.isCooked() && var11.IsCookable) {
+               var11.setCooked(true);
             }
 
-            var1.DrawTextureScaled(var10.getTex(), (double)var7, (double)(var4 + var8), 10.0, 10.0, 1.0);
-            var7 += 11;
+            var1.DrawTextureScaled(var11.getTex(), (double)var8, (double)(var6 + var9), 10.0, 10.0, 1.0);
+            var8 += 11;
          }
 
-         var4 = var4 + var3 + 5;
+         var6 = var6 + var5 + 5;
       }
 
       if (this instanceof Food && ((Food)this).spices != null) {
-         var1.DrawText(var2, Translator.getText("Tooltip_item_Spices"), 5.0, (double)var4, 1.0, 1.0, 0.800000011920929, 1.0);
-         var7 = 5 + TextManager.instance.MeasureStringX(var2, Translator.getText("Tooltip_item_Spices")) + 4;
-         var8 = (var3 - 10) / 2;
+         var1.DrawText(var4, Translator.getText("Tooltip_item_Spices"), (double)var1.padLeft, (double)var6, 1.0, 1.0, 0.800000011920929, 1.0);
+         var8 = var1.padLeft + TextManager.instance.MeasureStringX(var4, Translator.getText("Tooltip_item_Spices")) + 4;
+         var9 = (var5 - 10) / 2;
 
-         for(var9 = 0; var9 < ((Food)this).spices.size(); ++var9) {
-            var10 = InventoryItemFactory.CreateItem((String)((Food)this).spices.get(var9));
-            var1.DrawTextureScaled(var10.getTex(), (double)var7, (double)(var4 + var8), 10.0, 10.0, 1.0);
-            var7 += 11;
+         for(var10 = 0; var10 < ((Food)this).spices.size(); ++var10) {
+            var11 = InventoryItemFactory.CreateItem((String)((Food)this).spices.get(var10));
+            var1.DrawTextureScaled(var11.getTex(), (double)var8, (double)(var6 + var9), 10.0, 10.0, 1.0);
+            var8 += 11;
          }
 
-         var4 = var4 + var3 + 5;
+         var6 = var6 + var5 + 5;
       }
 
-      ObjectTooltip.Layout var14 = var1.beginLayout();
-      var14.setMinLabelWidth(80);
-      ObjectTooltip.LayoutItem var15 = var14.addItem();
-      var15.setLabel(Translator.getText("Tooltip_item_Weight") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-      boolean var16 = this.isEquipped();
-      float var17;
-      String var10001;
-      if (!(this instanceof HandWeapon) && !(this instanceof Clothing) && !(this instanceof DrainableComboItem) && !this.getFullType().contains("Walkie")) {
-         var17 = this.getUnequippedWeight();
-         if (var17 > 0.0F && var17 < 0.01F) {
-            var17 = 0.01F;
-         }
+      ObjectTooltip.Layout var18;
+      if (var2 != null) {
+         var18 = var2;
+         var2.offsetY = var6;
+      } else {
+         var18 = var1.beginLayout();
+         var18.setMinLabelWidth(80);
+      }
 
-         var15.setValueRightNoPlus(var17);
-      } else if (var16) {
+      ObjectTooltip.LayoutItem var19;
+      if (SandboxOptions.instance.isUnstableScriptNameSpam()) {
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("(DEBUG) Script Name") + ":", 1.0F, 0.4F, 0.7F, 1.0F);
+         var19.setValue(this.getFullType(), 1.0F, 1.0F, 0.8F, 1.0F);
+      }
+
+      var19 = var18.addItem();
+      var19.setLabel(Translator.getText("Tooltip_item_Weight") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+      boolean var20 = this.isEquipped();
+      String var10001;
+      float var21;
+      if (!(this instanceof HandWeapon) && !(this instanceof Clothing) && !(this instanceof DrainableComboItem) && !this.getFullType().contains("Walkie")) {
+         if (this instanceof AnimalInventoryItem) {
+            var19.setValueRightNoPlus(this.getWeight());
+         } else {
+            var21 = this.getUnequippedWeight();
+            if (var21 > 0.0F && var21 < 0.01F) {
+               var21 = 0.01F;
+            }
+
+            if (this.getAttachedSlot() > -1) {
+               var10001 = this.getCleanString(this.getHotbarEquippedWeight());
+               var19.setValue(var10001 + "    (" + this.getCleanString(this.getUnequippedWeight()) + " " + Translator.getText("Tooltip_item_Unattached") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
+            } else {
+               var19.setValueRightNoPlus(var21);
+            }
+         }
+      } else if (var20) {
          var10001 = this.getCleanString(this.getEquippedWeight());
-         var15.setValue(var10001 + "    (" + this.getCleanString(this.getUnequippedWeight()) + " " + Translator.getText("Tooltip_item_Unequipped") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
+         var19.setValue(var10001 + "    (" + this.getCleanString(this.getUnequippedWeight()) + " " + Translator.getText("Tooltip_item_Unequipped") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
       } else if (this.getAttachedSlot() > -1) {
          var10001 = this.getCleanString(this.getHotbarEquippedWeight());
-         var15.setValue(var10001 + "    (" + this.getCleanString(this.getUnequippedWeight()) + " " + Translator.getText("Tooltip_item_Unequipped") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
+         var19.setValue(var10001 + "    (" + this.getCleanString(this.getUnequippedWeight()) + " " + Translator.getText("Tooltip_item_Unattached") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
       } else {
          var10001 = this.getCleanString(this.getUnequippedWeight());
-         var15.setValue(var10001 + "    (" + this.getCleanString(this.getEquippedWeight()) + " " + Translator.getText("Tooltip_item_Equipped") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
+         var19.setValue(var10001 + "    (" + this.getCleanString(this.getEquippedWeight()) + " " + Translator.getText("Tooltip_item_Equipped") + ")", 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
       if (var1.getWeightOfStack() > 0.0F) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_item_StackWeight") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var17 = var1.getWeightOfStack();
-         if (var17 > 0.0F && var17 < 0.01F) {
-            var17 = 0.01F;
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_item_StackWeight") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var21 = var1.getWeightOfStack();
+         if (var21 > 0.0F && var21 < 0.01F) {
+            var21 = 0.01F;
          }
 
-         var15.setValueRightNoPlus(var17);
+         var19.setValueRightNoPlus(var21);
       }
 
       if (this.getMaxAmmo() > 0 && !(this instanceof HandWeapon)) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_weapon_AmmoCount") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValue(this.getCurrentAmmoCount() + " / " + this.getMaxAmmo(), 1.0F, 1.0F, 1.0F, 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_weapon_AmmoCount") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValue(this.getCurrentAmmoCount() + " / " + this.getMaxAmmo(), 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
+      String var25;
       if (!(this instanceof HandWeapon) && this.getAmmoType() != null) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("ContextMenu_AmmoType") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         String var19 = InventoryItemFactory.CreateItem(this.getAmmoType()).getDisplayName();
-         var15.setValue(Translator.getText(var19), 1.0F, 1.0F, 1.0F, 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("ContextMenu_AmmoType") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var25 = InventoryItemFactory.CreateItem(this.getAmmoType()).getDisplayName();
+         var19.setValue(Translator.getText(var25), 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
       if (this.gunType != null) {
-         Item var20 = ScriptManager.instance.FindItem(this.getGunType());
-         if (var20 == null) {
+         Item var26 = ScriptManager.instance.FindItem(this.getGunType());
+         if (var26 == null) {
             ScriptManager var10000 = ScriptManager.instance;
             var10001 = this.getModule();
-            var20 = var10000.FindItem(var10001 + "." + this.ammoType);
+            var26 = var10000.FindItem(var10001 + "." + this.ammoType);
          }
 
-         if (var20 != null) {
-            var15 = var14.addItem();
-            var15.setLabel(Translator.getText("ContextMenu_GunType") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-            var15.setValue(var20.getDisplayName(), 1.0F, 1.0F, 1.0F, 1.0F);
+         if (var26 != null) {
+            var19 = var18.addItem();
+            var19.setLabel(Translator.getText("ContextMenu_GunType") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+            var19.setValue(var26.getDisplayName(), 1.0F, 1.0F, 1.0F, 1.0F);
          }
       }
 
       if (Core.bDebug && DebugOptions.instance.TooltipInfo.getValue()) {
-         var15 = var14.addItem();
-         var15.setLabel("getActualWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.getActualWeight());
-         var15 = var14.addItem();
-         var15.setLabel("getWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.getWeight());
-         var15 = var14.addItem();
-         var15.setLabel("getEquippedWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.getEquippedWeight());
-         var15 = var14.addItem();
-         var15.setLabel("getUnequippedWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.getUnequippedWeight());
-         var15 = var14.addItem();
-         var15.setLabel("getContentsWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.getContentsWeight());
+         var19 = var18.addItem();
+         var19.setLabel("getActualWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.getActualWeight());
+         var19 = var18.addItem();
+         var19.setLabel("getWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.getWeight());
+         var19 = var18.addItem();
+         var19.setLabel("getEquippedWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.getEquippedWeight());
+         var19 = var18.addItem();
+         var19.setLabel("getUnequippedWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.getUnequippedWeight());
+         var19 = var18.addItem();
+         var19.setLabel("getContentsWeight()", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.getContentsWeight());
          if (this instanceof Key || "Doorknob".equals(this.type)) {
-            var15 = var14.addItem();
-            var15.setLabel("DBG: keyId", 1.0F, 1.0F, 0.8F, 1.0F);
-            var15.setValueRightNoPlus(this.getKeyId());
+            var19 = var18.addItem();
+            var19.setLabel("DBG: keyId", 1.0F, 1.0F, 0.8F, 1.0F);
+            var19.setValueRightNoPlus(this.getKeyId());
          }
 
-         var15 = var14.addItem();
-         var15.setLabel("ID", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.id);
-         var15 = var14.addItem();
-         var15.setLabel("DictionaryID", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRightNoPlus(this.registry_id);
-         ClothingItem var21 = this.getClothingItem();
-         if (var21 != null) {
-            var15 = var14.addItem();
-            var15.setLabel("ClothingItem", 1.0F, 1.0F, 1.0F, 1.0F);
-            var15.setValue(this.getClothingItem().m_Name, 1.0F, 1.0F, 1.0F, 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel("ID", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.id);
+         var19 = var18.addItem();
+         var19.setLabel("DictionaryID", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRightNoPlus(this.getRegistry_id());
+         ClothingItem var28 = this.getClothingItem();
+         if (var28 != null) {
+            var19 = var18.addItem();
+            var19.setLabel("ClothingItem", 1.0F, 1.0F, 1.0F, 1.0F);
+            var19.setValue(this.getClothingItem().m_Name, 1.0F, 1.0F, 1.0F, 1.0F);
          }
+      }
+
+      if (Core.bDebug && DebugOptions.instance.TooltipInfo.getValue() || LuaManager.GlobalObject.isAdmin()) {
+         var19 = var18.addItem();
+         var25 = "Loot Category";
+         String var12 = Translator.getText("Sandbox_" + this.getLootType() + "LootNew");
+         var19.setLabel(var25 + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValue(var12, 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
       if (this.getFatigueChange() != 0.0F) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_item_Fatigue") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValueRight((int)(this.getFatigueChange() * 100.0F), false);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_item_Fatigue") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValueRight((int)(this.getFatigueChange() * 100.0F), false);
       }
 
-      ColorInfo var11;
+      ColorInfo var22;
       if (this instanceof DrainableComboItem) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("IGUI_invpanel_Remaining") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
-         var17 = ((DrainableComboItem)this).getUsedDelta();
-         var11 = new ColorInfo();
-         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var17, var11);
-         var15.setProgress(var17, var11.getR(), var11.getG(), var11.getB(), 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("IGUI_invpanel_Remaining") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
+         var21 = this.getCurrentUsesFloat();
+         var22 = new ColorInfo();
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var21, var22);
+         var19.setProgress(var21, var22.getR(), var22.getG(), var22.getB(), 1.0F);
       }
 
-      if (this.isTaintedWater() && SandboxOptions.instance.EnableTaintedWaterText.getValue()) {
-         var15 = var14.addItem();
-         if (this.isCookable()) {
-            var15.setLabel(Translator.getText("Tooltip_item_TaintedWater"), 1.0F, 0.5F, 0.5F, 1.0F);
+      if (this instanceof Food && ((Food)this).isTainted() && SandboxOptions.instance.EnableTaintedWaterText.getValue()) {
+         var19 = var18.addItem();
+         if (!this.hasMetal()) {
+            var19.setLabel(Translator.getText("Tooltip_item_TaintedWater"), 1.0F, 0.5F, 0.5F, 1.0F);
          } else {
-            var15.setLabel(Translator.getText("Tooltip_item_TaintedWater_Plastic"), 1.0F, 0.5F, 0.5F, 1.0F);
+            var19.setLabel(Translator.getText("Tooltip_item_TaintedWater_Plastic"), 1.0F, 0.5F, 0.5F, 1.0F);
          }
       }
 
-      this.DoTooltip(var1, var14);
+      this.DoTooltip(var1, var18);
       if (this.getRemoteControlID() != -1) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_TrapControllerID"), 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValue(Integer.toString(this.getRemoteControlID()), 1.0F, 1.0F, 0.8F, 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_TrapControllerID"), 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValue(Integer.toString(this.getRemoteControlID()), 1.0F, 1.0F, 0.8F, 1.0F);
       }
 
-      if (!FixingManager.getFixes(this).isEmpty()) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_weapon_Repaired") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         if (this.getHaveBeenRepaired() == 1) {
-            var15.setValue(Translator.getText("Tooltip_never"), 1.0F, 1.0F, 1.0F, 1.0F);
-         } else {
-            var15.setValue(this.getHaveBeenRepaired() - 1 + "x", 1.0F, 1.0F, 1.0F, 1.0F);
+      if (this.getHaveBeenRepaired() > 0) {
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_weapon_Repaired") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         if (this.hasTimesHeadRepaired()) {
+            var19.setLabel(Translator.getText("Tooltip_handle_Repaired") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
          }
+
+         var19.setValue(this.getHaveBeenRepaired() + "x", 1.0F, 1.0F, 1.0F, 1.0F);
+      }
+
+      if (this.hasTimesHeadRepaired() && this.getTimesHeadRepaired() > 0) {
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_head_Repaired") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var19.setValue(this.getTimesHeadRepaired() + "x", 1.0F, 1.0F, 1.0F, 1.0F);
       }
 
       if (this.isEquippedNoSprint()) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_CantSprintEquipped"), 1.0F, 0.1F, 0.1F, 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_CantSprintEquipped"), 1.0F, 0.1F, 0.1F, 1.0F);
       }
 
       if (this.isWet()) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_Wetness") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
-         var17 = this.getWetCooldown() / 10000.0F;
-         var11 = new ColorInfo();
-         Core.getInstance().getGoodHighlitedColor().interp(Core.getInstance().getBadHighlitedColor(), var17, var11);
-         var15.setProgress(var17, var11.getR(), var11.getG(), var11.getB(), 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_Wetness") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
+         var21 = this.getWetCooldown() / 10000.0F;
+         var22 = new ColorInfo();
+         Core.getInstance().getGoodHighlitedColor().interp(Core.getInstance().getBadHighlitedColor(), var21, var22);
+         var19.setProgress(var21, var22.getR(), var22.getG(), var22.getB(), 1.0F);
       }
 
       if (this.getMaxCapacity() > 0) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_container_Capacity") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var17 = (float)this.getMaxCapacity();
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_container_Capacity") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+         var21 = (float)this.getMaxCapacity();
          if (this.isConditionAffectsCapacity()) {
-            var17 = VehiclePart.getNumberByCondition((float)this.getMaxCapacity(), (float)this.getCondition(), 5.0F);
+            var21 = VehiclePart.getNumberByCondition((float)this.getMaxCapacity(), (float)this.getCondition(), 5.0F);
          }
 
          if (this.getItemCapacity() > -1.0F) {
-            var15.setValue(this.getItemCapacity() + " / " + var17, 1.0F, 1.0F, 0.8F, 1.0F);
+            var19.setValue(this.getItemCapacity() + " / " + var21, 1.0F, 1.0F, 0.8F, 1.0F);
          } else {
-            var15.setValue("0 / " + var17, 1.0F, 1.0F, 0.8F, 1.0F);
+            var19.setValue("0 / " + var21, 1.0F, 1.0F, 0.8F, 1.0F);
          }
       }
 
-      if (this.getConditionMax() > 0 && this.getMechanicType() > 0) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText("Tooltip_weapon_Condition") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-         var15.setValue(this.getCondition() + " / " + this.getConditionMax(), 1.0F, 1.0F, 0.8F, 1.0F);
+      float var13;
+      ColorInfo var29;
+      if (!(this instanceof HandWeapon) && !(this instanceof Clothing) && this.getConditionMax() > 0 && (this.getMechanicType() > 0 || this.hasTag("ShowCondition") || this.getConditionMax() > this.getCondition())) {
+         var29 = new ColorInfo();
+         float var23 = 1.0F;
+         var13 = 1.0F;
+         float var14 = 0.8F;
+         float var15 = 1.0F;
+         var19 = var18.addItem();
+         String var16 = "Tooltip_weapon_Condition";
+         if (this.hasHeadCondition()) {
+            var16 = "Tooltip_weapon_HandleCondition";
+         }
+
+         var19.setLabel(Translator.getText(var16) + ":", var23, var13, var14, var15);
+         float var17 = (float)this.getCondition() / (float)this.getConditionMax();
+         Core.getInstance().getBadHighlitedColor().interp(Core.getInstance().getGoodHighlitedColor(), var17, var29);
+         var19.setProgress(var17, var29.getR(), var29.getG(), var29.getB(), 1.0F);
       }
 
       if (this.isRecordedMedia()) {
-         MediaData var22 = this.getMediaData();
-         if (var22 != null) {
-            if (var22.getTranslatedTitle() != null) {
-               var15 = var14.addItem();
-               var15.setLabel(Translator.getText("Tooltip_media_title") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-               var15.setValue(var22.getTranslatedTitle(), 1.0F, 1.0F, 1.0F, 1.0F);
-               if (var22.getTranslatedSubTitle() != null) {
-                  var15 = var14.addItem();
-                  var15.setLabel("", 1.0F, 1.0F, 0.8F, 1.0F);
-                  var15.setValue(var22.getTranslatedSubTitle(), 1.0F, 1.0F, 1.0F, 1.0F);
+         MediaData var30 = this.getMediaData();
+         if (var30 != null) {
+            if (var30.getTranslatedTitle() != null) {
+               var19 = var18.addItem();
+               var19.setLabel(Translator.getText("Tooltip_media_title") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+               var19.setValue(var30.getTranslatedTitle(), 1.0F, 1.0F, 1.0F, 1.0F);
+               if (var30.getTranslatedSubTitle() != null) {
+                  var19 = var18.addItem();
+                  var19.setLabel("", 1.0F, 1.0F, 0.8F, 1.0F);
+                  var19.setValue(var30.getTranslatedSubTitle(), 1.0F, 1.0F, 1.0F, 1.0F);
                }
             }
 
-            if (var22.getTranslatedAuthor() != null) {
-               var15 = var14.addItem();
-               var15.setLabel(Translator.getText("Tooltip_media_author") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
-               var15.setValue(var22.getTranslatedAuthor(), 1.0F, 1.0F, 1.0F, 1.0F);
+            if (var30.getTranslatedAuthor() != null) {
+               var19 = var18.addItem();
+               var19.setLabel(Translator.getText("Tooltip_media_author") + ":", 1.0F, 1.0F, 0.8F, 1.0F);
+               var19.setValue(var30.getTranslatedAuthor(), 1.0F, 1.0F, 1.0F, 1.0F);
             }
          }
       }
 
-      if (Core.getInstance().getOptionShowItemModInfo() && !this.isVanilla()) {
-         var15 = var14.addItem();
-         Color var23 = Colors.CornFlowerBlue;
-         var15.setLabel("Mod: " + this.getModName(), var23.r, var23.g, var23.b, 1.0F);
-         ItemInfo var18 = WorldDictionary.getItemInfoFromID(this.registry_id);
-         if (var18 != null && var18.getModOverrides() != null) {
-            var15 = var14.addItem();
-            float var12 = 0.5F;
-            if (var18.getModOverrides().size() == 1) {
-               var15.setLabel("This item overrides: " + WorldDictionary.getModNameFromID((String)var18.getModOverrides().get(0)), var12, var12, var12, 1.0F);
-            } else {
-               var15.setLabel("This item overrides:", var12, var12, var12, 1.0F);
+      if (this.hasTag("Compass") && this.isInPlayerInventory()) {
+         IsoDirections var31 = this.getOutermostContainer().getParent().getDir();
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_compass_" + var31.toCompassString()), 1.0F, 1.0F, 0.8F, 1.0F);
+      }
 
-               for(int var13 = 0; var13 < var18.getModOverrides().size(); ++var13) {
-                  var15 = var14.addItem();
-                  var15.setLabel(" - " + WorldDictionary.getModNameFromID((String)var18.getModOverrides().get(var13)), var12, var12, var12, 1.0F);
+      if (this.isFishingLure()) {
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_IsFishingLure"), 1.0F, 1.0F, 0.8F, 1.0F);
+      }
+
+      if (this.getAttributes() != null) {
+         this.getAttributes().DoTooltip(var1, var18);
+      }
+
+      if (this.getFluidContainer() != null) {
+         this.getFluidContainer().DoTooltip(var1, var18);
+      }
+
+      if (this.getVisionModifier() != 1.0F) {
+         var29 = new ColorInfo();
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_item_VisionImpariment") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
+         Core.getInstance().getGoodHighlitedColor().interp(Core.getInstance().getBadHighlitedColor(), 1.0F - this.getVisionModifier(), var29);
+         var19.setProgress(1.0F - this.getVisionModifier(), var29.getR(), var29.getG(), var29.getB(), 1.0F);
+      }
+
+      if (this.getHearingModifier() != 1.0F) {
+         var29 = new ColorInfo();
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_item_HearingImpariment") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
+         Core.getInstance().getGoodHighlitedColor().interp(Core.getInstance().getBadHighlitedColor(), 1.0F - this.getHearingModifier(), var29);
+         var19.setProgress(1.0F - this.getHearingModifier(), var29.getR(), var29.getG(), var29.getB(), 1.0F);
+      }
+
+      if (this.getDiscomfortModifier() != 0.0F) {
+         var29 = new ColorInfo();
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText("Tooltip_item_Discomfort") + ": ", 1.0F, 1.0F, 0.8F, 1.0F);
+         Core.getInstance().getGoodHighlitedColor().interp(Core.getInstance().getBadHighlitedColor(), this.getDiscomfortModifier(), var29);
+         var19.setProgress(this.getDiscomfortModifier(), var29.getR(), var29.getG(), var29.getB(), 1.0F);
+      }
+
+      if (Core.getInstance().getOptionShowItemModInfo() && !this.isVanilla()) {
+         var19 = var18.addItem();
+         Color var32 = Colors.CornFlowerBlue;
+         var19.setLabel("Mod: " + this.getModName(), var32.r, var32.g, var32.b, 1.0F);
+         ItemInfo var24 = WorldDictionary.getItemInfoFromID(this.getRegistry_id());
+         if (var24 != null && var24.getModOverrides() != null) {
+            var19 = var18.addItem();
+            var13 = 0.5F;
+            if (var24.getModOverrides().size() == 1) {
+               var19.setLabel("This item overrides: " + WorldDictionary.getModNameFromID((String)var24.getModOverrides().get(0)), var13, var13, var13, 1.0F);
+            } else {
+               var19.setLabel("This item overrides:", var13, var13, var13, 1.0F);
+
+               for(int var27 = 0; var27 < var24.getModOverrides().size(); ++var27) {
+                  var19 = var18.addItem();
+                  var19.setLabel(" - " + WorldDictionary.getModNameFromID((String)var24.getModOverrides().get(var27)), var13, var13, var13, 1.0F);
                }
             }
          }
       }
 
       if (this.getTooltip() != null) {
-         var15 = var14.addItem();
-         var15.setLabel(Translator.getText(this.tooltip), 1.0F, 1.0F, 0.8F, 1.0F);
+         var19 = var18.addItem();
+         var19.setLabel(Translator.getText(this.getTooltip()), 1.0F, 1.0F, 0.8F, 1.0F);
       }
 
-      var4 = var14.render(5, var4, var1);
-      var1.endLayout(var14);
-      var4 += var1.padBottom;
-      var1.setHeight((double)var4);
-      if (var1.getWidth() < 150.0) {
-         var1.setWidth(150.0);
+      if (var2 == null) {
+         var6 = var18.render(var1.padLeft, var6, var1);
+         var1.endLayout(var18);
+         var6 += var1.padBottom;
+         var1.setHeight((double)var6);
+         if (var1.getWidth() < 150.0) {
+            var1.setWidth(150.0);
+         }
       }
 
    }
 
    public String getCleanString(float var1) {
       float var2 = (float)((int)(((double)var1 + 0.005) * 100.0)) / 100.0F;
-      String var3 = Float.toString(var2);
-      return var3;
+      return Float.toString(var2);
    }
 
    public void DoTooltip(ObjectTooltip var1, ObjectTooltip.Layout var2) {
@@ -997,60 +1302,80 @@ public class InventoryItem {
       this.Use(false);
    }
 
+   public void UseAndSync() {
+      this.Use(false, false, GameServer.bServer);
+   }
+
    public void UseItem() {
       this.Use(false);
    }
 
    public void Use(boolean var1) {
-      this.Use(var1, false);
+      this.Use(var1, false, false);
    }
 
-   public void Use(boolean var1, boolean var2) {
+   public void Use(boolean var1, boolean var2, boolean var3) {
       if (this.isDisappearOnUse() || var1) {
-         --this.uses;
+         this.setCurrentUses(this.getCurrentUses() - 1);
          if (this.replaceOnUse != null && !var2 && !var1 && this.container != null) {
-            String var3 = this.replaceOnUse;
+            String var4 = this.replaceOnUse;
             if (!this.replaceOnUse.contains(".")) {
-               var3 = this.module + "." + var3;
+               var4 = this.module + "." + var4;
             }
 
-            InventoryItem var4 = this.container.AddItem(var3);
-            if (var4 != null) {
-               var4.setConditionFromModData(this);
+            InventoryItem var5 = this.container.AddItem(var4);
+            if (var5 != null) {
+               var5.setConditionFromModData(this);
+               var5.setColorRed(this.colorRed);
+               var5.setColorGreen(this.colorGreen);
+               var5.setColorBlue(this.colorBlue);
+               var5.setColor(new Color(this.colorRed, this.colorGreen, this.colorBlue));
+               var5.setCustomColor(true);
+               this.container.setDrawDirty(true);
+               this.container.setDirty(true);
+               var5.setCondition(this.getCondition());
+               var5.setFavorite(this.isFavorite());
+               if (GameServer.bServer && var3) {
+                  GameServer.sendAddItemToContainer(this.container, var5);
+               }
             }
-
-            this.container.setDrawDirty(true);
-            this.container.setDirty(true);
-            var4.setFavorite(this.isFavorite());
          }
 
-         if (this.uses <= 0) {
-            if (this.keepOnDeplete) {
+         if (this.getCurrentUses() <= 0) {
+            if (this.isKeepOnDeplete()) {
                return;
             }
 
             if (this.container != null) {
                if (this.container.parent instanceof IsoGameCharacter && !(this instanceof HandWeapon)) {
-                  IsoGameCharacter var5 = (IsoGameCharacter)this.container.parent;
-                  var5.removeFromHands(this);
+                  IsoGameCharacter var6 = (IsoGameCharacter)this.container.parent;
+                  var6.removeFromHands(this);
                }
 
                this.container.Items.remove(this);
                this.container.setDirty(true);
                this.container.setDrawDirty(true);
+               if (GameServer.bServer && var3) {
+                  GameServer.sendRemoveItemFromContainer(this.container, this);
+               }
+
                this.container = null;
             }
+         } else if (var3) {
+            this.syncItemFields();
          }
 
       }
    }
 
    public boolean shouldUpdateInWorld() {
-      if (!GameClient.bClient && !this.rainFactorZero && this.canStoreWater() && this.hasReplaceType("WaterSource")) {
+      if (!GameServer.bServer && this.hasComponent(ComponentType.FluidContainer) && this.itemHeat != 1.0F) {
+         return true;
+      } else if (GameClient.bClient || !this.hasComponent(ComponentType.FluidContainer) && !(this instanceof Food)) {
+         return false;
+      } else {
          IsoGridSquare var1 = this.getWorldItem().getSquare();
          return var1 != null && var1.isOutside();
-      } else {
-         return false;
       }
    }
 
@@ -1086,40 +1411,195 @@ public class InventoryItem {
          }
       }
 
-      if (!GameClient.bClient && !this.rainFactorZero && this.getWorldItem() != null && this.canStoreWater() && this.hasReplaceType("WaterSource") && RainManager.isRaining()) {
-         IsoWorldInventoryObject var4 = this.getWorldItem();
-         IsoGridSquare var5 = var4.getSquare();
-         if (var5 != null && var5.isOutside()) {
-            InventoryItem var6 = InventoryItemFactory.CreateItem(this.getReplaceType("WaterSource"));
-            if (var6 == null) {
-               this.rainFactorZero = true;
-               return;
+      FluidContainer var8;
+      if (this.hasComponent(ComponentType.FluidContainer)) {
+         ItemContainer var6 = this.getOutermostContainer();
+         var8 = this.getFluidContainer();
+         float var9;
+         if (var6 != null) {
+            var9 = var6.getTemprature();
+            if (this.itemHeat > var9) {
+               this.itemHeat -= 0.001F * GameTime.instance.getMultiplier();
+               if (this.itemHeat < Math.max(0.2F, var9)) {
+                  this.itemHeat = Math.max(0.2F, var9);
+               }
             }
 
-            var6.setCondition(this.getCondition());
-            if (var6 instanceof DrainableComboItem && var6.canStoreWater()) {
-               if (((DrainableComboItem)var6).getRainFactor() == 0.0F) {
-                  this.rainFactorZero = true;
-                  return;
+            if (this.itemHeat < var9 && (this.hasTag("Cookable") || this.hasTag("CookableMicrowave") && var6.getType().equals("microwave"))) {
+               this.itemHeat += var9 / 1000.0F * GameTime.instance.getMultiplier();
+               if (this.itemHeat > Math.min(3.0F, var9)) {
+                  this.itemHeat = Math.min(3.0F, var9);
+               }
+            }
+
+            if (this.itemHeat > 1.6F && !var8.isEmpty()) {
+               if (var8.contains(Fluid.TaintedWater)) {
+                  Float var4 = var8.getSpecificFluidAmount(Fluid.TaintedWater);
+                  Float var5 = PZMath.min(var4, 0.001F);
+                  var8.adjustSpecificFluidAmount(Fluid.TaintedWater, var4 - var5);
+                  var8.addFluid(Fluid.Water, var5);
                }
 
-               ((DrainableComboItem)var6).setUsedDelta(0.0F);
-               var4.swapItem(var6);
+               if (var8.contains(Fluid.Petrol)) {
+                  var8.removeFluid();
+                  boolean var10 = this.container != null && this.container.getParent() != null && this.container.getParent().getName() != null && this.container.getParent().getName().equals("Campfire");
+                  if (!var10 && this.container != null && this.container.getParent() != null && this.container.getParent() instanceof IsoFireplace) {
+                     var10 = true;
+                  }
+
+                  if (this.container != null && this.container.SourceGrid != null && !var10) {
+                     IsoFireManager.StartFire(this.container.SourceGrid.getCell(), this.container.SourceGrid, true, 500000);
+                  }
+               }
             }
+         }
+
+         if ((this.container == null || this.getWorldItem() != null) && this.itemHeat != 1.0F) {
+            var9 = 1.0F;
+            if (this.itemHeat > var9) {
+               this.itemHeat -= 0.001F * GameTime.instance.getMultiplier();
+               if (this.itemHeat < var9) {
+                  this.itemHeat = var9;
+               }
+            }
+
+            if (this.itemHeat < var9) {
+               this.itemHeat += var9 / 1000.0F * GameTime.instance.getMultiplier();
+               if (this.itemHeat > var9) {
+                  this.itemHeat = var9;
+               }
+            }
+         }
+      }
+
+      if (!GameServer.bServer && this.getWorldItem() != null && RainManager.isRaining()) {
+         IsoGridSquare var7 = this.getWorldItem().getSquare();
+         if (this.hasComponent(ComponentType.FluidContainer)) {
+            var8 = this.getFluidContainer();
+            if (var7 != null && var7.isOutside() && var8.canPlayerEmpty() && var8.getRainCatcher() > 0.0F) {
+               var8.addFluid(FluidType.TaintedWater, 0.001F * RainManager.getRainIntensity() * GameTime.instance.getMultiplier() * var8.getRainCatcher());
+            }
+         }
+
+         if (this instanceof Food && var7 != null && var7.isOutside() && LuaManager.GlobalObject.ZombRandFloat(0.0F, 1.0F) < RainManager.getRainIntensity()) {
+            ((Food)this).setTainted(true);
          }
       }
 
    }
 
    public boolean finishupdate() {
-      if (!GameClient.bClient && !this.rainFactorZero && this.canStoreWater() && this.hasReplaceType("WaterSource") && this.getWorldItem() != null && this.getWorldItem().getObjectIndex() != -1) {
+      if (!GameClient.bClient && this.getWorldItem() != null && this.getWorldItem().getObjectIndex() != -1 && this instanceof Food && !((Food)this).isTainted()) {
          return false;
       } else {
+         if (this.hasComponent(ComponentType.FluidContainer)) {
+            FluidContainer var1 = this.getFluidContainer();
+            if (this.getWorldItem() != null && this.getWorldItem().getObjectIndex() != -1 && var1.canPlayerEmpty()) {
+               return false;
+            }
+
+            if (this.getWorldItem() != null && this.itemHeat != 1.0F) {
+               return false;
+            }
+
+            if (this.container != null && (this.itemHeat != 1.0F || this.itemHeat != this.container.getTemprature() || this.container.isTemperatureChanging())) {
+               return false;
+            }
+         }
+
          return !this.isWet();
       }
    }
 
    public void updateSound(BaseSoundEmitter var1) {
+      this.updateEquippedAndActivatedSound(var1);
+   }
+
+   public void updateEquippedAndActivatedSound(BaseSoundEmitter var1) {
+      String var2 = this.getScriptItem().getSoundByID("EquippedAndActivated");
+      if (var2 != null) {
+         IsoPlayer var3 = this.getOwnerPlayer(this.getContainer());
+         if (var3 == null) {
+            this.stopEquippedAndActivatedSound();
+            ItemSoundManager.removeItem(this);
+         } else if (this.isEquipped() && this.isActivated()) {
+            BaseCharacterSoundEmitter var4 = var3.getEmitter();
+            if (!var4.isPlaying(this.equippedAndActivatedSound)) {
+               this.stopEquippedAndActivatedSound();
+               this.equippedAndActivatedPlayer = var3;
+               this.equippedAndActivatedSound = var4.playSoundImpl(var2, var3);
+            }
+
+         } else {
+            this.stopEquippedAndActivatedSound();
+            ItemSoundManager.removeItem(this);
+         }
+      }
+   }
+
+   public void updateEquippedAndActivatedSound() {
+      String var1 = this.getScriptItem().getSoundByID("EquippedAndActivated");
+      if (var1 != null) {
+         if (this.isActivated() && this instanceof DrainableComboItem && this.getCurrentUses() <= 0) {
+            this.setActivated(false);
+         }
+
+         if (this.isEquipped() && this.isActivated()) {
+            ItemSoundManager.addItem(this);
+         } else {
+            this.stopEquippedAndActivatedSound();
+            ItemSoundManager.removeItem(this);
+         }
+
+      }
+   }
+
+   protected void stopEquippedAndActivatedSound() {
+      if (this.equippedAndActivatedPlayer != null && this.equippedAndActivatedSound != 0L) {
+         this.equippedAndActivatedPlayer.getEmitter().stopOrTriggerSound(this.equippedAndActivatedSound);
+         this.equippedAndActivatedPlayer = null;
+         this.equippedAndActivatedSound = 0L;
+      }
+
+   }
+
+   public void playActivateSound() {
+      String var1 = this.getScriptItem().getSoundByID("Activate");
+      if (var1 != null) {
+         this.playSoundOnPlayer(var1);
+      }
+   }
+
+   public void playDeactivateSound() {
+      String var1 = this.getScriptItem().getSoundByID("Deactivate");
+      if (var1 != null) {
+         this.playSoundOnPlayer(var1);
+      }
+   }
+
+   public void playActivateDeactivateSound() {
+      if (this.isActivated()) {
+         this.playActivateSound();
+      } else {
+         this.playDeactivateSound();
+      }
+
+   }
+
+   protected void playSoundOnPlayer(String var1) {
+      IsoPlayer var2 = this.getOwnerPlayer(this.getContainer());
+      if (var2 != null && var2.isLocalPlayer()) {
+         var2.getEmitter().playSound(var1);
+      }
+   }
+
+   protected IsoPlayer getOwnerPlayer(ItemContainer var1) {
+      if (var1 == null) {
+         return null;
+      } else {
+         IsoObject var2 = var1.getParent();
+         return var2 instanceof IsoPlayer ? (IsoPlayer)var2 : null;
+      }
    }
 
    public String getFullType() {
@@ -1134,23 +1614,23 @@ public class InventoryItem {
          DebugLog.log(this.getFullType());
       }
 
-      var1.putShort(this.registry_id);
+      var1.putShort(this.getRegistry_id());
       var1.put((byte)this.getSaveType());
       var1.putInt(this.id);
       BitHeaderWrite var3 = BitHeader.allocWrite(BitHeader.HeaderSize.Byte, var1);
-      if (this.uses != 1) {
+      if (this.getCurrentUses() != 1) {
          var3.addFlags(1);
-         if (this.uses > 32767) {
+         if (this.getCurrentUses() > 32767) {
             var1.putShort((short)32767);
          } else {
-            var1.putShort((short)this.uses);
+            var1.putShort((short)this.getCurrentUses());
          }
       }
 
       int var5;
-      if (this.IsDrainable() && ((DrainableComboItem)this).getUsedDelta() < 1.0F) {
+      if (this.IsDrainable() && this.getCurrentUsesFloat() < 1.0F) {
          var3.addFlags(2);
-         float var4 = ((DrainableComboItem)this).getUsedDelta();
+         float var4 = this.getCurrentUsesFloat();
          var5 = (byte)((byte)((int)(var4 * 255.0F)) + -128);
          var1.put((byte)var5);
       }
@@ -1178,28 +1658,28 @@ public class InventoryItem {
          var1.putFloat(this.itemCapacity);
       }
 
-      BitHeaderWrite var6 = BitHeader.allocWrite(BitHeader.HeaderSize.Integer, var1);
+      BitHeaderWrite var7 = BitHeader.allocWrite(BitHeader.HeaderSize.Integer, var1);
       if (this.table != null && !this.table.isEmpty()) {
-         var6.addFlags(1);
+         var7.addFlags(1);
          this.table.save(var1);
       }
 
       if (this.isActivated()) {
-         var6.addFlags(2);
+         var7.addFlags(2);
       }
 
-      if (this.haveBeenRepaired != 1) {
-         var6.addFlags(4);
+      if (this.haveBeenRepaired != 0) {
+         var7.addFlags(4);
          var1.putShort((short)this.getHaveBeenRepaired());
       }
 
       if (this.name != null && !this.name.equals(this.originalName)) {
-         var6.addFlags(8);
+         var7.addFlags(8);
          GameWindow.WriteString(var1, this.name);
       }
 
       if (this.byteData != null) {
-         var6.addFlags(16);
+         var7.addFlags(16);
          this.byteData.rewind();
          var1.putInt(this.byteData.limit());
          var1.put(this.byteData);
@@ -1207,7 +1687,7 @@ public class InventoryItem {
       }
 
       if (this.extraItems != null && this.extraItems.size() > 0) {
-         var6.addFlags(32);
+         var7.addFlags(32);
          var1.putInt(this.extraItems.size());
 
          for(var5 = 0; var5 < this.extraItems.size(); ++var5) {
@@ -1216,113 +1696,133 @@ public class InventoryItem {
       }
 
       if (this.isCustomName()) {
-         var6.addFlags(64);
+         var7.addFlags(64);
       }
 
       if (this.isCustomWeight()) {
-         var6.addFlags(128);
+         var7.addFlags(128);
          var1.putFloat(this.isCustomWeight() ? this.getActualWeight() : -1.0F);
       }
 
       if (this.keyId != -1) {
-         var6.addFlags(256);
+         var7.addFlags(256);
          var1.putInt(this.getKeyId());
       }
 
-      if (this.isTaintedWater()) {
-         var6.addFlags(512);
-      }
-
       if (this.remoteControlID != -1 || this.remoteRange != 0) {
-         var6.addFlags(1024);
+         var7.addFlags(1024);
          var1.putInt(this.getRemoteControlID());
          var1.putInt(this.getRemoteRange());
       }
 
       if (this.colorRed != 1.0F || this.colorGreen != 1.0F || this.colorBlue != 1.0F) {
-         var6.addFlags(2048);
+         var7.addFlags(2048);
          var1.put(Bits.packFloatUnitToByte(this.colorRed));
          var1.put(Bits.packFloatUnitToByte(this.colorGreen));
          var1.put(Bits.packFloatUnitToByte(this.colorBlue));
       }
 
       if (this.worker != null) {
-         var6.addFlags(4096);
+         var7.addFlags(4096);
          GameWindow.WriteString(var1, this.getWorker());
       }
 
       if (this.wetCooldown != -1.0F) {
-         var6.addFlags(8192);
+         var7.addFlags(8192);
          var1.putFloat(this.wetCooldown);
       }
 
       if (this.isFavorite()) {
-         var6.addFlags(16384);
+         var7.addFlags(16384);
       }
 
       if (this.stashMap != null) {
-         var6.addFlags(32768);
+         var7.addFlags(32768);
          GameWindow.WriteString(var1, this.stashMap);
       }
 
       if (this.isInfected()) {
-         var6.addFlags(65536);
+         var7.addFlags(65536);
       }
 
       if (this.currentAmmoCount != 0) {
-         var6.addFlags(131072);
+         var7.addFlags(131072);
          var1.putInt(this.currentAmmoCount);
       }
 
       if (this.attachedSlot != -1) {
-         var6.addFlags(262144);
+         var7.addFlags(262144);
          var1.putInt(this.attachedSlot);
       }
 
       if (this.attachedSlotType != null) {
-         var6.addFlags(524288);
+         var7.addFlags(524288);
          GameWindow.WriteString(var1, this.attachedSlotType);
       }
 
       if (this.attachedToModel != null) {
-         var6.addFlags(1048576);
+         var7.addFlags(1048576);
          GameWindow.WriteString(var1, this.attachedToModel);
       }
 
       if (this.maxCapacity != -1) {
-         var6.addFlags(2097152);
+         var7.addFlags(2097152);
          var1.putInt(this.maxCapacity);
       }
 
       if (this.isRecordedMedia()) {
-         var6.addFlags(4194304);
+         var7.addFlags(4194304);
          var1.putShort(this.recordedMediaIndex);
       }
 
       if (this.worldZRotation > -1) {
-         var6.addFlags(8388608);
+         var7.addFlags(8388608);
          var1.putInt(this.worldZRotation);
       }
 
       if (this.worldScale != 1.0F) {
-         var6.addFlags(16777216);
+         var7.addFlags(16777216);
          var1.putFloat(this.worldScale);
       }
 
       if (this.isInitialised) {
-         var6.addFlags(33554432);
+         var7.addFlags(33554432);
       }
 
-      if (!var6.equals(0)) {
+      if (this.requiresEntitySave()) {
+         var7.addFlags(67108864);
+         this.saveEntity(var1);
+      }
+
+      if (this.animalTracks != null) {
+         var7.addFlags(134217728);
+         this.animalTracks.save(var1);
+      }
+
+      if (this.texture != null && this.texture.getName() != null && this.texture != Texture.getSharedTexture("media/inventory/Question_On.png") && this.getScriptItem().getIcon() != null && !Objects.equals(this.getScriptItem().getIcon(), "None") && !Objects.equals(this.getScriptItem().getIcon(), "default")) {
+         String var8 = this.texture.getName();
+         String var6 = "Item_" + this.getScriptItem().getIcon();
+         if (!Objects.equals(var8, var6)) {
+            var7.addFlags(268435456);
+            GameWindow.WriteString(var1, this.texture.getName());
+         }
+      }
+
+      if (this.modelIndex > -1) {
+         var7.addFlags(536870912);
+         var1.putInt(this.modelIndex);
+      }
+
+      if (!var7.equals(0)) {
          var3.addFlags(64);
-         var6.write();
+         var7.write();
       } else {
-         var1.position(var6.getStartPosition());
+         var1.position(var7.getStartPosition());
       }
 
       var3.write();
       var3.release();
-      var6.release();
+      var7.release();
    }
 
    public static InventoryItem loadItem(ByteBuffer var0, int var1) throws IOException {
@@ -1330,61 +1830,67 @@ public class InventoryItem {
    }
 
    public static InventoryItem loadItem(ByteBuffer var0, int var1, boolean var2) throws IOException {
-      int var3 = var0.getInt();
-      if (var3 <= 0) {
-         throw new IOException("InventoryItem.loadItem() invalid item data length: " + var3);
+      return loadItem(var0, var1, var2, (InventoryItem)null);
+   }
+
+   public static InventoryItem loadItem(ByteBuffer var0, int var1, boolean var2, InventoryItem var3) throws IOException {
+      int var4 = var0.getInt();
+      if (var4 <= 0) {
+         throw new IOException("InventoryItem.loadItem() invalid item data length: " + var4);
       } else {
-         int var4 = var0.position();
-         short var5 = var0.getShort();
-         byte var6 = -1;
-         if (var1 >= 70) {
-            var6 = var0.get();
-            if (var6 < 0) {
-               DebugLog.log("InventoryItem.loadItem() invalid item save-type " + var6 + ", itemtype: " + WorldDictionary.getItemTypeDebugString(var5));
+         int var5 = var0.position();
+         short var6 = var0.getShort();
+         boolean var7 = true;
+         byte var11 = var0.get();
+         if (var11 < 0) {
+            DebugLog.log("InventoryItem.loadItem() invalid item save-type " + var11 + ", itemtype: " + WorldDictionary.getItemTypeDebugString(var6));
+            return null;
+         } else {
+            InventoryItem var8 = var3;
+            if (var3 == null) {
+               var8 = InventoryItemFactory.CreateItem(var6);
+            }
+
+            if (var2 && var11 != -1 && var8 != null && var8.getSaveType() != var11) {
+               DebugLog.log("InventoryItem.loadItem() ignoring \"" + var8.getFullType() + "\" because type changed from " + var11 + " to " + var8.getSaveType());
+               var8 = null;
+            }
+
+            if (var8 != null) {
+               try {
+                  var8.load(var0, var1);
+               } catch (Exception var10) {
+                  ExceptionLogger.logException(var10);
+                  var8 = null;
+               }
+            }
+
+            if (var8 != null) {
+               if (var4 != -1 && var0.position() != var5 + var4) {
+                  var0.position(var5 + var4);
+                  DebugLog.log("InventoryItem.loadItem() data length not matching, resetting buffer position to '" + (var5 + var4) + "'. itemtype: " + WorldDictionary.getItemTypeDebugString(var6));
+                  if (Core.bDebug) {
+                     throw new IOException("InventoryItem.loadItem() read more data than save() wrote (" + WorldDictionary.getItemTypeDebugString(var6) + ")");
+                  }
+               }
+
+               return var8;
+            } else {
+               if (var0.position() >= var5 + var4) {
+                  if (var0.position() >= var5 + var4) {
+                     var0.position(var5 + var4);
+                     DebugLog.log("InventoryItem.loadItem() item == null, resetting buffer position to '" + (var5 + var4) + "'. itemtype: " + WorldDictionary.getItemTypeDebugString(var6));
+                  }
+               } else {
+                  while(var0.position() < var5 + var4) {
+                     var0.get();
+                  }
+
+                  DebugLog.log("InventoryItem.loadItem() item == null, skipped bytes. itemtype: " + WorldDictionary.getItemTypeDebugString(var6));
+               }
+
                return null;
             }
-         }
-
-         InventoryItem var7 = InventoryItemFactory.CreateItem(var5);
-         if (var2 && var6 != -1 && var7 != null && var7.getSaveType() != var6) {
-            DebugLog.log("InventoryItem.loadItem() ignoring \"" + var7.getFullType() + "\" because type changed from " + var6 + " to " + var7.getSaveType());
-            var7 = null;
-         }
-
-         if (var7 != null) {
-            try {
-               var7.load(var0, var1);
-            } catch (Exception var9) {
-               ExceptionLogger.logException(var9);
-               var7 = null;
-            }
-         }
-
-         if (var7 != null) {
-            if (var3 != -1 && var0.position() != var4 + var3) {
-               var0.position(var4 + var3);
-               DebugLog.log("InventoryItem.loadItem() data length not matching, resetting buffer position to '" + (var4 + var3) + "'. itemtype: " + WorldDictionary.getItemTypeDebugString(var5));
-               if (Core.bDebug) {
-                  throw new IOException("InventoryItem.loadItem() read more data than save() wrote (" + WorldDictionary.getItemTypeDebugString(var5) + ")");
-               }
-            }
-
-            return var7;
-         } else {
-            if (var0.position() >= var4 + var3) {
-               if (var0.position() >= var4 + var3) {
-                  var0.position(var4 + var3);
-                  DebugLog.log("InventoryItem.loadItem() item == null, resetting buffer position to '" + (var4 + var3) + "'. itemtype: " + WorldDictionary.getItemTypeDebugString(var5));
-               }
-            } else {
-               while(var0.position() < var4 + var3) {
-                  var0.get();
-               }
-
-               DebugLog.log("InventoryItem.loadItem() item == null, skipped bytes. itemtype: " + WorldDictionary.getItemTypeDebugString(var5));
-            }
-
-            return null;
          }
       }
    }
@@ -1392,21 +1898,16 @@ public class InventoryItem {
    public void load(ByteBuffer var1, int var2) throws IOException {
       this.id = var1.getInt();
       BitHeaderRead var3 = BitHeader.allocRead(BitHeader.HeaderSize.Byte, var1);
-      this.uses = 1;
-      if (this.IsDrainable()) {
-         ((DrainableComboItem)this).setUsedDelta(1.0F);
-      }
-
+      this.setCurrentUses(this.getMaxUses());
       this.Condition = this.ConditionMax;
       this.customColor = false;
       this.col = Color.white;
       this.itemCapacity = -1.0F;
       this.activated = false;
-      this.haveBeenRepaired = 1;
+      this.haveBeenRepaired = 0;
       this.customName = false;
       this.customWeight = false;
       this.keyId = -1;
-      this.taintedWater = false;
       this.remoteControlID = -1;
       this.remoteRange = 0;
       this.colorRed = this.colorGreen = this.colorBlue = 1.0F;
@@ -1426,18 +1927,21 @@ public class InventoryItem {
       this.isInitialised = false;
       if (!var3.equals(0)) {
          if (var3.hasFlags(1)) {
-            this.uses = var1.getShort();
+            short var4 = var1.getShort();
+            this.setCurrentUses(var4);
          }
 
          float var5;
+         int var6;
          if (var3.hasFlags(2)) {
-            byte var4 = var1.get();
-            var5 = PZMath.clamp((float)(var4 - -128) / 255.0F, 0.0F, 1.0F);
-            ((DrainableComboItem)this).setUsedDelta(var5);
+            byte var9 = var1.get();
+            var5 = PZMath.clamp((float)(var9 - -128) / 255.0F, 0.0F, 1.0F);
+            var6 = (int)(var5 / ((DrainableComboItem)this).getUseDelta());
+            this.setCurrentUses(var6);
          }
 
          if (var3.hasFlags(4)) {
-            this.setCondition(var1.get(), false);
+            this.setConditionNoSound(var1.get());
          }
 
          if (var3.hasFlags(8)) {
@@ -1445,14 +1949,14 @@ public class InventoryItem {
             this.visual.load(var1, var2);
          }
 
-         float var6;
          float var7;
+         float var13;
          if (var3.hasFlags(16)) {
-            float var9 = Bits.unpackByteToFloatUnit(var1.get());
+            float var10 = Bits.unpackByteToFloatUnit(var1.get());
             var5 = Bits.unpackByteToFloatUnit(var1.get());
-            var6 = Bits.unpackByteToFloatUnit(var1.get());
+            var13 = Bits.unpackByteToFloatUnit(var1.get());
             var7 = Bits.unpackByteToFloatUnit(var1.get());
-            this.setColor(new Color(var9, var5, var6, var7));
+            this.setColor(new Color(var10, var5, var13, var7));
          }
 
          if (var3.hasFlags(32)) {
@@ -1460,8 +1964,8 @@ public class InventoryItem {
          }
 
          if (var3.hasFlags(64)) {
-            BitHeaderRead var10 = BitHeader.allocRead(BitHeader.HeaderSize.Integer, var1);
-            if (var10.hasFlags(1)) {
+            BitHeaderRead var11 = BitHeader.allocRead(BitHeader.HeaderSize.Integer, var1);
+            if (var11.hasFlags(1)) {
                if (this.table == null) {
                   this.table = LuaManager.platform.newTable();
                }
@@ -1469,34 +1973,33 @@ public class InventoryItem {
                this.table.load(var1, var2);
             }
 
-            this.activated = var10.hasFlags(2);
-            if (var10.hasFlags(4)) {
+            this.activated = var11.hasFlags(2);
+            if (var11.hasFlags(4)) {
                this.setHaveBeenRepaired(var1.getShort());
             }
 
-            if (var10.hasFlags(8)) {
+            if (var11.hasFlags(8)) {
                this.name = GameWindow.ReadString(var1);
             }
 
-            int var11;
             int var12;
-            if (var10.hasFlags(16)) {
-               var11 = var1.getInt();
-               this.byteData = ByteBuffer.allocate(var11);
+            if (var11.hasFlags(16)) {
+               var12 = var1.getInt();
+               this.byteData = ByteBuffer.allocate(var12);
 
-               for(var12 = 0; var12 < var11; ++var12) {
+               for(var6 = 0; var6 < var12; ++var6) {
                   this.byteData.put(var1.get());
                }
 
                this.byteData.flip();
             }
 
-            if (var10.hasFlags(32)) {
-               var11 = var1.getInt();
-               if (var11 > 0) {
+            if (var11.hasFlags(32)) {
+               var12 = var1.getInt();
+               if (var12 > 0) {
                   this.extraItems = new ArrayList();
 
-                  for(var12 = 0; var12 < var11; ++var12) {
+                  for(var6 = 0; var6 < var12; ++var6) {
                      short var14 = var1.getShort();
                      String var8 = WorldDictionary.getItemTypeFromID(var14);
                      this.extraItems.add(var8);
@@ -1504,8 +2007,8 @@ public class InventoryItem {
                }
             }
 
-            this.setCustomName(var10.hasFlags(64));
-            if (var10.hasFlags(128)) {
+            this.setCustomName(var11.hasFlags(64));
+            if (var11.hasFlags(128)) {
                var5 = var1.getFloat();
                if (var5 >= 0.0F) {
                   this.setActualWeight(var5);
@@ -1514,82 +2017,94 @@ public class InventoryItem {
                }
             }
 
-            if (var10.hasFlags(256)) {
+            if (var11.hasFlags(256)) {
                this.setKeyId(var1.getInt());
             }
 
-            this.setTaintedWater(var10.hasFlags(512));
-            if (var10.hasFlags(1024)) {
+            if (var11.hasFlags(1024)) {
                this.setRemoteControlID(var1.getInt());
                this.setRemoteRange(var1.getInt());
             }
 
-            if (var10.hasFlags(2048)) {
+            if (var11.hasFlags(2048)) {
                var5 = Bits.unpackByteToFloatUnit(var1.get());
-               var6 = Bits.unpackByteToFloatUnit(var1.get());
+               var13 = Bits.unpackByteToFloatUnit(var1.get());
                var7 = Bits.unpackByteToFloatUnit(var1.get());
                this.setColorRed(var5);
-               this.setColorGreen(var6);
+               this.setColorGreen(var13);
                this.setColorBlue(var7);
                this.setColor(new Color(this.colorRed, this.colorGreen, this.colorBlue));
             }
 
-            if (var10.hasFlags(4096)) {
+            if (var11.hasFlags(4096)) {
                this.setWorker(GameWindow.ReadString(var1));
             }
 
-            if (var10.hasFlags(8192)) {
+            if (var11.hasFlags(8192)) {
                this.setWetCooldown(var1.getFloat());
             }
 
-            this.setFavorite(var10.hasFlags(16384));
-            if (var10.hasFlags(32768)) {
+            this.setFavorite(var11.hasFlags(16384));
+            if (var11.hasFlags(32768)) {
                this.stashMap = GameWindow.ReadString(var1);
             }
 
-            this.setInfected(var10.hasFlags(65536));
-            if (var10.hasFlags(131072)) {
+            this.setInfected(var11.hasFlags(65536));
+            if (var11.hasFlags(131072)) {
                this.setCurrentAmmoCount(var1.getInt());
             }
 
-            if (var10.hasFlags(262144)) {
+            if (var11.hasFlags(262144)) {
                this.attachedSlot = var1.getInt();
             }
 
-            if (var10.hasFlags(524288)) {
-               if (var2 < 179) {
-                  short var13 = var1.getShort();
-                  this.attachedSlotType = null;
-               } else {
-                  this.attachedSlotType = GameWindow.ReadString(var1);
-               }
+            if (var11.hasFlags(524288)) {
+               this.attachedSlotType = GameWindow.ReadString(var1);
             }
 
-            if (var10.hasFlags(1048576)) {
+            if (var11.hasFlags(1048576)) {
                this.attachedToModel = GameWindow.ReadString(var1);
             }
 
-            if (var10.hasFlags(2097152)) {
+            if (var11.hasFlags(2097152)) {
                this.maxCapacity = var1.getInt();
             }
 
-            if (var10.hasFlags(4194304)) {
+            if (var11.hasFlags(4194304)) {
                this.setRecordedMediaIndex(var1.getShort());
             }
 
-            if (var10.hasFlags(8388608)) {
+            if (var11.hasFlags(8388608)) {
                this.setWorldZRotation(var1.getInt());
             }
 
-            if (var10.hasFlags(16777216)) {
+            if (var11.hasFlags(16777216)) {
                this.worldScale = var1.getFloat();
             }
 
-            this.setInitialised(var10.hasFlags(33554432));
-            var10.release();
+            this.setInitialised(var11.hasFlags(33554432));
+            if (var11.hasFlags(67108864)) {
+               this.loadEntity(var1, var2);
+            }
+
+            if (var11.hasFlags(134217728)) {
+               this.animalTracks = new AnimalTracks();
+               this.animalTracks.load(var1, var2);
+            }
+
+            if (var11.hasFlags(268435456)) {
+               this.setTexture(Texture.getSharedTexture(GameWindow.ReadStringUTF(var1)));
+            }
+
+            if (var11.hasFlags(536870912)) {
+               this.modelIndex = var1.getInt();
+            }
+
+            var11.release();
          }
       }
 
+      this.synchWithVisual();
       var3.release();
    }
 
@@ -1711,26 +2226,54 @@ public class InventoryItem {
    }
 
    public void synchWithVisual() {
+      int var4;
+      if (this instanceof HandWeapon && ((HandWeapon)this).getWeaponSpritesByIndex() != null && this.modelIndex == -1) {
+         var4 = ((HandWeapon)this).getWeaponSpritesByIndex().size();
+         this.modelIndex = Rand.Next(var4);
+      } else if ((this.getStaticModelsByIndex() != null || this.getWorldStaticModelsByIndex() != null) && this.modelIndex == -1) {
+         boolean var1 = true;
+         if (this.getStaticModelsByIndex() != null && this.getWorldStaticModelsByIndex() != null) {
+            var4 = Math.max(this.getStaticModelsByIndex().size(), this.getWorldStaticModelsByIndex().size());
+         } else if (this.getStaticModelsByIndex() != null && this.getWorldStaticModelsByIndex() == null) {
+            var4 = this.getStaticModelsByIndex().size();
+         } else {
+            var4 = this.getWorldStaticModelsByIndex().size();
+         }
+
+         this.modelIndex = Rand.Next(var4);
+      }
+
+      if (this.modelIndex != -1 && this.getIconsForTexture() != null && this.getIconsForTexture().get(this.modelIndex) != null) {
+         String var5 = (String)this.getIconsForTexture().get(this.modelIndex);
+         if (!StringUtils.isNullOrWhitespace(var5)) {
+            this.texture = Texture.trygetTexture("Item_" + var5);
+            if (this.texture == null) {
+               this.texture = Texture.getSharedTexture("media/inventory/Question_On.png");
+            }
+         }
+      }
+
       if (this instanceof Clothing || this instanceof InventoryContainer) {
-         ItemVisual var1 = this.getVisual();
-         if (var1 != null) {
+         ItemVisual var6 = this.getVisual();
+         if (var6 != null) {
             if (this instanceof Clothing && this.getBloodClothingType() != null) {
                BloodClothingType.calcTotalBloodLevel((Clothing)this);
+               BloodClothingType.calcTotalDirtLevel((Clothing)this);
             }
 
             ClothingItem var2 = this.getClothingItem();
             if (var2.m_AllowRandomTint) {
-               this.setColor(new Color(var1.m_Tint.r, var1.m_Tint.g, var1.m_Tint.b));
+               this.setColor(new Color(var6.m_Tint.r, var6.m_Tint.g, var6.m_Tint.b));
             } else {
                this.setColor(new Color(this.getColorRed(), this.getColorGreen(), this.getColorBlue()));
             }
 
-            if ((var2.m_BaseTextures.size() > 1 || var1.m_TextureChoice > -1) && this.getIconsForTexture() != null) {
+            if ((var2.m_BaseTextures.size() > 1 || var6.m_TextureChoice > -1) && this.getIconsForTexture() != null) {
                String var3 = null;
-               if (var1.m_BaseTexture > -1 && this.getIconsForTexture().size() > var1.m_BaseTexture) {
-                  var3 = (String)this.getIconsForTexture().get(var1.m_BaseTexture);
-               } else if (var1.m_TextureChoice > -1 && this.getIconsForTexture().size() > var1.m_TextureChoice) {
-                  var3 = (String)this.getIconsForTexture().get(var1.m_TextureChoice);
+               if (var6.m_BaseTexture > -1 && this.getIconsForTexture().size() > var6.m_BaseTexture) {
+                  var3 = (String)this.getIconsForTexture().get(var6.m_BaseTexture);
+               } else if (var6.m_TextureChoice > -1 && this.getIconsForTexture().size() > var6.m_TextureChoice) {
+                  var3 = (String)this.getIconsForTexture().get(var6.m_TextureChoice);
                }
 
                if (!StringUtils.isNullOrWhitespace(var3)) {
@@ -1765,15 +2308,50 @@ public class InventoryItem {
       return this.getScriptItem().isDisappearOnUse();
    }
 
+   public boolean isKeepOnDeplete() {
+      return !this.getScriptItem().isDisappearOnUse();
+   }
+
    public String getName() {
-      if (this.isBroken()) {
-         return Translator.getText("IGUI_ItemNaming", this.brokenString, this.name);
-      } else if (this.isTaintedWater() && SandboxOptions.instance.EnableTaintedWaterText.getValue()) {
-         return Translator.getText("IGUI_ItemNameTaintedWater", this.name);
+      if (this.getFluidContainer() != null) {
+         return this.getFluidContainer().getUiName();
       } else if (this.getRemoteControlID() != -1) {
          return Translator.getText("IGUI_ItemNameControllerLinked", this.name);
       } else {
-         return this.getMechanicType() > 0 ? Translator.getText("IGUI_ItemNameMechanicalType", this.name, Translator.getText("IGUI_VehicleType_" + this.getMechanicType())) : this.name;
+         String var1 = this.name;
+         if (this.getMechanicType() > 0) {
+            var1 = Translator.getText("IGUI_ItemNameMechanicalType", var1, Translator.getText("IGUI_VehicleType_" + this.getMechanicType()));
+         }
+
+         String var2 = "";
+         if (this.isBloody()) {
+            var2 = var2 + this.bloodyString + ", ";
+         }
+
+         if (this.isBroken()) {
+            var2 = var2 + this.brokenString + ", ";
+         } else if ((float)this.getCondition() < (float)this.getConditionMax() / 3.0F) {
+            var2 = var2 + this.wornString + ", ";
+         }
+
+         if (!this.isBroken() && this.hasSharpness() && this.getSharpness() < 0.33333334F) {
+            if (this.getSharpness() <= 0.0F) {
+               var2 = var2 + this.bluntString + ", ";
+            } else {
+               var2 = var2 + this.dullString + ", ";
+            }
+         }
+
+         if (this instanceof DrainableComboItem && this.getCurrentUsesFloat() <= 0.0F) {
+            var2 = var2 + this.EmptyString + ", ";
+         }
+
+         if (var2.length() > 2) {
+            var2 = var2.substring(0, var2.length() - 2);
+         }
+
+         var2 = var2.trim();
+         return var2.isEmpty() ? var1 : Translator.getText("IGUI_ClothingNaming", var2, var1);
       }
    }
 
@@ -1822,8 +2400,16 @@ public class InventoryItem {
       return this.texture;
    }
 
+   public Texture getIcon() {
+      return this.getTexture();
+   }
+
    public void setTexture(Texture var1) {
       this.texture = var1;
+   }
+
+   public void setIcon(Texture var1) {
+      this.setTexture(var1);
    }
 
    public Texture getTexturerotten() {
@@ -1855,19 +2441,40 @@ public class InventoryItem {
       this.fullType = this.module + "." + var1;
    }
 
+   public void setCurrentUses(int var1) {
+      this.uses = var1;
+   }
+
    public int getCurrentUses() {
       return this.uses;
+   }
+
+   public void setCurrentUsesFrom(InventoryItem var1) {
+      this.setCurrentUses(var1.getCurrentUses());
+   }
+
+   public int getMaxUses() {
+      return 1;
+   }
+
+   public float getCurrentUsesFloat() {
+      return 1.0F;
    }
 
    /** @deprecated */
    @Deprecated
    public int getUses() {
-      return 1;
+      return this.uses;
    }
 
    /** @deprecated */
    @Deprecated
    public void setUses(int var1) {
+      this.uses = var1;
+   }
+
+   public void setUsesFrom(InventoryItem var1) {
+      this.setUses(var1.getUses());
    }
 
    public float getAge() {
@@ -1961,18 +2568,30 @@ public class InventoryItem {
    }
 
    public float getWeight() {
-      return this.Weight;
+      return this.Weight < 0.0F ? 0.0F : this.Weight;
    }
 
    public void setWeight(float var1) {
+      if (var1 < 0.0F) {
+         var1 = 0.0F;
+      }
+
       this.Weight = var1;
    }
 
    public float getActualWeight() {
-      return this.getDisplayName().equals(this.getFullType()) ? 0.0F : this.ActualWeight;
+      if (this.getDisplayName().equals(this.getFullType())) {
+         return 0.0F;
+      } else {
+         return this.ActualWeight < 0.0F ? 0.0F : this.ActualWeight;
+      }
    }
 
    public void setActualWeight(float var1) {
+      if (var1 < 0.0F) {
+         var1 = 0.0F;
+      }
+
       this.ActualWeight = var1;
    }
 
@@ -1997,17 +2616,42 @@ public class InventoryItem {
    }
 
    public void setCondition(int var1, boolean var2) {
-      var1 = Math.max(0, var1);
-      if (this.Condition > 0 && var1 <= 0 && var2 && this.getBreakSound() != null && !this.getBreakSound().isEmpty() && IsoPlayer.getInstance() != null) {
+      if (!Core.bDebug || !DebugOptions.instance.Cheat.Player.UnlimitedCondition.getValue() || this.Condition <= var1) {
+         var1 = Math.max(0, var1);
+         var1 = Math.min(this.getConditionMax(), var1);
+         if (var2 && this.Condition > 0 && var1 <= 0) {
+            this.doBreakSound();
+         } else if (var2 && this.Condition > 0 && var1 < this.Condition) {
+            this.doDamagedSound();
+         }
+
+         this.Condition = var1;
+         this.setBroken(var1 <= 0);
+      }
+   }
+
+   public void doBreakSound() {
+      if (this.getBreakSound() != null && !this.getBreakSound().isEmpty() && IsoPlayer.getInstance() != null) {
          IsoPlayer.getInstance().playSound(this.getBreakSound());
+      } else if (this.getDamagedSound() != null) {
+         this.doDamagedSound();
       }
 
-      this.Condition = var1;
-      this.setBroken(var1 <= 0);
+   }
+
+   public void doDamagedSound() {
+      if (this.getDamagedSound() != null && !this.getDamagedSound().isEmpty() && IsoPlayer.getInstance() != null) {
+         IsoPlayer.getInstance().playSound(this.getDamagedSound());
+      }
+
    }
 
    public void setCondition(int var1) {
       this.setCondition(var1, true);
+   }
+
+   public void setConditionNoSound(int var1) {
+      this.setCondition(var1, false);
    }
 
    public String getOffString() {
@@ -2160,12 +2804,8 @@ public class InventoryItem {
       return this.getScriptItem().hasReplaceType(var1);
    }
 
-   public void setIsWaterSource(boolean var1) {
-      this.IsWaterSource = var1;
-   }
-
    public boolean isWaterSource() {
-      return this.IsWaterSource;
+      return this.hasComponent(ComponentType.FluidContainer) && !this.getFluidContainer().isEmpty() && (this.getFluidContainer().getPrimaryFluid() == Fluid.Water || this.getFluidContainer().getPrimaryFluid() == Fluid.TaintedWater);
    }
 
    boolean CanStackNoTemp(InventoryItem var1) {
@@ -2255,7 +2895,7 @@ public class InventoryItem {
          return false;
       } else {
          Drainable var1 = (Drainable)Type.tryCastTo(this, Drainable.class);
-         return var1 == null || !(var1.getUsedDelta() <= 0.0F);
+         return var1 == null || this.getCurrentUses() > 0;
       }
    }
 
@@ -2268,7 +2908,7 @@ public class InventoryItem {
    }
 
    public boolean canStoreWater() {
-      return this.CanStoreWater;
+      return this.hasComponent(ComponentType.FluidContainer);
    }
 
    public float getFatigueChange() {
@@ -2309,11 +2949,12 @@ public class InventoryItem {
    }
 
    public void setTooltip(String var1) {
+      this.getModData().rawset("Tooltip", var1);
       this.tooltip = var1;
    }
 
    public String getTooltip() {
-      return this.tooltip;
+      return this.getModData().rawget("Tooltip") != null ? (String)this.getModData().rawget("Tooltip") : this.tooltip;
    }
 
    public String getDisplayCategory() {
@@ -2332,12 +2973,56 @@ public class InventoryItem {
       this.haveBeenRepaired = var1;
    }
 
+   public int getTimesRepaired() {
+      return this.haveBeenRepaired;
+   }
+
+   public void setTimesRepaired(int var1) {
+      this.haveBeenRepaired = var1;
+   }
+
+   public void copyTimesRepairedFrom(InventoryItem var1) {
+      this.setTimesRepaired(var1.getTimesRepaired());
+   }
+
+   public void copyTimesRepairedTo(InventoryItem var1) {
+      var1.setTimesRepaired(this.getTimesRepaired());
+   }
+
+   public int getTimesHeadRepaired() {
+      return this.attrib() != null && this.attrib().contains(Attribute.TimesHeadRepaired) ? this.attrib().get(Attribute.TimesHeadRepaired) : this.haveBeenRepaired;
+   }
+
+   public void setTimesHeadRepaired(int var1) {
+      if (this.attrib() != null && this.attrib().contains(Attribute.TimesHeadRepaired)) {
+         this.attrib().set(Attribute.TimesHeadRepaired, var1);
+      } else {
+         this.haveBeenRepaired = var1;
+      }
+   }
+
+   public boolean hasTimesHeadRepaired() {
+      return this.attrib() != null && this.attrib().contains(Attribute.TimesHeadRepaired);
+   }
+
+   public void copyTimesHeadRepairedFrom(InventoryItem var1) {
+      this.setTimesHeadRepaired(var1.getTimesHeadRepaired());
+   }
+
+   public void copyTimesHeadRepairedTo(InventoryItem var1) {
+      var1.setTimesHeadRepaired(this.getTimesHeadRepaired());
+   }
+
    public boolean isBroken() {
       return this.broken;
    }
 
    public void setBroken(boolean var1) {
       this.broken = var1;
+      if (var1) {
+         this.onBreak();
+      }
+
    }
 
    public String getDisplayName() {
@@ -2372,7 +3057,9 @@ public class InventoryItem {
 
          for(int var2 = 0; var2 < this.extraItems.size(); ++var2) {
             InventoryItem var3 = InventoryItemFactory.CreateItem((String)this.extraItems.get(var2));
-            var1 += var3.getActualWeight();
+            if (var3 != null && var3.getActualWeight() > 0.0F) {
+               var1 += var3.getActualWeight();
+            }
          }
 
          var1 *= 0.6F;
@@ -2409,8 +3096,10 @@ public class InventoryItem {
       if (var1.hasModData()) {
          Object var2 = var1.getModData().rawget("condition:" + this.getType());
          if (var2 != null && var2 instanceof Double) {
-            this.setCondition((int)Math.round((Double)var2 * (double)this.getConditionMax()));
+            this.setConditionNoSound((int)Math.round((Double)var2 * (double)this.getConditionMax()));
          }
+      } else if (!this.hasTag("DontInheritCondition")) {
+         this.setConditionFrom(var1);
       }
 
    }
@@ -2447,8 +3136,24 @@ public class InventoryItem {
       return this.getScriptItem().getFillFromDispenserSound();
    }
 
+   public String getFillFromLakeSound() {
+      return this.getScriptItem().getFillFromLakeSound();
+   }
+
    public String getFillFromTapSound() {
       return this.getScriptItem().getFillFromTapSound();
+   }
+
+   public String getFillFromToiletSound() {
+      return this.getScriptItem().getFillFromToiletSound();
+   }
+
+   public String getPourLiquidOnGroundSound() {
+      if (StringUtils.equalsIgnoreCase(this.getPourType(), "Bucket") && this.hasTag("HasMetal")) {
+         return "PourLiquidOnGroundMetal";
+      } else {
+         return StringUtils.equalsIgnoreCase(this.getPourType(), "Pot") ? "PourLiquidOnGroundMetal" : "PourLiquidOnGround";
+      }
    }
 
    public boolean isAlcoholic() {
@@ -2476,7 +3181,15 @@ public class InventoryItem {
    }
 
    public float getReduceInfectionPower() {
-      return this.ReduceInfectionPower;
+      if (this.Burnt) {
+         return (float)((int)(this.ReduceInfectionPower / 3.0F));
+      } else if (this.Age >= (float)this.OffAge && this.Age < (float)this.OffAgeMax) {
+         return (float)((int)(this.ReduceInfectionPower / 1.3F));
+      } else if (this.Age >= (float)this.OffAgeMax) {
+         return (float)((int)(this.ReduceInfectionPower / 2.2F));
+      } else {
+         return this.isCooked() ? this.ReduceInfectionPower * 1.3F : this.ReduceInfectionPower;
+      }
    }
 
    public void setReduceInfectionPower(float var1) {
@@ -2510,11 +3223,11 @@ public class InventoryItem {
          }
       }
 
-      return 0.0F;
+      return this.getFluidContainer() != null ? this.getFluidContainer().getAmount() : 0.0F;
    }
 
    public float getHotbarEquippedWeight() {
-      return (this.getActualWeight() + this.getContentsWeight()) * 0.7F;
+      return this.hasTag("LightWhenAttached") ? (this.getActualWeight() + this.getContentsWeight()) * 0.3F : (this.getActualWeight() + this.getContentsWeight()) * 0.7F;
    }
 
    public float getEquippedWeight() {
@@ -2526,7 +3239,31 @@ public class InventoryItem {
    }
 
    public boolean isEquipped() {
-      return this.getContainer() != null && this.getContainer().getParent() instanceof IsoGameCharacter ? ((IsoGameCharacter)this.getContainer().getParent()).isEquipped(this) : false;
+      if (this.getContainer() == null) {
+         return false;
+      } else {
+         IsoObject var2 = this.getContainer().getParent();
+         if (var2 instanceof IsoGameCharacter) {
+            IsoGameCharacter var3 = (IsoGameCharacter)var2;
+            return var3.isEquipped(this);
+         } else {
+            var2 = this.getContainer().getParent();
+            if (var2 instanceof IsoDeadBody) {
+               IsoDeadBody var1 = (IsoDeadBody)var2;
+               return var1.isEquipped(this);
+            } else {
+               return false;
+            }
+         }
+      }
+   }
+
+   public IsoGameCharacter getUser() {
+      return this.getContainer() != null && this.getContainer().getParent() instanceof IsoGameCharacter && ((IsoGameCharacter)this.getContainer().getParent()).isEquipped(this) ? (IsoGameCharacter)this.getContainer().getParent() : null;
+   }
+
+   public IsoGameCharacter getOwner() {
+      return this.getContainer() != null && this.getContainer().getParent() instanceof IsoGameCharacter ? (IsoGameCharacter)this.getContainer().getParent() : null;
    }
 
    public int getKeyId() {
@@ -2535,14 +3272,6 @@ public class InventoryItem {
 
    public void setKeyId(int var1) {
       this.keyId = var1;
-   }
-
-   public boolean isTaintedWater() {
-      return this.taintedWater;
-   }
-
-   public void setTaintedWater(boolean var1) {
-      this.taintedWater = var1;
    }
 
    public boolean isRemoteController() {
@@ -2638,8 +3367,8 @@ public class InventoryItem {
    }
 
    public void setItemHeat(float var1) {
-      if (var1 > 2.0F) {
-         var1 = 2.0F;
+      if (var1 > 3.0F) {
+         var1 = 3.0F;
       }
 
       if (var1 < 0.0F) {
@@ -2736,7 +3465,7 @@ public class InventoryItem {
    public void doBuildingStash() {
       if (this.stashMap != null) {
          if (GameClient.bClient) {
-            GameClient.sendBuildingStashToDo(this.stashMap);
+            INetworkPacket.send(PacketTypes.PacketType.ReadAnnotedMap, this.stashMap);
          } else {
             StashSystem.prepareBuildingStash(this.stashMap);
          }
@@ -2746,6 +3475,10 @@ public class InventoryItem {
 
    public void setStashMap(String var1) {
       this.stashMap = var1;
+   }
+
+   public String getStashMap() {
+      return this.stashMap;
    }
 
    public int getMechanicType() {
@@ -2778,6 +3511,14 @@ public class InventoryItem {
 
    public void setBrakeForce(float var1) {
       this.brakeForce = var1;
+   }
+
+   public float getDurability() {
+      return this.durability;
+   }
+
+   public void setDurability(float var1) {
+      this.durability = var1;
    }
 
    public int getChanceToSpawnDamaged() {
@@ -2845,7 +3586,19 @@ public class InventoryItem {
    }
 
    public String getStaticModel() {
-      return this.getScriptItem().getStaticModel();
+      if (this.getModData().rawget("staticModel") != null) {
+         return (String)this.getModData().rawget("staticModel");
+      } else {
+         return this.modelIndex != -1 && this.getStaticModelsByIndex() != null ? (String)this.getStaticModelsByIndex().get(this.modelIndex) : this.getScriptItem().getStaticModel();
+      }
+   }
+
+   public void setStaticModel(String var1) {
+      this.getModData().rawset("staticModel", var1);
+   }
+
+   public String getStaticModelException() {
+      return this.hasTag("UseWorldStaticModel") ? this.getWorldStaticModel() : this.getStaticModel();
    }
 
    public ArrayList<String> getIconsForTexture() {
@@ -2942,12 +3695,12 @@ public class InventoryItem {
       return this.getScriptItem().eatType;
    }
 
-   public boolean isUseWorldItem() {
-      return this.getScriptItem().UseWorldItem;
+   public String getPourType() {
+      return this.getScriptItem().pourType;
    }
 
-   public boolean isHairDye() {
-      return this.getScriptItem().hairDye;
+   public boolean isUseWorldItem() {
+      return this.getScriptItem().UseWorldItem;
    }
 
    public String getAmmoType() {
@@ -3144,7 +3897,26 @@ public class InventoryItem {
    }
 
    public String getWorldStaticItem() {
-      return this.getModData().rawget("Flatpack") == "true" ? "Flatpack" : this.getScriptItem().worldStaticModel;
+      if (this.getModData().rawget("Flatpack") == "true") {
+         return "Flatpack";
+      } else if (this.getModData().rawget("worldStaticModel") != null) {
+         return (String)this.getModData().rawget("worldStaticModel");
+      } else {
+         String var1 = this.tryGetWorldStaticModelByIndex(this.getModelIndex());
+         return var1 != null ? var1 : this.getScriptItem().worldStaticModel;
+      }
+   }
+
+   public String getWorldStaticModel() {
+      return this.getWorldStaticItem();
+   }
+
+   public void setWorldStaticItem(String var1) {
+      this.getModData().rawset("worldStaticModel", var1);
+   }
+
+   public void setWorldStaticModel(String var1) {
+      this.setWorldStaticItem(var1);
    }
 
    public void setRegistry_id(Item var1) {
@@ -3233,6 +4005,10 @@ public class InventoryItem {
       this.worldZRotation = var1;
    }
 
+   public void randomizeWorldZRotation() {
+      this.worldZRotation = Rand.Next(360);
+   }
+
    public void setWorldScale(float var1) {
       this.worldScale = var1;
    }
@@ -3260,7 +4036,759 @@ public class InventoryItem {
 
    }
 
+   public String getMilkReplaceItem() {
+      return this.getScriptItem().MilkReplaceItem;
+   }
+
+   public int getMaxMilk() {
+      return this.getScriptItem().MaxMilk;
+   }
+
+   public boolean isAnimalFeed() {
+      return !StringUtils.isNullOrEmpty(this.getScriptItem().AnimalFeedType);
+   }
+
+   public String getAnimalFeedType() {
+      return this.getScriptItem().AnimalFeedType;
+   }
+
+   public String getDigType() {
+      return this.getScriptItem().digType;
+   }
+
    public String getSoundParameter(String var1) {
       return this.getScriptItem().getSoundParameter(var1);
+   }
+
+   public boolean isWorn() {
+      return this.IsClothing() && this.isWorn();
+   }
+
+   public void reset() {
+      super.reset();
+   }
+
+   public String toString() {
+      String var10000 = this.getFullType();
+      return var10000 + ":" + super.toString();
+   }
+
+   public Texture getTextureColorMask() {
+      return this.textureColorMask;
+   }
+
+   public Texture getTextureFluidMask() {
+      return this.textureFluidMask;
+   }
+
+   public void setTextureColorMask(String var1) {
+      this.textureColorMask = Texture.trygetTexture(var1);
+      if (this.textureColorMask == null) {
+         this.textureColorMask = Texture.getSharedTexture("media/inventory/Question_On.png");
+      }
+
+   }
+
+   public void setTextureFluidMask(String var1) {
+      this.textureFluidMask = Texture.trygetTexture(var1);
+      if (this.textureFluidMask == null) {
+         this.textureFluidMask = Texture.getSharedTexture("media/inventory/Question_On.png");
+      }
+
+   }
+
+   public IsoGridSquare getSquare() {
+      return this.equipParent != null ? this.equipParent.getSquare() : null;
+   }
+
+   public GameEntityType getGameEntityType() {
+      return GameEntityType.InventoryItem;
+   }
+
+   public long getEntityNetID() {
+      return (long)this.id;
+   }
+
+   public float getX() {
+      return this.equipParent != null ? this.equipParent.getX() : 3.4028235E38F;
+   }
+
+   public float getY() {
+      return this.equipParent != null ? this.equipParent.getY() : 3.4028235E38F;
+   }
+
+   public float getZ() {
+      return this.equipParent != null ? this.equipParent.getZ() : 3.4028235E38F;
+   }
+
+   public boolean isEntityValid() {
+      return this.getEquipParent() != null;
+   }
+
+   public static boolean RemoveFromContainer(InventoryItem var0) {
+      ItemContainer var1 = var0.getContainer();
+      if (var1 != null) {
+         if (var1.getType().equals("floor") && var0.getWorldItem() != null && var0.getWorldItem().getSquare() != null) {
+            var0.getWorldItem().getSquare().transmitRemoveItemFromSquare(var0.getWorldItem());
+            var0.getWorldItem().getSquare().getWorldObjects().remove(var0.getWorldItem());
+            var0.getWorldItem().getSquare().getObjects().remove(var0.getWorldItem());
+            var0.setWorldItem((IsoWorldInventoryObject)null);
+         }
+
+         var1.DoRemoveItem(var0);
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   public AnimalTracks getAnimalTracks() {
+      return this.animalTracks;
+   }
+
+   public void setAnimalTracks(AnimalTracks var1) {
+      this.animalTracks = var1;
+   }
+
+   public void syncItemFields() {
+      ItemContainer var1 = this.getOutermostContainer();
+      if (var1 != null && var1.getParent() instanceof IsoPlayer) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SyncItemFields, var1.getParent(), this);
+         } else if (GameServer.bServer) {
+            INetworkPacket.send((IsoPlayer)var1.getParent(), PacketTypes.PacketType.SyncItemFields, var1.getParent(), this);
+         }
+      }
+
+   }
+
+   public String getWithDrainable() {
+      return this.getScriptItem().getWithDrainable();
+   }
+
+   public String getWithoutDrainable() {
+      return this.getScriptItem().getWithoutDrainable();
+   }
+
+   public ArrayList<String> getStaticModelsByIndex() {
+      return this.staticModelsByIndex;
+   }
+
+   public void setStaticModelsByIndex(ArrayList<String> var1) {
+      this.staticModelsByIndex = var1;
+   }
+
+   public ArrayList<String> getWorldStaticModelsByIndex() {
+      return this.worldStaticModelsByIndex;
+   }
+
+   public void setWorldStaticModelsByIndex(ArrayList<String> var1) {
+      this.worldStaticModelsByIndex = var1;
+   }
+
+   public String tryGetWorldStaticModelByIndex(int var1) {
+      ArrayList var2 = this.getWorldStaticModelsByIndex();
+      return var2 != null && var1 >= 0 && var1 < var2.size() ? (String)var2.get(var1) : null;
+   }
+
+   public int getModelIndex() {
+      return this.modelIndex;
+   }
+
+   public void setModelIndex(int var1) {
+      this.modelIndex = var1;
+   }
+
+   public float getVisionModifier() {
+      return this.getScriptItem().getVisionModifier();
+   }
+
+   public float getHearingModifier() {
+      return this.getScriptItem().getHearingModifier();
+   }
+
+   public String getWorldObjectSprite() {
+      return this.getScriptItem().getWorldObjectSprite();
+   }
+
+   public float getStrainModifier() {
+      return this.getScriptItem().getStrainModifier();
+   }
+
+   public int getConditionLowerChance() {
+      return this.getScriptItem().getConditionLowerChance();
+   }
+
+   public void setConditionFrom(InventoryItem var1) {
+      if (var1 != null) {
+         if (this.hasSharpness() && var1.hasSharpness()) {
+            this.setSharpness(var1.getSharpness());
+         }
+
+         if (this.getConditionMax() == var1.getConditionMax()) {
+            this.setConditionNoSound(var1.getCondition());
+         } else {
+            float var2 = (float)var1.getCondition() / (float)var1.getConditionMax();
+            this.setConditionNoSound((int)((float)this.getConditionMax() * var2));
+         }
+      }
+   }
+
+   public void setConditionTo(InventoryItem var1) {
+      if (var1 != null) {
+         var1.setConditionFrom(this);
+      }
+   }
+
+   public void reduceCondition() {
+      this.setCondition(this.getCondition() - 1);
+   }
+
+   public boolean damageCheck() {
+      return this.damageCheck(0, 1.0F);
+   }
+
+   public boolean damageCheck(int var1) {
+      return this.damageCheck(var1, 1.0F);
+   }
+
+   public boolean damageCheck(int var1, float var2) {
+      return this.damageCheck(var1, var2, true);
+   }
+
+   public boolean damageCheck(int var1, float var2, boolean var3) {
+      return this.damageCheck(var1, var2, var3, true);
+   }
+
+   public boolean damageCheck(int var1, float var2, boolean var3, boolean var4) {
+      return this.damageCheck(var1, var2, var3, var4, (IsoGameCharacter)null);
+   }
+
+   public boolean damageCheck(int var1, float var2, boolean var3, boolean var4, IsoGameCharacter var5) {
+      var2 = Math.max(var2, 0.0F);
+      if (var3) {
+         var1 += this.getMaintenanceMod(var4, var5);
+      }
+
+      boolean var6 = this.sharpnessCheck(var1 / 2, var2 / 2.0F, false, var4);
+      if (this.headConditionCheck(var1, var2, false, var4)) {
+         var6 = true;
+      }
+
+      if (Rand.NextBool((int)((float)this.getConditionLowerChance() * var2 + (float)var1))) {
+         this.reduceCondition();
+         return true;
+      } else {
+         return var6;
+      }
+   }
+
+   public boolean sharpnessCheck() {
+      return this.sharpnessCheck(0);
+   }
+
+   public boolean sharpnessCheck(int var1) {
+      return this.sharpnessCheck(var1, 1.0F);
+   }
+
+   public boolean sharpnessCheck(int var1, float var2) {
+      return this.sharpnessCheck(var1, var2, true);
+   }
+
+   public boolean sharpnessCheck(int var1, float var2, boolean var3) {
+      return this.sharpnessCheck(var1, var2, var3, true);
+   }
+
+   public boolean sharpnessCheck(int var1, float var2, boolean var3, boolean var4) {
+      return this.sharpnessCheck(var1, var2, var3, var4, (IsoGameCharacter)null);
+   }
+
+   public boolean sharpnessCheck(int var1, float var2, boolean var3, boolean var4, IsoGameCharacter var5) {
+      if (!this.hasSharpness()) {
+         return false;
+      } else {
+         var2 = Math.max(var2, 0.0F);
+         int var6 = 0;
+         if (var3) {
+            var6 += this.getMaintenanceMod(var4, var5);
+         }
+
+         if (Rand.NextBool((int)((float)this.getConditionLowerChance() * var2 + (float)(var1 + var6)))) {
+            this.reduceSharpness();
+            return true;
+         } else {
+            return false;
+         }
+      }
+   }
+
+   public void reduceSharpness() {
+      if (this.hasSharpness()) {
+         if (this.getSharpness() <= 0.0F) {
+            if (this.hasHeadCondition()) {
+               this.reduceHeadCondition();
+            } else {
+               this.reduceCondition();
+            }
+
+         } else {
+            this.setSharpness(this.getSharpness() - this.getSharpnessIncrement());
+         }
+      }
+   }
+
+   public boolean hasSharpness() {
+      return this.attrib() != null && this.attrib().getAttribute(Attribute.Sharpness) != null;
+   }
+
+   public float getSharpness() {
+      if (!this.hasSharpness()) {
+         return 0.0F;
+      } else {
+         if (this.attrib().getAttribute(Attribute.Sharpness).getFloatValue() > this.getMaxSharpness()) {
+            this.applyMaxSharpness();
+         }
+
+         return this.attrib().getAttribute(Attribute.Sharpness).getFloatValue();
+      }
+   }
+
+   public float getMaxSharpness() {
+      if (!this.hasSharpness()) {
+         return 1.0F;
+      } else {
+         return this.hasHeadCondition() ? (float)this.getHeadCondition() / (float)this.getHeadConditionMax() : (float)this.getCondition() / (float)this.getConditionMax();
+      }
+   }
+
+   public void applyMaxSharpness() {
+      if (this.hasSharpness()) {
+         this.setSharpness(this.getMaxSharpness());
+      }
+   }
+
+   public float getSharpnessMultiplier() {
+      return !this.hasSharpness() ? 1.0F : (this.attrib().getAttribute(Attribute.Sharpness).getFloatValue() + 1.0F) / 2.0F;
+   }
+
+   public void setSharpness(float var1) {
+      if (this.hasSharpness()) {
+         float var2 = this.getMaxSharpness();
+         if (var1 > var2) {
+            var1 = var2;
+         }
+
+         if (var1 < 0.0F) {
+            var1 = 0.0F;
+         }
+
+         if (var1 > 1.0F) {
+            var1 = 1.0F;
+         }
+
+         String var3 = String.valueOf(var1);
+         this.attrib().getAttribute(Attribute.Sharpness).setValueFromScriptString(var3);
+      }
+   }
+
+   public void setSharpnessFrom(InventoryItem var1) {
+      if (this.hasSharpness() && var1.hasSharpness()) {
+         this.setSharpness(var1.getSharpness());
+      }
+   }
+
+   public float getSharpnessIncrement() {
+      return !this.hasSharpness() ? 0.0F : 1.0F / (float)this.getConditionMax();
+   }
+
+   public boolean isDamaged() {
+      return this.getCondition() < this.getConditionMax();
+   }
+
+   public boolean isDull() {
+      return this.hasSharpness() && this.getSharpness() <= this.getMaxSharpness() / 3.0F;
+   }
+
+   public int getMaintenanceMod() {
+      return this.getMaintenanceMod(true);
+   }
+
+   public int getMaintenanceMod(boolean var1) {
+      return this.getMaintenanceMod(var1, (IsoGameCharacter)null);
+   }
+
+   public int getMaintenanceMod(IsoGameCharacter var1) {
+      return this.getMaintenanceMod(false, var1);
+   }
+
+   public int getMaintenanceMod(boolean var1, IsoGameCharacter var2) {
+      if (var1 && !this.isEquipped()) {
+         return 0;
+      } else {
+         if (var1 && var2 == null) {
+            var2 = this.getUser();
+         } else if (var2 == null) {
+            var2 = this.getOwner();
+         }
+
+         if (var2 == null) {
+            return 0;
+         } else {
+            int var3 = var2.getPerkLevel(PerkFactory.Perks.Maintenance);
+            if (this instanceof HandWeapon) {
+               var3 += var2.getWeaponLevel((HandWeapon)this) / 2;
+            }
+
+            return var3;
+         }
+      }
+   }
+
+   public int getWeaponLevel() {
+      if (this.isEquipped() && this instanceof HandWeapon) {
+         WeaponType var1 = WeaponType.getWeaponType((HandWeapon)this);
+         int var2 = -1;
+         HandWeapon var3 = (HandWeapon)this;
+         if (var1 != null && var1 != WeaponType.barehand) {
+            if (var3.getCategories().contains("Axe")) {
+               var2 = this.getUser().getPerkLevel(PerkFactory.Perks.Axe);
+            }
+
+            if (var3.getCategories().contains("Spear")) {
+               var2 += this.getUser().getPerkLevel(PerkFactory.Perks.Spear);
+            }
+
+            if (var3.getCategories().contains("SmallBlade")) {
+               var2 += this.getUser().getPerkLevel(PerkFactory.Perks.SmallBlade);
+            }
+
+            if (var3.getCategories().contains("LongBlade")) {
+               var2 += this.getUser().getPerkLevel(PerkFactory.Perks.LongBlade);
+            }
+
+            if (var3.getCategories().contains("Blunt")) {
+               var2 += this.getUser().getPerkLevel(PerkFactory.Perks.Blunt);
+            }
+
+            if (var3.getCategories().contains("SmallBlunt")) {
+               var2 += this.getUser().getPerkLevel(PerkFactory.Perks.SmallBlunt);
+            }
+         }
+
+         if (var2 > 10) {
+            var2 = 10;
+         }
+
+         return var2 == -1 ? 0 : var2;
+      } else {
+         return 0;
+      }
+   }
+
+   public boolean headConditionCheck() {
+      return this.headConditionCheck(0, 1.0F);
+   }
+
+   public boolean headConditionCheck(int var1) {
+      return this.headConditionCheck(var1, 1.0F);
+   }
+
+   public boolean headConditionCheck(int var1, float var2) {
+      return this.headConditionCheck(var1, var2, true);
+   }
+
+   public boolean headConditionCheck(int var1, float var2, boolean var3) {
+      return this.headConditionCheck(var1, var2, var3, true);
+   }
+
+   public boolean headConditionCheck(int var1, float var2, boolean var3, boolean var4) {
+      return this.headConditionCheck(var1, var2, var3, var4, (IsoGameCharacter)null);
+   }
+
+   public boolean headConditionCheck(int var1, float var2, boolean var3, boolean var4, IsoGameCharacter var5) {
+      if (!this.hasHeadCondition()) {
+         return false;
+      } else {
+         var2 = Math.max(var2, 0.0F);
+         int var6 = 0;
+         if (var3) {
+            var6 += this.getMaintenanceMod(var4, var5);
+         }
+
+         if (Rand.NextBool((int)((float)this.getHeadConditionLowerChance() * var2 + (float)(var1 + var6)))) {
+            this.reduceHeadCondition();
+            return true;
+         } else {
+            return false;
+         }
+      }
+   }
+
+   public int getHeadConditionLowerChance() {
+      return (int)((float)this.getConditionLowerChance() * this.getHeadConditionLowerChanceMultiplier());
+   }
+
+   public float getHeadConditionLowerChanceMultiplier() {
+      return this.getScriptItem().getHeadConditionLowerChanceMultiplier();
+   }
+
+   public void reduceHeadCondition() {
+      if (this.hasHeadCondition()) {
+         DebugLog.log("Reduce Head Condition from " + this.getHeadCondition());
+         this.setHeadCondition(this.getHeadCondition() - 1);
+      }
+   }
+
+   public boolean hasHeadCondition() {
+      return this.attrib() != null && this.attrib().getAttribute(Attribute.HeadCondition) != null;
+   }
+
+   public int getHeadCondition() {
+      return !this.hasHeadCondition() ? 0 : this.attrib().getAttribute(Attribute.HeadCondition).getIntValue();
+   }
+
+   public int getHeadConditionMax() {
+      if (!this.hasHeadCondition()) {
+         return 0;
+      } else {
+         return this.attrib() != null && this.attrib().getAttribute(Attribute.HeadConditionMax) != null ? this.attrib().getAttribute(Attribute.HeadConditionMax).getIntValue() : this.getConditionMax();
+      }
+   }
+
+   public void setHeadCondition(int var1) {
+      if (this.hasHeadCondition()) {
+         if (var1 < 0) {
+            var1 = 0;
+         }
+
+         int var2 = this.getHeadConditionMax();
+         if (var1 > var2) {
+            var1 = var2;
+         }
+
+         String var3 = String.valueOf(var1);
+         this.attrib().getAttribute(Attribute.HeadCondition).setValueFromScriptString(var3);
+         if (this.getHeadCondition() <= 0) {
+            this.setCondition(0);
+         }
+
+      }
+   }
+
+   public void setHeadConditionFromCondition(InventoryItem var1) {
+      if (var1 != null) {
+         if (this.hasHeadCondition()) {
+            if (this.getHeadConditionMax() == var1.getConditionMax()) {
+               this.setHeadCondition(var1.getCondition());
+               if (this.hasSharpness() && var1.hasSharpness()) {
+                  this.setSharpness(var1.getSharpness());
+               }
+
+            } else {
+               float var2 = (float)var1.getCondition() / (float)var1.getConditionMax();
+               this.setHeadCondition((int)((float)this.getConditionMax() * var2));
+               if (this.hasSharpness() && var1.hasSharpness()) {
+                  this.setSharpness(var1.getSharpness());
+               }
+
+            }
+         }
+      }
+   }
+
+   public void setConditionFromHeadCondition(InventoryItem var1) {
+      if (var1 != null) {
+         if (var1.hasHeadCondition()) {
+            if (this.getConditionMax() == var1.getHeadConditionMax()) {
+               this.setConditionNoSound(var1.getHeadCondition());
+               if (this.hasSharpness() && var1.hasSharpness()) {
+                  this.setSharpness(var1.getSharpness());
+               }
+
+            } else {
+               float var2 = (float)var1.getHeadCondition() / (float)var1.getHeadConditionMax();
+               this.setConditionNoSound((int)((float)this.getConditionMax() * var2));
+               if (this.hasSharpness() && var1.hasSharpness()) {
+                  this.setSharpness(var1.getSharpness());
+               }
+
+            }
+         }
+      }
+   }
+
+   public boolean hasQuality() {
+      return this.attrib() != null && this.attrib().getAttribute(Attribute.Quality) != null;
+   }
+
+   public int getQuality() {
+      return !this.hasQuality() ? 0 : this.attrib().getAttribute(Attribute.Quality).getIntValue();
+   }
+
+   public void setQuality(int var1) {
+      if (this.hasQuality()) {
+         if (var1 < -50) {
+            var1 = -50;
+         }
+
+         if (var1 > 50) {
+            var1 = 50;
+         }
+
+         String var2 = String.valueOf(var1);
+         this.attrib().getAttribute(Attribute.Quality).setValueFromScriptString(var2);
+      }
+   }
+
+   public String getOnBreak() {
+      return this.getScriptItem().getOnBreak();
+   }
+
+   public void onBreak() {
+      Object var1 = LuaManager.getFunctionObject(this.getOnBreak());
+      IsoGameCharacter var2 = null;
+      if (this.container != null && this.container.parent instanceof IsoGameCharacter) {
+         var2 = (IsoGameCharacter)this.container.parent;
+      }
+
+      if (var1 != null) {
+         LuaManager.caller.pcallvoid(LuaManager.thread, var1, this, var2);
+      }
+
+   }
+
+   public float getBloodLevelAdjustedLow() {
+      return !(this instanceof Clothing) && !(this instanceof InventoryContainer) ? this.getBloodLevel() : this.getBloodLevel() / 100.0F;
+   }
+
+   public float getBloodLevelAdjustedHigh() {
+      return !(this instanceof Clothing) && !(this instanceof InventoryContainer) ? this.getBloodLevel() * 100.0F : this.getBloodLevel();
+   }
+
+   public float getBloodLevel() {
+      return 0.0F;
+   }
+
+   public void setBloodLevel(float var1) {
+   }
+
+   public void copyBloodLevelFrom(InventoryItem var1) {
+      this.setBloodLevel(var1.getBloodLevel());
+   }
+
+   public boolean isBloody() {
+      return this.getBloodLevel() > 0.25F;
+   }
+
+   public String getDamagedSound() {
+      return this.getScriptItem() == null ? null : this.getScriptItem().getDamagedSound();
+   }
+
+   public String getShoutType() {
+      return this.getScriptItem() == null ? null : this.getScriptItem().getShoutType();
+   }
+
+   public float getShoutMultiplier() {
+      return this.getScriptItem() == null ? 1.0F : this.getScriptItem().getShoutMultiplier();
+   }
+
+   public int getEatTime() {
+      return this.getScriptItem() == null ? 0 : this.getScriptItem().getEatTime();
+   }
+
+   public boolean isVisualAid() {
+      return this.getScriptItem().isVisualAid();
+   }
+
+   public float getDiscomfortModifier() {
+      return this.getScriptItem().getDiscomfortModifier();
+   }
+
+   public boolean hasMetal() {
+      return this.getMetalValue() > 0.0F || this.hasTag("HasMetal");
+   }
+
+   public float getFireFuelRatio() {
+      return this.getScriptItem().getFireFuelRatio();
+   }
+
+   public float getWetness() {
+      return 0.0F;
+   }
+
+   public boolean isMemento() {
+      return this.hasTag("IsMemento") || Objects.equals(this.getDisplayCategory(), "Memento");
+   }
+
+   public void nameAfterDescriptor(SurvivorDesc var1) {
+      if (var1 != null) {
+         String var2 = this.getScriptItem().getDisplayName();
+         var2 = Translator.getText(var2);
+         this.setName(var2 + ": " + var1.getForename() + " " + var1.getSurname());
+      }
+   }
+
+   public void monogramAfterDescriptor(SurvivorDesc var1) {
+      if (var1 != null) {
+         String var2 = this.getScriptItem().getDisplayName();
+         var2 = Translator.getText(var2);
+         this.setName(var2 + ": " + var1.getForename().charAt(0) + var1.getSurname().charAt(0));
+      }
+   }
+
+   public String getLootType() {
+      return ItemPickerJava.getLootType(this.getScriptItem());
+   }
+
+   public boolean getIsCraftingConsumed() {
+      return this.isCraftingConsumed;
+   }
+
+   public void setIsCraftingConsumed(boolean var1) {
+      this.isCraftingConsumed = var1;
+   }
+
+   public void OnAddedToContainer(ItemContainer var1) {
+   }
+
+   public void OnBeforeRemoveFromContainer(ItemContainer var1) {
+   }
+
+   public IsoDeadBody getDeadBodyObject() {
+      return this.deadBodyObject;
+   }
+
+   public boolean isPureWater(boolean var1) {
+      if (this.getFluidContainer() != null && !this.getFluidContainer().isEmpty()) {
+         if (this.getFluidContainer().isPureFluid(Fluid.Water)) {
+            return true;
+         }
+
+         if (var1 && this.getFluidContainer().isPureFluid(Fluid.TaintedWater)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   public void copyClothing(InventoryItem var1) {
+      if (this.getClothingItem() != null && var1.getClothingItem() != null) {
+         Object var2 = LuaManager.getFunctionObject("copyClothingItem");
+         if (var2 != null) {
+            LuaManager.caller.pcallvoid(LuaManager.thread, var2, var1, this);
+         }
+
+      }
+   }
+
+   public void inheritFoodAgeFrom(InventoryItem var1) {
+   }
+
+   public void inheritOlderFoodAge(InventoryItem var1) {
+   }
+
+   public boolean isFood() {
+      return false;
    }
 }

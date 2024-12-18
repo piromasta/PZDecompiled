@@ -33,15 +33,14 @@ public class HairStyles {
    public static HairStyles instance;
 
    public static void init() {
-      String var10000 = ZomboidFileSystem.instance.base.getAbsolutePath();
+      String var10000 = ZomboidFileSystem.instance.base.canonicalFile.getAbsolutePath();
       instance = Parse(var10000 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/hairStyles.xml", File.separatorChar));
       if (instance != null) {
          Iterator var0 = ZomboidFileSystem.instance.getModIDs().iterator();
 
          while(true) {
-            String var1;
-            HairStyles var4;
-            do {
+            while(true) {
+               String var1;
                ChooseGameInfo.Mod var2;
                do {
                   if (!var0.hasNext()) {
@@ -52,44 +51,84 @@ public class HairStyles {
                   var2 = ChooseGameInfo.getAvailableModDetails(var1);
                } while(var2 == null);
 
-               String var3 = ZomboidFileSystem.instance.getModDir(var1);
-               var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/hairStyles.xml", File.separatorChar));
-            } while(var4 == null);
+               String var3 = var2.getVersionDir();
+               HairStyles var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/hairStyles.xml", File.separatorChar));
+               Iterator var5;
+               HairStyle var6;
+               HairStyle var7;
+               int var8;
+               if (var4 != null) {
+                  var5 = var4.m_FemaleStyles.iterator();
 
-            Iterator var5 = var4.m_FemaleStyles.iterator();
+                  while(var5.hasNext()) {
+                     var6 = (HairStyle)var5.next();
+                     var7 = instance.FindFemaleStyle(var6.name);
+                     if (var7 == null) {
+                        instance.m_FemaleStyles.add(var6);
+                     } else {
+                        if (DebugLog.isEnabled(DebugType.Clothing)) {
+                           DebugLog.Clothing.println("mod \"%s\" overrides hair \"%s\"", var1, var6.name);
+                        }
 
-            HairStyle var6;
-            HairStyle var7;
-            int var8;
-            while(var5.hasNext()) {
-               var6 = (HairStyle)var5.next();
-               var7 = instance.FindFemaleStyle(var6.name);
-               if (var7 == null) {
-                  instance.m_FemaleStyles.add(var6);
-               } else {
-                  if (DebugLog.isEnabled(DebugType.Clothing)) {
-                     DebugLog.Clothing.println("mod \"%s\" overrides hair \"%s\"", var1, var6.name);
+                        var8 = instance.m_FemaleStyles.indexOf(var7);
+                        instance.m_FemaleStyles.set(var8, var6);
+                     }
                   }
 
-                  var8 = instance.m_FemaleStyles.indexOf(var7);
-                  instance.m_FemaleStyles.set(var8, var6);
-               }
-            }
+                  var5 = var4.m_MaleStyles.iterator();
 
-            var5 = var4.m_MaleStyles.iterator();
+                  while(var5.hasNext()) {
+                     var6 = (HairStyle)var5.next();
+                     var7 = instance.FindMaleStyle(var6.name);
+                     if (var7 == null) {
+                        instance.m_MaleStyles.add(var6);
+                     } else {
+                        if (DebugLog.isEnabled(DebugType.Clothing)) {
+                           DebugLog.Clothing.println("mod \"%s\" overrides hair \"%s\"", var1, var6.name);
+                        }
 
-            while(var5.hasNext()) {
-               var6 = (HairStyle)var5.next();
-               var7 = instance.FindMaleStyle(var6.name);
-               if (var7 == null) {
-                  instance.m_MaleStyles.add(var6);
-               } else {
-                  if (DebugLog.isEnabled(DebugType.Clothing)) {
-                     DebugLog.Clothing.println("mod \"%s\" overrides hair \"%s\"", var1, var6.name);
+                        var8 = instance.m_MaleStyles.indexOf(var7);
+                        instance.m_MaleStyles.set(var8, var6);
+                     }
                   }
+               } else {
+                  var3 = var2.getCommonDir();
+                  var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/hairStyles.xml", File.separatorChar));
+                  if (var4 != null) {
+                     var5 = var4.m_FemaleStyles.iterator();
 
-                  var8 = instance.m_MaleStyles.indexOf(var7);
-                  instance.m_MaleStyles.set(var8, var6);
+                     while(var5.hasNext()) {
+                        var6 = (HairStyle)var5.next();
+                        var7 = instance.FindFemaleStyle(var6.name);
+                        if (var7 == null) {
+                           instance.m_FemaleStyles.add(var6);
+                        } else {
+                           if (DebugLog.isEnabled(DebugType.Clothing)) {
+                              DebugLog.Clothing.println("mod \"%s\" overrides hair \"%s\"", var1, var6.name);
+                           }
+
+                           var8 = instance.m_FemaleStyles.indexOf(var7);
+                           instance.m_FemaleStyles.set(var8, var6);
+                        }
+                     }
+
+                     var5 = var4.m_MaleStyles.iterator();
+
+                     while(var5.hasNext()) {
+                        var6 = (HairStyle)var5.next();
+                        var7 = instance.FindMaleStyle(var6.name);
+                        if (var7 == null) {
+                           instance.m_MaleStyles.add(var6);
+                        } else {
+                           if (DebugLog.isEnabled(DebugType.Clothing)) {
+                              DebugLog.Clothing.println("mod \"%s\" overrides hair \"%s\"", var1, var6.name);
+                           }
+
+                           var8 = instance.m_MaleStyles.indexOf(var7);
+                           instance.m_MaleStyles.set(var8, var6);
+                        }
+                     }
+                  }
                }
             }
          }
@@ -164,11 +203,11 @@ public class HairStyles {
    }
 
    public String getRandomMaleStyle(String var1) {
-      return HairOutfitDefinitions.instance.getRandomHaircut(var1, this.m_MaleStyles);
+      return HairOutfitDefinitions.instance.getRandomMaleHaircut(var1, this.m_MaleStyles);
    }
 
    public String getRandomFemaleStyle(String var1) {
-      return HairOutfitDefinitions.instance.getRandomHaircut(var1, this.m_FemaleStyles);
+      return HairOutfitDefinitions.instance.getRandomFemaleHaircut(var1, this.m_FemaleStyles);
    }
 
    public HairStyle getAlternateForHat(HairStyle var1, String var2) {

@@ -9,9 +9,17 @@ public interface ILuaGameCharacterHealth {
 
    float getFatigueMod();
 
+   boolean Eat(InventoryItem var1, float var2, boolean var3);
+
    boolean Eat(InventoryItem var1, float var2);
 
    boolean Eat(InventoryItem var1);
+
+   boolean DrinkFluid(InventoryItem var1, float var2, boolean var3);
+
+   boolean DrinkFluid(InventoryItem var1, float var2);
+
+   boolean DrinkFluid(InventoryItem var1);
 
    float getTemperature();
 

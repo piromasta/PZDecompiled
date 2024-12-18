@@ -6,15 +6,20 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import zombie.core.SpriteRenderer;
 import zombie.core.VBO.GLVertexBufferObject;
 import zombie.core.VBO.IGLBufferObject;
 import zombie.core.math.PZMath;
+import zombie.core.opengl.ShaderProgram;
+import zombie.core.opengl.VBOLinesShader;
+import zombie.core.skinnedmodel.model.VertexBufferObject;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureID;
 import zombie.popman.ObjectPool;
 
 public final class VBOLinesUV {
+   private static VBOLinesUV instance;
    private final int VERTEX_SIZE = 12;
    private final int COLOR_SIZE = 16;
    private final int UV_SIZE = 8;
@@ -23,6 +28,7 @@ public final class VBOLinesUV {
    private final int UV_OFFSET = 28;
    private final int NUM_ELEMENTS = 128;
    private final int INDEX_SIZE = 2;
+   private VBOLinesShader m_shader = null;
    private GLVertexBufferObject m_vbo;
    private GLVertexBufferObject m_ibo;
    private ByteBuffer m_elements;
@@ -32,10 +38,19 @@ public final class VBOLinesUV {
    private float m_dy = 0.0F;
    private float m_dz = 0.0F;
    private int m_mode = 1;
+   private ShaderProgram m_userShaderProgram;
    private final ObjectPool<Run> m_runPool = new ObjectPool(Run::new);
    private final ArrayList<Run> m_runs = new ArrayList();
 
    public VBOLinesUV() {
+   }
+
+   public static VBOLinesUV getInstance() {
+      if (instance == null) {
+         instance = new VBOLinesUV();
+      }
+
+      return instance;
    }
 
    private Run currentRun() {
@@ -120,6 +135,14 @@ public final class VBOLinesUV {
       this.addElement(var13, var14, var17, var15, var16, var18, var19, var20, var21);
    }
 
+   public void addQuad(float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, float var11, float var12, float var13, float var14, float var15, float var16, float var17, float var18, float var19, float var20, float var21, float var22, float var23, float var24) {
+      this.reserve(4);
+      this.addElement(var1, var2, var3, var4, var5, var21, var22, var23, var24);
+      this.addElement(var6, var7, var8, var9, var10, var21, var22, var23, var24);
+      this.addElement(var11, var12, var13, var14, var15, var21, var22, var23, var24);
+      this.addElement(var16, var17, var18, var19, var20, var21, var22, var23, var24);
+   }
+
    boolean isFull() {
       if (this.m_elements == null) {
          return false;
@@ -149,17 +172,33 @@ public final class VBOLinesUV {
       if (this.m_elements != null && this.m_elements.position() != 0) {
          this.m_elements.flip();
          this.m_indices.flip();
-         GL13.glClientActiveTexture(33984);
-         GL11.glEnableClientState(32888);
+         GL13.glActiveTexture(33984);
          this.m_vbo.bind();
          this.m_vbo.bufferData(this.m_elements);
          this.m_ibo.bind();
          this.m_ibo.bufferData(this.m_indices);
-         GL11.glEnableClientState(32884);
-         GL11.glEnableClientState(32886);
-         GL11.glVertexPointer(3, 5126, 36, 0L);
-         GL11.glColorPointer(4, 5126, 36, 12L);
-         GL11.glTexCoordPointer(2, 5126, 36, 28L);
+         if (this.m_userShaderProgram == null) {
+            if (this.m_shader == null) {
+               this.m_shader = new VBOLinesShader("vbo_lines_uv");
+            }
+
+            this.m_shader.Start();
+            VertexBufferObject.setModelViewProjection(this.m_shader.getProgram());
+         } else {
+            VertexBufferObject.setModelViewProjection(this.m_userShaderProgram);
+         }
+
+         GL20.glEnableVertexAttribArray(0);
+         GL20.glEnableVertexAttribArray(1);
+         GL20.glEnableVertexAttribArray(2);
+         GL20.glDisableVertexAttribArray(3);
+         GL20.glDisableVertexAttribArray(4);
+         GL11.glDisableClientState(32884);
+         GL11.glDisableClientState(32886);
+         GL11.glDisableClientState(32888);
+         GL20.glVertexAttribPointer(0, 3, 5126, false, 36, 0L);
+         GL20.glVertexAttribPointer(1, 4, 5126, true, 36, 12L);
+         GL20.glVertexAttribPointer(2, 2, 5126, false, 36, 28L);
          GL11.glEnable(3553);
          GL11.glDisable(2929);
          GL11.glEnable(2848);
@@ -188,9 +227,18 @@ public final class VBOLinesUV {
          this.m_indices.clear();
          this.m_runPool.releaseAll(this.m_runs);
          this.m_runs.clear();
+         if (this.m_userShaderProgram == null) {
+            this.m_shader.End();
+         }
+
          GL11.glEnable(2929);
          GL11.glDisable(2848);
-         GL13.glClientActiveTexture(33984);
+         GL20.glEnableVertexAttribArray(0);
+         GL20.glEnableVertexAttribArray(1);
+         GL20.glEnableVertexAttribArray(2);
+         GL20.glEnableVertexAttribArray(3);
+         GL20.glEnableVertexAttribArray(4);
+         GL13.glActiveTexture(33984);
          SpriteRenderer.ringBuffer.restoreVBOs = true;
          SpriteRenderer.ringBuffer.restoreBoundTextures = true;
       }
@@ -210,7 +258,7 @@ public final class VBOLinesUV {
    }
 
    public void setMode(int var1) {
-      assert var1 == 1 || var1 == 4 || var1 == 7;
+      assert var1 == 1 || var1 == 7 || var1 == 4;
 
       if (var1 != this.m_mode) {
          TextureID var2 = this.currentRun() == null ? null : this.currentRun().textureID;
@@ -220,6 +268,19 @@ public final class VBOLinesUV {
          }
 
          this.m_mode = var1;
+      }
+
+   }
+
+   public void setShaderProgram(ShaderProgram var1) {
+      if (var1 != this.m_userShaderProgram) {
+         TextureID var2 = this.currentRun() == null ? null : this.currentRun().textureID;
+         this.flush();
+         if (var2 != null) {
+            this.startRun(var2);
+         }
+
+         this.m_userShaderProgram = var1;
       }
 
    }

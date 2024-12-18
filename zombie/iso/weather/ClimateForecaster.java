@@ -3,6 +3,7 @@ package zombie.iso.weather;
 import java.util.ArrayList;
 import java.util.GregorianCalendar;
 import zombie.GameTime;
+import zombie.core.Translator;
 
 public class ClimateForecaster {
    private static final int OffsetToday = 10;
@@ -80,8 +81,8 @@ public class ClimateForecaster {
       DayForecast var10 = this.getWeatherOverlap(var3 + 10, 0.0F);
       var2.weatherOverlap = var10;
       var2.weatherPeriod.stopWeatherPeriod();
-      int var10001 = var8.get(1);
-      var2.name = "day: " + var10001 + " - " + (var8.get(2) + 1) + " - " + var8.get(5);
+      String var10001 = Translator.getText("IGUI_Forecaster_Day");
+      var2.name = var10001 + ": " + var8.get(1) + " - " + (var8.get(2) + 1) + " - " + var8.get(5);
 
       for(int var11 = 0; var11 < 24; ++var11) {
          if (var11 != 0) {

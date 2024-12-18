@@ -66,53 +66,55 @@ public enum WeaponType {
    }
 
    public static WeaponType getWeaponType(IsoGameCharacter var0) {
+      return getWeaponType(var0, var0.getPrimaryHandItem(), var0.getSecondaryHandItem());
+   }
+
+   public static WeaponType getWeaponType(IsoGameCharacter var0, InventoryItem var1, InventoryItem var2) {
       if (var0 == null) {
          return null;
       } else {
-         WeaponType var1 = null;
+         WeaponType var3 = null;
          var0.setVariable("rangedWeapon", false);
-         InventoryItem var2 = var0.getPrimaryHandItem();
-         InventoryItem var3 = var0.getSecondaryHandItem();
-         if (var2 != null && var2 instanceof HandWeapon) {
-            if (var2.getSwingAnim().equalsIgnoreCase("Stab")) {
+         if (var1 != null && var1 instanceof HandWeapon) {
+            if (var1.getSwingAnim().equalsIgnoreCase("Stab")) {
                return knife;
             }
 
-            if (var2.getSwingAnim().equalsIgnoreCase("Heavy")) {
+            if (var1.getSwingAnim().equalsIgnoreCase("Heavy")) {
                return heavy;
             }
 
-            if (var2.getSwingAnim().equalsIgnoreCase("Throw")) {
+            if (var1.getSwingAnim().equalsIgnoreCase("Throw")) {
                var0.setVariable("rangedWeapon", true);
                return throwing;
             }
 
-            if (!((HandWeapon)var2).isRanged()) {
-               var1 = onehanded;
-               if (var2 == var3 && var2.isTwoHandWeapon()) {
-                  var1 = twohanded;
-                  if (var2.getSwingAnim().equalsIgnoreCase("Spear")) {
+            if (!((HandWeapon)var1).isRanged()) {
+               var3 = onehanded;
+               if (var1 == var2 && var1.isTwoHandWeapon()) {
+                  var3 = twohanded;
+                  if (var1.getSwingAnim().equalsIgnoreCase("Spear")) {
                      return spear;
                   }
 
-                  if ("Chainsaw".equals(var2.getType())) {
+                  if ("Chainsaw".equals(var1.getType())) {
                      return chainsaw;
                   }
                }
             } else {
-               var1 = handgun;
-               if (var2 == var3 && var2.isTwoHandWeapon()) {
-                  var1 = firearm;
+               var3 = handgun;
+               if (var1 == var2 && var1.isTwoHandWeapon()) {
+                  var3 = firearm;
                }
             }
          }
 
-         if (var1 == null) {
-            var1 = barehand;
+         if (var3 == null) {
+            var3 = barehand;
          }
 
-         var0.setVariable("rangedWeapon", var1 == handgun || var1 == firearm);
-         return var1;
+         var0.setVariable("rangedWeapon", var3 == handgun || var3 == firearm);
+         return var3;
       }
    }
 

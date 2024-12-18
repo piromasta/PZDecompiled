@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import zombie.GameWindow;
+import zombie.SystemDisabler;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.Faction;
 import zombie.characters.IsoPlayer;
@@ -87,7 +88,10 @@ public class ChatManager {
       logger = LoggerManager.getLogger("client chat " + var10000);
       logger.write("Init chat system...", "info");
       logger.write("Mode: " + (var1 ? "single player" : "multiplayer"), "info");
-      logger.write("Chat owner: " + var2.getDisplayName(), "info");
+      if (SystemDisabler.printDetailedInfo()) {
+         logger.write("Chat owner: " + var2.getDisplayName(), "info");
+      }
+
       this.chatManagerStage = ChatManager.Stage.starting;
       this.singlePlayerMode = var1;
       this.generalChat = null;

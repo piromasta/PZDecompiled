@@ -1,6 +1,7 @@
 package zombie.radio;
 
 import java.io.File;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -17,10 +18,11 @@ import org.w3c.dom.NodeList;
 import zombie.ZomboidFileSystem;
 import zombie.core.Core;
 import zombie.core.Language;
-import zombie.core.Rand;
 import zombie.core.Translator;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
+import zombie.gameStates.ChooseGameInfo;
 import zombie.radio.scripting.RadioBroadCast;
 import zombie.radio.scripting.RadioChannel;
 import zombie.radio.scripting.RadioLine;
@@ -106,41 +108,82 @@ public final class RadioData {
          ArrayList var4 = new ArrayList();
          searchForFiles(ZomboidFileSystem.instance.getMediaFile("radio"), "xml", var4);
          ArrayList var5 = new ArrayList(var4);
-         int var6;
-         String var7;
+         HashMap var6 = new HashMap();
+         ArrayList var7 = new ArrayList();
+         int var8;
+         ChooseGameInfo.Mod var9;
+         String var10;
          if (var0) {
-            for(var6 = 0; var6 < var3.size(); ++var6) {
-               var7 = ZomboidFileSystem.instance.getModDir((String)var3.get(var6));
-               if (var7 != null) {
-                  searchForFiles(new File(var7 + File.separator + "media" + File.separator + "radio"), "xml", var4);
+            for(var8 = 0; var8 < var3.size(); ++var8) {
+               var9 = ChooseGameInfo.getAvailableModDetails((String)var3.get(var8));
+               if (var9 != null) {
+                  var6.clear();
+                  var7.clear();
+                  var10 = var9.getCommonDir();
+                  File var11 = new File(var10.toLowerCase(Locale.ENGLISH));
+                  URI var12 = var11.toURI();
+                  if (var10 != null) {
+                     searchForFiles(new File(var10 + File.separator + "media" + File.separator + "radio"), "xml", var7);
+                  }
+
+                  Iterator var13 = var7.iterator();
+
+                  String var14;
+                  String var15;
+                  while(var13.hasNext()) {
+                     var14 = (String)var13.next();
+                     var15 = ZomboidFileSystem.instance.getRelativeFile(var12, var14);
+                     var15 = var15.toLowerCase(Locale.ENGLISH);
+                     var6.putIfAbsent(var15, var14);
+                  }
+
+                  var7.clear();
+                  var10 = var9.getVersionDir();
+                  var11 = new File(var10.toLowerCase(Locale.ENGLISH));
+                  var12 = var11.toURI();
+                  if (var10 != null) {
+                     searchForFiles(new File(var10 + File.separator + "media" + File.separator + "radio"), "xml", var7);
+                  }
+
+                  var13 = var7.iterator();
+
+                  while(var13.hasNext()) {
+                     var14 = (String)var13.next();
+                     var15 = ZomboidFileSystem.instance.getRelativeFile(var12, var14);
+                     var15 = var15.toLowerCase(Locale.ENGLISH);
+                     var6.putIfAbsent(var15, var14);
+                  }
+
+                  var4.addAll(var6.values());
                }
             }
          }
 
-         Iterator var12 = var4.iterator();
+         Iterator var17 = var4.iterator();
 
          while(true) {
-            Iterator var9;
-            while(var12.hasNext()) {
-               var7 = (String)var12.next();
-               RadioData var8 = ReadFile(var7);
-               if (var8 != null) {
+            String var18;
+            Iterator var20;
+            while(var17.hasNext()) {
+               var18 = (String)var17.next();
+               RadioData var19 = ReadFile(var18);
+               if (var19 != null) {
                   if (var1) {
-                     System.out.println(" Found file: " + var7);
+                     System.out.println(" Found file: " + var18);
                   }
 
-                  var9 = var5.iterator();
+                  var20 = var5.iterator();
 
-                  while(var9.hasNext()) {
-                     String var10 = (String)var9.next();
-                     if (var10.equals(var7)) {
-                        var8.isVanilla = true;
+                  while(var20.hasNext()) {
+                     String var22 = (String)var20.next();
+                     if (var22.equals(var18)) {
+                        var19.isVanilla = true;
                      }
                   }
 
-                  var2.add(var8);
+                  var2.add(var19);
                } else {
-                  System.out.println("[Failure] Cannot parse file: " + var7);
+                  System.out.println("[Failure] Cannot parse file: " + var18);
                }
             }
 
@@ -151,47 +194,53 @@ public final class RadioData {
             var4.clear();
             searchForFiles(ZomboidFileSystem.instance.getMediaFile("radio"), "txt", var4);
             if (var0) {
-               for(var6 = 0; var6 < var3.size(); ++var6) {
-                  var7 = ZomboidFileSystem.instance.getModDir((String)var3.get(var6));
-                  if (var7 != null) {
-                     searchForFiles(new File(var7 + File.separator + "media" + File.separator + "radio"), "txt", var4);
+               for(var8 = 0; var8 < var3.size(); ++var8) {
+                  var9 = ChooseGameInfo.getAvailableModDetails((String)var3.get(var8));
+                  var10 = var9.getCommonDir();
+                  if (var10 != null) {
+                     searchForFiles(new File(var10 + File.separator + "media" + File.separator + "radio"), "txt", var4);
+                  }
+
+                  var10 = var9.getVersionDir();
+                  if (var10 != null) {
+                     searchForFiles(new File(var10 + File.separator + "media" + File.separator + "radio"), "txt", var4);
                   }
                }
             }
 
-            var12 = var4.iterator();
+            var17 = var4.iterator();
 
             while(true) {
-               while(var12.hasNext()) {
-                  var7 = (String)var12.next();
-                  RadioTranslationData var13 = RadioTranslationData.ReadFile(var7);
-                  if (var13 != null) {
+               while(var17.hasNext()) {
+                  var18 = (String)var17.next();
+                  RadioTranslationData var21 = RadioTranslationData.ReadFile(var18);
+                  if (var21 != null) {
                      if (var1) {
-                        System.out.println(" Found file: " + var7);
+                        System.out.println(" Found file: " + var18);
                      }
 
-                     var9 = var2.iterator();
+                     var20 = var2.iterator();
 
-                     while(var9.hasNext()) {
-                        RadioData var14 = (RadioData)var9.next();
-                        if (var14.GUID.equals(var13.getGuid())) {
+                     while(var20.hasNext()) {
+                        RadioData var23 = (RadioData)var20.next();
+                        if (var23.GUID.equals(var21.getGuid())) {
                            if (var1) {
-                              System.out.println(" Adding translation: " + var14.GUID);
+                              System.out.println(" Adding translation: " + var23.GUID);
                            }
 
-                           var14.translationDataList.add(var13);
+                           var23.translationDataList.add(var21);
                         }
                      }
                   } else if (var1) {
-                     System.out.println("[Failure] " + var7);
+                     System.out.println("[Failure] " + var18);
                   }
                }
 
                return var2;
             }
          }
-      } catch (Exception var11) {
-         var11.printStackTrace();
+      } catch (Exception var16) {
+         var16.printStackTrace();
          return var2;
       }
    }
@@ -545,9 +594,8 @@ public final class RadioData {
                var18 = this.getAttrib(var13, "codes");
             }
 
-            String var19 = var13.getTextContent();
             this.print(" -----> New Line, Color: " + var15 + ", " + var16 + ", " + var17);
-            var19 = this.checkForTranslation(var14, var19);
+            String var19 = Translator.getText("RD_" + var14);
             RadioLine var20 = new RadioLine(var19, Float.parseFloat(var15) / 255.0F, Float.parseFloat(var16) / 255.0F, Float.parseFloat(var17) / 255.0F, var18);
             var11.AddRadioLine(var20);
             var19 = var19.trim();

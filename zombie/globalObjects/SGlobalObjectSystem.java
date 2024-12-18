@@ -173,6 +173,18 @@ public final class SGlobalObjectSystem extends GlobalObjectSystem {
       }
    }
 
+   public void OnModDataChangeItself(IsoObject var1) {
+      GlobalObject var2 = this.getObjectAt(var1.getSquare().x, var1.getSquare().y, var1.getSquare().z);
+      if (var2 != null) {
+         Object var3 = this.modData.rawget("OnModDataChangeItself");
+         if (var3 == null) {
+            throw new IllegalStateException("OnModDataChangeItself method undefined for system '" + this.name + "'");
+         } else {
+            LuaManager.caller.pcall(LuaManager.thread, var3, new Object[]{this.modData, var1});
+         }
+      }
+   }
+
    public int loadedWorldVersion() {
       return this.loadedWorldVersion;
    }
@@ -251,11 +263,7 @@ public final class SGlobalObjectSystem extends GlobalObjectSystem {
                   }
 
                   int var11 = var5.getInt();
-                  if (var11 < 134) {
-                     throw new IOException("invalid WorldVersion " + var11 + ": " + var1.getAbsolutePath());
-                  }
-
-                  if (var11 > 195) {
+                  if (var11 > 219) {
                      throw new IOException("file is from a newer version " + var11 + " of the game: " + var1.getAbsolutePath());
                   }
 
@@ -309,7 +317,7 @@ public final class SGlobalObjectSystem extends GlobalObjectSystem {
                         var5.put((byte)76);
                         var5.put((byte)79);
                         var5.put((byte)83);
-                        var5.putInt(195);
+                        var5.putInt(219);
                         this.save(var5);
                         var3.write(var5.array(), 0, var5.position());
                      }

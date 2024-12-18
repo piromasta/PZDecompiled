@@ -3,6 +3,8 @@ package zombie.worldMap.symbols;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import zombie.GameWindow;
+import zombie.IndieGL;
+import zombie.Lua.LuaManager;
 import zombie.core.Translator;
 import zombie.network.GameServer;
 import zombie.ui.TextManager;
@@ -16,7 +18,7 @@ public final class WorldMapTextSymbol extends WorldMapBaseSymbol {
 
    public WorldMapTextSymbol(WorldMapSymbols var1) {
       super(var1);
-      this.m_font = UIFont.Handwritten;
+      this.m_font = UIFont.SdfCaveat;
    }
 
    public void setTranslatedText(String var1) {
@@ -38,11 +40,25 @@ public final class WorldMapTextSymbol extends WorldMapBaseSymbol {
    }
 
    public String getTranslatedText() {
-      return this.m_translated ? this.m_text : Translator.getText(this.m_text);
+      boolean var1 = LuaManager.GlobalObject.getPlayer() != null && LuaManager.GlobalObject.getPlayer().Traits.Illiterate.isSet();
+      if (var1) {
+         String var2 = this.m_translated ? this.m_text : Translator.getText(this.m_text);
+         var2 = var2.replaceAll("[^ ]", "?");
+         return var2;
+      } else {
+         return this.m_translated ? this.m_text : Translator.getText(this.m_text);
+      }
    }
 
    public String getUntranslatedText() {
-      return this.m_translated ? null : this.m_text;
+      boolean var1 = LuaManager.GlobalObject.getPlayer() != null && LuaManager.GlobalObject.getPlayer().Traits.Illiterate.isSet();
+      if (var1) {
+         String var2 = this.m_translated ? null : this.m_text;
+         var2 = var2.replaceAll("[^ ]", "?");
+         return var2;
+      } else {
+         return this.m_translated ? null : this.m_text;
+      }
    }
 
    public WorldMapSymbols.WorldMapSymbolType getType() {
@@ -76,11 +92,17 @@ public final class WorldMapTextSymbol extends WorldMapBaseSymbol {
       } else {
          float var4 = var2 + this.m_layoutX;
          float var5 = var3 + this.m_layoutY;
+         TextManager.sdfShader.updateThreshold(Math.abs(0.5F - (this.getDisplayScale(var1) - 0.4F) / 8.2F) / 5.0F + 0.01F);
+         TextManager.sdfShader.updateShadow(0.0F);
+         TextManager.sdfShader.updateOutline(0.0F, 0.0F, 0.0F, 0.0F, 0.0F);
+         IndieGL.StartShader(TextManager.sdfShader);
          if (this.m_scale > 0.0F) {
             var1.DrawText(this.m_font, this.getTranslatedText(), (double)var4, (double)var5, (double)this.getDisplayScale(var1), (double)this.m_r, (double)this.m_g, (double)this.m_b, (double)this.m_a);
          } else {
             var1.DrawText(this.m_font, this.getTranslatedText(), (double)var4, (double)var5, (double)this.m_r, (double)this.m_g, (double)this.m_b, (double)this.m_a);
          }
+
+         IndieGL.EndShader();
       }
 
    }

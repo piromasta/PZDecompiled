@@ -422,44 +422,41 @@ public final class Thermoregulator {
 
    public float getCatchAColdDelta() {
       float var1 = 0.0F;
-      if (this.player.getMoodles().getMoodleLevel(MoodleType.Hypothermia) < 1) {
-         return var1;
-      } else {
-         for(int var3 = 0; var3 < this.nodes.length; ++var3) {
-            ThermalNode var2 = this.nodes[var3];
-            float var4 = 0.0F;
-            if (var2.skinCelcius < 33.0F) {
-               var4 = (var2.skinCelcius - 20.0F) / 13.0F;
-               var4 = 1.0F - var4;
-               var4 *= var4;
-            }
 
-            float var5 = 0.25F * var4 * var2.skinSurface;
-            if (var2.bodyWetness > 0.0F) {
-               var5 *= 1.0F + var2.bodyWetness * 1.0F;
-            }
-
-            if (var2.clothingWetness > 0.5F) {
-               var5 *= 1.0F + (var2.clothingWetness - 0.5F) * 2.0F;
-            }
-
-            if (var2.bodyPartType == BodyPartType.Neck) {
-               var5 *= 8.0F;
-            } else if (var2.bodyPartType == BodyPartType.Torso_Upper) {
-               var5 *= 16.0F;
-            } else if (var2.bodyPartType == BodyPartType.Head) {
-               var5 *= 4.0F;
-            }
-
-            var1 += var5;
+      for(int var3 = 0; var3 < this.nodes.length; ++var3) {
+         ThermalNode var2 = this.nodes[var3];
+         float var4 = 0.0F;
+         if (var2.skinCelcius < 33.0F) {
+            var4 = (var2.skinCelcius - 20.0F) / 13.0F;
+            var4 = 1.0F - var4;
+            var4 *= var4;
          }
 
-         if (this.player.getMoodles().getMoodleLevel(MoodleType.Hypothermia) > 1) {
-            var1 *= (float)this.player.getMoodles().getMoodleLevel(MoodleType.Hypothermia);
+         float var5 = 0.25F * var4 * var2.skinSurface;
+         if (var2.bodyWetness > 0.0F) {
+            var5 *= 1.0F + var2.bodyWetness * 1.0F;
          }
 
-         return var1;
+         if (var2.clothingWetness > 0.5F) {
+            var5 *= 1.0F + (var2.clothingWetness - 0.5F) * 2.0F;
+         }
+
+         if (var2.bodyPartType == BodyPartType.Neck) {
+            var5 *= 8.0F;
+         } else if (var2.bodyPartType == BodyPartType.Torso_Upper) {
+            var5 *= 16.0F;
+         } else if (var2.bodyPartType == BodyPartType.Head) {
+            var5 *= 4.0F;
+         }
+
+         var1 += var5;
       }
+
+      if (this.player.getMoodles().getMoodleLevel(MoodleType.Hypothermia) > 1) {
+         var1 *= (float)this.player.getMoodles().getMoodleLevel(MoodleType.Hypothermia);
+      }
+
+      return var1;
    }
 
    public float getTimedActionTimeModifier() {
@@ -907,10 +904,6 @@ public final class Thermoregulator {
          var1.secondaryDelta = var1.primaryDelta * PZMath.abs(var1.primaryDelta) * PZMath.abs(var1.primaryDelta);
          var2 += var1.primaryDelta * var1.skinSurface;
          var3 += var1.secondaryDelta * var1.skinSurface;
-         if (this.stats.getDrunkenness() > 0.0F) {
-            var1.primaryDelta += this.stats.getDrunkenness() * 0.02F;
-         }
-
          var1.primaryDelta = PZMath.clamp(var1.primaryDelta, -1.0F, 1.0F);
          var7 = this.core.celcius - 20.0F;
          float var8 = this.core.celcius;
@@ -1142,7 +1135,8 @@ public final class Thermoregulator {
       }
 
       public String getName() {
-         return this.bodyPartType.toString();
+         BodyPartType var10000 = this.bodyPartType;
+         return BodyPartType.getDisplayName(this.bodyPartType);
       }
 
       public boolean hasUpstream() {

@@ -20,35 +20,42 @@ import zombie.Lua.LuaManager;
 import zombie.ai.sadisticAIDirector.SleepingEvent;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
+import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
-import zombie.core.network.ByteBufferWriter;
-import zombie.core.raknet.UdpConnection;
+import zombie.core.opengl.RenderSettings;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.erosion.ErosionMain;
 import zombie.iso.IsoWorld;
+import zombie.iso.LightingJNI;
 import zombie.iso.SliceY;
 import zombie.iso.weather.ClimateManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.MPStatistics;
 import zombie.network.PacketTypes;
 import zombie.network.ServerOptions;
+import zombie.network.packets.INetworkPacket;
 import zombie.radio.ZomboidRadio;
 import zombie.ui.SpeedControls;
 import zombie.ui.UIManager;
 import zombie.util.PZCalendar;
 
 public final class GameTime {
-   public static GameTime instance = new GameTime();
    public static final float MULTIPLIER = 0.8F;
+   public static GameTime instance = new GameTime();
    private static long serverTimeShift = 0L;
    private static boolean serverTimeShiftIsSet = false;
    private static boolean isUTest = false;
+   private final float MinutesPerDayStart = 30.0F;
+   private final boolean RainingToday = true;
+   private final float[] GunFireTimes = new float[5];
    public float TimeOfDay = 9.0F;
    public int NightsSurvived = 0;
    public PZCalendar Calender;
@@ -60,8 +67,8 @@ public final class GameTime {
    public float lightSourceUpdate = 0.0F;
    public float multiplierBias = 1.0F;
    public float LastLastTimeOfDay = 0.0F;
-   private int HelicopterTime1Start = 0;
    public float PerObjectMultiplier = 1.0F;
+   private int HelicopterTime1Start = 0;
    private int HelicopterTime1End = 0;
    private int HelicopterDay1 = 0;
    private float Ambient = 0.9F;
@@ -81,15 +88,11 @@ public final class GameTime {
    private int Year = 2012;
    private int StartYear = 2012;
    private double HoursSurvived = 0.0;
-   private float MinutesPerDayStart = 30.0F;
-   private float MinutesPerDay;
+   private float MinutesPerDay = 30.0F;
    private float LastTimeOfDay;
    private int TargetZombies;
-   private boolean RainingToday;
    private boolean bGunFireEventToday;
-   private float[] GunFireTimes;
    private int NumGunFireEvents;
-   private long lastPing;
    private long lastClockSync;
    private KahluaTable table;
    private int minutesMod;
@@ -102,15 +105,12 @@ public final class GameTime {
    private float NightMax;
    private long minutesStamp;
    private long previousMinuteStamp;
+   int lastSkyLight;
 
    public GameTime() {
-      this.MinutesPerDay = this.MinutesPerDayStart;
       this.TargetZombies = (int)this.MinZombieCountStart;
-      this.RainingToday = true;
       this.bGunFireEventToday = false;
-      this.GunFireTimes = new float[5];
       this.NumGunFireEvents = 1;
-      this.lastPing = 0L;
       this.lastClockSync = 0L;
       this.table = null;
       this.minutesMod = -1;
@@ -123,6 +123,7 @@ public final class GameTime {
       this.NightMax = 1.0F;
       this.minutesStamp = 0L;
       this.previousMinuteStamp = 0L;
+      this.lastSkyLight = -100;
       serverTimeShift = 0L;
       serverTimeShiftIsSet = false;
    }
@@ -147,7 +148,7 @@ public final class GameTime {
 
       long var12 = 10000000L;
       if (Math.abs(serverTimeShift - var10) > var12) {
-         sendTimeSync();
+         INetworkPacket.send(PacketTypes.PacketType.TimeSync);
       } else {
          serverTimeShiftIsSet = true;
       }
@@ -180,44 +181,19 @@ public final class GameTime {
       serverTimeShiftIsSet = true;
    }
 
-   private static void sendTimeSync() {
-      ByteBufferWriter var0 = GameClient.connection.startPacket();
-      PacketTypes.PacketType.TimeSync.doPacket(var0);
-      var0.putLong(System.nanoTime());
-      var0.putFloat(instance.Multiplier);
-      PacketTypes.PacketType.TimeSync.send(GameClient.connection);
+   public static float getAnimSpeedFix() {
+      return 0.8F;
    }
 
-   public static void receiveTimeSync(ByteBuffer var0, UdpConnection var1) {
-      long var2;
-      long var4;
+   public static boolean isGamePaused() {
       if (GameServer.bServer) {
-         var2 = var0.getLong();
-         var4 = System.nanoTime();
-         float var6 = var0.getFloat();
-         if (GameServer.bServer && !GameServer.bFastForward) {
-            if (instance.Multiplier != var6) {
-               var1.validator.failTimeMultiplier(var6);
-            } else {
-               var1.validator.successTimeMultiplier();
-            }
-         }
-
-         ByteBufferWriter var7 = var1.startPacket();
-         PacketTypes.PacketType.TimeSync.doPacket(var7);
-         var7.putLong(var2);
-         var7.putLong(var4);
-         PacketTypes.PacketType.TimeSync.send(var1);
+         return GameServer.Players.isEmpty() && ServerOptions.instance.PauseEmpty.getValue();
+      } else if (GameClient.bClient) {
+         return GameClient.IsClientPaused();
+      } else {
+         SpeedControls var0 = UIManager.getSpeedControls();
+         return var0 != null && var0.getCurrentGameSpeed() == 0;
       }
-
-      if (GameClient.bClient) {
-         var2 = var0.getLong();
-         var4 = var0.getLong();
-         long var8 = System.nanoTime();
-         syncServerTime(var2, var4, var8);
-         DebugLog.printServerTime = true;
-      }
-
    }
 
    public float getRealworldSecondsSinceLastUpdate() {
@@ -453,7 +429,7 @@ public final class GameTime {
    }
 
    public float getDeltaMinutesPerDay() {
-      return this.MinutesPerDayStart / this.MinutesPerDay;
+      return 30.0F / this.MinutesPerDay;
    }
 
    public float getNightMin() {
@@ -482,11 +458,6 @@ public final class GameTime {
 
    public void update(boolean var1) {
       long var2 = System.currentTimeMillis();
-      if (GameClient.bClient && (this.lastPing == 0L || var2 - this.lastPing > 10000L)) {
-         sendTimeSync();
-         this.lastPing = var2;
-      }
-
       short var4 = 9000;
       if (SandboxOptions.instance.MetaEvent.getValue() == 1) {
          var4 = -1;
@@ -545,6 +516,10 @@ public final class GameTime {
             var7 = 1.0F / this.getMinutesPerDay() / 60.0F * this.getUnmoddedMultiplier() / 2.0F;
          }
 
+         if (DebugOptions.instance.FreezeTimeOfDay.getValue()) {
+            var7 = 0.0F;
+         }
+
          this.setTimeOfDay(this.getTimeOfDay() + var7);
          if (this.getHour() != var5) {
             LuaEventManager.triggerEvent("EveryHours");
@@ -564,7 +539,7 @@ public final class GameTime {
          ArrayList var12;
          int var13;
          if (GameServer.bServer) {
-            var12 = GameClient.instance.getPlayers();
+            var12 = GameServer.getPlayers();
 
             for(var13 = 0; var13 < var12.size(); ++var13) {
                var10 = (IsoPlayer)var12.get(var13);
@@ -620,6 +595,7 @@ public final class GameTime {
 
             this.updateCalendar(this.getYear(), this.getMonth(), this.getDay(), (int)this.getTimeOfDay(), this.getMinutes());
             LuaEventManager.triggerEvent("EveryDays");
+            MPStatistics.onNewDay();
          }
       } else if (this.getTimeOfDay() >= 24.0F) {
          this.setTimeOfDay(this.getTimeOfDay() - 24.0F);
@@ -646,7 +622,7 @@ public final class GameTime {
          this.setAmbient(this.TimeLerp(this.getAmbientMin(), this.getAmbientMax(), (float)this.getDusk(), (float)this.getDawn()));
       }
 
-      if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+      if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
          this.setNightTint(0.0F);
       }
 
@@ -725,6 +701,31 @@ public final class GameTime {
       return ClimateManager.getInstance().getAmbient();
    }
 
+   public int getSkyLightLevel() {
+      RenderSettings.PlayerRenderSettings var1 = RenderSettings.getInstance().getPlayerSettings(IsoPlayer.getPlayerIndex());
+      Color var2 = ClimateManager.getInstance().getGlobalLight().getExterior();
+      float var3 = var1.getBmod();
+      float var4 = var1.getGmod();
+      float var5 = var1.getRmod();
+      var3 *= 2.0F;
+      var4 *= 2.0F;
+      var5 *= 2.0F;
+      var5 = PZMath.clamp(var5 * var1.getAmbient(), 0.0F, 1.0F);
+      var4 = PZMath.clamp(var4 * var1.getAmbient(), 0.0F, 1.0F);
+      var3 = PZMath.clamp(var3 * var1.getAmbient(), 0.0F, 1.0F);
+      int var6 = (int)(Math.min(1.0F, var3) * 255.0F) | (int)(Math.min(1.0F, var4) * 255.0F) << 8 | (int)(Math.min(1.0F, var5) * 255.0F) << 16;
+      if (DebugOptions.instance.FBORenderChunk.ForceSkyLightLevel.getValue()) {
+         var6 = 15000000;
+      }
+
+      if (var6 != this.lastSkyLight) {
+         LightingJNI.doInvalidateGlobalLights(IsoPlayer.getPlayerIndex());
+         this.lastSkyLight = var6;
+      }
+
+      return var6;
+   }
+
    public void setAmbient(float var1) {
       this.Ambient = var1;
    }
@@ -753,12 +754,12 @@ public final class GameTime {
       return this.Day;
    }
 
-   public int getDayPlusOne() {
-      return this.Day + 1;
-   }
-
    public void setDay(int var1) {
       this.Day = var1;
+   }
+
+   public int getDayPlusOne() {
+      return this.Day + 1;
    }
 
    public int getStartDay() {
@@ -818,17 +819,17 @@ public final class GameTime {
    }
 
    public float getNightTint() {
-      return ClimateManager.getInstance().getNightStrength();
+      return PerformanceSettings.FBORenderChunk ? 0.0F : ClimateManager.getInstance().getNightStrength();
    }
 
-   public void setNightTint(float var1) {
+   private void setNightTint(float var1) {
    }
 
    public float getNight() {
       return ClimateManager.getInstance().getNightStrength();
    }
 
-   public void setNight(float var1) {
+   private void setNight(float var1) {
    }
 
    public float getTimeOfDay() {
@@ -889,6 +890,10 @@ public final class GameTime {
 
    public void setNightsSurvived(int var1) {
       this.NightsSurvived = var1;
+   }
+
+   public double getWorldAgeDaysSinceBegin() {
+      return (double)((float)(this.getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)));
    }
 
    public double getWorldAgeHours() {
@@ -955,7 +960,7 @@ public final class GameTime {
    }
 
    public boolean isRainingToday() {
-      return this.RainingToday;
+      return true;
    }
 
    public float getMultiplier() {
@@ -965,7 +970,7 @@ public final class GameTime {
          float var1 = 1.0F;
          if (GameServer.bServer && GameServer.bFastForward) {
             var1 = (float)ServerOptions.instance.FastForwardMultiplier.getValue() / this.getDeltaMinutesPerDay();
-         } else if (GameClient.bClient && GameClient.bFastForward) {
+         } else if (GameClient.bClient && GameClient.bFastForward && GameWindow.isIngameState()) {
             var1 = (float)ServerOptions.instance.FastForwardMultiplier.getValue() / this.getDeltaMinutesPerDay();
          }
 
@@ -973,12 +978,16 @@ public final class GameTime {
          var1 *= this.FPSMultiplier;
          var1 *= this.multiplierBias;
          var1 *= this.PerObjectMultiplier;
+         if (DebugOptions.instance.GameTimeSpeedEighth.getValue()) {
+            var1 /= 8.0F;
+         }
+
          if (DebugOptions.instance.GameTimeSpeedQuarter.getValue()) {
-            var1 *= 0.25F;
+            var1 /= 4.0F;
          }
 
          if (DebugOptions.instance.GameTimeSpeedHalf.getValue()) {
-            var1 *= 0.5F;
+            var1 /= 2.0F;
          }
 
          var1 *= 0.8F;
@@ -986,16 +995,20 @@ public final class GameTime {
       }
    }
 
-   public float getTimeDelta() {
-      return this.getMultiplier() / (0.8F * this.multiplierBias) / 60.0F;
-   }
-
-   public static float getAnimSpeedFix() {
-      return 0.8F;
-   }
-
    public void setMultiplier(float var1) {
       this.Multiplier = var1;
+   }
+
+   public float getTimeDelta() {
+      return this.getTimeDeltaFromMultiplier(this.getMultiplier());
+   }
+
+   public float getTimeDeltaFromMultiplier(float var1) {
+      return var1 / 0.8F / this.multiplierBias / 60.0F;
+   }
+
+   public float getMultiplierFromTimeDelta(float var1) {
+      return var1 * 0.8F * this.multiplierBias * 60.0F;
    }
 
    public float getServerMultiplier() {
@@ -1026,6 +1039,10 @@ public final class GameTime {
 
    public float getTrueMultiplier() {
       return this.Multiplier * this.PerObjectMultiplier;
+   }
+
+   public float getThirtyFPSMultiplier() {
+      return this.getMultiplier() / 1.6F;
    }
 
    public void save() {
@@ -1061,7 +1078,7 @@ public final class GameTime {
       var1.writeByte(77);
       var1.writeByte(84);
       var1.writeByte(77);
-      var1.writeInt(195);
+      var1.writeInt(219);
       var1.writeFloat(this.Multiplier);
       var1.writeInt(this.NightsSurvived);
       var1.writeInt(this.TargetZombies);
@@ -1112,7 +1129,7 @@ public final class GameTime {
    public void load(DataInputStream var1) throws IOException {
       int var2 = IsoWorld.SavedWorldVersion;
       if (var2 == -1) {
-         var2 = 195;
+         var2 = 219;
       }
 
       var1.mark(0);
@@ -1145,26 +1162,17 @@ public final class GameTime {
          this.table.load(var1, var2);
       }
 
-      if (var2 >= 74) {
-         Core.getInstance().setPoisonousBerry(GameWindow.ReadString(var1));
-         Core.getInstance().setPoisonousMushroom(GameWindow.ReadString(var1));
-      }
-
-      if (var2 >= 90) {
-         this.HelicopterDay1 = var1.readInt();
-         this.HelicopterTime1Start = var1.readInt();
-         this.HelicopterTime1End = var1.readInt();
-      }
-
-      if (var2 >= 135) {
-         ClimateManager.getInstance().load(var1, var2);
-      }
-
+      Core.getInstance().setPoisonousBerry(GameWindow.ReadString(var1));
+      Core.getInstance().setPoisonousMushroom(GameWindow.ReadString(var1));
+      this.HelicopterDay1 = var1.readInt();
+      this.HelicopterTime1Start = var1.readInt();
+      this.HelicopterTime1End = var1.readInt();
+      ClimateManager.getInstance().load(var1, var2);
       this.setMinutesStamp();
    }
 
    public void load(ByteBuffer var1) throws IOException {
-      short var2 = 195;
+      short var2 = 219;
       this.Multiplier = var1.getFloat();
       this.NightsSurvived = var1.getInt();
       this.TargetZombies = var1.getInt();
@@ -1307,17 +1315,6 @@ public final class GameTime {
       this.HelicopterTime1End = PZMath.clamp(var1, 0, 24);
    }
 
-   public static boolean isGamePaused() {
-      if (GameServer.bServer) {
-         return GameServer.Players.isEmpty() && ServerOptions.instance.PauseEmpty.getValue();
-      } else if (GameClient.bClient) {
-         return GameClient.IsClientPaused();
-      } else {
-         SpeedControls var0 = UIManager.getSpeedControls();
-         return var0 != null && var0.getCurrentGameSpeed() == 0;
-      }
-   }
-
    public static class AnimTimer {
       public float Elapsed;
       public float Duration;
@@ -1330,7 +1327,7 @@ public final class GameTime {
       public void init(int var1) {
          this.Ticks = var1;
          this.Elapsed = 0.0F;
-         this.Duration = (float)(var1 * 1) / 30.0F;
+         this.Duration = (float)var1 / 30.0F;
          this.Finished = false;
       }
 

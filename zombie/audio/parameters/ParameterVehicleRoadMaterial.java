@@ -3,6 +3,7 @@ package zombie.audio.parameters;
 import zombie.audio.FMODLocalParameter;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
+import zombie.iso.IsoWorld;
 import zombie.vehicles.BaseVehicle;
 
 public final class ParameterVehicleRoadMaterial extends FMODLocalParameter {
@@ -25,6 +26,8 @@ public final class ParameterVehicleRoadMaterial extends FMODLocalParameter {
       IsoGridSquare var1 = this.vehicle.getCurrentSquare();
       if (var1 == null) {
          return ParameterVehicleRoadMaterial.Material.Concrete;
+      } else if (IsoWorld.instance.CurrentCell.gridSquareIsSnow(var1.x, var1.y, var1.z)) {
+         return ParameterVehicleRoadMaterial.Material.Snow;
       } else {
          IsoObject var2 = this.vehicle.getCurrentSquare().getFloor();
          if (var2 != null && var2.getSprite() != null && var2.getSprite().getName() != null) {

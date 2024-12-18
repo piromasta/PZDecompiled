@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import zombie.audio.BaseSoundEmitter;
 import zombie.characters.IsoPlayer;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.enums.MaterialType;
 
 public final class DummySoundManager extends BaseSoundManager {
    private static ArrayList<Audio> ambientPieces = new ArrayList();
@@ -254,5 +255,11 @@ public final class DummySoundManager extends BaseSoundManager {
 
    public String getCurrentMusicLibrary() {
       return null;
+   }
+
+   public void playImpactSound(IsoGridSquare var1) {
+   }
+
+   public void playImpactSound(IsoGridSquare var1, MaterialType var2) {
    }
 }

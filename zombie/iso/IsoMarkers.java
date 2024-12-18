@@ -5,10 +5,15 @@ import java.util.List;
 import java.util.function.Consumer;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
+import zombie.IndieGL;
 import zombie.characters.IsoPlayer;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
 import zombie.debug.LineDrawer;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.sprite.IsoSprite;
 import zombie.network.GameServer;
 import zombie.util.Type;
 
@@ -148,18 +153,38 @@ public final class IsoMarkers {
       if (!GameServer.bServer && this.markers.size() != 0) {
          IsoPlayer var4 = IsoPlayer.players[var3];
          if (var4 != null) {
-            for(int var5 = 0; var5 < this.markers.size(); ++var5) {
-               IsoMarker var6 = (IsoMarker)this.markers.get(var5);
-               if (var6.z == (float)var2 && var6.z == var4.getZ() && var6.active) {
-                  for(int var7 = 0; var7 < var6.textures.size(); ++var7) {
-                     Texture var8 = (Texture)var6.textures.get(var7);
-                     float var9 = IsoUtils.XToScreen(var6.x, var6.y, var6.z, 0) - IsoCamera.cameras[var3].getOffX() - (float)var8.getWidth() / 2.0F;
-                     float var10 = IsoUtils.YToScreen(var6.x, var6.y, var6.z, 0) - IsoCamera.cameras[var3].getOffY() - (float)var8.getHeight();
-                     SpriteRenderer.instance.render(var8, var9, var10, (float)var8.getWidth(), (float)var8.getHeight(), var6.r, var6.g, var6.b, var6.alpha, (Consumer)null);
+            int var5;
+            IsoMarker var6;
+            int var7;
+            Texture var8;
+            if (PerformanceSettings.FBORenderChunk) {
+               IndieGL.enableDepthTest();
+               IndieGL.glBlendFunc(770, 771);
+
+               for(var5 = 0; var5 < this.markers.size(); ++var5) {
+                  var6 = (IsoMarker)this.markers.get(var5);
+                  if (var6.z == (float)var2 && PZMath.fastfloor(var6.z) == PZMath.fastfloor(var4.getZ()) && var6.active) {
+                     for(var7 = 0; var7 < var6.textures.size(); ++var7) {
+                        var8 = (Texture)var6.textures.get(var7);
+                        IsoSprite.renderTextureWithDepth(var8, (float)var8.getWidth(), (float)var8.getHeight(), var6.r, var6.g, var6.b, var6.alpha, var6.x, var6.y, var6.z);
+                     }
                   }
                }
-            }
 
+            } else {
+               for(var5 = 0; var5 < this.markers.size(); ++var5) {
+                  var6 = (IsoMarker)this.markers.get(var5);
+                  if (var6.z == (float)var2 && var6.z == var4.getZ() && var6.active) {
+                     for(var7 = 0; var7 < var6.textures.size(); ++var7) {
+                        var8 = (Texture)var6.textures.get(var7);
+                        float var9 = IsoUtils.XToScreen(var6.x, var6.y, var6.z, 0) - IsoCamera.cameras[var3].getOffX() - (float)var8.getWidth() / 2.0F;
+                        float var10 = IsoUtils.YToScreen(var6.x, var6.y, var6.z, 0) - IsoCamera.cameras[var3].getOffY() - (float)var8.getHeight();
+                        SpriteRenderer.instance.render(var8, var9, var10, (float)var8.getWidth(), (float)var8.getHeight(), var6.r, var6.g, var6.b, var6.alpha, (Consumer)null);
+                     }
+                  }
+               }
+
+            }
          }
       }
    }
@@ -413,10 +438,12 @@ public final class IsoMarkers {
 
       public void addTempSquareObject(IsoObject var1) {
          this.square.localTemporaryObjects.add(var1);
+         this.square.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_ADD);
       }
 
       public void removeTempSquareObjects() {
          this.square.localTemporaryObjects.clear();
+         this.square.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_REMOVE);
       }
 
       public float getX() {

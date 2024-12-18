@@ -4,12 +4,16 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import org.joml.Vector2f;
+import zombie.Lua.LuaManager;
+import zombie.core.math.PZMath;
 import zombie.iso.areas.IsoRoom;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
+import zombie.randomizedWorld.randomizedBuilding.RandomizedBuildingBase;
 import zombie.util.list.PZArrayUtil;
 
 public final class RoomDef {
@@ -22,7 +26,7 @@ public final class RoomDef {
    public String name;
    public int level;
    public BuildingDef building;
-   public int ID = -1;
+   public long ID;
    public final ArrayList<RoomRect> rects = new ArrayList(1);
    public final ArrayList<MetaObject> objects = new ArrayList(0);
    public int x = 100000;
@@ -34,12 +38,12 @@ public final class RoomDef {
    private boolean roofFixed = false;
    public long metaID;
 
-   public RoomDef(int var1, String var2) {
+   public RoomDef(long var1, String var3) {
       this.ID = var1;
-      this.name = var2;
+      this.name = var3;
    }
 
-   public int getID() {
+   public long getID() {
       return this.ID;
    }
 
@@ -75,8 +79,19 @@ public final class RoomDef {
       return false;
    }
 
+   public boolean isAdjacent(RoomDef var1) {
+      for(int var2 = 0; var2 < var1.rects.size(); ++var2) {
+         RoomRect var3 = (RoomRect)var1.rects.get(var2);
+         if (this.intersects(var3.getX() - 1, var3.getY() - 1, var3.getW() + 2, var3.getH() + 2)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
    public float getAreaOverlapping(IsoChunk var1) {
-      return this.getAreaOverlapping(var1.wx * 10, var1.wy * 10, 10, 10);
+      return this.getAreaOverlapping(var1.wx * 8, var1.wy * 8, 8, 8);
    }
 
    public float getAreaOverlapping(int var1, int var2, int var3, int var4) {
@@ -107,15 +122,15 @@ public final class RoomDef {
 
       for(int var3 = 0; var3 < this.rects.size(); ++var3) {
          RoomRect var4 = (RoomRect)this.rects.get(var3);
-         int var5 = var4.x / 10;
-         int var6 = var4.y / 10;
-         int var7 = (var4.x + var4.w) / 10;
-         int var8 = (var4.y + var4.h) / 10;
-         if ((var4.x + var4.w) % 10 == 0) {
+         int var5 = var4.x / 8;
+         int var6 = var4.y / 8;
+         int var7 = (var4.x + var4.w) / 8;
+         int var8 = (var4.y + var4.h) / 8;
+         if (PZMath.coordmodulo(var4.x + var4.w, 8) == 0) {
             --var7;
          }
 
-         if ((var4.y + var4.h) % 10 == 0) {
+         if (PZMath.coordmodulo(var4.y + var4.h, 8) == 0) {
             --var8;
          }
 
@@ -196,6 +211,12 @@ public final class RoomDef {
    }
 
    public void CalculateBounds() {
+      this.x = 10000000;
+      this.y = 10000000;
+      this.x2 = -1000000;
+      this.y2 = -1000000;
+      this.area = 0;
+
       for(int var1 = 0; var1 < this.rects.size(); ++var1) {
          RoomRect var2 = (RoomRect)this.rects.get(var1);
          if (var2.x < this.x) {
@@ -231,9 +252,23 @@ public final class RoomDef {
          }
       }
 
-      var3 -= var1 * 300;
-      var4 -= var2 * 300;
+      var3 -= var1 * IsoCell.CellSizeInSquares;
+      var4 -= var2 * IsoCell.CellSizeInSquares;
       return (long)this.level << 32 | (long)var4 << 16 | (long)var3;
+   }
+
+   public void offset(int var1, int var2) {
+      this.x += var1;
+      this.y += var2;
+      this.x2 += var1;
+      this.y2 += var2;
+
+      for(int var3 = 0; var3 < this.rects.size(); ++var3) {
+         RoomRect var4 = (RoomRect)this.rects.get(var3);
+         var4.x += var1;
+         var4.y += var2;
+      }
+
    }
 
    public int getArea() {
@@ -247,6 +282,18 @@ public final class RoomDef {
    public IsoGridSquare getFreeSquare() {
       return this.getRandomSquare((var0) -> {
          return var0.isFree(false);
+      });
+   }
+
+   public IsoGridSquare getExtraFreeSquare() {
+      return this.getRandomSquare((var0) -> {
+         return var0.isFree(false) && var0.getObjects().size() < 2 && !var0.HasStairs() && var0.hasFloor();
+      });
+   }
+
+   public IsoGridSquare getFreeUnoccupiedSquare() {
+      return this.getRandomSquare((var0) -> {
+         return var0.isFree(true);
       });
    }
 
@@ -275,6 +322,19 @@ public final class RoomDef {
 
    public HashMap<String, Integer> getProceduralSpawnedContainer() {
       return this.proceduralSpawnedContainer;
+   }
+
+   public RoomRect getRoomRect(int var1, int var2, int var3) {
+      ArrayList var4 = this.rects;
+
+      for(int var5 = 0; var5 < var4.size(); ++var5) {
+         RoomRect var6 = (RoomRect)var4.get(var5);
+         if (var6.x <= var1 && var6.y <= var2 && var6.getX2() >= var1 && var6.getY2() >= var2) {
+            return var6;
+         }
+      }
+
+      return null;
    }
 
    public boolean isRoofFixed() {
@@ -308,7 +368,52 @@ public final class RoomDef {
       this.proceduralSpawnedContainer.clear();
    }
 
-   public static class RoomRect {
+   public boolean isKidsRoom() {
+      if (Objects.equals(this.name, "kidsbedroom")) {
+         return true;
+      } else if (this.getBuilding().getRooms().size() > RandomizedBuildingBase.maximumRoomCount) {
+         return false;
+      } else {
+         ArrayList var1 = new ArrayList();
+         var1.add("furniture_bedding_01_36");
+         var1.add("furniture_bedding_01_38");
+         var1.add("furniture_seating_indoor_02_12");
+         var1.add("furniture_seating_indoor_02_13");
+         var1.add("furniture_seating_indoor_02_14");
+         var1.add("furniture_seating_indoor_02_15");
+         var1.add("walls_decoration_01_50");
+         var1.add("walls_decoration_01_51");
+         var1.add("location_community_school_01_62");
+         var1.add("location_community_school_01_63");
+         var1.add("floors_rugs_01_63");
+         var1.add("floors_rugs_01_64");
+         var1.add("floors_rugs_01_65");
+         var1.add("floors_rugs_01_66");
+         var1.add("floors_rugs_01_67");
+         var1.add("floors_rugs_01_68");
+         var1.add("floors_rugs_01_69");
+         var1.add("floors_rugs_01_70");
+         var1.add("floors_rugs_01_71");
+
+         for(int var2 = this.x; var2 < this.x2; ++var2) {
+            for(int var3 = this.y; var3 < this.y2; ++var3) {
+               IsoGridSquare var4 = LuaManager.GlobalObject.getCell().getGridSquare(var2, var3, this.level);
+               if (var4 != null) {
+                  for(int var5 = 0; var5 < var4.getObjects().size(); ++var5) {
+                     IsoObject var6 = (IsoObject)var4.getObjects().get(var5);
+                     if (var6 != null && var6.getSprite() != null && var6.getSprite().name != null && var1.contains(var6.getSprite().name)) {
+                        return true;
+                     }
+                  }
+               }
+            }
+         }
+
+         return false;
+      }
+   }
+
+   public static final class RoomRect {
       public int x;
       public int y;
       public int w;

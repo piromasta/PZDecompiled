@@ -19,13 +19,16 @@ import zombie.WorldSoundManager;
 import zombie.ZomboidFileSystem;
 import zombie.ai.states.PathFindState;
 import zombie.ai.states.WalkTowardState;
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
+import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.gameStates.ChooseGameInfo;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -34,33 +37,29 @@ import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoWorld;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.packets.service.PopmanDebugCommandPacket;
+import zombie.pathfind.PolygonalMap2;
 import zombie.util.PZXmlParserException;
 import zombie.util.PZXmlUtil;
 import zombie.util.list.PZArrayUtil;
-import zombie.vehicles.PolygonalMap2;
 
 public final class ZombiePopulationManager {
    public static final ZombiePopulationManager instance = new ZombiePopulationManager();
-   protected static final int SQUARES_PER_CHUNK = 10;
-   protected static final int CHUNKS_PER_CELL = 30;
-   protected static final int SQUARES_PER_CELL = 300;
+   protected static final int SQUARES_PER_CHUNK = 8;
+   protected static final int CHUNKS_PER_CELL;
+   protected static final int SQUARES_PER_CELL;
    protected static final byte OLD_ZOMBIE_CRAWLER_CAN_WALK = 1;
    protected static final byte OLD_ZOMBIE_FAKE_DEAD = 2;
    protected static final byte OLD_ZOMBIE_CRAWLER = 3;
    protected static final byte OLD_ZOMBIE_WALKER = 4;
-   protected static final int ZOMBIE_STATE_INITIALIZED = 1;
-   protected static final int ZOMBIE_STATE_CRAWLING = 2;
-   protected static final int ZOMBIE_STATE_CAN_WALK = 4;
-   protected static final int ZOMBIE_STATE_FAKE_DEAD = 8;
-   protected static final int ZOMBIE_STATE_CRAWL_UNDER_VEHICLE = 16;
+   public static final int INVALID_PATH_XY = -2147483648;
    protected int minX;
    protected int minY;
    protected int width;
    protected int height;
    protected boolean bStopped;
-   protected boolean bClient;
    private final DebugCommands dbgCommands = new DebugCommands();
-   public static boolean bDebugLoggingEnabled = false;
+   public static boolean bDebugLoggingEnabled;
    private final LoadedAreas loadedAreas = new LoadedAreas(false);
    private final LoadedAreas loadedServerCells = new LoadedAreas(true);
    private final PlayerSpawns playerSpawns = new PlayerSpawns();
@@ -85,6 +84,10 @@ public final class ZombiePopulationManager {
 
    private static native void n_config(float var0, float var1, float var2, int var3, float var4, float var5, float var6, float var7, int var8);
 
+   private static native void n_configFloat(String var0, float var1);
+
+   private static native void n_configInt(String var0, int var1);
+
    private static native void n_setSpawnOrigins(int[] var0);
 
    private static native void n_setOutfitNames(String[] var0);
@@ -92,6 +95,8 @@ public final class ZombiePopulationManager {
    private static native void n_updateMain(float var0, double var1);
 
    private static native boolean n_hasDataForThread();
+
+   private static native boolean n_readyToPause();
 
    private static native void n_updateThread();
 
@@ -181,19 +186,18 @@ public final class ZombiePopulationManager {
       DebugLog.General.println("  spawnHorde: " + var0.spawnHorde);
       if (IsoPlayer.getInstance() != null) {
          IsoPlayer var1 = IsoPlayer.getInstance();
-         instance.createHordeFromTo((int)var1.x, (int)var1.y, (int)var1.x, (int)var1.y, var0.spawnHorde);
+         instance.createHordeFromTo(PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), var0.spawnHorde);
       }
    }
 
    public void init(IsoMetaGrid var1) {
-      this.bClient = GameClient.bClient;
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          this.minX = var1.getMinX();
          this.minY = var1.getMinY();
          this.width = var1.getWidth();
          this.height = var1.getHeight();
          this.bStopped = false;
-         n_init(this.bClient, GameServer.bServer, this.minX, this.minY, this.width, this.height);
+         n_init(GameClient.bClient, GameServer.bServer, this.minX, this.minY, this.width, this.height);
          this.onConfigReloaded();
          String[] var2 = (String[])PersistentOutfits.instance.getOutfitNames().toArray(new String[0]);
 
@@ -219,7 +223,22 @@ public final class ZombiePopulationManager {
 
    public void onConfigReloaded() {
       SandboxOptions.ZombieConfig var1 = SandboxOptions.instance.zombieConfig;
-      n_config((float)var1.PopulationMultiplier.getValue(), (float)var1.PopulationStartMultiplier.getValue(), (float)var1.PopulationPeakMultiplier.getValue(), var1.PopulationPeakDay.getValue(), (float)var1.RespawnHours.getValue(), (float)var1.RespawnUnseenHours.getValue(), (float)var1.RespawnMultiplier.getValue() * 100.0F, (float)var1.RedistributeHours.getValue(), var1.FollowSoundDistance.getValue());
+      n_configFloat("PopulationMultiplier", (float)var1.PopulationMultiplier.getValue());
+      n_configFloat("PopulationStartMultiplier", (float)var1.PopulationStartMultiplier.getValue());
+      n_configFloat("PopulationPeakMultiplier", (float)var1.PopulationPeakMultiplier.getValue());
+      n_configInt("PopulationPeakDay", var1.PopulationPeakDay.getValue());
+      n_configFloat("RespawnHours", (float)var1.RespawnHours.getValue());
+      n_configFloat("RespawnUnseenHours", (float)var1.RespawnUnseenHours.getValue());
+      n_configFloat("RespawnMultiplier", (float)var1.RespawnMultiplier.getValue());
+      n_configFloat("RedistributeHours", (float)var1.RedistributeHours.getValue());
+      n_configInt("FollowSoundDistance", var1.FollowSoundDistance.getValue());
+      float var2 = 0.64F;
+      float var3 = 0.06F * var2;
+      float var4 = 12.0F * var2;
+      var3 = 0.0F;
+      var4 = 255.0F;
+      n_configFloat("MinZombiesPerChunk", var3);
+      n_configFloat("MaxZombiesPerChunk", var4);
    }
 
    public void registerSpawnOrigin(int var1, int var2, int var3, int var4, KahluaTable var5) {
@@ -233,7 +252,7 @@ public final class ZombiePopulationManager {
    }
 
    public void addChunkToWorld(IsoChunk var1) {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          if (var1.isNewChunk()) {
             int var2 = var1.wy << 16 | var1.wx;
             this.newChunks.add(var2);
@@ -244,14 +263,14 @@ public final class ZombiePopulationManager {
    }
 
    public void removeChunkFromWorld(IsoChunk var1) {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          if (!this.bStopped) {
             n_loadChunk(var1.wx, var1.wy, false);
 
             int var2;
-            for(var2 = 0; var2 < 8; ++var2) {
-               for(int var3 = 0; var3 < 10; ++var3) {
-                  for(int var4 = 0; var4 < 10; ++var4) {
+            for(var2 = var1.minLevel; var2 <= var1.maxLevel; ++var2) {
+               for(int var3 = 0; var3 < 8; ++var3) {
+                  for(int var4 = 0; var4 < 8; ++var4) {
                      IsoGridSquare var5 = var1.getGridSquare(var4, var3, var2);
                      if (var5 != null && !var5.getMovingObjects().isEmpty()) {
                         for(int var6 = 0; var6 < var5.getMovingObjects().size(); ++var6) {
@@ -259,11 +278,13 @@ public final class ZombiePopulationManager {
                            if (var7 instanceof IsoZombie) {
                               IsoZombie var8 = (IsoZombie)var7;
                               if ((!GameServer.bServer || !var8.bIndoorZombie) && !var8.isReanimatedPlayer()) {
-                                 int var9 = this.getZombieState(var8);
+                                 int var9 = ZombieStateFlags.intFromZombie(var8);
                                  if (var2 != 0 || var5.getRoom() != null || var8.getCurrentState() != WalkTowardState.instance() && var8.getCurrentState() != PathFindState.instance()) {
-                                    n_addZombie(var8.x, var8.y, var8.z, (byte)var8.dir.index(), var8.getPersistentOutfitID(), var9, -1, -1);
+                                    DebugLog.Zombie.debugln("Virtualizing stationary Zombie: %s", var8);
+                                    n_addZombie(var8.getX(), var8.getY(), var8.getZ(), (byte)var8.dir.index(), var8.getPersistentOutfitID(), var9, -2147483648, -2147483648);
                                  } else {
-                                    n_addZombie(var8.x, var8.y, var8.z, (byte)var8.dir.index(), var8.getPersistentOutfitID(), var9, var8.getPathTargetX(), var8.getPathTargetY());
+                                    DebugLog.Zombie.debugln("Virtualizing moving Zombie: %s", var8);
+                                    n_addZombie(var8.getX(), var8.getY(), var8.getZ(), (byte)var8.dir.index(), var8.getPersistentOutfitID(), var9, var8.getPathTargetX(), var8.getPathTargetY());
                                  }
                               }
                            }
@@ -284,31 +305,11 @@ public final class ZombiePopulationManager {
    }
 
    public void virtualizeZombie(IsoZombie var1) {
-      int var2 = this.getZombieState(var1);
-      n_addZombie(var1.x, var1.y, var1.z, (byte)var1.dir.index(), var1.getPersistentOutfitID(), var2, var1.getPathTargetX(), var1.getPathTargetY());
+      DebugLog.Zombie.debugln("Virtualizing Zombie: %s", var1);
+      int var2 = ZombieStateFlags.intFromZombie(var1);
+      n_addZombie(var1.getX(), var1.getY(), var1.getZ(), (byte)var1.dir.index(), var1.getPersistentOutfitID(), var2, var1.getPathTargetX(), var1.getPathTargetY());
       var1.removeFromWorld();
       var1.removeFromSquare();
-   }
-
-   private int getZombieState(IsoZombie var1) {
-      int var2 = 1;
-      if (var1.isCrawling()) {
-         var2 |= 2;
-      }
-
-      if (var1.isCanWalk()) {
-         var2 |= 4;
-      }
-
-      if (var1.isFakeDead()) {
-         var2 |= 8;
-      }
-
-      if (var1.isCanCrawlUnderVehicle()) {
-         var2 |= 16;
-      }
-
-      return var2;
    }
 
    public void setAggroTarget(int var1, int var2, int var3) {
@@ -323,12 +324,16 @@ public final class ZombiePopulationManager {
       n_spawnHorde(var1, var2, var3, var4, (float)var5, (float)var6, var7);
    }
 
+   public boolean readyToPause() {
+      return n_readyToPause();
+   }
+
    public void addWorldSound(WorldSoundManager.WorldSound var1, boolean var2) {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          if (var1.radius >= 50) {
             if (!var1.sourceIsZombie) {
                int var3 = SandboxOptions.instance.Lore.Hearing.getValue();
-               if (var3 == 4) {
+               if (var3 == 4 || var3 == 5) {
                   var3 = 2;
                }
 
@@ -342,7 +347,7 @@ public final class ZombiePopulationManager {
    private void updateRealZombieCount() {
       if (this.realZombieCount == null || this.realZombieCount.length != this.width * this.height) {
          this.realZombieCount = new short[this.width * this.height];
-         this.realZombieCount2 = new short[this.width * this.height * 2];
+         this.realZombieCount2 = new short[this.width * this.height * 3];
       }
 
       Arrays.fill(this.realZombieCount, (short)0);
@@ -350,26 +355,30 @@ public final class ZombiePopulationManager {
 
       for(int var2 = 0; var2 < var1.size(); ++var2) {
          IsoZombie var3 = (IsoZombie)var1.get(var2);
-         int var4 = (int)(var3.x / 300.0F) - this.minX;
-         int var5 = (int)(var3.y / 300.0F) - this.minY;
-         ++this.realZombieCount[var4 + var5 * this.width];
-      }
-
-      short var6 = 0;
-
-      for(int var7 = 0; var7 < this.width * this.height; ++var7) {
-         if (this.realZombieCount[var7] > 0) {
-            this.realZombieCount2[var6 * 2 + 0] = (short)var7;
-            this.realZombieCount2[var6 * 2 + 1] = this.realZombieCount[var7];
-            ++var6;
+         int var4 = PZMath.fastfloor(var3.getX() / (float)SQUARES_PER_CELL) - this.minX;
+         int var5 = PZMath.fastfloor(var3.getY() / (float)SQUARES_PER_CELL) - this.minY;
+         int var6 = var4 + var5 * this.width;
+         if (var6 >= 0 && var6 < this.realZombieCount.length) {
+            ++this.realZombieCount[var6];
          }
       }
 
-      n_realZombieCount(var6, this.realZombieCount2);
+      short var7 = 0;
+
+      for(int var8 = 0; var8 < this.width * this.height; ++var8) {
+         if (this.realZombieCount[var8] > 0) {
+            this.realZombieCount2[var7 * 2 + 0] = (short)(var8 % this.width);
+            this.realZombieCount2[var7 * 2 + 1] = (short)(var8 / this.width);
+            this.realZombieCount2[var7 * 2 + 2] = this.realZombieCount[var8];
+            ++var7;
+         }
+      }
+
+      n_realZombieCount(var7, this.realZombieCount2);
    }
 
    public void updateMain() {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          long var1 = System.currentTimeMillis();
          n_updateMain(GameTime.getInstance().getMultiplier(), GameTime.getInstance().getWorldAgeHours());
          int var3 = 0;
@@ -388,25 +397,25 @@ public final class ZombiePopulationManager {
                float var11 = this.byteBuffer.getFloat();
                IsoDirections var12 = IsoDirections.fromIndex(this.byteBuffer.get());
                int var13 = this.byteBuffer.getInt();
-               int var14 = this.byteBuffer.getInt();
+               ZombieStateFlags var14 = ZombieStateFlags.fromInt(this.byteBuffer.getInt());
                int var15 = this.byteBuffer.getInt();
                int var16 = this.byteBuffer.getInt();
-               int var17 = (int)var9 / 10;
-               int var18 = (int)var10 / 10;
+               int var17 = PZMath.fastfloor(var9) / 8;
+               int var18 = PZMath.fastfloor(var10) / 8;
                int var19 = var18 << 16 | var17;
                if (this.newChunks.contains(var19)) {
-                  IsoGridSquare var20 = IsoWorld.instance.CurrentCell.getGridSquare((int)var9, (int)var10, (int)var11);
-                  if (var20 != null && var20.roomID != -1) {
+                  IsoGridSquare var20 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(var9), PZMath.fastfloor(var10), PZMath.fastfloor(var11));
+                  if (var20 != null && var20.roomID != -1L) {
                      continue;
                   }
                }
 
-               if (var15 != -1 && this.loadedAreas.isOnEdge((int)var9, (int)var10)) {
-                  var15 = -1;
-                  var16 = -1;
+               if (var15 != -2147483648 && this.loadedAreas.isOnEdge(PZMath.fastfloor(var9), PZMath.fastfloor(var10))) {
+                  var15 = -2147483648;
+                  var16 = -2147483648;
                }
 
-               if (var15 == -1) {
+               if (var15 == -2147483648) {
                   this.addZombieStanding(var9, var10, var11, var12, var13, var14);
                   ++var3;
                } else {
@@ -457,32 +466,33 @@ public final class ZombiePopulationManager {
       }
    }
 
-   private void addZombieStanding(float var1, float var2, float var3, IsoDirections var4, int var5, int var6) {
+   private void addZombieStanding(float var1, float var2, float var3, IsoDirections var4, int var5, ZombieStateFlags var6) {
       IsoGridSquare var7;
-      label64: {
-         var7 = IsoWorld.instance.CurrentCell.getGridSquare((int)var1, (int)var2, (int)var3);
+      label56: {
+         var7 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3));
          if (var7 != null) {
             if (var7.SolidFloorCached) {
                if (var7.SolidFloor) {
-                  break label64;
+                  break label56;
                }
             } else if (var7.TreatAsSolidFloor()) {
-               break label64;
+               break label56;
             }
          }
 
          noise("real -> unloaded");
-         n_addZombie(var1, var2, var3, (byte)var4.index(), var5, var6, -1, -1);
+         n_addZombie(var1, var2, var3, (byte)var4.index(), var5, var6.asInt(), -2147483648, -2147483648);
          return;
       }
 
       if (!Core.bLastStand && !this.playerSpawns.allowZombie(var7)) {
-         noise("removed zombie near player spawn " + (int)var1 + "," + (int)var2 + "," + (int)var3);
+         int var10000 = PZMath.fastfloor(var1);
+         noise("removed zombie near player spawn " + var10000 + "," + PZMath.fastfloor(var2) + "," + PZMath.fastfloor(var3));
       } else {
          VirtualZombieManager.instance.choices.clear();
          IsoGridSquare var8 = null;
-         if (!this.isCrawling(var6) && !this.isFakeDead(var6) && Rand.Next(3) == 0) {
-            var8 = this.getSquareForSittingZombie(var1, var2, (int)var3);
+         if (!var6.isCrawling() && !var6.isFakeDead() && Rand.Next(3) == 0) {
+            var8 = this.getSquareForSittingZombie(var1, var2, PZMath.fastfloor(var3));
          }
 
          if (var8 != null) {
@@ -492,7 +502,9 @@ public final class ZombiePopulationManager {
          }
 
          IsoZombie var9 = VirtualZombieManager.instance.createRealZombieAlways(var5, var4.index(), false);
-         if (var9 != null) {
+         if (var9 == null) {
+            DebugLog.Zombie.debugln("Failed to create standing Zombie.");
+         } else {
             if (var8 != null) {
                this.sitAgainstWall(var9, var8);
             } else {
@@ -500,26 +512,28 @@ public final class ZombiePopulationManager {
                var9.setY(var2);
             }
 
-            if (this.isFakeDead(var6)) {
+            if (var6.isFakeDead()) {
                var9.setHealth(0.5F + Rand.Next(0.0F, 0.3F));
                var9.sprite = var9.legsSprite;
                var9.setFakeDead(true);
-            } else if (this.isCrawling(var6)) {
+            } else if (var6.isCrawling()) {
                var9.setCrawler(true);
-               var9.setCanWalk(this.isCanWalk(var6));
+               var9.setCanWalk(var6.isCanWalk());
                var9.setOnFloor(true);
                var9.setFallOnFront(true);
                var9.walkVariant = "ZombieWalk";
                var9.DoZombieStats();
             }
 
-            if (this.isInitialized(var6)) {
-               var9.setCanCrawlUnderVehicle(this.isCanCrawlUnderVehicle(var6));
+            if (var6.isInitialized()) {
+               var9.setCanCrawlUnderVehicle(var6.isCanCrawlUnderVehicle());
             } else {
                this.firstTimeLoaded(var9, var6);
             }
-         }
 
+            var9.setReanimatedForGrappleOnly(var6.isReanimatedForGrappleOnly());
+            DebugLog.Zombie.debugln("Created standing Zombie: %s", var9);
+         }
       }
    }
 
@@ -528,7 +542,7 @@ public final class ZombiePopulationManager {
 
       for(int var5 = -var4; var5 < var4; ++var5) {
          for(int var6 = -var4; var6 < var4; ++var6) {
-            IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare((int)var1 + var5, (int)var2 + var6, var3);
+            IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(var1) + var5, PZMath.fastfloor(var2) + var6, var3);
             if (var7 != null && var7.isFree(true) && var7.getBuilding() == null) {
                int var8 = var7.getWallType();
                if (var8 != 0 && !PolygonalMap2.instance.lineClearCollide(var1, var2, (float)var7.x + 0.5F, (float)var7.y + 0.5F, var7.z, (IsoMovingObject)null, false, true)) {
@@ -591,86 +605,70 @@ public final class ZombiePopulationManager {
          var1.setDir(var6);
          var1.setForwardDirection(var6.ToVector());
          if (var1.getAnimationPlayer() != null) {
-            var1.getAnimationPlayer().SetForceDir(var1.getForwardDirection());
+            var1.getAnimationPlayer().setTargetAndCurrentDirection(var1.getForwardDirection());
          }
 
       }
    }
 
-   private void addZombieMoving(float var1, float var2, float var3, IsoDirections var4, int var5, int var6, int var7, int var8) {
-      IsoGridSquare var9 = IsoWorld.instance.CurrentCell.getGridSquare((int)var1, (int)var2, (int)var3);
-      if (var9 != null) {
-         label53: {
+   private void addZombieMoving(float var1, float var2, float var3, IsoDirections var4, int var5, ZombieStateFlags var6, int var7, int var8) {
+      IsoGridSquare var9;
+      label43: {
+         var9 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3));
+         if (var9 != null) {
             if (var9.SolidFloorCached) {
-               if (!var9.SolidFloor) {
-                  break label53;
+               if (var9.SolidFloor) {
+                  break label43;
                }
-            } else if (!var9.TreatAsSolidFloor()) {
-               break label53;
+            } else if (var9.TreatAsSolidFloor()) {
+               break label43;
             }
-
-            if (!Core.bLastStand && !this.playerSpawns.allowZombie(var9)) {
-               noise("removed zombie near player spawn " + (int)var1 + "," + (int)var2 + "," + (int)var3);
-               return;
-            }
-
-            VirtualZombieManager.instance.choices.clear();
-            VirtualZombieManager.instance.choices.add(var9);
-            IsoZombie var10 = VirtualZombieManager.instance.createRealZombieAlways(var5, var4.index(), false);
-            if (var10 != null) {
-               var10.setX(var1);
-               var10.setY(var2);
-               if (this.isCrawling(var6)) {
-                  var10.setCrawler(true);
-                  var10.setCanWalk(this.isCanWalk(var6));
-                  var10.setOnFloor(true);
-                  var10.setFallOnFront(true);
-                  var10.walkVariant = "ZombieWalk";
-                  var10.DoZombieStats();
-               }
-
-               if (this.isInitialized(var6)) {
-                  var10.setCanCrawlUnderVehicle(this.isCanCrawlUnderVehicle(var6));
-               } else {
-                  this.firstTimeLoaded(var10, var6);
-               }
-
-               if (Math.abs((float)var7 - var1) > 1.0F || Math.abs((float)var8 - var2) > 1.0F) {
-                  var10.AllowRepathDelay = -1.0F;
-                  var10.pathToLocation(var7, var8, 0);
-                  return;
-               }
-            }
-
-            return;
          }
+
+         noise("real -> virtual " + var1 + "," + var2);
+         n_addZombie(var1, var2, var3, (byte)var4.index(), var5, var6.asInt(), var7, var8);
+         return;
       }
 
-      noise("real -> virtual " + var1 + "," + var2);
-      n_addZombie(var1, var2, var3, (byte)var4.index(), var5, var6, var7, var8);
+      if (!Core.bLastStand && !this.playerSpawns.allowZombie(var9)) {
+         int var10000 = PZMath.fastfloor(var1);
+         noise("removed zombie near player spawn " + var10000 + "," + PZMath.fastfloor(var2) + "," + PZMath.fastfloor(var3));
+      } else {
+         VirtualZombieManager.instance.choices.clear();
+         VirtualZombieManager.instance.choices.add(var9);
+         IsoZombie var10 = VirtualZombieManager.instance.createRealZombieAlways(var5, var4.index(), false);
+         if (var10 == null) {
+            DebugLog.Zombie.debugln("Failed to create moving Zombie.");
+         } else {
+            var10.setX(var1);
+            var10.setY(var2);
+            if (var6.isCrawling()) {
+               var10.setCrawler(true);
+               var10.setCanWalk(var6.isCanWalk());
+               var10.setOnFloor(true);
+               var10.setFallOnFront(true);
+               var10.walkVariant = "ZombieWalk";
+               var10.DoZombieStats();
+            }
+
+            if (var6.isInitialized()) {
+               var10.setCanCrawlUnderVehicle(var6.isCanCrawlUnderVehicle());
+            } else {
+               this.firstTimeLoaded(var10, var6);
+            }
+
+            if (Math.abs((float)var7 - var1) > 1.0F || Math.abs((float)var8 - var2) > 1.0F) {
+               var10.AllowRepathDelay = -1.0F;
+               var10.pathToLocation(var7, var8, 0);
+            }
+
+            var10.setReanimatedForGrappleOnly(var6.isReanimatedForGrappleOnly());
+            DebugLog.Zombie.debugln("Created moving Zombie: %s", var10);
+         }
+      }
    }
 
-   private boolean isInitialized(int var1) {
-      return (var1 & 1) != 0;
-   }
-
-   private boolean isCrawling(int var1) {
-      return (var1 & 2) != 0;
-   }
-
-   private boolean isCanWalk(int var1) {
-      return (var1 & 4) != 0;
-   }
-
-   private boolean isFakeDead(int var1) {
-      return (var1 & 8) != 0;
-   }
-
-   private boolean isCanCrawlUnderVehicle(int var1) {
-      return (var1 & 16) != 0;
-   }
-
-   private void firstTimeLoaded(IsoZombie var1, int var2) {
+   private void firstTimeLoaded(IsoZombie var1, ZombieStateFlags var2) {
    }
 
    public void updateThread() {
@@ -695,25 +693,48 @@ public final class ZombiePopulationManager {
    }
 
    public void dbgSpawnTimeToZero(int var1, int var2) {
-      if (!this.bClient || GameClient.connection.accessLevel == 32) {
-         this.dbgCommands.SpawnTimeToZero(var1, var2);
+      if (!GameClient.bClient) {
+         DebugCommands.n_debugCommand(3, var1, var2);
+      } else if (!GameClient.connection.role.haveCapability(Capability.PopmanManage)) {
+         PopmanDebugCommandPacket var3 = new PopmanDebugCommandPacket();
+         var3.setSpawnTimeToZero((short)var1, (short)var2);
+         if (var3.isConsistent(GameClient.connection)) {
+            var3.processClient((UdpConnection)null);
+         }
+
       }
    }
 
    public void dbgClearZombies(int var1, int var2) {
-      if (!this.bClient || GameClient.connection.accessLevel == 32) {
-         this.dbgCommands.ClearZombies(var1, var2);
+      if (!GameClient.bClient) {
+         DebugCommands.n_debugCommand(4, var1, var2);
+      } else if (!GameClient.connection.role.haveCapability(Capability.PopmanManage)) {
+         PopmanDebugCommandPacket var3 = new PopmanDebugCommandPacket();
+         var3.setClearZombies((short)var1, (short)var2);
+         if (var3.isConsistent(GameClient.connection)) {
+            var3.processClient((UdpConnection)null);
+         }
+
       }
    }
 
    public void dbgSpawnNow(int var1, int var2) {
-      if (!this.bClient || GameClient.connection.accessLevel == 32) {
-         this.dbgCommands.SpawnNow(var1, var2);
+      if (!GameClient.bClient) {
+         DebugCommands.n_debugCommand(5, var1, var2);
+      } else if (!GameClient.connection.role.haveCapability(Capability.PopmanManage)) {
+         PopmanDebugCommandPacket var3 = new PopmanDebugCommandPacket();
+         var3.setSpawnNow((short)var1, (short)var2);
+         if (var3.isConsistent(GameClient.connection)) {
+            var3.processClient((UdpConnection)null);
+         }
+
       }
    }
 
    public void beginSaveRealZombies() {
-      if (!this.bClient) {
+      if (GameClient.bClient) {
+         DebugLog.Zombie.debugln("Client doesn't save Zeds.");
+      } else {
          this.saveRealZombieHack.clear();
          ArrayList var1 = IsoWorld.instance.CurrentCell.getZombieList();
          Iterator var2 = var1.iterator();
@@ -734,12 +755,12 @@ public final class ZombiePopulationManager {
                         while(var10 < var9) {
                            int var5 = this.byteBuffer.position();
                            IsoZombie var6 = (IsoZombie)this.saveRealZombieHack.get(var10++);
-                           this.byteBuffer.putFloat(var6.x);
-                           this.byteBuffer.putFloat(var6.y);
-                           this.byteBuffer.putFloat(var6.z);
+                           this.byteBuffer.putFloat(var6.getX());
+                           this.byteBuffer.putFloat(var6.getY());
+                           this.byteBuffer.putFloat(var6.getZ());
                            this.byteBuffer.put((byte)var6.dir.index());
                            this.byteBuffer.putInt(var6.getPersistentOutfitID());
-                           int var7 = this.getZombieState(var6);
+                           int var7 = ZombieStateFlags.intFromZombie(var6);
                            this.byteBuffer.putInt(var7);
                            ++var4;
                            int var8 = this.byteBuffer.position() - var5;
@@ -763,19 +784,19 @@ public final class ZombiePopulationManager {
    }
 
    public void endSaveRealZombies() {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          ;
       }
    }
 
    public void save() {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          n_save();
       }
    }
 
    public void stop() {
-      if (!this.bClient) {
+      if (!GameClient.bClient) {
          this.bStopped = true;
          n_stop();
          this.loadedAreas.clear();
@@ -786,5 +807,11 @@ public final class ZombiePopulationManager {
          this.radarRenderFlag = false;
          this.radarRequestFlag = false;
       }
+   }
+
+   static {
+      CHUNKS_PER_CELL = IsoCell.CellSizeInChunks;
+      SQUARES_PER_CELL = CHUNKS_PER_CELL * 8;
+      bDebugLoggingEnabled = false;
    }
 }

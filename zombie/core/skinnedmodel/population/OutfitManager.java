@@ -18,8 +18,8 @@ import zombie.DebugFileWatcher;
 import zombie.PredicatedFileWatcher;
 import zombie.ZomboidFileSystem;
 import zombie.asset.AssetPath;
-import zombie.core.Rand;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
 import zombie.gameStates.ChooseGameInfo;
@@ -54,7 +54,7 @@ public class OutfitManager {
       if (instance != null) {
          throw new IllegalStateException("OutfitManager Already Initialized.");
       } else {
-         instance = tryParse("game", "media/clothing/clothing.xml");
+         instance = tryParse("game", "", "media/clothing/clothing.xml");
          if (instance != null) {
             instance.loaded();
          }
@@ -72,9 +72,8 @@ public class OutfitManager {
       Iterator var1 = ZomboidFileSystem.instance.getModIDs().iterator();
 
       while(true) {
-         String var2;
-         OutfitManager var4;
-         do {
+         while(true) {
+            String var2;
             ChooseGameInfo.Mod var3;
             do {
                if (!var1.hasNext()) {
@@ -116,37 +115,69 @@ public class OutfitManager {
                var3 = ChooseGameInfo.getAvailableModDetails(var2);
             } while(var3 == null);
 
-            var4 = tryParse(var2, "media/clothing/clothing.xml");
-         } while(var4 == null);
+            OutfitManager var4 = tryParse(var2, var3.getVersionDir(), "media/clothing/clothing.xml");
+            Iterator var5;
+            Outfit var6;
+            Outfit var7;
+            if (var4 != null) {
+               for(var5 = var4.m_MaleOutfits.iterator(); var5.hasNext(); this.m_maleOutfitMap.put(var6.m_Name, var6)) {
+                  var6 = (Outfit)var5.next();
+                  var7 = this.FindMaleOutfit(var6.m_Name);
+                  if (var7 == null) {
+                     this.m_MaleOutfits.add(var6);
+                  } else {
+                     if (DebugLog.isEnabled(DebugType.Clothing)) {
+                        DebugLog.Clothing.println("mod \"%s\" overrides male outfit \"%s\"", var2, var6.m_Name);
+                     }
 
-         Iterator var5;
-         Outfit var6;
-         Outfit var7;
-         for(var5 = var4.m_MaleOutfits.iterator(); var5.hasNext(); this.m_maleOutfitMap.put(var6.m_Name, var6)) {
-            var6 = (Outfit)var5.next();
-            var7 = this.FindMaleOutfit(var6.m_Name);
-            if (var7 == null) {
-               this.m_MaleOutfits.add(var6);
-            } else {
-               if (DebugLog.isEnabled(DebugType.Clothing)) {
-                  DebugLog.Clothing.println("mod \"%s\" overrides male outfit \"%s\"", var2, var6.m_Name);
+                     this.m_MaleOutfits.set(this.m_MaleOutfits.indexOf(var7), var6);
+                  }
                }
 
-               this.m_MaleOutfits.set(this.m_MaleOutfits.indexOf(var7), var6);
-            }
-         }
+               for(var5 = var4.m_FemaleOutfits.iterator(); var5.hasNext(); this.m_femaleOutfitMap.put(var6.m_Name, var6)) {
+                  var6 = (Outfit)var5.next();
+                  var7 = this.FindFemaleOutfit(var6.m_Name);
+                  if (var7 == null) {
+                     this.m_FemaleOutfits.add(var6);
+                  } else {
+                     if (DebugLog.isEnabled(DebugType.Clothing)) {
+                        DebugLog.Clothing.println("mod \"%s\" overrides female outfit \"%s\"", var2, var6.m_Name);
+                     }
 
-         for(var5 = var4.m_FemaleOutfits.iterator(); var5.hasNext(); this.m_femaleOutfitMap.put(var6.m_Name, var6)) {
-            var6 = (Outfit)var5.next();
-            var7 = this.FindFemaleOutfit(var6.m_Name);
-            if (var7 == null) {
-               this.m_FemaleOutfits.add(var6);
-            } else {
-               if (DebugLog.isEnabled(DebugType.Clothing)) {
-                  DebugLog.Clothing.println("mod \"%s\" overrides female outfit \"%s\"", var2, var6.m_Name);
+                     this.m_FemaleOutfits.set(this.m_FemaleOutfits.indexOf(var7), var6);
+                  }
                }
+            } else {
+               var4 = tryParse(var2, var3.getCommonDir(), "media/clothing/clothing.xml");
+               if (var4 != null) {
+                  for(var5 = var4.m_MaleOutfits.iterator(); var5.hasNext(); this.m_maleOutfitMap.put(var6.m_Name, var6)) {
+                     var6 = (Outfit)var5.next();
+                     var7 = this.FindMaleOutfit(var6.m_Name);
+                     if (var7 == null) {
+                        this.m_MaleOutfits.add(var6);
+                     } else {
+                        if (DebugLog.isEnabled(DebugType.Clothing)) {
+                           DebugLog.Clothing.println("mod \"%s\" overrides male outfit \"%s\"", var2, var6.m_Name);
+                        }
 
-               this.m_FemaleOutfits.set(this.m_FemaleOutfits.indexOf(var7), var6);
+                        this.m_MaleOutfits.set(this.m_MaleOutfits.indexOf(var7), var6);
+                     }
+                  }
+
+                  for(var5 = var4.m_FemaleOutfits.iterator(); var5.hasNext(); this.m_femaleOutfitMap.put(var6.m_Name, var6)) {
+                     var6 = (Outfit)var5.next();
+                     var7 = this.FindFemaleOutfit(var6.m_Name);
+                     if (var7 == null) {
+                        this.m_FemaleOutfits.add(var6);
+                     } else {
+                        if (DebugLog.isEnabled(DebugType.Clothing)) {
+                           DebugLog.Clothing.println("mod \"%s\" overrides female outfit \"%s\"", var2, var6.m_Name);
+                        }
+
+                        this.m_FemaleOutfits.set(this.m_FemaleOutfits.indexOf(var7), var6);
+                     }
+                  }
+               }
             }
          }
       }
@@ -160,7 +191,7 @@ public class OutfitManager {
    public static void Reload() {
       DebugLog.Clothing.println("Reloading OutfitManager");
       OutfitManager var0 = instance;
-      instance = tryParse("game", "media/clothing/clothing.xml");
+      instance = tryParse("game", "", "media/clothing/clothing.xml");
       if (instance != null) {
          instance.loaded();
       }
@@ -222,6 +253,19 @@ public class OutfitManager {
       return var2;
    }
 
+   public Outfit GetRandomNonSillyOutfit(boolean var1) {
+      Outfit var2;
+      do {
+         if (var1) {
+            var2 = (Outfit)PZArrayUtil.pickRandom((List)this.m_FemaleOutfits);
+         } else {
+            var2 = (Outfit)PZArrayUtil.pickRandom((List)this.m_MaleOutfits);
+         }
+      } while(var2.m_Name.contains("Santa") || var2.m_Name.contains("Spiffo") || var2.m_Name.contains("Naked"));
+
+      return var2;
+   }
+
    public Outfit GetRandomNonProfessionalOutfit(boolean var1) {
       int var10000 = Rand.Next(5);
       String var2 = "Generic0" + (var10000 + 1);
@@ -268,28 +312,27 @@ public class OutfitManager {
       return var3;
    }
 
-   private static OutfitManager tryParse(String var0, String var1) {
+   private static OutfitManager tryParse(String var0, String var1, String var2) {
       try {
-         return parse(var0, var1);
-      } catch (PZXmlParserException var3) {
-         var3.printStackTrace();
+         return parse(var0, var1, var2);
+      } catch (PZXmlParserException var4) {
+         var4.printStackTrace();
          return null;
       }
    }
 
-   private static OutfitManager parse(String var0, String var1) throws PZXmlParserException {
+   private static OutfitManager parse(String var0, String var1, String var2) throws PZXmlParserException {
       if ("game".equals(var0)) {
-         String var10000 = ZomboidFileSystem.instance.base.getAbsolutePath();
-         var1 = var10000 + File.separator + ZomboidFileSystem.processFilePath(var1, File.separatorChar);
+         String var10000 = ZomboidFileSystem.instance.base.canonicalFile.getAbsolutePath();
+         var2 = var10000 + File.separator + ZomboidFileSystem.processFilePath(var2, File.separatorChar);
       } else {
-         String var2 = ZomboidFileSystem.instance.getModDir(var0);
-         var1 = var2 + File.separator + ZomboidFileSystem.processFilePath(var1, File.separatorChar);
+         var2 = var1 + File.separator + ZomboidFileSystem.processFilePath(var2, File.separatorChar);
       }
 
-      if (!(new File(var1)).exists()) {
+      if (!(new File(var2)).exists()) {
          return null;
       } else {
-         OutfitManager var3 = (OutfitManager)PZXmlUtil.parse(OutfitManager.class, var1);
+         OutfitManager var3 = (OutfitManager)PZXmlUtil.parse(OutfitManager.class, var2);
          if (var3 != null) {
             PZArrayUtil.forEach((List)var3.m_MaleOutfits, (var1x) -> {
                var1x.setModID(var0);

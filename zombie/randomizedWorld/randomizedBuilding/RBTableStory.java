@@ -4,8 +4,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
@@ -34,7 +35,7 @@ public final class RBTableStory extends RandomizedBuildingBase {
          var2.add(new StorySpawnItem(var3, (String)null, 100));
          var2.add(new StorySpawnItem((LinkedHashMap)null, "Chocolate", 100));
          var2.add(new StorySpawnItem((LinkedHashMap)null, "Butter", 70));
-         var2.add(new StorySpawnItem((LinkedHashMap)null, "Flour", 70));
+         var2.add(new StorySpawnItem((LinkedHashMap)null, "Flour2", 70));
          var2.add(new StorySpawnItem((LinkedHashMap)null, "Spoon", 100));
          var2.add(new StorySpawnItem((LinkedHashMap)null, "EggCarton", 100));
          var2.add(new StorySpawnItem((LinkedHashMap)null, "Egg", 100));
@@ -113,7 +114,7 @@ public final class RBTableStory extends RandomizedBuildingBase {
          StorySpawnItem var4 = (StorySpawnItem)var1.get(var3);
          String var5 = this.getItemFromSSI(var4);
          if (var5 != null) {
-            InventoryItem var6 = this.currentSquare.AddWorldInventoryItem(var5, this.xOffset, this.yOffset, 0.4F);
+            InventoryItem var6 = ItemSpawner.spawnItem(var5, this.currentSquare, this.xOffset, this.yOffset, 0.4F);
             if (var6 != null) {
                this.increaseOffsets(var2, var4);
             }

@@ -3,7 +3,7 @@ package zombie.radio.script;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
 import zombie.radio.globals.CompareResult;

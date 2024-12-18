@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import org.lwjgl.util.vector.Matrix4f;
 import org.lwjgl.util.vector.Quaternion;
 import org.lwjgl.util.vector.Vector3f;
 import zombie.core.PerformanceSettings;
@@ -12,6 +13,7 @@ import zombie.core.math.PZMath;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.skinnedmodel.HelperFunctions;
 import zombie.core.skinnedmodel.advancedanimation.AnimBoneWeight;
+import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
 import zombie.core.skinnedmodel.advancedanimation.PooledAnimBoneWeightArray;
 import zombie.core.skinnedmodel.model.SkinningBone;
 import zombie.core.skinnedmodel.model.SkinningData;
@@ -32,30 +34,43 @@ import zombie.util.list.PZArrayUtil;
 
 public final class AnimationTrack extends PooledObject {
    public boolean IsPlaying;
-   protected AnimationClip CurrentClip;
+   public boolean IsPrimary;
+   public AnimationClip CurrentClip;
    public int priority;
-   private float currentTimeValue;
-   private float previousTimeValue;
+   private boolean m_isRagdollFirstFrame;
+   public float m_ragdollStartTime = 0.0F;
+   public float m_ragdollMaxTime = 5.0F;
+   private float m_currentTimeValue;
+   private float m_previousTimeValue;
    public boolean SyncTrackingEnabled;
+   private boolean m_IKAimingLeftArm = false;
+   private boolean m_IKAimingRightArm = false;
    public boolean reverse;
-   private boolean bLooping;
+   public boolean bLooping;
    private final KeyframeSpan[] m_pose = new KeyframeSpan[60];
    private final KeyframeSpan m_deferredPoseSpan = new KeyframeSpan();
    public float SpeedDelta;
    public float BlendDelta;
    public float blendFieldWeight;
    public String name;
+   private String matchingGrappledAnimNode;
+   private boolean isGrappler = false;
    public float earlyBlendOutTime;
    public boolean triggerOnNonLoopedAnimFadeOutEvent;
    private int m_layerIdx;
+   public AnimLayer m_animLayer;
    private PooledArrayObject<AnimBoneWeight> m_boneWeightBindings;
    private PooledFloatArrayObject m_boneWeights;
    private final ArrayList<IAnimListener> listeners = new ArrayList();
    private final ArrayList<IAnimListener> listenersInvoking = new ArrayList();
    private SkinningBone m_deferredBone;
    private BoneAxis m_deferredBoneAxis;
+   private boolean m_useDeferredMovement = true;
    private boolean m_useDeferredRotation;
+   private float m_deferredRotationScale = 1.0F;
    private final DeferredMotionData m_deferredMotion = new DeferredMotionData();
+   public boolean m_isInitialAdjustmentCalculated = false;
+   public final Vector3f m_initialAdjustment = new Vector3f();
    private static final Pool<AnimationTrack> s_pool = new Pool(AnimationTrack::new);
 
    public static AnimationTrack alloc() {
@@ -69,10 +84,14 @@ public final class AnimationTrack extends PooledObject {
 
    private AnimationTrack resetInternal() {
       this.IsPlaying = false;
+      this.IsPrimary = false;
       this.CurrentClip = null;
       this.priority = 0;
-      this.currentTimeValue = 0.0F;
-      this.previousTimeValue = 0.0F;
+      this.m_isRagdollFirstFrame = false;
+      this.m_ragdollStartTime = 0.0F;
+      this.m_ragdollMaxTime = 5.0F;
+      this.m_currentTimeValue = 0.0F;
+      this.m_previousTimeValue = 0.0F;
       this.SyncTrackingEnabled = true;
       this.reverse = false;
       this.bLooping = false;
@@ -84,6 +103,7 @@ public final class AnimationTrack extends PooledObject {
       this.name = "!Empty!";
       this.earlyBlendOutTime = 0.0F;
       this.triggerOnNonLoopedAnimFadeOutEvent = false;
+      this.m_animLayer = null;
       this.m_layerIdx = -1;
       Pool.tryRelease((IPooledObject)this.m_boneWeightBindings);
       this.m_boneWeightBindings = null;
@@ -93,13 +113,16 @@ public final class AnimationTrack extends PooledObject {
       this.listenersInvoking.clear();
       this.m_deferredBone = null;
       this.m_deferredBoneAxis = BoneAxis.Y;
+      this.m_useDeferredMovement = true;
       this.m_useDeferredRotation = false;
+      this.m_deferredRotationScale = 1.0F;
       this.m_deferredMotion.reset();
+      this.m_isInitialAdjustmentCalculated = false;
       return this;
    }
 
    public void get(int var1, Vector3f var2, Quaternion var3, Vector3f var4) {
-      this.m_pose[var1].lerp(this.getCurrentTime(), var2, var3, var4);
+      this.m_pose[var1].lerp(this.getCurrentAnimationTime(), var2, var3, var4);
    }
 
    private Keyframe getDeferredMovementFrameAt(int var1, float var2, Keyframe var3) {
@@ -113,42 +136,43 @@ public final class AnimationTrack extends PooledObject {
       }
 
       Keyframe[] var4 = this.CurrentClip.getBoneFramesAt(var1);
-      if (var4.length == 0) {
+      int var5 = var4.length;
+      if (var5 == 0) {
          var3.clear();
          return var3;
       } else if (var3.containsTime(var2)) {
          return var3;
       } else {
-         Keyframe var5 = var4[var4.length - 1];
-         if (var2 >= var5.Time) {
-            var3.fromIdx = var4.length - 2;
-            var3.toIdx = var4.length - 1;
+         Keyframe var6 = var4[var5 - 1];
+         if (var2 >= var6.Time) {
+            var3.fromIdx = var5 > 1 ? var5 - 2 : 0;
+            var3.toIdx = var5 - 1;
             var3.from = var4[var3.fromIdx];
             var3.to = var4[var3.toIdx];
             return var3;
          } else {
-            Keyframe var6 = var4[0];
-            if (var2 <= var6.Time) {
+            Keyframe var7 = var4[0];
+            if (var2 <= var7.Time) {
                var3.clear();
                var3.toIdx = 0;
-               var3.to = var6;
+               var3.to = var7;
                return var3;
             } else {
-               int var7 = 0;
+               int var8 = 0;
                if (var3.isSpan() && var3.to.Time <= var2) {
-                  var7 = var3.toIdx;
+                  var8 = var3.toIdx;
                }
 
                var3.clear();
 
-               for(int var8 = var7; var8 < var4.length - 1; ++var8) {
-                  Keyframe var9 = var4[var8];
-                  Keyframe var10 = var4[var8 + 1];
-                  if (var9.Time <= var2 && var2 <= var10.Time) {
-                     var3.fromIdx = var8;
-                     var3.toIdx = var8 + 1;
-                     var3.from = var9;
-                     var3.to = var10;
+               for(int var9 = var8; var9 < var5 - 1; ++var9) {
+                  Keyframe var10 = var4[var9];
+                  Keyframe var11 = var4[var9 + 1];
+                  if (var10.Time <= var2 && var2 <= var11.Time) {
+                     var3.fromIdx = var9;
+                     var3.toIdx = var9 + 1;
+                     var3.from = var10;
+                     var3.to = var11;
                      break;
                   }
                }
@@ -197,7 +221,7 @@ public final class AnimationTrack extends PooledObject {
    }
 
    private void updatePoseInternal() {
-      float var1 = this.getCurrentTime();
+      float var1 = this.getCurrentAnimationTime();
 
       for(int var2 = 0; var2 < 60; ++var2) {
          this.getKeyframeSpan(var2, var1, this.m_pose[var2]);
@@ -215,8 +239,8 @@ public final class AnimationTrack extends PooledObject {
          var1.m_deferredRotationDiff = 0.0F;
          var1.m_deferredMovementDiff.set(0.0F, 0.0F);
          var1.m_counterRotatedMovementDiff.set(0.0F, 0.0F);
-         float var2 = this.getReversibleTimeValue(this.previousTimeValue);
-         float var3 = this.getReversibleTimeValue(this.currentTimeValue);
+         float var2 = this.getPreviousAnimationTime();
+         float var3 = this.getCurrentAnimationTime();
          if (this.isLooping() && var2 > var3) {
             float var4 = this.getDuration();
             this.appendDeferredValues(var1, var2, var4);
@@ -228,38 +252,39 @@ public final class AnimationTrack extends PooledObject {
    }
 
    private void appendDeferredValues(DeferredMotionData var1, float var2, float var3) {
-      Keyframe var4 = this.getDeferredMovementFrameAt(this.m_deferredBone.Index, var2, AnimationTrack.L_updateDeferredValues.prevKeyFrame);
-      Keyframe var5 = this.getDeferredMovementFrameAt(this.m_deferredBone.Index, var3, AnimationTrack.L_updateDeferredValues.keyFrame);
+      int var4 = this.getDeferredMovementBoneIdx();
+      Keyframe var5 = this.getDeferredMovementFrameAt(var4, var2, AnimationTrack.L_updateDeferredValues.prevKeyFrame);
+      Keyframe var6 = this.getDeferredMovementFrameAt(var4, var3, AnimationTrack.L_updateDeferredValues.keyFrame);
       if (!GameServer.bServer) {
-         var1.m_prevDeferredRotation = this.getDeferredTwistRotation(var4.Rotation);
-         var1.m_targetDeferredRotationQ.set(var5.Rotation);
-         var1.m_targetDeferredRotation = this.getDeferredTwistRotation(var5.Rotation);
-         float var6 = PZMath.getClosestAngle(var1.m_prevDeferredRotation, var1.m_targetDeferredRotation);
-         var1.m_deferredRotationDiff += var6;
+         var1.m_prevDeferredRotation = this.getDeferredTwistRotation(var5.Rotation);
+         var1.m_targetDeferredRotationQ.set(var6.Rotation);
+         var1.m_targetDeferredRotation = this.getDeferredTwistRotation(var6.Rotation);
+         float var7 = PZMath.getClosestAngle(var1.m_prevDeferredRotation, var1.m_targetDeferredRotation);
+         var1.m_deferredRotationDiff += var7 * this.getDeferredRotationScale();
       }
 
-      this.getDeferredMovement(var4.Position, var1.m_prevDeferredMovement);
-      var1.m_targetDeferredPosition.set(var5.Position);
-      this.getDeferredMovement(var5.Position, var1.m_targetDeferredMovement);
-      Vector2 var9 = AnimationTrack.L_updateDeferredValues.diff.set(var1.m_targetDeferredMovement.x - var1.m_prevDeferredMovement.x, var1.m_targetDeferredMovement.y - var1.m_prevDeferredMovement.y);
-      Vector2 var7 = AnimationTrack.L_updateDeferredValues.crDiff.set(var9);
-      if (this.getUseDeferredRotation()) {
-         float var8 = var7.normalize();
-         var7.rotate(-(var1.m_targetDeferredRotation + 1.5707964F));
-         var7.scale(-var8);
+      this.getDeferredMovement(var5.Position, var1.m_prevDeferredMovement);
+      var1.m_targetDeferredPosition.set(var6.Position);
+      this.getDeferredMovement(var6.Position, var1.m_targetDeferredMovement);
+      Vector2 var10 = AnimationTrack.L_updateDeferredValues.diff.set(var1.m_targetDeferredMovement.x - var1.m_prevDeferredMovement.x, var1.m_targetDeferredMovement.y - var1.m_prevDeferredMovement.y);
+      Vector2 var8 = AnimationTrack.L_updateDeferredValues.crDiff.set(var10);
+      if (this.getUseDeferredRotation() && !this.isRagdoll()) {
+         float var9 = var8.normalize();
+         var8.rotate(-(var1.m_targetDeferredRotation + 1.5707964F));
+         var8.scale(-var9);
       }
 
       Vector2 var10000 = var1.m_deferredMovementDiff;
-      var10000.x += var9.x;
+      var10000.x += var10.x;
       var10000 = var1.m_deferredMovementDiff;
-      var10000.y += var9.y;
+      var10000.y += var10.y;
       var10000 = var1.m_counterRotatedMovementDiff;
-      var10000.x += var7.x;
+      var10000.x += var8.x;
       var10000 = var1.m_counterRotatedMovementDiff;
-      var10000.y += var7.y;
+      var10000.y += var8.y;
    }
 
-   public float getDeferredTwistRotation(Quaternion var1) {
+   private float getDeferredTwistRotation(Quaternion var1) {
       if (this.m_deferredBoneAxis == BoneAxis.Z) {
          return HelperFunctions.getRotationZ(var1);
       } else if (this.m_deferredBoneAxis == BoneAxis.Y) {
@@ -270,7 +295,7 @@ public final class AnimationTrack extends PooledObject {
       }
    }
 
-   public Vector2 getDeferredMovement(Vector3f var1, Vector2 var2) {
+   private Vector2 getDeferredMovement(Vector3f var1, Vector2 var2) {
       if (this.m_deferredBoneAxis == BoneAxis.Y) {
          var2.set(var1.x, -var1.z);
       } else {
@@ -304,12 +329,20 @@ public final class AnimationTrack extends PooledObject {
       return this.m_deferredBone != null ? this.m_deferredBone.Index : -1;
    }
 
-   public float getCurrentTime() {
-      return this.getReversibleTimeValue(this.currentTimeValue);
+   public float getCurrentTrackTime() {
+      return this.getReversibleTimeValue(this.m_currentTimeValue);
    }
 
-   public float getPreviousTime() {
-      return this.getReversibleTimeValue(this.previousTimeValue);
+   public float getPreviousTrackTime() {
+      return this.getReversibleTimeValue(this.m_previousTimeValue);
+   }
+
+   public float getCurrentAnimationTime() {
+      return this.isRagdoll() ? this.CurrentClip.getDuration() : this.getCurrentTrackTime();
+   }
+
+   public float getPreviousAnimationTime() {
+      return this.isRagdoll() ? 0.0F : this.getPreviousTrackTime();
    }
 
    private float getReversibleTimeValue(float var1) {
@@ -327,40 +360,41 @@ public final class AnimationTrack extends PooledObject {
       }
 
       float var2 = this.getDuration();
-      this.previousTimeValue = this.currentTimeValue;
-      this.currentTimeValue += var1;
+      this.m_previousTimeValue = this.m_currentTimeValue;
+      this.m_currentTimeValue += var1;
       if (this.bLooping) {
-         if (this.previousTimeValue == 0.0F && this.currentTimeValue > 0.0F) {
+         if (this.m_previousTimeValue == 0.0F && this.m_currentTimeValue > 0.0F) {
             this.invokeOnAnimStartedEvent();
          }
 
-         if (this.currentTimeValue >= var2) {
+         if (this.m_currentTimeValue >= var2) {
             this.invokeOnLoopedAnimEvent();
-            this.currentTimeValue %= var2;
+            this.m_currentTimeValue %= var2;
             this.invokeOnAnimStartedEvent();
          }
 
       } else {
-         if (this.currentTimeValue < 0.0F) {
-            this.currentTimeValue = 0.0F;
+         if (this.m_currentTimeValue < 0.0F) {
+            this.m_currentTimeValue = 0.0F;
          }
 
-         if (this.previousTimeValue == 0.0F && this.currentTimeValue > 0.0F) {
+         if (this.m_previousTimeValue == 0.0F && this.m_currentTimeValue > 0.0F) {
             this.invokeOnAnimStartedEvent();
          }
 
          if (this.triggerOnNonLoopedAnimFadeOutEvent) {
             float var3 = var2 - this.earlyBlendOutTime;
-            if (this.previousTimeValue < var3 && var3 <= this.currentTimeValue) {
+            if (this.m_previousTimeValue < var3 && var3 <= this.m_currentTimeValue) {
                this.invokeOnNonLoopedAnimFadeOutEvent();
             }
          }
 
-         if (this.currentTimeValue > var2) {
-            this.currentTimeValue = var2;
+         if (this.m_currentTimeValue > var2) {
+            this.m_currentTimeValue = var2;
          }
 
-         if (this.previousTimeValue < var2 && this.currentTimeValue >= var2) {
+         boolean var4 = this.isRagdoll();
+         if (!var4 && this.m_previousTimeValue < var2 && this.m_currentTimeValue >= var2) {
             this.invokeOnLoopedAnimEvent();
             this.invokeOnNonLoopedAnimFinishedEvent();
          }
@@ -369,7 +403,11 @@ public final class AnimationTrack extends PooledObject {
    }
 
    public float getDuration() {
-      return this.hasClip() ? this.CurrentClip.Duration : 0.0F;
+      if (this.isRagdoll()) {
+         return this.m_ragdollMaxTime;
+      } else {
+         return this.hasClip() ? this.CurrentClip.getDuration() : 0.0F;
+      }
    }
 
    private void invokeListeners(Consumer<IAnimListener> var1) {
@@ -441,7 +479,7 @@ public final class AnimationTrack extends PooledObject {
       this.listeners.add(var1);
    }
 
-   public void startClip(AnimationClip var1, boolean var2) {
+   public void startClip(AnimationClip var1, boolean var2, float var3) {
       if (var1 == null) {
          throw new NullPointerException("Supplied clip is null.");
       } else {
@@ -449,6 +487,8 @@ public final class AnimationTrack extends PooledObject {
          this.IsPlaying = true;
          this.bLooping = var2;
          this.CurrentClip = var1;
+         this.m_isRagdollFirstFrame = this.isRagdoll();
+         this.m_ragdollMaxTime = var3;
       }
    }
 
@@ -526,7 +566,7 @@ public final class AnimationTrack extends PooledObject {
    }
 
    public int getLayerIdx() {
-      return this.m_layerIdx;
+      return this.m_animLayer != null ? this.m_animLayer.getDepth() : 0;
    }
 
    public boolean hasBoneMask() {
@@ -542,6 +582,14 @@ public final class AnimationTrack extends PooledObject {
       this.m_deferredBoneAxis = var2;
    }
 
+   public void setUseDeferredMovement(boolean var1) {
+      this.m_useDeferredMovement = var1;
+   }
+
+   public boolean getUseDeferredMovement() {
+      return this.m_useDeferredMovement;
+   }
+
    public void setUseDeferredRotation(boolean var1) {
       this.m_useDeferredRotation = var1;
    }
@@ -550,24 +598,32 @@ public final class AnimationTrack extends PooledObject {
       return this.m_useDeferredRotation;
    }
 
+   public void setDeferredRotationScale(float var1) {
+      this.m_deferredRotationScale = var1;
+   }
+
+   public float getDeferredRotationScale() {
+      return this.m_deferredRotationScale;
+   }
+
    public boolean isFinished() {
-      return !this.bLooping && this.getDuration() > 0.0F && this.currentTimeValue >= this.getDuration();
+      return !this.bLooping && this.getDuration() > 0.0F && this.m_currentTimeValue >= this.getDuration();
    }
 
    public float getCurrentTimeValue() {
-      return this.currentTimeValue;
+      return this.m_currentTimeValue;
    }
 
    public void setCurrentTimeValue(float var1) {
-      this.currentTimeValue = var1;
+      this.m_currentTimeValue = var1;
    }
 
    public float getPreviousTimeValue() {
-      return this.previousTimeValue;
+      return this.m_previousTimeValue;
    }
 
    public void setPreviousTimeValue(float var1) {
-      this.previousTimeValue = var1;
+      this.m_previousTimeValue = var1;
    }
 
    public void rewind(float var1) {
@@ -583,8 +639,8 @@ public final class AnimationTrack extends PooledObject {
    }
 
    public void advance(float var1) {
-      this.currentTimeValue = PZMath.wrap(this.currentTimeValue + var1, 0.0F, this.getDuration());
-      this.previousTimeValue = PZMath.wrap(this.previousTimeValue + var1, 0.0F, this.getDuration());
+      this.m_currentTimeValue = PZMath.wrap(this.m_currentTimeValue + var1, 0.0F, this.getDuration());
+      this.m_previousTimeValue = PZMath.wrap(this.m_previousTimeValue + var1, 0.0F, this.getDuration());
    }
 
    public void advanceFraction(float var1) {
@@ -592,7 +648,7 @@ public final class AnimationTrack extends PooledObject {
    }
 
    public void moveCurrentTimeValueTo(float var1) {
-      float var2 = var1 - this.currentTimeValue;
+      float var2 = var1 - this.m_currentTimeValue;
       this.advance(var2);
    }
 
@@ -602,7 +658,7 @@ public final class AnimationTrack extends PooledObject {
    }
 
    public float getCurrentTimeFraction() {
-      return this.hasClip() ? this.currentTimeValue / this.getDuration() : 0.0F;
+      return this.hasClip() ? this.m_currentTimeValue / this.getDuration() : 0.0F;
    }
 
    public boolean hasClip() {
@@ -617,14 +673,21 @@ public final class AnimationTrack extends PooledObject {
       return this.priority;
    }
 
+   public boolean isGrappler() {
+      return this.isGrappler;
+   }
+
    public static AnimationTrack createClone(AnimationTrack var0, Supplier<AnimationTrack> var1) {
       AnimationTrack var2 = (AnimationTrack)var1.get();
       var2.IsPlaying = var0.IsPlaying;
       var2.CurrentClip = var0.CurrentClip;
       var2.priority = var0.priority;
-      var2.currentTimeValue = var0.currentTimeValue;
-      var2.previousTimeValue = var0.previousTimeValue;
+      var2.m_isRagdollFirstFrame = var0.m_isRagdollFirstFrame;
+      var2.m_currentTimeValue = var0.m_currentTimeValue;
+      var2.m_previousTimeValue = var0.m_previousTimeValue;
       var2.SyncTrackingEnabled = var0.SyncTrackingEnabled;
+      var2.m_IKAimingLeftArm = var0.m_IKAimingLeftArm;
+      var2.m_IKAimingRightArm = var0.m_IKAimingRightArm;
       var2.reverse = var0.reverse;
       var2.bLooping = var0.bLooping;
       var2.SpeedDelta = var0.SpeedDelta;
@@ -633,13 +696,120 @@ public final class AnimationTrack extends PooledObject {
       var2.name = var0.name;
       var2.earlyBlendOutTime = var0.earlyBlendOutTime;
       var2.triggerOnNonLoopedAnimFadeOutEvent = var0.triggerOnNonLoopedAnimFadeOutEvent;
-      var2.m_layerIdx = var0.m_layerIdx;
+      var2.setAnimLayer(var0.m_animLayer);
       var2.m_boneWeightBindings = PooledAnimBoneWeightArray.toArray(var0.m_boneWeightBindings);
       var2.m_boneWeights = PooledFloatArrayObject.toArray(var0.m_boneWeights);
       var2.m_deferredBone = var0.m_deferredBone;
       var2.m_deferredBoneAxis = var0.m_deferredBoneAxis;
+      var2.m_useDeferredMovement = var0.m_useDeferredMovement;
       var2.m_useDeferredRotation = var0.m_useDeferredRotation;
+      var2.m_deferredRotationScale = var0.m_deferredRotationScale;
+      var2.matchingGrappledAnimNode = var0.matchingGrappledAnimNode;
+      var2.isGrappler = var0.isGrappler();
       return var2;
+   }
+
+   public String getMatchingGrappledAnimNode() {
+      return this.matchingGrappledAnimNode;
+   }
+
+   public void setMatchingGrappledAnimNode(String var1) {
+      this.matchingGrappledAnimNode = var1;
+      this.isGrappler = !StringUtils.isNullOrWhitespace(this.matchingGrappledAnimNode);
+   }
+
+   public void setAnimLayer(AnimLayer var1) {
+      if (this.m_animLayer != var1) {
+         if (this.m_animLayer != null) {
+            this.removeListener(this.m_animLayer);
+         }
+
+         this.m_animLayer = var1;
+         if (this.m_animLayer != null) {
+            this.addListener(var1);
+         }
+
+      }
+   }
+
+   public boolean isRagdollFirstFrame() {
+      return this.m_isRagdollFirstFrame;
+   }
+
+   public void initRagdollTransform(int var1, Vector3f var2, Quaternion var3, Vector3f var4) {
+      if (!this.isRagdoll()) {
+         DebugLog.Animation.warn("This track is not a ragdoll track: %s", this.getName());
+      } else {
+         Keyframe[] var5 = this.CurrentClip.getBoneFramesAt(var1);
+         Keyframe[] var6 = var5;
+         int var7 = var5.length;
+
+         for(int var8 = 0; var8 < var7; ++var8) {
+            Keyframe var9 = var6[var8];
+            var9.set(var2, var3, var4);
+         }
+
+      }
+   }
+
+   public boolean isRagdoll() {
+      return this.CurrentClip != null && this.CurrentClip.IsRagdoll;
+   }
+
+   private void initRagdollTransform(int var1, TwistableBoneTransform var2) {
+      Vector3f var3 = new Vector3f();
+      Quaternion var4 = new Quaternion();
+      Vector3f var5 = new Vector3f();
+      var2.getPRS(var3, var4, var5);
+      this.initRagdollTransform(var1, var3, var4, var5);
+   }
+
+   private void initRagdollTransform(int var1, Matrix4f var2) {
+      Vector3f var3 = new Vector3f();
+      Quaternion var4 = new Quaternion();
+      Vector3f var5 = new Vector3f();
+      HelperFunctions.getPosition(var2, var3);
+      HelperFunctions.getRotation(var2, var4);
+      var5.set(1.0F, 1.0F, 1.0F);
+      this.initRagdollTransform(var1, var3, var4, var5);
+   }
+
+   public void initRagdollTransforms(List<Matrix4f> var1) {
+      for(int var2 = 0; var2 < var1.size(); ++var2) {
+         this.initRagdollTransform(var2, (Matrix4f)var1.get(var2));
+      }
+
+      this.m_isRagdollFirstFrame = false;
+      this.updatePose();
+   }
+
+   public void initRagdollTransforms(TwistableBoneTransform[] var1) {
+      for(int var2 = 0; var2 < var1.length; ++var2) {
+         this.initRagdollTransform(var2, var1[var2]);
+      }
+
+      this.m_isRagdollFirstFrame = false;
+      this.updatePose();
+   }
+
+   public String getName() {
+      return this.CurrentClip != null ? this.CurrentClip.Name : "!Empty!";
+   }
+
+   public boolean isIKAimingLeftArm() {
+      return this.m_IKAimingLeftArm;
+   }
+
+   public void setIKAimingLeftArm(boolean var1) {
+      this.m_IKAimingLeftArm = var1;
+   }
+
+   public boolean isIKAimingRightArm() {
+      return this.m_IKAimingRightArm;
+   }
+
+   public void setIKAimingRightArm(boolean var1) {
+      this.m_IKAimingRightArm = var1;
    }
 
    private static class KeyframeSpan {
@@ -668,6 +838,9 @@ public final class AnimationTrack extends PooledObject {
          } else if (this.from == null) {
             var2.set(this.to);
             return var2;
+         } else if (this.from == this.to) {
+            var2.set(this.to);
+            return var2;
          } else {
             return Keyframe.lerp(this.from, this.to, var1, var2);
          }
@@ -679,6 +852,8 @@ public final class AnimationTrack extends PooledObject {
          } else if (this.to == null) {
             this.from.get(var2, var3, var4);
          } else if (this.from == null) {
+            this.to.get(var2, var3, var4);
+         } else if (this.from == this.to) {
             this.to.get(var2, var3, var4);
          } else if (!PerformanceSettings.InterpolateAnims) {
             this.to.get(var2, var3, var4);
@@ -752,20 +927,6 @@ public final class AnimationTrack extends PooledObject {
       static final Vector2 diff = new Vector2();
 
       private L_updateDeferredValues() {
-      }
-   }
-
-   private static class l_updatePoseInternal {
-      static final KeyframeSpan span = new KeyframeSpan();
-
-      private l_updatePoseInternal() {
-      }
-   }
-
-   private static class l_getDeferredMovementFrameAt {
-      static final KeyframeSpan span = new KeyframeSpan();
-
-      private l_getDeferredMovementFrameAt() {
       }
    }
 }

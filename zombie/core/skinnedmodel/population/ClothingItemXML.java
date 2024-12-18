@@ -10,6 +10,8 @@ public class ClothingItemXML {
    public String m_GUID;
    public String m_MaleModel;
    public String m_FemaleModel;
+   public String m_AltMaleModel;
+   public String m_AltFemaleModel;
    public boolean m_Static = false;
    public ArrayList<String> m_BaseTextures = new ArrayList();
    public String m_AttachBone;
@@ -22,6 +24,7 @@ public class ClothingItemXML {
    public String m_DecalGroup = null;
    public String m_Shader = null;
    public String m_HatCategory = null;
+   public ArrayList<String> m_SpawnWith = new ArrayList();
 
    public ClothingItemXML() {
    }

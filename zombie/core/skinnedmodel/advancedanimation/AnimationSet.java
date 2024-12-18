@@ -6,7 +6,6 @@ import java.util.Iterator;
 import java.util.Locale;
 import zombie.ZomboidFileSystem;
 import zombie.debug.DebugLog;
-import zombie.debug.DebugType;
 
 public final class AnimationSet {
    protected static final HashMap<String, AnimationSet> setMap = new HashMap();
@@ -55,10 +54,7 @@ public final class AnimationSet {
    }
 
    public boolean Load(String var1) {
-      if (DebugLog.isEnabled(DebugType.Animation)) {
-         DebugLog.Animation.println("Loading AnimSet: " + var1);
-      }
-
+      DebugLog.Animation.debugln("Loading AnimSet: %s", var1);
       this.m_Name = var1;
       String[] var2 = ZomboidFileSystem.instance.resolveAllDirectories("media/AnimSets/" + var1, (var0) -> {
          return true;
@@ -71,7 +67,7 @@ public final class AnimationSet {
          String var7 = (new File(var6)).getName();
          AnimState var8 = AnimState.Parse(var7, var6);
          var8.m_Set = this;
-         this.states.put(var7, var8);
+         this.states.put(var7.toLowerCase(Locale.ENGLISH), var8);
       }
 
       return true;

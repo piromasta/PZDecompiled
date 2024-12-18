@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Objects;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.Lua.LuaManager;
@@ -24,10 +25,12 @@ import zombie.config.EnumConfigOption;
 import zombie.config.IntegerConfigOption;
 import zombie.config.StringConfigOption;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
+import zombie.inventory.ItemPickerJava;
+import zombie.iso.IsoGridSquare;
 import zombie.iso.SliceY;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
@@ -43,9 +46,12 @@ import zombie.util.Type;
 
 public final class SandboxOptions {
    public static final SandboxOptions instance = new SandboxOptions();
+   public final int FIRST_YEAR = 1993;
    public int Speed = 3;
    public final EnumSandboxOption Zombies = (EnumSandboxOption)this.newEnumOption("Zombies", 6, 4).setTranslation("ZombieCount");
    public final EnumSandboxOption Distribution = (EnumSandboxOption)this.newEnumOption("Distribution", 2, 1).setTranslation("ZombieDistribution");
+   public final EnumSandboxOption ZombieRespawn = (EnumSandboxOption)this.newEnumOption("ZombieRespawn", 4, 2).setTranslation("ZombieRespawn");
+   public final BooleanSandboxOption ZombieMigrate = (BooleanSandboxOption)this.newBooleanOption("ZombieMigrate", true).setTranslation("ZombieMigrate");
    public final EnumSandboxOption DayLength = this.newEnumOption("DayLength", 26, 2);
    public final EnumSandboxOption StartYear = this.newEnumOption("StartYear", 100, 1);
    public final EnumSandboxOption StartMonth = this.newEnumOption("StartMonth", 12, 7);
@@ -53,24 +59,44 @@ public final class SandboxOptions {
    public final EnumSandboxOption StartTime = this.newEnumOption("StartTime", 9, 2);
    public final EnumSandboxOption WaterShut = this.newEnumOption("WaterShut", 8, 2).setValueTranslation("Shutoff");
    public final EnumSandboxOption ElecShut = this.newEnumOption("ElecShut", 8, 2).setValueTranslation("Shutoff");
+   public final EnumSandboxOption AlarmDecay = this.newEnumOption("AlarmDecay", 6, 2).setValueTranslation("Shutoff");
    public final IntegerSandboxOption WaterShutModifier = (IntegerSandboxOption)this.newIntegerOption("WaterShutModifier", -1, 2147483647, 14).setTranslation("WaterShut");
    public final IntegerSandboxOption ElecShutModifier = (IntegerSandboxOption)this.newIntegerOption("ElecShutModifier", -1, 2147483647, 14).setTranslation("ElecShut");
-   public final EnumSandboxOption FoodLoot = (EnumSandboxOption)this.newEnumOption("FoodLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootFood");
-   public final EnumSandboxOption LiteratureLoot = (EnumSandboxOption)this.newEnumOption("LiteratureLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootLiterature");
-   public final EnumSandboxOption MedicalLoot = (EnumSandboxOption)this.newEnumOption("MedicalLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootMedical");
-   public final EnumSandboxOption SurvivalGearsLoot = (EnumSandboxOption)this.newEnumOption("SurvivalGearsLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootSurvivalGears");
-   public final EnumSandboxOption CannedFoodLoot = (EnumSandboxOption)this.newEnumOption("CannedFoodLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootCannedFood");
-   public final EnumSandboxOption WeaponLoot = (EnumSandboxOption)this.newEnumOption("WeaponLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootWeapon");
-   public final EnumSandboxOption RangedWeaponLoot = (EnumSandboxOption)this.newEnumOption("RangedWeaponLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootRangedWeapon");
-   public final EnumSandboxOption AmmoLoot = (EnumSandboxOption)this.newEnumOption("AmmoLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootAmmo");
-   public final EnumSandboxOption MechanicsLoot = (EnumSandboxOption)this.newEnumOption("MechanicsLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootMechanics");
-   public final EnumSandboxOption OtherLoot = (EnumSandboxOption)this.newEnumOption("OtherLoot", 7, 4).setValueTranslation("Rarity").setTranslation("LootOther");
+   public final IntegerSandboxOption AlarmDecayModifier = (IntegerSandboxOption)this.newIntegerOption("AlarmDecayModifier", -1, 2147483647, 14).setTranslation("AlarmDecay");
+   public final DoubleSandboxOption FoodLootNew = this.newDoubleOption("FoodLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption LiteratureLootNew = this.newDoubleOption("LiteratureLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption MedicalLootNew = this.newDoubleOption("MedicalLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption SurvivalGearsLootNew = this.newDoubleOption("SurvivalGearsLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption CannedFoodLootNew = this.newDoubleOption("CannedFoodLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption WeaponLootNew = this.newDoubleOption("WeaponLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption RangedWeaponLootNew = this.newDoubleOption("RangedWeaponLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption AmmoLootNew = this.newDoubleOption("AmmoLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption MechanicsLootNew = this.newDoubleOption("MechanicsLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption OtherLootNew = this.newDoubleOption("OtherLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption ClothingLootNew = this.newDoubleOption("ClothingLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption ContainerLootNew = this.newDoubleOption("ContainerLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption KeyLootNew = this.newDoubleOption("KeyLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption MediaLootNew = this.newDoubleOption("MediaLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption MementoLootNew = this.newDoubleOption("MementoLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption CookwareLootNew = this.newDoubleOption("CookwareLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption MaterialLootNew = this.newDoubleOption("MaterialLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption FarmingLootNew = this.newDoubleOption("FarmingLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption ToolLootNew = this.newDoubleOption("ToolLootNew", 0.0, 4.0, 0.4);
+   public final DoubleSandboxOption RollsMultiplier = this.newDoubleOption("RollsMultiplier", 0.1, 100.0, 1.0);
+   public final StringSandboxOption LootItemRemovalList = this.newStringOption("LootItemRemovalList", "", -1);
+   public final BooleanSandboxOption RemoveStoryLoot = this.newBooleanOption("RemoveStoryLoot", false);
+   public final BooleanSandboxOption RemoveZombieLoot = this.newBooleanOption("RemoveZombieLoot", false);
+   public final IntegerSandboxOption ZombiePopLootEffect = (IntegerSandboxOption)this.newIntegerOption("ZombiePopLootEffect", 0, 20, 10).setTranslation("ZombiePopLootEffect");
+   public final DoubleSandboxOption InsaneLootFactor = this.newDoubleOption("InsaneLootFactor", 0.0, 0.2, 0.05);
+   public final DoubleSandboxOption ExtremeLootFactor = this.newDoubleOption("ExtremeLootFactor", 0.05, 0.6, 0.2);
+   public final DoubleSandboxOption RareLootFactor = this.newDoubleOption("RareLootFactor", 0.2, 1.0, 0.6);
+   public final DoubleSandboxOption NormalLootFactor = this.newDoubleOption("NormalLootFactor", 0.6, 2.0, 1.0);
+   public final DoubleSandboxOption CommonLootFactor = this.newDoubleOption("CommonLootFactor", 1.0, 3.0, 2.0);
+   public final DoubleSandboxOption AbundantLootFactor = this.newDoubleOption("AbundantLootFactor", 2.0, 4.0, 3.0);
    public final EnumSandboxOption Temperature = (EnumSandboxOption)this.newEnumOption("Temperature", 5, 3).setTranslation("WorldTemperature");
    public final EnumSandboxOption Rain = (EnumSandboxOption)this.newEnumOption("Rain", 5, 3).setTranslation("RainAmount");
    public final EnumSandboxOption ErosionSpeed = this.newEnumOption("ErosionSpeed", 5, 3);
    public final IntegerSandboxOption ErosionDays = this.newIntegerOption("ErosionDays", -1, 36500, 0);
-   public final DoubleSandboxOption XpMultiplier = this.newDoubleOption("XpMultiplier", 0.001, 1000.0, 1.0);
-   public final BooleanSandboxOption XpMultiplierAffectsPassive = this.newBooleanOption("XpMultiplierAffectsPassive", false);
    public final EnumSandboxOption Farming = (EnumSandboxOption)this.newEnumOption("Farming", 5, 3).setTranslation("FarmingSpeed");
    public final EnumSandboxOption CompostTime = this.newEnumOption("CompostTime", 8, 2);
    public final EnumSandboxOption StatsDecrease = (EnumSandboxOption)this.newEnumOption("StatsDecrease", 5, 3).setTranslation("StatDecrease");
@@ -80,22 +106,23 @@ public final class SandboxOptions {
    public final BooleanSandboxOption StarterKit = this.newBooleanOption("StarterKit", false);
    public final BooleanSandboxOption Nutrition = this.newBooleanOption("Nutrition", false);
    public final EnumSandboxOption FoodRotSpeed = (EnumSandboxOption)this.newEnumOption("FoodRotSpeed", 5, 3).setTranslation("FoodSpoil");
-   public final EnumSandboxOption FridgeFactor = (EnumSandboxOption)this.newEnumOption("FridgeFactor", 5, 3).setTranslation("FridgeEffect");
-   public final EnumSandboxOption LootRespawn = this.newEnumOption("LootRespawn", 5, 1).setValueTranslation("Respawn");
+   public final EnumSandboxOption FridgeFactor = (EnumSandboxOption)this.newEnumOption("FridgeFactor", 6, 3).setTranslation("FridgeEffect");
    public final IntegerSandboxOption SeenHoursPreventLootRespawn = this.newIntegerOption("SeenHoursPreventLootRespawn", 0, 2147483647, 0);
+   public final IntegerSandboxOption HoursForLootRespawn = this.newIntegerOption("HoursForLootRespawn", 0, 2147483647, 0);
+   public final IntegerSandboxOption MaxItemsForLootRespawn = this.newIntegerOption("MaxItemsForLootRespawn", 0, 2147483647, 5);
+   public final BooleanSandboxOption ConstructionPreventsLootRespawn = this.newBooleanOption("ConstructionPreventsLootRespawn", true);
    public final StringSandboxOption WorldItemRemovalList = this.newStringOption("WorldItemRemovalList", "Base.Hat,Base.Glasses", -1);
    public final DoubleSandboxOption HoursForWorldItemRemoval = this.newDoubleOption("HoursForWorldItemRemoval", 0.0, 2.147483647E9, 24.0);
    public final BooleanSandboxOption ItemRemovalListBlacklistToggle = this.newBooleanOption("ItemRemovalListBlacklistToggle", false);
    public final EnumSandboxOption TimeSinceApo = this.newEnumOption("TimeSinceApo", 13, 1);
    public final EnumSandboxOption PlantResilience = this.newEnumOption("PlantResilience", 5, 3);
-   public final EnumSandboxOption PlantAbundance = this.newEnumOption("PlantAbundance", 5, 3).setValueTranslation("NatureAmount");
+   public final EnumSandboxOption PlantAbundance = this.newEnumOption("PlantAbundance", 5, 3).setValueTranslation("FarmingAmount");
    public final EnumSandboxOption EndRegen = (EnumSandboxOption)this.newEnumOption("EndRegen", 5, 3).setTranslation("EnduranceRegen");
    public final EnumSandboxOption Helicopter = this.newEnumOption("Helicopter", 4, 2).setValueTranslation("HelicopterFreq");
    public final EnumSandboxOption MetaEvent = this.newEnumOption("MetaEvent", 3, 2).setValueTranslation("MetaEventFreq");
    public final EnumSandboxOption SleepingEvent = this.newEnumOption("SleepingEvent", 3, 1).setValueTranslation("MetaEventFreq");
    public final DoubleSandboxOption GeneratorFuelConsumption = this.newDoubleOption("GeneratorFuelConsumption", 0.0, 100.0, 1.0);
-   public final EnumSandboxOption GeneratorSpawning = this.newEnumOption("GeneratorSpawning", 5, 3);
-   public final EnumSandboxOption SurvivorHouseChance = this.newEnumOption("SurvivorHouseChance", 6, 3);
+   public final EnumSandboxOption GeneratorSpawning = this.newEnumOption("GeneratorSpawning", 7, 5);
    public final EnumSandboxOption AnnotatedMapChance = this.newEnumOption("AnnotatedMapChance", 6, 4);
    public final IntegerSandboxOption CharacterFreePoints = this.newIntegerOption("CharacterFreePoints", -100, 100, 0);
    public final EnumSandboxOption ConstructionBonusPoints = this.newEnumOption("ConstructionBonusPoints", 5, 3);
@@ -104,18 +131,20 @@ public final class SandboxOptions {
    public final BooleanSandboxOption BoneFracture = this.newBooleanOption("BoneFracture", true);
    public final EnumSandboxOption InjurySeverity = this.newEnumOption("InjurySeverity", 3, 2);
    public final DoubleSandboxOption HoursForCorpseRemoval = this.newDoubleOption("HoursForCorpseRemoval", -1.0, 2.147483647E9, -1.0);
-   public final EnumSandboxOption DecayingCorpseHealthImpact = this.newEnumOption("DecayingCorpseHealthImpact", 4, 3);
+   public final EnumSandboxOption DecayingCorpseHealthImpact = this.newEnumOption("DecayingCorpseHealthImpact", 5, 3);
+   public final BooleanSandboxOption ZombieHealthImpact = this.newBooleanOption("ZombieHealthImpact", false);
    public final EnumSandboxOption BloodLevel = this.newEnumOption("BloodLevel", 5, 3);
    public final EnumSandboxOption ClothingDegradation = this.newEnumOption("ClothingDegradation", 4, 3);
    public final BooleanSandboxOption FireSpread = this.newBooleanOption("FireSpread", true);
    public final IntegerSandboxOption DaysForRottenFoodRemoval = this.newIntegerOption("DaysForRottenFoodRemoval", -1, 2147483647, -1);
    public final BooleanSandboxOption AllowExteriorGenerator = this.newBooleanOption("AllowExteriorGenerator", true);
-   public final EnumSandboxOption MaxFogIntensity = this.newEnumOption("MaxFogIntensity", 3, 1);
+   public final EnumSandboxOption MaxFogIntensity = this.newEnumOption("MaxFogIntensity", 4, 1);
    public final EnumSandboxOption MaxRainFxIntensity = this.newEnumOption("MaxRainFxIntensity", 3, 1);
    public final BooleanSandboxOption EnableSnowOnGround = this.newBooleanOption("EnableSnowOnGround", true);
    public final BooleanSandboxOption AttackBlockMovements = this.newBooleanOption("AttackBlockMovements", true);
-   public final EnumSandboxOption VehicleStoryChance = this.newEnumOption("VehicleStoryChance", 6, 3).setValueTranslation("SurvivorHouseChance");
-   public final EnumSandboxOption ZoneStoryChance = this.newEnumOption("ZoneStoryChance", 6, 3).setValueTranslation("SurvivorHouseChance");
+   public final EnumSandboxOption SurvivorHouseChance = this.newEnumOption("SurvivorHouseChance", 7, 3);
+   public final EnumSandboxOption VehicleStoryChance = this.newEnumOption("VehicleStoryChance", 7, 3).setValueTranslation("SurvivorHouseChance");
+   public final EnumSandboxOption ZoneStoryChance = this.newEnumOption("ZoneStoryChance", 7, 3).setValueTranslation("SurvivorHouseChance");
    public final BooleanSandboxOption AllClothesUnlocked = this.newBooleanOption("AllClothesUnlocked", false);
    public final BooleanSandboxOption EnableTaintedWaterText = this.newBooleanOption("EnableTaintedWaterText", true);
    public final BooleanSandboxOption EnableVehicles = this.newBooleanOption("EnableVehicles", true);
@@ -123,7 +152,10 @@ public final class SandboxOptions {
    public final DoubleSandboxOption ZombieAttractionMultiplier = this.newDoubleOption("ZombieAttractionMultiplier", 0.0, 100.0, 1.0);
    public final BooleanSandboxOption VehicleEasyUse = this.newBooleanOption("VehicleEasyUse", false);
    public final EnumSandboxOption InitialGas = this.newEnumOption("InitialGas", 6, 3);
-   public final EnumSandboxOption FuelStationGas = this.newEnumOption("FuelStationGas", 9, 5);
+   public final BooleanSandboxOption FuelStationGasInfinite = this.newBooleanOption("FuelStationGasInfinite", false);
+   public final DoubleSandboxOption FuelStationGasMin = this.newDoubleOption("FuelStationGasMin", 0.0, 1.0, 0.0);
+   public final DoubleSandboxOption FuelStationGasMax = this.newDoubleOption("FuelStationGasMax", 0.0, 1.0, 0.7);
+   public final IntegerSandboxOption FuelStationGasEmptyChance = this.newIntegerOption("FuelStationGasEmptyChance", 0, 100, 20);
    public final EnumSandboxOption LockedCar = this.newEnumOption("LockedCar", 6, 4);
    public final DoubleSandboxOption CarGasConsumption = this.newDoubleOption("CarGasConsumption", 0.0, 100.0, 1.0);
    public final EnumSandboxOption CarGeneralCondition = this.newEnumOption("CarGeneralCondition", 5, 3);
@@ -137,20 +169,62 @@ public final class SandboxOptions {
    public final EnumSandboxOption RecentlySurvivorVehicles = this.newEnumOption("RecentlySurvivorVehicles", 4, 3);
    public final BooleanSandboxOption MultiHitZombies = this.newBooleanOption("MultiHitZombies", false);
    public final EnumSandboxOption RearVulnerability = this.newEnumOption("RearVulnerability", 3, 3);
+   public final BooleanSandboxOption SirenEffectsZombies = this.newBooleanOption("SirenEffectsZombies", true);
+   public final EnumSandboxOption AnimalStatsModifier = this.newEnumOption("AnimalStatsModifier", 6, 4).setValueTranslation("AnimalSpeed");
+   public final EnumSandboxOption AnimalMetaStatsModifier = this.newEnumOption("AnimalMetaStatsModifier", 6, 4).setValueTranslation("AnimalSpeed");
+   public final EnumSandboxOption AnimalPregnancyTime = this.newEnumOption("AnimalPregnancyTime", 6, 2).setValueTranslation("AnimalSpeed");
+   public final EnumSandboxOption AnimalAgeModifier = this.newEnumOption("AnimalAgeModifier", 6, 2).setValueTranslation("AnimalSpeed");
+   public final EnumSandboxOption AnimalMilkIncModifier = this.newEnumOption("AnimalMilkIncModifier", 6, 4).setValueTranslation("AnimalSpeed");
+   public final EnumSandboxOption AnimalWoolIncModifier = this.newEnumOption("AnimalWoolIncModifier", 6, 4).setValueTranslation("AnimalSpeed");
+   public final EnumSandboxOption AnimalRanchChance = this.newEnumOption("AnimalRanchChance", 7, 7).setValueTranslation("AnimalRanchChance");
+   public final IntegerSandboxOption AnimalGrassRegrowTime = this.newIntegerOption("AnimalGrassRegrowTime", 1, 9999, 240);
+   public final BooleanSandboxOption AnimalMetaPredator = this.newBooleanOption("AnimalMetaPredator", false);
+   public final BooleanSandboxOption AnimalMatingSeason = this.newBooleanOption("AnimalMatingSeason", true);
+   public final EnumSandboxOption AnimalEggHatch = this.newEnumOption("AnimalEggHatch", 6, 2).setValueTranslation("AnimalSpeed");
+   public final BooleanSandboxOption AnimalSoundAttractZombies = this.newBooleanOption("AnimalSoundAttractZombies", false);
+   public final IntegerSandboxOption MaximumRatIndex = this.newIntegerOption("MaximumRatIndex", 0, 200, 100);
+   public final IntegerSandboxOption DaysUntilMaximumRatIndex = this.newIntegerOption("DaysUntilMaximumRatIndex", 0, 365, 56);
+   public final EnumSandboxOption MetaKnowledge = this.newEnumOption("MetaKnowledge", 3, 3);
+   public final BooleanSandboxOption SeeNotLearntRecipe = this.newBooleanOption("SeeNotLearntRecipe", true);
    public final EnumSandboxOption EnablePoisoning = this.newEnumOption("EnablePoisoning", 3, 1);
    public final EnumSandboxOption MaggotSpawn = this.newEnumOption("MaggotSpawn", 3, 1);
    public final DoubleSandboxOption LightBulbLifespan = this.newDoubleOption("LightBulbLifespan", 0.0, 1000.0, 1.0);
-   protected final ArrayList<SandboxOption> options = new ArrayList();
-   protected final HashMap<String, SandboxOption> optionByName = new HashMap();
+   public final EnumSandboxOption FishAbundance = (EnumSandboxOption)this.newEnumOption("FishAbundance", 5, 3).setTranslation("FishAmount");
+   public final IntegerSandboxOption LevelForMediaXPCutoff = this.newIntegerOption("LevelForMediaXPCutoff", 0, 10, 3);
+   public final IntegerSandboxOption LevelForDismantleXPCutoff = this.newIntegerOption("LevelForDismantleXPCutoff", 0, 10, 0);
+   public final IntegerSandboxOption BloodSplatLifespanDays = this.newIntegerOption("BloodSplatLifespanDays", 0, 365, 0);
+   public final IntegerSandboxOption LiteratureCooldown = this.newIntegerOption("LiteratureCooldown", 1, 365, 90);
+   public final EnumSandboxOption NegativeTraitsPenalty = this.newEnumOption("NegativeTraitsPenalty", 4, 1);
+   public final DoubleSandboxOption MinutesPerPage = this.newDoubleOption("MinutesPerPage", 0.0, 60.0, 2.0);
+   public final BooleanSandboxOption KillInsideCrops = this.newBooleanOption("KillInsideCrops", true);
+   public final BooleanSandboxOption PlantGrowingSeasons = this.newBooleanOption("PlantGrowingSeasons", true);
+   public final BooleanSandboxOption PlaceDirtAboveground = this.newBooleanOption("PlaceDirtAboveground", false);
+   public final DoubleSandboxOption FarmingSpeedNew = this.newDoubleOption("FarmingSpeedNew", 0.1, 100.0, 1.0);
+   public final DoubleSandboxOption FarmingAmountNew = this.newDoubleOption("FarmingAmountNew", 0.1, 10.0, 1.0);
+   public final IntegerSandboxOption MaximumLooted = this.newIntegerOption("MaximumLooted", 0, 200, 50);
+   public final IntegerSandboxOption DaysUntilMaximumLooted = this.newIntegerOption("DaysUntilMaximumLooted", 0, 3650, 56);
+   public final DoubleSandboxOption RuralLooted = this.newDoubleOption("RuralLooted", 0.0, 2.0, 0.5);
+   public final IntegerSandboxOption MaximumDiminishedLoot = this.newIntegerOption("MaximumDiminishedLoot", 0, 100, 0);
+   public final IntegerSandboxOption DaysUntilMaximumDiminishedLoot = this.newIntegerOption("DaysUntilMaximumDiminishedLoot", 0, 3650, 3650);
+   public final DoubleSandboxOption MuscleStrainFactor = this.newDoubleOption("MuscleStrainFactor", 0.0, 10.0, 1.0);
+   public final DoubleSandboxOption WoundInfectionFactor = this.newDoubleOption("WoundInfectionFactor", 0.0, 10.0, 0.0);
+   public final BooleanSandboxOption NoBlackClothes = this.newBooleanOption("NoBlackClothes", true);
+   public final BooleanSandboxOption EasyClimbing = this.newBooleanOption("EasyClimbing", false);
+   public final DoubleSandboxOption FirearmNoiseMultiplier = this.newDoubleOption("FirearmNoiseMultiplier", 0.2, 2.0, 1.0);
+   private final ArrayList<SandboxOption> m_customOptions = new ArrayList();
+   private final ArrayList<SandboxOption> options = new ArrayList();
+   private final HashMap<String, SandboxOption> optionByName = new HashMap();
+   public final Basement Basement = new Basement();
    public final Map Map = new Map();
    public final ZombieLore Lore = new ZombieLore();
    public final ZombieConfig zombieConfig = new ZombieConfig();
-   public final int FIRST_YEAR = 1993;
+   public final MultiplierConfig multipliersConfig = new MultiplierConfig();
    private final int SANDBOX_VERSION = 5;
-   private final ArrayList<SandboxOption> m_customOptions = new ArrayList();
 
    public SandboxOptions() {
       CustomSandboxOptions.instance.initInstance(this);
+      File var1 = ZomboidFileSystem.instance.getMediaFile("lua/shared/defines.lua");
+      LuaManager.RunLua(var1.getAbsolutePath());
       this.loadGameFile("Apocalypse");
       this.setDefaultsToCurrentValues();
    }
@@ -277,6 +351,23 @@ public final class SandboxOptions {
       }
    }
 
+   public int randomAlarmDecay(int var1) {
+      switch (var1) {
+         case 2:
+            return Rand.Next(0, 30);
+         case 3:
+            return Rand.Next(0, 60);
+         case 4:
+            return Rand.Next(0, 180);
+         case 5:
+            return Rand.Next(0, 360);
+         case 6:
+            return Rand.Next(0, 1800);
+         default:
+            return 0;
+      }
+   }
+
    public int getTemperatureModifier() {
       return this.Temperature.getValue();
    }
@@ -287,18 +378,6 @@ public final class SandboxOptions {
 
    public int getErosionSpeed() {
       return this.ErosionSpeed.getValue();
-   }
-
-   public int getFoodLootModifier() {
-      return this.FoodLoot.getValue();
-   }
-
-   public int getWeaponLootModifier() {
-      return this.WeaponLoot.getValue();
-   }
-
-   public int getOtherLootModifier() {
-      return this.OtherLoot.getValue();
    }
 
    public int getWaterShutModifier() {
@@ -422,7 +501,7 @@ public final class SandboxOptions {
       var1.put((byte)65);
       var1.put((byte)78);
       var1.put((byte)68);
-      var1.putInt(195);
+      var1.putInt(219);
       var1.putInt(5);
       var1.putInt(this.options.size());
 
@@ -432,6 +511,7 @@ public final class SandboxOptions {
          GameWindow.WriteStringUTF(var1, var3.asConfigOption().getValueAsString());
       }
 
+      GameWindow.WriteStringUTF(var1, LuaManager.GlobalObject.getWorld().getPreset());
    }
 
    public void load(ByteBuffer var1) throws IOException {
@@ -440,46 +520,24 @@ public final class SandboxOptions {
       byte var4 = var1.get();
       byte var5 = var1.get();
       byte var6 = var1.get();
-      int var2;
-      if (var3 == 83 && var4 == 65 && var5 == 78 && var6 == 68) {
-         var2 = var1.getInt();
-      } else {
-         var2 = 41;
-         var1.reset();
+      int var2 = var1.getInt();
+      int var7 = var1.getInt();
+      int var8 = var1.getInt();
+
+      for(int var9 = 0; var9 < var8; ++var9) {
+         String var10 = GameWindow.ReadStringUTF(var1);
+         String var11 = GameWindow.ReadStringUTF(var1);
+         var10 = this.upgradeOptionName(var10, var7);
+         var11 = this.upgradeOptionValue(var10, var11, var7);
+         SandboxOption var12 = (SandboxOption)this.optionByName.get(var10);
+         if (var12 == null) {
+            DebugLog.log("ERROR unknown SandboxOption \"" + var10 + "\"");
+         } else {
+            var12.asConfigOption().parse(var11);
+         }
       }
 
-      if (var2 >= 88) {
-         int var7 = 2;
-         if (var2 >= 131) {
-            var7 = var1.getInt();
-         }
-
-         int var8 = var1.getInt();
-
-         for(int var9 = 0; var9 < var8; ++var9) {
-            String var10 = GameWindow.ReadStringUTF(var1);
-            String var11 = GameWindow.ReadStringUTF(var1);
-            var10 = this.upgradeOptionName(var10, var7);
-            var11 = this.upgradeOptionValue(var10, var11, var7);
-            SandboxOption var12 = (SandboxOption)this.optionByName.get(var10);
-            if (var12 == null) {
-               DebugLog.log("ERROR unknown SandboxOption \"" + var10 + "\"");
-            } else {
-               var12.asConfigOption().parse(var11);
-            }
-         }
-
-         if (var2 < 157) {
-            instance.CannedFoodLoot.setValue(instance.FoodLoot.getValue());
-            instance.AmmoLoot.setValue(instance.WeaponLoot.getValue());
-            instance.RangedWeaponLoot.setValue(instance.WeaponLoot.getValue());
-            instance.MedicalLoot.setValue(instance.OtherLoot.getValue());
-            instance.LiteratureLoot.setValue(instance.OtherLoot.getValue());
-            instance.SurvivalGearsLoot.setValue(instance.OtherLoot.getValue());
-            instance.MechanicsLoot.setValue(instance.OtherLoot.getValue());
-         }
-
-      }
+      LuaManager.GlobalObject.getWorld().setPreset(GameWindow.ReadStringUTF(var1));
    }
 
    public int getFirstYear() {
@@ -654,7 +712,7 @@ public final class SandboxOptions {
 
    public boolean loadServerLuaFile(String var1) {
       boolean var2 = this.readLuaFile(ServerSettingsManager.instance.getNameInSettingsFolder(var1 + "_SandboxVars.lua"));
-      if (this.Lore.Speed.getValue() == 1) {
+      if (this.Lore.Speed.getValue() == 1 || this.Lore.Speed.getValue() > 3) {
          this.Lore.Speed.setValue(2);
       }
 
@@ -767,7 +825,7 @@ public final class SandboxOptions {
          File var2 = new File(var1);
          if (var2.exists()) {
             try {
-               DebugLog.log("deleting " + var2.getAbsolutePath());
+               DebugLog.DetailedInfo.trace("deleting " + var2.getAbsolutePath());
                var2.delete();
                this.saveCurrentGameBinFile();
             } catch (Exception var4) {
@@ -785,7 +843,7 @@ public final class SandboxOptions {
 
             try {
                File var2 = new File(var1);
-               DebugLog.log("deleting " + var2.getAbsolutePath());
+               DebugLog.DetailedInfo.trace("deleting " + var2.getAbsolutePath());
                var2.delete();
                this.saveServerLuaFile(GameServer.ServerName);
             } catch (Exception var3) {
@@ -1118,8 +1176,8 @@ public final class SandboxOptions {
             if (var4 > 1) {
                var2 = Integer.toString(var4 + 1);
             }
-         } catch (NumberFormatException var8) {
-            var8.printStackTrace();
+         } catch (NumberFormatException var7) {
+            var7.printStackTrace();
          }
       }
 
@@ -1129,17 +1187,6 @@ public final class SandboxOptions {
                var4 = (int)Double.parseDouble(var2);
                if (var4 > 0) {
                   var2 = Integer.toString(var4 + 2);
-               }
-            } catch (NumberFormatException var7) {
-               var7.printStackTrace();
-            }
-         }
-
-         if ("FuelStationGas".equals(var1)) {
-            try {
-               var4 = (int)Double.parseDouble(var2);
-               if (var4 > 1) {
-                  var2 = Integer.toString(var4 + 1);
                }
             } catch (NumberFormatException var6) {
                var6.printStackTrace();
@@ -1257,10 +1304,132 @@ public final class SandboxOptions {
       return this.AllClothesUnlocked.getValue();
    }
 
+   public int getCurrentRatIndex() {
+      int var1 = instance.MaximumRatIndex.getValue();
+      int var2 = instance.DaysUntilMaximumRatIndex.getValue();
+      if (var1 <= 0) {
+         return 0;
+      } else if (var2 <= 0) {
+         return var1;
+      } else {
+         int var3 = (int)((float)GameTime.getInstance().getWorldAgeHours() / 24.0F) + (instance.TimeSinceApo.getValue() - 1) * 30;
+         if (var3 <= 0) {
+            var3 = 1;
+         }
+
+         if (var3 > var2) {
+            var3 = var2;
+         }
+
+         int var4 = var1 * var3 / var2;
+         if (var4 <= 0) {
+            var4 = 1;
+         }
+
+         return var4;
+      }
+   }
+
+   public int getCurrentLootedChance() {
+      return this.getCurrentLootedChance((IsoGridSquare)null);
+   }
+
+   public int getCurrentLootedChance(IsoGridSquare var1) {
+      int var2 = instance.MaximumLooted.getValue();
+      int var3 = instance.DaysUntilMaximumLooted.getValue();
+      if (var2 <= 0) {
+         return 0;
+      } else if (var3 <= 0) {
+         return var2;
+      } else {
+         int var4 = (int)(GameTime.getInstance().getWorldAgeHours() / 24.0) + (instance.TimeSinceApo.getValue() - 1) * 30;
+         if (var4 <= 0) {
+            var4 = 1;
+         }
+
+         if (var4 > var3) {
+            var4 = var3;
+         }
+
+         int var5 = var2 * var4 / var3;
+         if (var1 != null && ItemPickerJava.getSquareRegion(var1) == null) {
+            var5 *= (int)instance.RuralLooted.getValue();
+         }
+
+         if (var1 != null && Objects.equals(var1.getSquareZombiesType(), "Rich")) {
+            var5 = (int)((double)var5 * 1.5);
+         }
+
+         if (var5 <= 0) {
+            var5 = 1;
+         }
+
+         return var5;
+      }
+   }
+
+   public int getCurrentDiminishedLootPercentage() {
+      return this.getCurrentDiminishedLootPercentage((IsoGridSquare)null);
+   }
+
+   public int getCurrentDiminishedLootPercentage(IsoGridSquare var1) {
+      int var2 = instance.MaximumDiminishedLoot.getValue();
+      int var3 = instance.DaysUntilMaximumDiminishedLoot.getValue();
+      if (var2 <= 0) {
+         return 0;
+      } else if (var3 <= 0) {
+         return var2;
+      } else {
+         int var4 = (int)(GameTime.getInstance().getWorldAgeHours() / 24.0) + (instance.TimeSinceApo.getValue() - 1) * 30;
+         if (var4 <= 0) {
+            var4 = 1;
+         }
+
+         if (var4 > var3) {
+            var4 = var3;
+         }
+
+         int var5 = var2 * var4 / var3;
+         if (var1 != null && ItemPickerJava.getSquareRegion(var1) == null) {
+            var5 *= (int)instance.RuralLooted.getValue();
+         }
+
+         if (var5 < 0) {
+            var5 = 0;
+         }
+
+         if (var5 > 100) {
+            var5 = 100;
+         }
+
+         return var5;
+      }
+   }
+
+   public float getCurrentLootMultiplier() {
+      return this.getCurrentLootMultiplier((IsoGridSquare)null);
+   }
+
+   public float getCurrentLootMultiplier(IsoGridSquare var1) {
+      return 1.0F - (float)this.getCurrentDiminishedLootPercentage(var1) / 100.0F;
+   }
+
+   public boolean isUnstableScriptNameSpam() {
+      return Core.bDebug ? true : true;
+   }
+
+   public final class Basement {
+      public final EnumSandboxOption SpawnFrequency = (EnumSandboxOption)SandboxOptions.this.newEnumOption("Basement.SpawnFrequency", 7, 4).setTranslation("BasementSpawnFrequency");
+
+      Basement() {
+      }
+   }
+
    public final class Map {
       public final BooleanSandboxOption AllowMiniMap = SandboxOptions.this.newBooleanOption("Map.AllowMiniMap", false);
       public final BooleanSandboxOption AllowWorldMap = SandboxOptions.this.newBooleanOption("Map.AllowWorldMap", true);
       public final BooleanSandboxOption MapAllKnown = SandboxOptions.this.newBooleanOption("Map.MapAllKnown", false);
+      public final BooleanSandboxOption MapNeedsLight = SandboxOptions.this.newBooleanOption("Map.MapNeedsLight", true);
 
       Map() {
       }
@@ -1268,6 +1437,7 @@ public final class SandboxOptions {
 
    public final class ZombieLore {
       public final EnumSandboxOption Speed = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Speed", 4, 2).setTranslation("ZSpeed");
+      public final IntegerSandboxOption SprinterPercentage = (IntegerSandboxOption)SandboxOptions.this.newIntegerOption("ZombieLore.SprinterPercentage", 0, 100, 33).setTranslation("ZSprinterPercentage");
       public final EnumSandboxOption Strength = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Strength", 4, 2).setTranslation("ZStrength");
       public final EnumSandboxOption Toughness = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Toughness", 4, 2).setTranslation("ZToughness");
       public final EnumSandboxOption Transmission = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Transmission", 4, 1).setTranslation("ZTransmission");
@@ -1275,23 +1445,30 @@ public final class SandboxOptions {
       public final EnumSandboxOption Reanimate = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Reanimate", 6, 3).setTranslation("ZReanimateTime");
       public final EnumSandboxOption Cognition = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Cognition", 4, 3).setTranslation("ZCognition");
       public final EnumSandboxOption CrawlUnderVehicle = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.CrawlUnderVehicle", 7, 5).setTranslation("ZCrawlUnderVehicle");
-      public final EnumSandboxOption Memory = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Memory", 5, 2).setTranslation("ZMemory");
-      public final EnumSandboxOption Sight = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Sight", 4, 2).setTranslation("ZSight");
-      public final EnumSandboxOption Hearing = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Hearing", 4, 2).setTranslation("ZHearing");
+      public final EnumSandboxOption Memory = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Memory", 6, 2).setTranslation("ZMemory");
+      public final EnumSandboxOption Sight = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Sight", 5, 2).setTranslation("ZSight");
+      public final EnumSandboxOption Hearing = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.Hearing", 5, 2).setTranslation("ZHearing");
+      public final BooleanSandboxOption SpottedLogic = SandboxOptions.this.newBooleanOption("ZombieLore.SpottedLogic", true);
       public final BooleanSandboxOption ThumpNoChasing = SandboxOptions.this.newBooleanOption("ZombieLore.ThumpNoChasing", false);
       public final BooleanSandboxOption ThumpOnConstruction = SandboxOptions.this.newBooleanOption("ZombieLore.ThumpOnConstruction", true);
       public final EnumSandboxOption ActiveOnly = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.ActiveOnly", 3, 1).setTranslation("ActiveOnly");
       public final BooleanSandboxOption TriggerHouseAlarm = SandboxOptions.this.newBooleanOption("ZombieLore.TriggerHouseAlarm", false);
       public final BooleanSandboxOption ZombiesDragDown = SandboxOptions.this.newBooleanOption("ZombieLore.ZombiesDragDown", true);
+      public final BooleanSandboxOption ZombiesCrawlersDragDown = SandboxOptions.this.newBooleanOption("ZombieLore.ZombiesCrawlersDragDown", false);
       public final BooleanSandboxOption ZombiesFenceLunge = SandboxOptions.this.newBooleanOption("ZombieLore.ZombiesFenceLunge", true);
+      public final DoubleSandboxOption ZombiesArmorFactor = SandboxOptions.this.newDoubleOption("ZombieLore.ZombiesArmorFactor", 0.0, 100.0, 2.0);
+      public final IntegerSandboxOption ZombiesMaxDefense = SandboxOptions.this.newIntegerOption("ZombieLore.ZombiesMaxDefense", 0, 100, 85);
+      public final IntegerSandboxOption ChanceOfAttachedWeapon = SandboxOptions.this.newIntegerOption("ZombieLore.ChanceOfAttachedWeapon", 0, 100, 6);
+      public final DoubleSandboxOption ZombiesFallDamage = SandboxOptions.this.newDoubleOption("ZombieLore.ZombiesFallDamage", 0.0, 100.0, 1.0);
       public final EnumSandboxOption DisableFakeDead = SandboxOptions.this.newEnumOption("ZombieLore.DisableFakeDead", 3, 1);
+      public final EnumSandboxOption PlayerSpawnZombieRemoval = (EnumSandboxOption)SandboxOptions.this.newEnumOption("ZombieLore.PlayerSpawnZombieRemoval", 4, 1).setTranslation("ZSpawnRemoval");
 
       private ZombieLore() {
       }
    }
 
    public final class ZombieConfig {
-      public final DoubleSandboxOption PopulationMultiplier = SandboxOptions.this.newDoubleOption("ZombieConfig.PopulationMultiplier", 0.0, 4.0, 1.0);
+      public final DoubleSandboxOption PopulationMultiplier = SandboxOptions.this.newDoubleOption("ZombieConfig.PopulationMultiplier", 0.0, 4.0, 0.6499999761581421);
       public final DoubleSandboxOption PopulationStartMultiplier = SandboxOptions.this.newDoubleOption("ZombieConfig.PopulationStartMultiplier", 0.0, 4.0, 1.0);
       public final DoubleSandboxOption PopulationPeakMultiplier = SandboxOptions.this.newDoubleOption("ZombieConfig.PopulationPeakMultiplier", 0.0, 4.0, 1.5);
       public final IntegerSandboxOption PopulationPeakDay = SandboxOptions.this.newIntegerOption("ZombieConfig.PopulationPeakDay", 1, 365, 28);
@@ -1301,11 +1478,55 @@ public final class SandboxOptions {
       public final DoubleSandboxOption RedistributeHours = SandboxOptions.this.newDoubleOption("ZombieConfig.RedistributeHours", 0.0, 8760.0, 12.0);
       public final IntegerSandboxOption FollowSoundDistance = SandboxOptions.this.newIntegerOption("ZombieConfig.FollowSoundDistance", 10, 1000, 100);
       public final IntegerSandboxOption RallyGroupSize = SandboxOptions.this.newIntegerOption("ZombieConfig.RallyGroupSize", 0, 1000, 20);
+      public final IntegerSandboxOption RallyGroupSizeVariance = SandboxOptions.this.newIntegerOption("ZombieConfig.RallyGroupSizeVariance", 0, 100, 50);
       public final IntegerSandboxOption RallyTravelDistance = SandboxOptions.this.newIntegerOption("ZombieConfig.RallyTravelDistance", 5, 50, 20);
       public final IntegerSandboxOption RallyGroupSeparation = SandboxOptions.this.newIntegerOption("ZombieConfig.RallyGroupSeparation", 5, 25, 15);
       public final IntegerSandboxOption RallyGroupRadius = SandboxOptions.this.newIntegerOption("ZombieConfig.RallyGroupRadius", 1, 10, 3);
+      public final IntegerSandboxOption ZombiesCountBeforeDeletion = SandboxOptions.this.newIntegerOption("ZombieConfig.ZombiesCountBeforeDelete", 10, 500, 300);
 
       private ZombieConfig() {
+      }
+   }
+
+   public final class MultiplierConfig {
+      public final DoubleSandboxOption XPMultiplierGlobal = SandboxOptions.this.newDoubleOption("MultiplierConfig.Global", 0.0, 1000.0, 1.0);
+      public final BooleanSandboxOption XPMultiplierGlobalToggle = SandboxOptions.this.newBooleanOption("MultiplierConfig.GlobalToggle", true);
+      public final DoubleSandboxOption XPMultiplierFitness = SandboxOptions.this.newDoubleOption("MultiplierConfig.Fitness", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierStrength = SandboxOptions.this.newDoubleOption("MultiplierConfig.Strength", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierSprinting = SandboxOptions.this.newDoubleOption("MultiplierConfig.Sprinting", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierLightfoot = SandboxOptions.this.newDoubleOption("MultiplierConfig.Lightfoot", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierNimble = SandboxOptions.this.newDoubleOption("MultiplierConfig.Nimble", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierSneak = SandboxOptions.this.newDoubleOption("MultiplierConfig.Sneak", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierAxe = SandboxOptions.this.newDoubleOption("MultiplierConfig.Axe", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierBlunt = SandboxOptions.this.newDoubleOption("MultiplierConfig.Blunt", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierSmallBlunt = SandboxOptions.this.newDoubleOption("MultiplierConfig.SmallBlunt", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierLongBlade = SandboxOptions.this.newDoubleOption("MultiplierConfig.LongBlade", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierSmallBlade = SandboxOptions.this.newDoubleOption("MultiplierConfig.SmallBlade", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierSpear = SandboxOptions.this.newDoubleOption("MultiplierConfig.Spear", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierMaintenance = SandboxOptions.this.newDoubleOption("MultiplierConfig.Maintenance", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierWoodwork = SandboxOptions.this.newDoubleOption("MultiplierConfig.Woodwork", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierCooking = SandboxOptions.this.newDoubleOption("MultiplierConfig.Cooking", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierFarming = SandboxOptions.this.newDoubleOption("MultiplierConfig.Farming", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierDoctor = SandboxOptions.this.newDoubleOption("MultiplierConfig.Doctor", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierElectricity = SandboxOptions.this.newDoubleOption("MultiplierConfig.Electricity", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierMetalWelding = SandboxOptions.this.newDoubleOption("MultiplierConfig.MetalWelding", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierMechanics = SandboxOptions.this.newDoubleOption("MultiplierConfig.Mechanics", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierTailoring = SandboxOptions.this.newDoubleOption("MultiplierConfig.Tailoring", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierAiming = SandboxOptions.this.newDoubleOption("MultiplierConfig.Aiming", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierReloading = SandboxOptions.this.newDoubleOption("MultiplierConfig.Reloading", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierFishing = SandboxOptions.this.newDoubleOption("MultiplierConfig.Fishing", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierTrapping = SandboxOptions.this.newDoubleOption("MultiplierConfig.Trapping", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierPlantScavenging = SandboxOptions.this.newDoubleOption("MultiplierConfig.PlantScavenging", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierFlintKnapping = SandboxOptions.this.newDoubleOption("MultiplierConfig.FlintKnapping", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierMasonry = SandboxOptions.this.newDoubleOption("MultiplierConfig.Masonry", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierPottery = SandboxOptions.this.newDoubleOption("MultiplierConfig.Pottery", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierCarving = SandboxOptions.this.newDoubleOption("MultiplierConfig.Carving", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierHusbandry = SandboxOptions.this.newDoubleOption("MultiplierConfig.Husbandry", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierTracking = SandboxOptions.this.newDoubleOption("MultiplierConfig.Tracking", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierBlacksmith = SandboxOptions.this.newDoubleOption("MultiplierConfig.Blacksmith", 0.0, 1000.0, 1.0);
+      public final DoubleSandboxOption XPMultiplierButchering = SandboxOptions.this.newDoubleOption("MultiplierConfig.Butchering", 0.0, 1000.0, 1.0);
+
+      private MultiplierConfig() {
       }
    }
 
@@ -1461,6 +1682,99 @@ public final class SandboxOptions {
       SandboxOption setPageName(String var1);
 
       String getPageName();
+   }
+
+   public static class BooleanSandboxOption extends BooleanConfigOption implements SandboxOption {
+      protected String translation;
+      protected String tableName;
+      protected String shortName;
+      protected boolean bCustom;
+      protected String pageName;
+
+      public BooleanSandboxOption(SandboxOptions var1, String var2, boolean var3) {
+         super(var2, var3);
+         String[] var4 = SandboxOptions.parseName(var2);
+         this.tableName = var4[0];
+         this.shortName = var4[1];
+         var1.addOption(this);
+      }
+
+      public ConfigOption asConfigOption() {
+         return this;
+      }
+
+      public String getShortName() {
+         return this.shortName;
+      }
+
+      public String getTableName() {
+         return this.tableName;
+      }
+
+      public SandboxOption setTranslation(String var1) {
+         this.translation = var1;
+         return this;
+      }
+
+      public String getTranslatedName() {
+         String var10000 = this.translation == null ? this.getShortName() : this.translation;
+         return Translator.getText("Sandbox_" + var10000);
+      }
+
+      public String getTooltip() {
+         String var10000 = this.translation == null ? this.getShortName() : this.translation;
+         return Translator.getTextOrNull("Sandbox_" + var10000 + "_tooltip");
+      }
+
+      public void fromTable(KahluaTable var1) {
+         Object var2;
+         if (this.tableName != null) {
+            var2 = var1.rawget(this.tableName);
+            if (!(var2 instanceof KahluaTable)) {
+               return;
+            }
+
+            var1 = (KahluaTable)var2;
+         }
+
+         var2 = var1.rawget(this.getShortName());
+         if (var2 != null) {
+            this.setValueFromObject(var2);
+         }
+
+      }
+
+      public void toTable(KahluaTable var1) {
+         if (this.tableName != null) {
+            Object var2 = var1.rawget(this.tableName);
+            if (var2 instanceof KahluaTable) {
+               var1 = (KahluaTable)var2;
+            } else {
+               KahluaTable var3 = LuaManager.platform.newTable();
+               var1.rawset(this.tableName, var3);
+               var1 = var3;
+            }
+         }
+
+         var1.rawset(this.getShortName(), this.getValueAsObject());
+      }
+
+      public void setCustom() {
+         this.bCustom = true;
+      }
+
+      public boolean isCustom() {
+         return this.bCustom;
+      }
+
+      public SandboxOption setPageName(String var1) {
+         this.pageName = var1;
+         return this;
+      }
+
+      public String getPageName() {
+         return this.pageName;
+      }
    }
 
    public static class IntegerSandboxOption extends IntegerConfigOption implements SandboxOption {
@@ -1624,99 +1938,6 @@ public final class SandboxOptions {
          } else {
             return var2 == null ? var1 : var1 + "\\n" + var2;
          }
-      }
-
-      public void fromTable(KahluaTable var1) {
-         Object var2;
-         if (this.tableName != null) {
-            var2 = var1.rawget(this.tableName);
-            if (!(var2 instanceof KahluaTable)) {
-               return;
-            }
-
-            var1 = (KahluaTable)var2;
-         }
-
-         var2 = var1.rawget(this.getShortName());
-         if (var2 != null) {
-            this.setValueFromObject(var2);
-         }
-
-      }
-
-      public void toTable(KahluaTable var1) {
-         if (this.tableName != null) {
-            Object var2 = var1.rawget(this.tableName);
-            if (var2 instanceof KahluaTable) {
-               var1 = (KahluaTable)var2;
-            } else {
-               KahluaTable var3 = LuaManager.platform.newTable();
-               var1.rawset(this.tableName, var3);
-               var1 = var3;
-            }
-         }
-
-         var1.rawset(this.getShortName(), this.getValueAsObject());
-      }
-
-      public void setCustom() {
-         this.bCustom = true;
-      }
-
-      public boolean isCustom() {
-         return this.bCustom;
-      }
-
-      public SandboxOption setPageName(String var1) {
-         this.pageName = var1;
-         return this;
-      }
-
-      public String getPageName() {
-         return this.pageName;
-      }
-   }
-
-   public static class BooleanSandboxOption extends BooleanConfigOption implements SandboxOption {
-      protected String translation;
-      protected String tableName;
-      protected String shortName;
-      protected boolean bCustom;
-      protected String pageName;
-
-      public BooleanSandboxOption(SandboxOptions var1, String var2, boolean var3) {
-         super(var2, var3);
-         String[] var4 = SandboxOptions.parseName(var2);
-         this.tableName = var4[0];
-         this.shortName = var4[1];
-         var1.addOption(this);
-      }
-
-      public ConfigOption asConfigOption() {
-         return this;
-      }
-
-      public String getShortName() {
-         return this.shortName;
-      }
-
-      public String getTableName() {
-         return this.tableName;
-      }
-
-      public SandboxOption setTranslation(String var1) {
-         this.translation = var1;
-         return this;
-      }
-
-      public String getTranslatedName() {
-         String var10000 = this.translation == null ? this.getShortName() : this.translation;
-         return Translator.getText("Sandbox_" + var10000);
-      }
-
-      public String getTooltip() {
-         String var10000 = this.translation == null ? this.getShortName() : this.translation;
-         return Translator.getTextOrNull("Sandbox_" + var10000 + "_tooltip");
       }
 
       public void fromTable(KahluaTable var1) {

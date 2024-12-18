@@ -1,5 +1,6 @@
 package zombie.characters;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Stack;
 import zombie.ai.State;
@@ -12,18 +13,21 @@ import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.textures.ColorInfo;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemContainer;
+import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.Literature;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
+import zombie.iso.objects.IsoWindowFrame;
 import zombie.iso.sprite.IsoSpriteInstance;
+import zombie.pathfind.Path;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.scripting.objects.Item;
 import zombie.scripting.objects.Recipe;
 import zombie.ui.UIFont;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.VehiclePart;
 
 public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacterAttachedItems, ILuaGameCharacterDamage, ILuaGameCharacterClothing, ILuaGameCharacterHealth {
@@ -57,6 +61,10 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
 
    void setAsleep(boolean var1);
 
+   boolean isResting();
+
+   void setIsResting(boolean var1);
+
    int getZombieKills();
 
    void setForceWakeUpTime(float var1);
@@ -74,6 +82,8 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
    boolean hasEquipped(String var1);
 
    boolean hasEquippedTag(String var1);
+
+   boolean hasWornTag(String var1);
 
    boolean isHandItem(InventoryItem var1);
 
@@ -173,7 +183,7 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
 
    void climbThroughWindow(IsoWindow var1, Integer var2);
 
-   void climbThroughWindowFrame(IsoObject var1);
+   void climbThroughWindowFrame(IsoWindowFrame var1);
 
    void climbSheetRope();
 
@@ -233,6 +243,10 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
 
    int getMaintenanceMod();
 
+   int getWeaponLevel();
+
+   int getWeaponLevel(HandWeapon var1);
+
    float getHammerSoundMod();
 
    float getWeldingSoundMod();
@@ -271,13 +285,15 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
 
    boolean isKnownPoison(InventoryItem var1);
 
+   boolean isKnownPoison(Item var1);
+
    String getBedType();
 
    void setBedType(String var1);
 
-   PolygonalMap2.Path getPath2();
+   Path getPath2();
 
-   void setPath2(PolygonalMap2.Path var1);
+   void setPath2(Path var1);
 
    PathFindBehavior2 getPathFindBehavior2();
 
@@ -313,6 +329,10 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
 
    void setFarmingCheat(boolean var1);
 
+   boolean isFishingCheat();
+
+   void setFishingCheat(boolean var1);
+
    boolean isHealthCheat();
 
    void setHealthCheat(boolean var1);
@@ -343,7 +363,31 @@ public interface ILuaGameCharacter extends ILuaVariableSource, ILuaGameCharacter
 
    boolean isAiming();
 
+   boolean isTwisting();
+
+   boolean allowsTwist();
+
    void resetBeardGrowingTime();
 
    void resetHairGrowingTime();
+
+   float getPerkToUnit(PerkFactory.Perk var1);
+
+   HashMap<String, Integer> getReadLiterature();
+
+   boolean isLiteratureRead(String var1);
+
+   void addReadLiterature(String var1);
+
+   void addReadLiterature(String var1, int var2);
+
+   void triggerContextualAction(String var1);
+
+   void triggerContextualAction(String var1, Object var2);
+
+   void triggerContextualAction(String var1, Object var2, Object var3);
+
+   void triggerContextualAction(String var1, Object var2, Object var3, Object var4);
+
+   void triggerContextualAction(String var1, Object var2, Object var3, Object var4, Object var5);
 }

@@ -25,6 +25,7 @@ public final class PerformanceSettings {
    public static int BaseStaticAnimFramerate = 60;
    public static boolean UseFBOs = false;
    public static int numberZombiesBlended = 20;
+   public static boolean FBORenderChunk = true;
    public static int FogQuality = 0;
 
    public PerformanceSettings() {
@@ -38,12 +39,12 @@ public final class PerformanceSettings {
       s_lockFPS = var0;
    }
 
-   public static boolean isUncappedFPS() {
+   public boolean isFramerateUncapped() {
       return s_uncappedFPS;
    }
 
-   public static void setUncappedFPS(boolean var0) {
-      s_uncappedFPS = var0;
+   public void setFramerateUncapped(boolean var1) {
+      s_uncappedFPS = var1;
    }
 
    public int getFramerate() {
@@ -52,14 +53,6 @@ public final class PerformanceSettings {
 
    public void setFramerate(int var1) {
       setLockFPS(var1);
-   }
-
-   public boolean isFramerateUncapped() {
-      return isUncappedFPS();
-   }
-
-   public void setFramerateUncapped(boolean var1) {
-      setUncappedFPS(var1);
    }
 
    public void setLightingQuality(int var1) {
@@ -111,7 +104,7 @@ public final class PerformanceSettings {
    }
 
    public int getUIRenderFPS() {
-      return UIManager.useUIFBO ? Core.OptionUIRenderFPS : s_lockFPS;
+      return UIManager.useUIFBO ? Core.getInstance().getOptionUIRenderFPS() : s_lockFPS;
    }
 
    public int getFogQuality() {

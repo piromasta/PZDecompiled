@@ -1,14 +1,26 @@
 package zombie.Lua;
 
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.MultiFormatWriter;
+import com.google.zxing.WriterException;
+import com.google.zxing.client.j2se.MatrixToImageWriter;
+import com.google.zxing.common.BitMatrix;
 import fmod.fmod.EmitterType;
 import fmod.fmod.FMODAudio;
+import fmod.fmod.FMODDebugEventPlayer;
 import fmod.fmod.FMODManager;
 import fmod.fmod.FMODSoundBank;
 import fmod.fmod.FMODSoundEmitter;
 import java.awt.Desktop;
+import java.awt.Graphics2D;
 import java.awt.Desktop.Action;
+import java.awt.image.BufferedImage;
+import java.awt.image.ImageObserver;
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -38,6 +50,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,23 +59,27 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Stack;
 import java.util.Vector;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import javax.imageio.ImageIO;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.joml.Vector2f;
@@ -80,6 +97,7 @@ import org.xml.sax.InputSource;
 import se.krka.kahlua.converter.KahluaConverterManager;
 import se.krka.kahlua.integration.LuaCaller;
 import se.krka.kahlua.integration.LuaReturn;
+import se.krka.kahlua.integration.LuaSuccess;
 import se.krka.kahlua.integration.annotations.LuaMethod;
 import se.krka.kahlua.integration.expose.LuaJavaClassExposer;
 import se.krka.kahlua.j2se.J2SEPlatform;
@@ -101,6 +119,7 @@ import zombie.DummySoundManager;
 import zombie.GameSounds;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.MapGroups;
 import zombie.SandboxOptions;
 import zombie.SoundManager;
@@ -140,6 +159,7 @@ import zombie.ai.states.PlayerHitReactionPVPState;
 import zombie.ai.states.PlayerHitReactionState;
 import zombie.ai.states.PlayerKnockedDown;
 import zombie.ai.states.PlayerOnGroundState;
+import zombie.ai.states.PlayerSitOnFurnitureState;
 import zombie.ai.states.PlayerSitOnGroundState;
 import zombie.ai.states.PlayerStrafeState;
 import zombie.ai.states.SmashWindowState;
@@ -162,9 +182,18 @@ import zombie.audio.DummySoundBank;
 import zombie.audio.DummySoundEmitter;
 import zombie.audio.GameSound;
 import zombie.audio.GameSoundClip;
+import zombie.audio.MusicIntensityConfig;
+import zombie.audio.MusicIntensityEvent;
+import zombie.audio.MusicIntensityEvents;
+import zombie.audio.MusicThreatConfig;
+import zombie.audio.MusicThreatStatus;
+import zombie.audio.MusicThreatStatuses;
 import zombie.audio.parameters.ParameterRoomType;
+import zombie.basements.Basements;
+import zombie.basements.BasementsV1;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characterTextures.BloodClothingType;
+import zombie.characters.Capability;
 import zombie.characters.CharacterActionAnims;
 import zombie.characters.CharacterSoundEmitter;
 import zombie.characters.DummyCharacterSoundEmitter;
@@ -176,10 +205,18 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.MoveDeltaModifiers;
+import zombie.characters.NetworkUser;
+import zombie.characters.NetworkUsers;
+import zombie.characters.Position3D;
+import zombie.characters.Role;
+import zombie.characters.Roles;
 import zombie.characters.Safety;
+import zombie.characters.SafetySystemManager;
 import zombie.characters.Stats;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.SurvivorFactory;
+import zombie.characters.UnderwearDefinition;
 import zombie.characters.ZombiesZoneDefinition;
 import zombie.characters.AttachedItems.AttachedItem;
 import zombie.characters.AttachedItems.AttachedItems;
@@ -205,8 +242,22 @@ import zombie.characters.WornItems.BodyLocations;
 import zombie.characters.WornItems.WornItem;
 import zombie.characters.WornItems.WornItems;
 import zombie.characters.action.ActionGroup;
+import zombie.characters.animals.AnimalAllele;
+import zombie.characters.animals.AnimalChunk;
+import zombie.characters.animals.AnimalDefinitions;
+import zombie.characters.animals.AnimalGene;
+import zombie.characters.animals.AnimalGenomeDefinitions;
+import zombie.characters.animals.AnimalManagerWorker;
+import zombie.characters.animals.AnimalPartsDefinitions;
+import zombie.characters.animals.AnimalTracks;
+import zombie.characters.animals.IsoAnimal;
+import zombie.characters.animals.VirtualAnimal;
+import zombie.characters.animals.behavior.BaseAnimalBehavior;
+import zombie.characters.animals.datas.AnimalBreed;
+import zombie.characters.animals.datas.AnimalData;
 import zombie.characters.professions.ProfessionFactory;
 import zombie.characters.skills.PerkFactory;
+import zombie.characters.traits.CharacterTraits;
 import zombie.characters.traits.ObservationFactory;
 import zombie.characters.traits.TraitCollection;
 import zombie.characters.traits.TraitFactory;
@@ -214,25 +265,27 @@ import zombie.chat.ChatBase;
 import zombie.chat.ChatManager;
 import zombie.chat.ChatMessage;
 import zombie.chat.ServerChatMessage;
-import zombie.commands.PlayerType;
 import zombie.config.BooleanConfigOption;
 import zombie.config.ConfigOption;
 import zombie.config.DoubleConfigOption;
 import zombie.config.EnumConfigOption;
 import zombie.config.IntegerConfigOption;
 import zombie.config.StringConfigOption;
+import zombie.core.ActionManager;
 import zombie.core.BoxedStaticValues;
 import zombie.core.Clipboard;
 import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.Core;
+import zombie.core.FishingAction;
 import zombie.core.GameVersion;
 import zombie.core.ImmutableColor;
 import zombie.core.IndieFileLoader;
 import zombie.core.Language;
+import zombie.core.NetTimedAction;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
+import zombie.core.TransactionManager;
 import zombie.core.Translator;
 import zombie.core.fonts.AngelCodeFont;
 import zombie.core.input.Input;
@@ -243,14 +296,18 @@ import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.RenderThread;
 import zombie.core.physics.Bullet;
+import zombie.core.physics.RagdollSettingsManager;
 import zombie.core.physics.WorldSimulation;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.raknet.VoiceManager;
+import zombie.core.random.Rand;
+import zombie.core.random.RandLua;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.AnimNodeAssetManager;
 import zombie.core.skinnedmodel.advancedanimation.AnimationSet;
 import zombie.core.skinnedmodel.advancedanimation.debug.AnimatorDebugMonitor;
+import zombie.core.skinnedmodel.model.ItemModelRenderer;
 import zombie.core.skinnedmodel.model.Model;
 import zombie.core.skinnedmodel.model.ModelAssetManager;
 import zombie.core.skinnedmodel.model.WorldItemModelDrawer;
@@ -264,6 +321,10 @@ import zombie.core.skinnedmodel.population.HairStyle;
 import zombie.core.skinnedmodel.population.HairStyles;
 import zombie.core.skinnedmodel.population.Outfit;
 import zombie.core.skinnedmodel.population.OutfitManager;
+import zombie.core.skinnedmodel.population.VoiceStyle;
+import zombie.core.skinnedmodel.population.VoiceStyles;
+import zombie.core.skinnedmodel.runtime.RuntimeAnimationScript;
+import zombie.core.skinnedmodel.visual.AnimalVisual;
 import zombie.core.skinnedmodel.visual.HumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
@@ -272,12 +333,15 @@ import zombie.core.stash.StashBuilding;
 import zombie.core.stash.StashSystem;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.core.textures.TextureDraw;
 import zombie.core.textures.TextureID;
+import zombie.core.textures.VideoTexture;
 import zombie.core.znet.GameServerDetails;
 import zombie.core.znet.ISteamWorkshopCallback;
 import zombie.core.znet.ServerBrowser;
 import zombie.core.znet.SteamFriend;
 import zombie.core.znet.SteamFriends;
+import zombie.core.znet.SteamRemotePlay;
 import zombie.core.znet.SteamUGCDetails;
 import zombie.core.znet.SteamUser;
 import zombie.core.znet.SteamUtils;
@@ -285,9 +349,95 @@ import zombie.core.znet.SteamWorkshop;
 import zombie.core.znet.SteamWorkshopItem;
 import zombie.debug.BooleanDebugOption;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugLogStream;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
 import zombie.debug.LineDrawer;
+import zombie.debug.LogSeverity;
+import zombie.debug.objects.ObjectDebuggerLua;
+import zombie.entity.Component;
+import zombie.entity.ComponentType;
+import zombie.entity.EntityBucket;
+import zombie.entity.Family;
+import zombie.entity.GameEntity;
+import zombie.entity.GameEntityFactory;
+import zombie.entity.GameEntityManager;
+import zombie.entity.GameEntityType;
+import zombie.entity.MetaEntity;
+import zombie.entity.components.attributes.Attribute;
+import zombie.entity.components.attributes.AttributeContainer;
+import zombie.entity.components.attributes.AttributeInstance;
+import zombie.entity.components.attributes.AttributeType;
+import zombie.entity.components.attributes.AttributeUtil;
+import zombie.entity.components.attributes.AttributeValueType;
+import zombie.entity.components.attributes.EnumStringObj;
+import zombie.entity.components.build.BuildLogic;
+import zombie.entity.components.crafting.BaseCraftingLogic;
+import zombie.entity.components.crafting.CraftBench;
+import zombie.entity.components.crafting.CraftLogic;
+import zombie.entity.components.crafting.CraftMode;
+import zombie.entity.components.crafting.CraftRecipeComponent;
+import zombie.entity.components.crafting.CraftRecipeMonitor;
+import zombie.entity.components.crafting.CraftUtil;
+import zombie.entity.components.crafting.FluidMatchMode;
+import zombie.entity.components.crafting.FurnaceLogic;
+import zombie.entity.components.crafting.InputFlag;
+import zombie.entity.components.crafting.ItemApplyMode;
+import zombie.entity.components.crafting.MashingLogic;
+import zombie.entity.components.crafting.OutputFlag;
+import zombie.entity.components.crafting.StartMode;
+import zombie.entity.components.crafting.TimeMode;
+import zombie.entity.components.crafting.recipe.CraftRecipeData;
+import zombie.entity.components.crafting.recipe.CraftRecipeManager;
+import zombie.entity.components.crafting.recipe.CraftRecipeSort;
+import zombie.entity.components.crafting.recipe.HandcraftLogic;
+import zombie.entity.components.crafting.recipe.ItemDataList;
+import zombie.entity.components.crafting.recipe.OutputMapper;
+import zombie.entity.components.fluids.Fluid;
+import zombie.entity.components.fluids.FluidCategory;
+import zombie.entity.components.fluids.FluidConsume;
+import zombie.entity.components.fluids.FluidContainer;
+import zombie.entity.components.fluids.FluidFilter;
+import zombie.entity.components.fluids.FluidProperties;
+import zombie.entity.components.fluids.FluidSample;
+import zombie.entity.components.fluids.FluidType;
+import zombie.entity.components.fluids.FluidUtil;
+import zombie.entity.components.fluids.PoisonEffect;
+import zombie.entity.components.fluids.PoisonInfo;
+import zombie.entity.components.fluids.SealedFluidProperties;
+import zombie.entity.components.lua.LuaComponent;
+import zombie.entity.components.parts.Parts;
+import zombie.entity.components.resources.Resource;
+import zombie.entity.components.resources.ResourceBlueprint;
+import zombie.entity.components.resources.ResourceChannel;
+import zombie.entity.components.resources.ResourceEnergy;
+import zombie.entity.components.resources.ResourceFlag;
+import zombie.entity.components.resources.ResourceFluid;
+import zombie.entity.components.resources.ResourceIO;
+import zombie.entity.components.resources.ResourceItem;
+import zombie.entity.components.resources.ResourceType;
+import zombie.entity.components.resources.Resources;
+import zombie.entity.components.script.EntityScriptInfo;
+import zombie.entity.components.signals.Signals;
+import zombie.entity.components.spriteconfig.SpriteConfig;
+import zombie.entity.components.spriteconfig.SpriteConfigManager;
+import zombie.entity.components.test.TestComponent;
+import zombie.entity.components.ui.UiConfig;
+import zombie.entity.debug.EntityDebugTest;
+import zombie.entity.debug.EntityDebugTestType;
+import zombie.entity.energy.Energy;
+import zombie.entity.energy.EnergyType;
+import zombie.entity.events.ComponentEvent;
+import zombie.entity.events.ComponentEventType;
+import zombie.entity.events.EntityEvent;
+import zombie.entity.events.EntityEventType;
+import zombie.entity.meta.MetaTagComponent;
+import zombie.entity.util.Array;
+import zombie.entity.util.BitSet;
+import zombie.entity.util.GameEntityUtil;
+import zombie.entity.util.ImmutableArray;
+import zombie.entity.util.assoc.AssocArray;
+import zombie.entity.util.assoc.AssocEnumArray;
 import zombie.erosion.ErosionConfig;
 import zombie.erosion.ErosionData;
 import zombie.erosion.ErosionMain;
@@ -303,7 +453,10 @@ import zombie.gameStates.GameState;
 import zombie.gameStates.IngameState;
 import zombie.gameStates.LoadingQueueState;
 import zombie.gameStates.MainScreenState;
+import zombie.gameStates.SeamEditorState;
+import zombie.gameStates.SpriteModelEditorState;
 import zombie.gameStates.TermsOfServiceState;
+import zombie.gameStates.TileGeometryState;
 import zombie.globalObjects.CGlobalObject;
 import zombie.globalObjects.CGlobalObjectSystem;
 import zombie.globalObjects.CGlobalObjects;
@@ -318,10 +471,13 @@ import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.ItemPickerJava;
+import zombie.inventory.ItemSpawner;
 import zombie.inventory.ItemType;
 import zombie.inventory.RecipeManager;
+import zombie.inventory.recipemanager.RecipeMonitor;
 import zombie.inventory.types.AlarmClock;
 import zombie.inventory.types.AlarmClockClothing;
+import zombie.inventory.types.AnimalInventoryItem;
 import zombie.inventory.types.Clothing;
 import zombie.inventory.types.ComboItem;
 import zombie.inventory.types.Drainable;
@@ -342,10 +498,13 @@ import zombie.iso.BrokenFences;
 import zombie.iso.BuildingDef;
 import zombie.iso.CellLoader;
 import zombie.iso.ContainerOverlays;
+import zombie.iso.FishSchoolManager;
+import zombie.iso.IsoButcherHook;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
+import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoDirectionSet;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -369,15 +528,20 @@ import zombie.iso.LightingJNI;
 import zombie.iso.LosUtil;
 import zombie.iso.MetaObject;
 import zombie.iso.MultiStageBuilding;
+import zombie.iso.NewMapBinaryFile;
+import zombie.iso.PlayerCamera;
 import zombie.iso.RoomDef;
 import zombie.iso.SearchMode;
 import zombie.iso.SliceY;
+import zombie.iso.SpriteModel;
 import zombie.iso.TileOverlays;
 import zombie.iso.Vector2;
 import zombie.iso.Vector3;
 import zombie.iso.WorldMarkers;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.areas.DesignationZone;
+import zombie.iso.areas.DesignationZoneAnimal;
 import zombie.iso.areas.IsoBuilding;
 import zombie.iso.areas.IsoRoom;
 import zombie.iso.areas.NonPvpZone;
@@ -390,7 +554,10 @@ import zombie.iso.areas.isoregion.data.DataCell;
 import zombie.iso.areas.isoregion.data.DataChunk;
 import zombie.iso.areas.isoregion.regions.IsoChunkRegion;
 import zombie.iso.areas.isoregion.regions.IsoWorldRegion;
-import zombie.iso.objects.BSFurnace;
+import zombie.iso.fboRenderChunk.FBORenderAreaHighlights;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderTracerEffects;
+import zombie.iso.objects.IsoAnimalTrack;
 import zombie.iso.objects.IsoBarbecue;
 import zombie.iso.objects.IsoBarricade;
 import zombie.iso.objects.IsoBrokenGlass;
@@ -402,10 +569,12 @@ import zombie.iso.objects.IsoCompost;
 import zombie.iso.objects.IsoCurtain;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.IsoFeedingTrough;
 import zombie.iso.objects.IsoFire;
 import zombie.iso.objects.IsoFireManager;
 import zombie.iso.objects.IsoFireplace;
 import zombie.iso.objects.IsoGenerator;
+import zombie.iso.objects.IsoHutch;
 import zombie.iso.objects.IsoJukebox;
 import zombie.iso.objects.IsoLightSwitch;
 import zombie.iso.objects.IsoMannequin;
@@ -442,21 +611,28 @@ import zombie.iso.weather.WeatherPeriod;
 import zombie.iso.weather.WorldFlares;
 import zombie.iso.weather.fog.ImprovedFog;
 import zombie.iso.weather.fx.IsoWeatherFX;
+import zombie.iso.worldgen.WGParams;
+import zombie.iso.worldgen.WGUtils;
+import zombie.iso.zones.Trigger;
+import zombie.iso.zones.VehicleZone;
+import zombie.iso.zones.Zone;
 import zombie.modding.ActiveMods;
 import zombie.modding.ActiveModsFile;
 import zombie.modding.ModUtilsJava;
 import zombie.network.ConnectionManager;
 import zombie.network.CoopMaster;
+import zombie.network.CustomizationManager;
 import zombie.network.DBResult;
 import zombie.network.DBTicket;
 import zombie.network.DesktopBrowser;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.network.ItemTransactionManager;
 import zombie.network.MPStatistic;
 import zombie.network.MPStatistics;
 import zombie.network.NetChecksum;
 import zombie.network.NetworkAIParams;
+import zombie.network.PVPLogTool;
+import zombie.network.PZNetKahluaTableImpl;
 import zombie.network.PacketTypes;
 import zombie.network.Server;
 import zombie.network.ServerOptions;
@@ -464,10 +640,25 @@ import zombie.network.ServerSettings;
 import zombie.network.ServerSettingsManager;
 import zombie.network.ServerWorldDatabase;
 import zombie.network.Userlog;
+import zombie.network.WarManager;
+import zombie.network.anticheats.AntiCheatCapability;
 import zombie.network.chat.ChatServer;
 import zombie.network.chat.ChatType;
+import zombie.network.fields.ContainerID;
+import zombie.network.packets.BodyPartSyncPacket;
+import zombie.network.packets.INetworkPacket;
+import zombie.network.packets.ItemTransactionPacket;
+import zombie.network.packets.NetTimedActionPacket;
+import zombie.network.packets.SyncPlayerStatsPacket;
+import zombie.network.packets.VariableSyncPacket;
+import zombie.network.packets.character.AnimalCommandPacket;
+import zombie.network.server.AnimEventEmulator;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.PathFindState2;
 import zombie.popman.ZombiePopulationManager;
 import zombie.popman.ZombiePopulationRenderer;
+import zombie.popman.animal.AnimalInstanceManager;
+import zombie.popman.animal.AnimalSynchronizationManager;
 import zombie.profanity.ProfanityFilter;
 import zombie.radio.ChannelCategory;
 import zombie.radio.RadioAPI;
@@ -491,32 +682,49 @@ import zombie.radio.scripting.RadioScript;
 import zombie.radio.scripting.RadioScriptManager;
 import zombie.randomizedWorld.RandomizedWorldBase;
 import zombie.randomizedWorld.randomizedBuilding.RBBar;
+import zombie.randomizedWorld.randomizedBuilding.RBBarn;
 import zombie.randomizedWorld.randomizedBuilding.RBBasic;
 import zombie.randomizedWorld.randomizedBuilding.RBBurnt;
 import zombie.randomizedWorld.randomizedBuilding.RBBurntCorpse;
 import zombie.randomizedWorld.randomizedBuilding.RBBurntFireman;
 import zombie.randomizedWorld.randomizedBuilding.RBCafe;
 import zombie.randomizedWorld.randomizedBuilding.RBClinic;
+import zombie.randomizedWorld.randomizedBuilding.RBDorm;
+import zombie.randomizedWorld.randomizedBuilding.RBGunstoreSiege;
 import zombie.randomizedWorld.randomizedBuilding.RBHairSalon;
+import zombie.randomizedWorld.randomizedBuilding.RBHeatBreakAfternoon;
+import zombie.randomizedWorld.randomizedBuilding.RBJackieJaye;
+import zombie.randomizedWorld.randomizedBuilding.RBJoanHartford;
+import zombie.randomizedWorld.randomizedBuilding.RBJudge;
 import zombie.randomizedWorld.randomizedBuilding.RBKateAndBaldspot;
 import zombie.randomizedWorld.randomizedBuilding.RBLooted;
+import zombie.randomizedWorld.randomizedBuilding.RBMayorWestPoint;
+import zombie.randomizedWorld.randomizedBuilding.RBNolans;
 import zombie.randomizedWorld.randomizedBuilding.RBOffice;
 import zombie.randomizedWorld.randomizedBuilding.RBOther;
 import zombie.randomizedWorld.randomizedBuilding.RBPileOCrepe;
 import zombie.randomizedWorld.randomizedBuilding.RBPizzaWhirled;
+import zombie.randomizedWorld.randomizedBuilding.RBPoliceSiege;
+import zombie.randomizedWorld.randomizedBuilding.RBReverend;
 import zombie.randomizedWorld.randomizedBuilding.RBSafehouse;
 import zombie.randomizedWorld.randomizedBuilding.RBSchool;
 import zombie.randomizedWorld.randomizedBuilding.RBShopLooted;
 import zombie.randomizedWorld.randomizedBuilding.RBSpiffo;
 import zombie.randomizedWorld.randomizedBuilding.RBStripclub;
+import zombie.randomizedWorld.randomizedBuilding.RBTrashed;
+import zombie.randomizedWorld.randomizedBuilding.RBTwiggy;
+import zombie.randomizedWorld.randomizedBuilding.RBWoodcraft;
 import zombie.randomizedWorld.randomizedBuilding.RandomizedBuildingBase;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSBandPractice;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSBanditRaid;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSBathroomZed;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSBedroomZed;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSBleach;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSCorpsePsycho;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSDeadDrunk;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSDevouredByRats;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSFootballNight;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSGrouchos;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSGunmanInBathroom;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSGunslinger;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSHenDo;
@@ -526,6 +734,11 @@ import zombie.randomizedWorld.randomizedDeadSurvivor.RDSPokerNight;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSPoliceAtHouse;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSPrisonEscape;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSPrisonEscapeWithPolice;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSRPGNight;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSRatInfested;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSRatKing;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSRatWar;
+import zombie.randomizedWorld.randomizedDeadSurvivor.RDSResourceGarage;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSSkeletonPsycho;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSSpecificProfession;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSStagDo;
@@ -536,51 +749,154 @@ import zombie.randomizedWorld.randomizedDeadSurvivor.RDSZombieLockedBathroom;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RDSZombiesEating;
 import zombie.randomizedWorld.randomizedDeadSurvivor.RandomizedDeadSurvivorBase;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSAmbulanceCrash;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSAnimalOnRoad;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSAnimalTrailerOnRoad;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSBanditRoad;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSBurntCar;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSCarCrash;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSCarCrashCorpse;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSCarCrashDeer;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSChangingTire;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSConstructionSite;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSCrashHorde;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSDeadEnd;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSFlippedCrash;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSHerdOnRoad;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSPlonkies;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSPoliceBlockade;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSPoliceBlockadeShooting;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRegionalProfessionVehicle;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRichJerk;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRoadKill;
+import zombie.randomizedWorld.randomizedVehicleStory.RVSRoadKillSmall;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSTrailerCrash;
 import zombie.randomizedWorld.randomizedVehicleStory.RVSUtilityVehicle;
 import zombie.randomizedWorld.randomizedVehicleStory.RandomizedVehicleStoryBase;
+import zombie.randomizedWorld.randomizedZoneStory.RZJackieJaye;
+import zombie.randomizedWorld.randomizedZoneStory.RZSAttachedAnimal;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBBQParty;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBaseball;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBeachParty;
+import zombie.randomizedWorld.randomizedZoneStory.RZSBurntWreck;
 import zombie.randomizedWorld.randomizedZoneStory.RZSBuryingCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSCampsite;
+import zombie.randomizedWorld.randomizedZoneStory.RZSCharcoalBurner;
+import zombie.randomizedWorld.randomizedZoneStory.RZSDean;
+import zombie.randomizedWorld.randomizedZoneStory.RZSDuke;
+import zombie.randomizedWorld.randomizedZoneStory.RZSEscapedAnimal;
+import zombie.randomizedWorld.randomizedZoneStory.RZSEscapedHerd;
 import zombie.randomizedWorld.randomizedZoneStory.RZSFishingTrip;
 import zombie.randomizedWorld.randomizedZoneStory.RZSForestCamp;
 import zombie.randomizedWorld.randomizedZoneStory.RZSForestCampEaten;
+import zombie.randomizedWorld.randomizedZoneStory.RZSFrankHemingway;
+import zombie.randomizedWorld.randomizedZoneStory.RZSHermitCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSHillbillyHoedown;
+import zombie.randomizedWorld.randomizedZoneStory.RZSHogWild;
 import zombie.randomizedWorld.randomizedZoneStory.RZSHunterCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSKirstyKormick;
+import zombie.randomizedWorld.randomizedZoneStory.RZSMurderScene;
 import zombie.randomizedWorld.randomizedZoneStory.RZSMusicFest;
 import zombie.randomizedWorld.randomizedZoneStory.RZSMusicFestStage;
+import zombie.randomizedWorld.randomizedZoneStory.RZSNastyMattress;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOccultActivity;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOldFirepit;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOldShelter;
+import zombie.randomizedWorld.randomizedZoneStory.RZSOrphanedFawn;
+import zombie.randomizedWorld.randomizedZoneStory.RZSRangerSmith;
+import zombie.randomizedWorld.randomizedZoneStory.RZSRockerParty;
+import zombie.randomizedWorld.randomizedZoneStory.RZSSadCamp;
 import zombie.randomizedWorld.randomizedZoneStory.RZSSexyTime;
+import zombie.randomizedWorld.randomizedZoneStory.RZSSirTwiggy;
+import zombie.randomizedWorld.randomizedZoneStory.RZSSurvivalistCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSTragicPicnic;
 import zombie.randomizedWorld.randomizedZoneStory.RZSTrapperCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSVanCamp;
+import zombie.randomizedWorld.randomizedZoneStory.RZSWasteDump;
+import zombie.randomizedWorld.randomizedZoneStory.RZSWaterPump;
 import zombie.randomizedWorld.randomizedZoneStory.RandomizedZoneStoryBase;
 import zombie.savefile.ClientPlayerDB;
 import zombie.savefile.PlayerDBHelper;
+import zombie.savefile.SavefileNaming;
 import zombie.scripting.ScriptManager;
+import zombie.scripting.ScriptType;
+import zombie.scripting.entity.ComponentScript;
+import zombie.scripting.entity.GameEntityScript;
+import zombie.scripting.entity.GameEntityTemplate;
+import zombie.scripting.entity.components.attributes.AttributesScript;
+import zombie.scripting.entity.components.crafting.CraftBenchScript;
+import zombie.scripting.entity.components.crafting.CraftLogicScript;
+import zombie.scripting.entity.components.crafting.CraftRecipe;
+import zombie.scripting.entity.components.crafting.CraftRecipeComponentScript;
+import zombie.scripting.entity.components.crafting.FurnaceLogicScript;
+import zombie.scripting.entity.components.crafting.InputScript;
+import zombie.scripting.entity.components.crafting.MashingLogicScript;
+import zombie.scripting.entity.components.crafting.OutputScript;
+import zombie.scripting.entity.components.fluids.FluidContainerScript;
+import zombie.scripting.entity.components.lua.LuaComponentScript;
+import zombie.scripting.entity.components.parts.PartsScript;
+import zombie.scripting.entity.components.signals.SignalsScript;
+import zombie.scripting.entity.components.spriteconfig.SpriteConfigScript;
+import zombie.scripting.entity.components.test.TestComponentScript;
+import zombie.scripting.entity.components.ui.UiConfigScript;
+import zombie.scripting.itemConfig.ItemConfig;
+import zombie.scripting.objects.AnimationsMesh;
+import zombie.scripting.objects.BaseScriptObject;
+import zombie.scripting.objects.EnergyDefinitionScript;
 import zombie.scripting.objects.EvolvedRecipe;
 import zombie.scripting.objects.Fixing;
+import zombie.scripting.objects.FluidDefinitionScript;
+import zombie.scripting.objects.FluidFilterScript;
 import zombie.scripting.objects.GameSoundScript;
 import zombie.scripting.objects.Item;
+import zombie.scripting.objects.ItemFilterScript;
 import zombie.scripting.objects.ItemRecipe;
 import zombie.scripting.objects.MannequinScript;
 import zombie.scripting.objects.ModelAttachment;
 import zombie.scripting.objects.ModelScript;
 import zombie.scripting.objects.MovableRecipe;
+import zombie.scripting.objects.PhysicsShapeScript;
 import zombie.scripting.objects.Recipe;
 import zombie.scripting.objects.ScriptModule;
+import zombie.scripting.objects.SoundTimelineScript;
+import zombie.scripting.objects.StringListScript;
+import zombie.scripting.objects.TimedActionScript;
+import zombie.scripting.objects.UniqueRecipe;
+import zombie.scripting.objects.VehiclePartModel;
 import zombie.scripting.objects.VehicleScript;
+import zombie.scripting.objects.VehicleTemplate;
+import zombie.scripting.objects.XuiColorsScript;
+import zombie.scripting.objects.XuiConfigScript;
+import zombie.scripting.objects.XuiLayoutScript;
+import zombie.scripting.objects.XuiSkinScript;
+import zombie.scripting.ui.TextAlign;
+import zombie.scripting.ui.VectorPosAlign;
+import zombie.scripting.ui.XuiAutoApply;
+import zombie.scripting.ui.XuiLuaStyle;
+import zombie.scripting.ui.XuiManager;
+import zombie.scripting.ui.XuiReference;
+import zombie.scripting.ui.XuiScript;
+import zombie.scripting.ui.XuiScriptType;
+import zombie.scripting.ui.XuiSkin;
+import zombie.scripting.ui.XuiTableScript;
+import zombie.scripting.ui.XuiVarType;
+import zombie.seams.SeamManager;
+import zombie.seating.SeatingManager;
 import zombie.spnetwork.SinglePlayerClient;
+import zombie.spriteModel.SpriteModelManager;
 import zombie.text.templating.ReplaceProviderCharacter;
 import zombie.text.templating.TemplateText;
+import zombie.tileDepth.TileDepthTexture;
+import zombie.tileDepth.TileDepthTextureAssignmentManager;
+import zombie.tileDepth.TileDepthTextureManager;
+import zombie.tileDepth.TileDepthTextures;
+import zombie.tileDepth.TileGeometryManager;
+import zombie.tileDepth.TilesetDepthTexture;
 import zombie.ui.ActionProgressBar;
+import zombie.ui.AtomUI;
+import zombie.ui.AtomUIMap;
+import zombie.ui.AtomUIText;
+import zombie.ui.AtomUITextEntry;
+import zombie.ui.AtomUITexture;
 import zombie.ui.Clock;
 import zombie.ui.ModalDialog;
 import zombie.ui.MoodlesUI;
@@ -597,7 +913,6 @@ import zombie.ui.UIDebugConsole;
 import zombie.ui.UIElement;
 import zombie.ui.UIFont;
 import zombie.ui.UIManager;
-import zombie.ui.UIServerToolbox;
 import zombie.ui.UITextBox2;
 import zombie.ui.UITransition;
 import zombie.ui.VehicleGauge;
@@ -608,12 +923,12 @@ import zombie.util.StringUtils;
 import zombie.util.Type;
 import zombie.util.list.PZArrayList;
 import zombie.util.list.PZArrayUtil;
+import zombie.util.list.PZUnmodifiableList;
 import zombie.vehicles.BaseVehicle;
 import zombie.vehicles.EditVehicleState;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PathFindState2;
 import zombie.vehicles.UI3DScene;
 import zombie.vehicles.VehicleDoor;
+import zombie.vehicles.VehicleEngineRPM;
 import zombie.vehicles.VehicleLight;
 import zombie.vehicles.VehicleManager;
 import zombie.vehicles.VehiclePart;
@@ -639,6 +954,8 @@ public final class LuaManager {
    public static ArrayList<String> loadList;
    static ArrayList<String> paths;
    private static final HashMap<String, Object> luaFunctionMap;
+   private static final HashMap<String, Object> luaTableMap;
+   private static HashMap<String, VideoTexture> videoTextures;
    private static final HashSet<KahluaTable> s_wiping;
 
    public LuaManager() {
@@ -672,6 +989,7 @@ public final class LuaManager {
       loadedReturn.clear();
       paths.clear();
       luaFunctionMap.clear();
+      luaTableMap.clear();
       platform = new J2SEPlatform();
       if (env != null) {
          s_wiping.clear();
@@ -686,6 +1004,8 @@ public final class LuaManager {
 
       thread = new KahluaThread(platform, env);
       debugthread = new KahluaThread(platform, env);
+      thread.debugOwnerThread = Thread.currentThread();
+      debugthread.debugOwnerThread = Thread.currentThread();
       UIManager.defaultthread = thread;
       caller = new LuaCaller(converterManager);
       debugcaller = new LuaCaller(converterManager);
@@ -731,64 +1051,91 @@ public final class LuaManager {
       }
 
       try {
-         searchFolders(ZomboidFileSystem.instance.baseURI, var3);
-      } catch (IOException var14) {
-         ExceptionLogger.logException(var14);
+         searchFolders(ZomboidFileSystem.instance.base.lowercaseURI, var3);
+      } catch (IOException var17) {
+         ExceptionLogger.logException(var17);
       }
 
-      ArrayList var15 = loadList;
+      ArrayList var18 = loadList;
       loadList = new ArrayList();
-      ArrayList var16 = ZomboidFileSystem.instance.getModIDs();
+      ArrayList var19 = ZomboidFileSystem.instance.getModIDs();
 
-      for(int var4 = 0; var4 < var16.size(); ++var4) {
-         String var5 = ZomboidFileSystem.instance.getModDir((String)var16.get(var4));
+      String var6;
+      for(int var4 = 0; var4 < var19.size(); ++var4) {
+         ChooseGameInfo.Mod var5 = ChooseGameInfo.getAvailableModDetails((String)var19.get(var4));
          if (var5 != null) {
-            File var6 = new File(var5);
-            URI var7 = var6.getCanonicalFile().toURI();
-            File var8 = ZomboidFileSystem.instance.getCanonicalFile(var6, "media");
-            File var9 = ZomboidFileSystem.instance.getCanonicalFile(var8, "lua");
-            File var10 = ZomboidFileSystem.instance.getCanonicalFile(var9, var0);
-            File var11 = var10;
+            var6 = var5.getCommonDir();
+            File var7;
+            URI var8;
+            URI var9;
+            File var10;
+            File var11;
+            File var12;
+            File var13;
+            if (var6 != null) {
+               var7 = new File(var6);
+               var8 = var7.getCanonicalFile().toURI();
+               var9 = (new File(var7.getCanonicalFile().getPath().toLowerCase(Locale.ENGLISH))).toURI();
+               var10 = ZomboidFileSystem.instance.getCanonicalFile(var7, "media");
+               var11 = ZomboidFileSystem.instance.getCanonicalFile(var10, "lua");
+               var12 = ZomboidFileSystem.instance.getCanonicalFile(var11, var0);
+               var13 = var12;
 
-            try {
-               searchFolders(var7, var11);
-            } catch (IOException var13) {
-               ExceptionLogger.logException(var13);
+               try {
+                  searchFolders(var9, var13);
+               } catch (IOException var16) {
+                  ExceptionLogger.logException(var16);
+               }
+            }
+
+            var6 = var5.getVersionDir();
+            if (var6 != null) {
+               var7 = new File(var6);
+               var8 = var7.getCanonicalFile().toURI();
+               var9 = (new File(var7.getCanonicalFile().getPath().toLowerCase(Locale.ENGLISH))).toURI();
+               var10 = ZomboidFileSystem.instance.getCanonicalFile(var7, "media");
+               var11 = ZomboidFileSystem.instance.getCanonicalFile(var10, "lua");
+               var12 = ZomboidFileSystem.instance.getCanonicalFile(var11, var0);
+               var13 = var12;
+
+               try {
+                  searchFolders(var9, var13);
+               } catch (IOException var15) {
+                  ExceptionLogger.logException(var15);
+               }
             }
          }
       }
 
-      Collections.sort(var15);
-      Collections.sort(loadList);
-      var15.addAll(loadList);
+      Collections.sort(var18);
+      var18.addAll(loadList);
       loadList.clear();
-      loadList = var15;
-      HashSet var17 = new HashSet();
-      Iterator var18 = loadList.iterator();
+      loadList = var18;
+      HashSet var20 = new HashSet();
+      Iterator var21 = loadList.iterator();
 
       while(true) {
-         String var19;
          do {
-            if (!var18.hasNext()) {
+            if (!var21.hasNext()) {
                loadList.clear();
                return;
             }
 
-            var19 = (String)var18.next();
-         } while(var17.contains(var19));
+            var6 = (String)var21.next();
+         } while(var20.contains(var6));
 
-         var17.add(var19);
-         String var20 = ZomboidFileSystem.instance.getAbsolutePath(var19);
-         if (var20 == null) {
-            throw new IllegalStateException("couldn't find \"" + var19 + "\"");
+         var20.add(var6);
+         String var22 = ZomboidFileSystem.instance.getAbsolutePath(var6);
+         if (var22 == null) {
+            throw new IllegalStateException("couldn't find \"" + var6 + "\"");
          }
 
          if (!var1) {
-            RunLua(var20);
+            RunLua(var22);
          }
 
-         if (!checksumDone && !var19.contains("SandboxVars.lua") && (GameServer.bServer || GameClient.bClient)) {
-            NetChecksum.checksummer.addFile(var19, var20);
+         if (!checksumDone && !var6.contains("SandboxVars.lua") && (GameServer.bServer || GameClient.bClient)) {
+            NetChecksum.checksummer.addFile(var6, var22);
          }
 
          if (CoopMaster.instance != null) {
@@ -809,7 +1156,7 @@ public final class LuaManager {
    public static void finishChecksum() {
       if (GameServer.bServer) {
          GameServer.checksum = NetChecksum.checksummer.checksumToString();
-         DebugLog.General.println("luaChecksum: " + GameServer.checksum);
+         DebugLog.Lua.println("luaChecksum: " + GameServer.checksum);
       } else {
          if (!GameClient.bClient) {
             return;
@@ -885,16 +1232,6 @@ public final class LuaManager {
       return (LuaClosure)var2.rawget(var1[var1.length - 1]);
    }
 
-   public static void transferItem(IsoGameCharacter var0, InventoryItem var1, ItemContainer var2, ItemContainer var3) {
-      LuaClosure var4 = (LuaClosure)env.rawget("javaTransferItems");
-      caller.pcall(thread, var4, new Object[]{var0, var1, var2, var3});
-   }
-
-   public static void dropItem(InventoryItem var0) {
-      LuaClosure var1 = getDotDelimitedClosure("ISInventoryPaneContextMenu.dropItem");
-      caller.pcall(thread, var1, var0);
-   }
-
    public static IsoGridSquare AdjacentFreeTileFinder(IsoGridSquare var0, IsoPlayer var1) {
       KahluaTable var2 = (KahluaTable)env.rawget("AdjacentFreeTileFinder");
       LuaClosure var3 = (LuaClosure)var2.rawget("Find");
@@ -933,9 +1270,6 @@ public final class LuaManager {
          FuncState.currentfullFile = var0;
          String var2 = var0;
          var0 = ZomboidFileSystem.instance.getString(var0.replace("\\", "/"));
-         if (DebugLog.isEnabled(DebugType.Lua)) {
-            DebugLog.Lua.println("Loading: " + ZomboidFileSystem.instance.getRelativeFile(var0));
-         }
 
          InputStreamReader var3;
          try {
@@ -972,9 +1306,12 @@ public final class LuaManager {
          }
 
          luaFunctionMap.clear();
+         luaTableMap.clear();
+         CraftRecipe.onLuaFileReloaded();
          AttachedWeaponDefinitions.instance.m_dirty = true;
          DefaultClothing.instance.m_dirty = true;
          HairOutfitDefinitions.instance.m_dirty = true;
+         UnderwearDefinition.instance.m_dirty = true;
          ZombiesZoneDefinition.bDirty = true;
          LuaReturn var12 = caller.protectedCall(thread, var4, new Object[0]);
          if (!var12.isSuccess()) {
@@ -1000,36 +1337,94 @@ public final class LuaManager {
    }
 
    public static Object getFunctionObject(String var0) {
-      if (var0 != null && !var0.isEmpty()) {
-         Object var1 = luaFunctionMap.get(var0);
-         if (var1 != null) {
-            return var1;
-         } else {
-            KahluaTable var2 = env;
-            if (var0.contains(".")) {
-               String[] var3 = var0.split("\\.");
+      return getFunctionObject(var0, DebugLog.General);
+   }
 
-               for(int var4 = 0; var4 < var3.length - 1; ++var4) {
-                  KahluaTable var5 = (KahluaTable)Type.tryCastTo(var2.rawget(var3[var4]), KahluaTable.class);
-                  if (var5 == null) {
-                     DebugLog.General.error("no such function \"%s\"", var0);
+   public static Object getFunctionObject(String var0, DebugLogStream var1) {
+      if (var0 != null && !var0.isEmpty()) {
+         Object var2 = luaFunctionMap.get(var0);
+         if (var2 != null) {
+            return var2;
+         } else {
+            KahluaTable var3 = env;
+            if (var0.contains(".")) {
+               String[] var4 = var0.split("\\.");
+
+               for(int var5 = 0; var5 < var4.length - 1; ++var5) {
+                  KahluaTable var6 = (KahluaTable)Type.tryCastTo(var3.rawget(var4[var5]), KahluaTable.class);
+                  if (var6 == null) {
+                     if (var1 != null) {
+                        var1.error("no such function \"%s\"", var0);
+                     }
+
                      return null;
                   }
 
-                  var2 = var5;
+                  var3 = var6;
                }
 
-               var1 = var2.rawget(var3[var3.length - 1]);
+               var2 = var3.rawget(var4[var4.length - 1]);
             } else {
-               var1 = var2.rawget(var0);
+               var2 = var3.rawget(var0);
             }
 
-            if (!(var1 instanceof JavaFunction) && !(var1 instanceof LuaClosure)) {
-               DebugLog.General.error("no such function \"%s\"", var0);
+            if (!(var2 instanceof JavaFunction) && !(var2 instanceof LuaClosure)) {
+               if (var1 != null) {
+                  var1.error("no such function \"%s\"", var0);
+               }
+
                return null;
             } else {
-               luaFunctionMap.put(var0, var1);
-               return var1;
+               luaFunctionMap.put(var0, var2);
+               return var2;
+            }
+         }
+      } else {
+         return null;
+      }
+   }
+
+   public static Object getTableObject(String var0) {
+      return getTableObject(var0, DebugLog.General);
+   }
+
+   public static Object getTableObject(String var0, DebugLogStream var1) {
+      if (var0 != null && !var0.isEmpty()) {
+         Object var2 = luaTableMap.get(var0);
+         if (var2 != null) {
+            return var2;
+         } else {
+            KahluaTable var3 = env;
+            if (var0.contains(".")) {
+               String[] var4 = var0.split("\\.");
+
+               for(int var5 = 0; var5 < var4.length - 1; ++var5) {
+                  KahluaTable var6 = (KahluaTable)Type.tryCastTo(var3.rawget(var4[var5]), KahluaTable.class);
+                  if (var6 == null) {
+                     if (var1 != null) {
+                        var1.error("no such table \"%s\"", var0);
+                     }
+
+                     return null;
+                  }
+
+                  var3 = var6;
+               }
+
+               var2 = var3.rawget(var4[var4.length - 1]);
+            } else {
+               var2 = var3.rawget(var0);
+            }
+
+            if (var2 instanceof KahluaTable) {
+               luaTableMap.put(var0, var2);
+               return var2;
+            } else {
+               if (var1 != null) {
+                  var1.error("no such table \"%s\"", var0);
+               }
+
+               return null;
             }
          }
       } else {
@@ -1060,6 +1455,27 @@ public final class LuaManager {
             for(int var6 = 0; var6 < var5; ++var6) {
                Field var7 = var4[var6];
                if (Modifier.isStatic(var7.getModifiers()) && Modifier.isPublic(var7.getModifiers()) && Modifier.isFinal(var7.getModifiers()) && var7.getType().equals(Integer.TYPE) && var7.getName().startsWith("KEY_") && !var7.getName().endsWith("WIN")) {
+                  var2.rawset(var7.getName(), (double)var7.getInt((Object)null));
+               }
+            }
+         } catch (Exception var8) {
+         }
+
+      }
+   }
+
+   private static void exposeMouseButtons(KahluaTable var0) {
+      Object var1 = var0.rawget("Mouse");
+      if (var1 instanceof KahluaTable var2) {
+         Field[] var3 = Mouse.class.getFields();
+
+         try {
+            Field[] var4 = var3;
+            int var5 = var3.length;
+
+            for(int var6 = 0; var6 < var5; ++var6) {
+               Field var7 = var4[var6];
+               if ((var7.getName().startsWith("BTN_") || var7.getName().equals("LMB") || var7.getName().equals("RMB") || var7.getName().equals("MMB")) && Modifier.isStatic(var7.getModifiers()) && Modifier.isPublic(var7.getModifiers()) && Modifier.isFinal(var7.getModifiers()) && var7.getType().equals(Integer.TYPE)) {
                   var2.rawset(var7.getName(), (double)var7.getInt((Object)null));
                }
             }
@@ -1102,6 +1518,19 @@ public final class LuaManager {
       return "" + var1 + ":" + var0;
    }
 
+   public static void releaseAllVideoTextures() {
+      Iterator var0 = videoTextures.values().iterator();
+
+      while(var0.hasNext()) {
+         VideoTexture var1 = (VideoTexture)var0.next();
+         var1.Close();
+         Objects.requireNonNull(var1);
+         RenderThread.queueInvokeOnRenderContext(var1::destroy);
+      }
+
+      videoTextures.clear();
+   }
+
    public static KahluaTable copyTable(KahluaTable var0) {
       return copyTable((KahluaTable)null, var0);
    }
@@ -1142,6 +1571,8 @@ public final class LuaManager {
       loadList = new ArrayList();
       paths = new ArrayList();
       luaFunctionMap = new HashMap();
+      luaTableMap = new HashMap();
+      videoTextures = new HashMap();
       s_wiping = new HashSet();
    }
 
@@ -1167,22 +1598,32 @@ public final class LuaManager {
          this.setExposed(ArrayList.class);
          this.setExposed(EnumMap.class);
          this.setExposed(HashMap.class);
+         this.setExposed(LinkedHashMap.class);
          this.setExposed(LinkedList.class);
          this.setExposed(Stack.class);
          this.setExposed(Vector.class);
          this.setExposed(Iterator.class);
          this.setExposed(EmitterType.class);
          this.setExposed(FMODAudio.class);
+         this.setExposed(FMODDebugEventPlayer.class);
          this.setExposed(FMODSoundBank.class);
          this.setExposed(FMODSoundEmitter.class);
+         this.setExposed(FMODDebugEventPlayer.class);
          this.setExposed(Vector2f.class);
          this.setExposed(Vector3f.class);
+         this.setExposed(Position3D.class);
          this.setExposed(KahluaUtil.class);
          this.setExposed(DummySoundBank.class);
          this.setExposed(DummySoundEmitter.class);
          this.setExposed(BaseSoundEmitter.class);
          this.setExposed(GameSound.class);
          this.setExposed(GameSoundClip.class);
+         this.setExposed(MusicIntensityConfig.class);
+         this.setExposed(MusicIntensityEvent.class);
+         this.setExposed(MusicIntensityEvents.class);
+         this.setExposed(MusicThreatConfig.class);
+         this.setExposed(MusicThreatStatus.class);
+         this.setExposed(MusicThreatStatuses.class);
          this.setExposed(AttackState.class);
          this.setExposed(BurntToDeath.class);
          this.setExposed(ClimbDownSheetRopeState.class);
@@ -1211,6 +1652,7 @@ public final class LuaManager {
          this.setExposed(PlayerHitReactionState.class);
          this.setExposed(PlayerKnockedDown.class);
          this.setExposed(PlayerOnGroundState.class);
+         this.setExposed(PlayerSitOnFurnitureState.class);
          this.setExposed(PlayerSitOnGroundState.class);
          this.setExposed(PlayerStrafeState.class);
          this.setExposed(SmashWindowState.class);
@@ -1227,6 +1669,8 @@ public final class LuaManager {
          this.setExposed(ZombieSittingState.class);
          this.setExposed(GameCharacterAIBrain.class);
          this.setExposed(MapKnowledge.class);
+         this.setExposed(Basements.class);
+         this.setExposed(BasementsV1.class);
          this.setExposed(BodyPartType.class);
          this.setExposed(BodyPart.class);
          this.setExposed(BodyDamage.class);
@@ -1255,10 +1699,19 @@ public final class LuaManager {
          this.setExposed(SurvivorFactory.class);
          this.setExposed(SurvivorFactory.SurvivorType.class);
          this.setExposed(IsoGameCharacter.class);
+         this.setExposed(AnimalPartsDefinitions.class);
+         this.setExposed(IsoAnimal.class);
+         this.setExposed(AnimalData.class);
+         this.setExposed(AnimalBreed.class);
+         this.setExposed(BaseAnimalBehavior.class);
+         this.setExposed(AnimalAllele.class);
+         this.setExposed(AnimalGene.class);
+         this.setExposed(AnimalGenomeDefinitions.class);
+         this.setExposed(AnimalDefinitions.class);
          this.setExposed(IsoGameCharacter.Location.class);
          this.setExposed(IsoGameCharacter.PerkInfo.class);
          this.setExposed(IsoGameCharacter.XP.class);
-         this.setExposed(IsoGameCharacter.CharacterTraits.class);
+         this.setExposed(CharacterTraits.class);
          this.setExposed(TraitCollection.TraitSlot.class);
          this.setExposed(TraitCollection.class);
          this.setExposed(IsoPlayer.class);
@@ -1267,7 +1720,7 @@ public final class LuaManager {
          this.setExposed(CharacterActionAnims.class);
          this.setExposed(HaloTextHelper.class);
          this.setExposed(HaloTextHelper.ColorRGB.class);
-         this.setExposed(NetworkAIParams.class);
+         this.setExposed(MoveDeltaModifiers.class);
          this.setExposed(BloodBodyPartType.class);
          this.setExposed(Clipboard.class);
          this.setExposed(AngelCodeFont.class);
@@ -1275,13 +1728,17 @@ public final class LuaManager {
          this.setExposed(PropertyContainer.class);
          this.setExposed(ClothingItem.class);
          this.setExposed(AnimatorDebugMonitor.class);
+         this.setExposed(RuntimeAnimationScript.class);
          this.setExposed(ColorInfo.class);
          this.setExposed(Texture.class);
+         this.setExposed(VideoTexture.class);
          this.setExposed(SteamFriend.class);
          this.setExposed(SteamUGCDetails.class);
          this.setExposed(SteamWorkshopItem.class);
          this.setExposed(Color.class);
          this.setExposed(Colors.class);
+         this.setExposed(Colors.ColNfo.class);
+         this.setExposed(Colors.ColorSet.class);
          this.setExposed(Core.class);
          this.setExposed(GameVersion.class);
          this.setExposed(ImmutableColor.class);
@@ -1294,6 +1751,125 @@ public final class LuaManager {
          this.setExposed(DebugOptions.class);
          this.setExposed(BooleanDebugOption.class);
          this.setExposed(DebugType.class);
+         this.setExposed(LogSeverity.class);
+         this.setExposed(ObjectDebuggerLua.class);
+         this.setExposed(Component.class);
+         this.setExposed(ComponentType.class);
+         this.setExposed(EntityBucket.class);
+         this.setExposed(Family.class);
+         this.setExposed(GameEntity.class);
+         this.setExposed(GameEntityFactory.class);
+         this.setExposed(GameEntityType.class);
+         this.setExposed(MetaEntity.class);
+         this.setExposed(Attribute.class);
+         this.setExposed(AttributeContainer.class);
+         this.setExposed(AttributeInstance.class);
+         this.setExposed(AttributeInstance.Bool.class);
+         this.setExposed(AttributeInstance.String.class);
+         this.setExposed(AttributeInstance.Numeric.class);
+         this.setExposed(AttributeInstance.Float.class);
+         this.setExposed(AttributeInstance.Double.class);
+         this.setExposed(AttributeInstance.Byte.class);
+         this.setExposed(AttributeInstance.Short.class);
+         this.setExposed(AttributeInstance.Int.class);
+         this.setExposed(AttributeInstance.Long.class);
+         this.setExposed(AttributeInstance.Enum.class);
+         this.setExposed(AttributeInstance.EnumSet.class);
+         this.setExposed(AttributeInstance.EnumStringSet.class);
+         this.setExposed(AttributeType.class);
+         this.setExposed(AttributeType.Bool.class);
+         this.setExposed(AttributeType.String.class);
+         this.setExposed(AttributeType.Numeric.class);
+         this.setExposed(AttributeType.Float.class);
+         this.setExposed(AttributeType.Double.class);
+         this.setExposed(AttributeType.Byte.class);
+         this.setExposed(AttributeType.Short.class);
+         this.setExposed(AttributeType.Int.class);
+         this.setExposed(AttributeType.Long.class);
+         this.setExposed(AttributeType.Enum.class);
+         this.setExposed(AttributeType.EnumSet.class);
+         this.setExposed(AttributeType.EnumStringSet.class);
+         this.setExposed(AttributeValueType.class);
+         this.setExposed(AttributeUtil.class);
+         this.setExposed(EnumStringObj.class);
+         this.setExposed(CraftRecipeData.class);
+         this.setExposed(CraftRecipeData.CacheData.class);
+         this.setExposed(CraftRecipeData.InputScriptData.class);
+         this.setExposed(CraftRecipeData.OutputScriptData.class);
+         this.setExposed(CraftRecipeManager.class);
+         this.setExposed(CraftRecipeSort.class);
+         this.setExposed(HandcraftLogic.class);
+         this.setExposed(HandcraftLogic.CachedRecipeInfo.class);
+         this.setExposed(HandcraftLogic.InputItemNode.class);
+         this.setExposed(ItemDataList.class);
+         this.setExposed(OutputMapper.class);
+         this.setExposed(CraftBench.class);
+         this.setExposed(CraftLogic.class);
+         this.setExposed(FurnaceLogic.class);
+         this.setExposed(CraftMode.class);
+         this.setExposed(CraftRecipeMonitor.class);
+         this.setExposed(CraftUtil.class);
+         this.setExposed(FluidMatchMode.class);
+         this.setExposed(InputFlag.class);
+         this.setExposed(ItemApplyMode.class);
+         this.setExposed(MashingLogic.class);
+         this.setExposed(OutputFlag.class);
+         this.setExposed(StartMode.class);
+         this.setExposed(TimeMode.class);
+         this.setExposed(BaseCraftingLogic.class);
+         this.setExposed(BuildLogic.class);
+         this.setExposed(BaseCraftingLogic.CachedRecipeInfo.class);
+         this.setExposed(CraftRecipeComponent.class);
+         this.setExposed(CraftRecipeComponentScript.class);
+         this.setExposed(Fluid.class);
+         this.setExposed(FluidType.class);
+         this.setExposed(FluidCategory.class);
+         this.setExposed(FluidFilter.class);
+         this.setExposed(FluidFilter.FilterType.class);
+         this.setExposed(FluidConsume.class);
+         this.setExposed(FluidContainer.class);
+         this.setExposed(FluidProperties.class);
+         this.setExposed(FluidSample.class);
+         this.setExposed(FluidUtil.class);
+         this.setExposed(PoisonEffect.class);
+         this.setExposed(PoisonInfo.class);
+         this.setExposed(SealedFluidProperties.class);
+         this.setExposed(LuaComponent.class);
+         this.setExposed(Parts.class);
+         this.setExposed(Resource.class);
+         this.setExposed(ResourceBlueprint.class);
+         this.setExposed(ResourceChannel.class);
+         this.setExposed(ResourceEnergy.class);
+         this.setExposed(ResourceFlag.class);
+         this.setExposed(ResourceFluid.class);
+         this.setExposed(ResourceIO.class);
+         this.setExposed(ResourceItem.class);
+         this.setExposed(Resources.class);
+         this.setExposed(ResourceType.class);
+         this.setExposed(EntityScriptInfo.class);
+         this.setExposed(Signals.class);
+         this.setExposed(SpriteConfig.class);
+         this.setExposed(SpriteConfigManager.class);
+         this.setExposed(SpriteConfigManager.FaceInfo.class);
+         this.setExposed(SpriteConfigManager.ObjectInfo.class);
+         this.setExposed(SpriteConfigManager.TileInfo.class);
+         this.setExposed(TestComponent.class);
+         this.setExposed(UiConfig.class);
+         this.setExposed(Energy.class);
+         this.setExposed(EnergyType.class);
+         this.setExposed(ComponentEvent.class);
+         this.setExposed(ComponentEventType.class);
+         this.setExposed(EntityEvent.class);
+         this.setExposed(EntityEventType.class);
+         this.setExposed(MetaTagComponent.class);
+         this.setExposed(EntityDebugTest.class);
+         this.setExposed(EntityDebugTestType.class);
+         this.setExposed(AssocArray.class);
+         this.setExposed(AssocEnumArray.class);
+         this.setExposed(Array.class);
+         this.setExposed(BitSet.class);
+         this.setExposed(GameEntityUtil.class);
+         this.setExposed(ImmutableArray.class);
          this.setExposed(ErosionConfig.class);
          this.setExposed(ErosionConfig.Debug.class);
          this.setExposed(ErosionConfig.Season.class);
@@ -1311,7 +1887,13 @@ public final class LuaManager {
          this.setExposed(GameLoadingState.class);
          this.setExposed(LoadingQueueState.class);
          this.setExposed(MainScreenState.class);
+         this.setExposed(SeamEditorState.class);
+         this.setExposed(SeamEditorState.BooleanDebugOption.class);
+         this.setExposed(SpriteModelEditorState.class);
+         this.setExposed(SpriteModelEditorState.BooleanDebugOption.class);
          this.setExposed(TermsOfServiceState.class);
+         this.setExposed(TileGeometryState.class);
+         this.setExposed(TileGeometryState.BooleanDebugOption.class);
          this.setExposed(CGlobalObject.class);
          this.setExposed(CGlobalObjects.class);
          this.setExposed(CGlobalObjectSystem.class);
@@ -1319,6 +1901,8 @@ public final class LuaManager {
          this.setExposed(SGlobalObjects.class);
          this.setExposed(SGlobalObjectSystem.class);
          this.setExposed(Mouse.class);
+         this.setExposed(RecipeMonitor.class);
+         this.setExposed(AnimalInventoryItem.class);
          this.setExposed(AlarmClock.class);
          this.setExposed(AlarmClockClothing.class);
          this.setExposed(Clothing.class);
@@ -1339,8 +1923,9 @@ public final class LuaManager {
          this.setExposed(WeaponPart.class);
          this.setExposed(ItemContainer.class);
          this.setExposed(ItemPickerJava.class);
+         this.setExposed(ItemPickerJava.KeyNamer.class);
+         this.setExposed(ItemSpawner.class);
          this.setExposed(InventoryItem.class);
-         this.setExposed(InventoryItemFactory.class);
          this.setExposed(FixingManager.class);
          this.setExposed(RecipeManager.class);
          this.setExposed(IsoRegions.class);
@@ -1356,6 +1941,9 @@ public final class LuaManager {
          this.setExposed(IsoBuilding.class);
          this.setExposed(IsoRoom.class);
          this.setExposed(SafeHouse.class);
+         this.setExposed(IsoButcherHook.class);
+         this.setExposed(FBORenderTracerEffects.class);
+         this.setExposed(FBORenderChunk.class);
          this.setExposed(BarricadeAble.class);
          this.setExposed(IsoBarbecue.class);
          this.setExposed(IsoBarricade.class);
@@ -1371,6 +1959,9 @@ public final class LuaManager {
          this.setExposed(IsoFire.class);
          this.setExposed(IsoFireManager.class);
          this.setExposed(IsoFireplace.class);
+         this.setExposed(IsoFeedingTrough.class);
+         this.setExposed(IsoHutch.class);
+         this.setExposed(IsoHutch.NestBox.class);
          this.setExposed(IsoGenerator.class);
          this.setExposed(IsoJukebox.class);
          this.setExposed(IsoLightSwitch.class);
@@ -1392,6 +1983,7 @@ public final class LuaManager {
          this.setExposed(RainManager.class);
          this.setExposed(ObjectRenderEffects.class);
          this.setExposed(HumanVisual.class);
+         this.setExposed(AnimalVisual.class);
          this.setExposed(ItemVisual.class);
          this.setExposed(ItemVisuals.class);
          this.setExposed(IsoSprite.class);
@@ -1423,6 +2015,10 @@ public final class LuaManager {
          this.setExposed(WorldFlares.Flare.class);
          this.setExposed(ImprovedFog.class);
          this.setExposed(ClimateMoon.class);
+         this.setExposed(RagdollSettingsManager.class);
+         this.setExposed(RagdollSettingsManager.RagdollSetting.class);
+         this.setExposed(RagdollSettingsManager.HitReactionSetting.class);
+         this.setExposed(RagdollSettingsManager.ForceHitReactionLocation.class);
          this.setExposed(IsoPuddles.class);
          this.setExposed(IsoPuddles.PuddlesFloat.class);
          this.setExposed(BentFences.class);
@@ -1443,9 +2039,9 @@ public final class LuaManager {
          this.setExposed(IsoMetaChunk.class);
          this.setExposed(IsoMetaCell.class);
          this.setExposed(IsoMetaGrid.class);
-         this.setExposed(IsoMetaGrid.Trigger.class);
-         this.setExposed(IsoMetaGrid.VehicleZone.class);
-         this.setExposed(IsoMetaGrid.Zone.class);
+         this.setExposed(Trigger.class);
+         this.setExposed(VehicleZone.class);
+         this.setExposed(Zone.class);
          this.setExposed(IsoMovingObject.class);
          this.setExposed(IsoObject.class);
          this.setExposed(IsoObjectPicker.class);
@@ -1455,6 +2051,7 @@ public final class LuaManager {
          this.setExposed(LosUtil.class);
          this.setExposed(MetaObject.class);
          this.setExposed(RoomDef.class);
+         this.setExposed(SpriteModel.class);
          this.setExposed(SliceY.class);
          this.setExposed(TileOverlays.class);
          this.setExposed(Vector2.class);
@@ -1469,9 +2066,15 @@ public final class LuaManager {
          this.setExposed(IsoMarkers.class);
          this.setExposed(IsoMarkers.IsoMarker.class);
          this.setExposed(IsoMarkers.CircleIsoMarker.class);
+         this.setExposed(FishSchoolManager.class);
+         this.setExposed(WGUtils.class);
+         this.setExposed(WGParams.class);
          this.setExposed(LuaEventManager.class);
          this.setExposed(MapObjects.class);
          this.setExposed(ActiveMods.class);
+         this.setExposed(PVPLogTool.class);
+         this.setExposed(PVPLogTool.PVPEvent.class);
+         this.setExposed(NetworkAIParams.class);
          this.setExposed(Server.class);
          this.setExposed(ServerOptions.class);
          this.setExposed(ServerOptions.BooleanServerOption.class);
@@ -1479,8 +2082,14 @@ public final class LuaManager {
          this.setExposed(ServerOptions.IntegerServerOption.class);
          this.setExposed(ServerOptions.StringServerOption.class);
          this.setExposed(ServerOptions.TextServerOption.class);
+         this.setExposed(ServerOptions.EnumServerOption.class);
          this.setExposed(ServerSettings.class);
          this.setExposed(ServerSettingsManager.class);
+         this.setExposed(ContainerID.class);
+         this.setExposed(ContainerID.ContainerType.class);
+         this.setExposed(WarManager.class);
+         this.setExposed(WarManager.War.class);
+         this.setExposed(WarManager.State.class);
          this.setExposed(ZombiePopulationRenderer.class);
          this.setExposed(ZombiePopulationRenderer.BooleanDebugOption.class);
          this.setExposed(RadioAPI.class);
@@ -1505,23 +2114,60 @@ public final class LuaManager {
          this.setExposed(RecordedMedia.class);
          this.setExposed(MediaData.class);
          this.setExposed(MediaData.MediaLineData.class);
+         this.setExposed(GameEntityScript.class);
+         this.setExposed(GameEntityTemplate.class);
+         this.setExposed(ComponentScript.class);
+         this.setExposed(AttributesScript.class);
+         this.setExposed(CraftBenchScript.class);
+         this.setExposed(CraftLogicScript.class);
+         this.setExposed(CraftRecipe.class);
+         this.setExposed(CraftRecipe.RequiredSkill.class);
+         this.setExposed(InputScript.class);
+         this.setExposed(MashingLogicScript.class);
+         this.setExposed(FurnaceLogicScript.class);
+         this.setExposed(OutputScript.class);
+         this.setExposed(FluidContainerScript.class);
+         this.setExposed(FluidContainerScript.FluidScript.class);
+         this.setExposed(LuaComponentScript.class);
+         this.setExposed(PartsScript.class);
+         this.setExposed(SignalsScript.class);
+         this.setExposed(SpriteConfigScript.class);
+         this.setExposed(SpriteConfigScript.FaceScript.class);
+         this.setExposed(SpriteConfigScript.TileScript.class);
+         this.setExposed(SpriteConfigScript.XRow.class);
+         this.setExposed(SpriteConfigScript.ZLayer.class);
+         this.setExposed(TestComponentScript.class);
+         this.setExposed(UiConfigScript.class);
+         this.setExposed(ItemConfig.class);
+         this.setExposed(AnimationsMesh.class);
+         this.setExposed(BaseScriptObject.class);
+         this.setExposed(EnergyDefinitionScript.class);
          this.setExposed(EvolvedRecipe.class);
          this.setExposed(Fixing.class);
          this.setExposed(Fixing.Fixer.class);
          this.setExposed(Fixing.FixerSkill.class);
+         this.setExposed(FluidDefinitionScript.class);
+         this.setExposed(FluidFilterScript.class);
          this.setExposed(GameSoundScript.class);
          this.setExposed(Item.class);
          this.setExposed(Item.Type.class);
          this.setExposed(ItemRecipe.class);
+         this.setExposed(ItemFilterScript.class);
          this.setExposed(MannequinScript.class);
          this.setExposed(ModelAttachment.class);
          this.setExposed(ModelScript.class);
          this.setExposed(MovableRecipe.class);
+         this.setExposed(PhysicsShapeScript.class);
          this.setExposed(Recipe.class);
          this.setExposed(Recipe.RequiredSkill.class);
          this.setExposed(Recipe.Result.class);
          this.setExposed(Recipe.Source.class);
          this.setExposed(ScriptModule.class);
+         this.setExposed(SoundTimelineScript.class);
+         this.setExposed(StringListScript.class);
+         this.setExposed(TimedActionScript.class);
+         this.setExposed(UniqueRecipe.class);
+         this.setExposed(VehiclePartModel.class);
          this.setExposed(VehicleScript.class);
          this.setExposed(VehicleScript.Area.class);
          this.setExposed(VehicleScript.Model.class);
@@ -1530,9 +2176,66 @@ public final class LuaManager {
          this.setExposed(VehicleScript.PhysicsShape.class);
          this.setExposed(VehicleScript.Position.class);
          this.setExposed(VehicleScript.Wheel.class);
+         this.setExposed(VehicleTemplate.class);
+         this.setExposed(XuiColorsScript.class);
+         this.setExposed(XuiConfigScript.class);
+         this.setExposed(XuiLayoutScript.class);
+         this.setExposed(XuiSkinScript.class);
+         this.setExposed(VectorPosAlign.class);
+         this.setExposed(TextAlign.class);
+         this.setExposed(XuiAutoApply.class);
+         this.setExposed(XuiLuaStyle.class);
+         this.setExposed(XuiLuaStyle.XuiVar.class);
+         this.setExposed(XuiLuaStyle.XuiBoolean.class);
+         this.setExposed(XuiLuaStyle.XuiColor.class);
+         this.setExposed(XuiLuaStyle.XuiDouble.class);
+         this.setExposed(XuiLuaStyle.XuiFontType.class);
+         this.setExposed(XuiLuaStyle.XuiString.class);
+         this.setExposed(XuiLuaStyle.XuiStringList.class);
+         this.setExposed(XuiLuaStyle.XuiTexture.class);
+         this.setExposed(XuiLuaStyle.XuiTranslateString.class);
+         this.setExposed(XuiManager.class);
+         this.setExposed(XuiReference.class);
+         this.setExposed(XuiScript.class);
+         this.setExposed(XuiTableScript.class);
+         this.setExposed(XuiTableScript.XuiTableColumnScript.class);
+         this.setExposed(XuiTableScript.XuiTableRowScript.class);
+         this.setExposed(XuiTableScript.XuiTableCellScript.class);
+         this.setExposed(XuiScript.XuiVar.class);
+         this.setExposed(XuiScript.XuiBoolean.class);
+         this.setExposed(XuiScript.XuiColor.class);
+         this.setExposed(XuiScript.XuiDouble.class);
+         this.setExposed(XuiScript.XuiFloat.class);
+         this.setExposed(XuiScript.XuiFontType.class);
+         this.setExposed(XuiScript.XuiFunction.class);
+         this.setExposed(XuiScript.XuiInteger.class);
+         this.setExposed(XuiScript.XuiSpacing.class);
+         this.setExposed(XuiScript.XuiString.class);
+         this.setExposed(XuiScript.XuiStringList.class);
+         this.setExposed(XuiScript.XuiTexture.class);
+         this.setExposed(XuiScript.XuiTextAlign.class);
+         this.setExposed(XuiScript.XuiTranslateString.class);
+         this.setExposed(XuiScript.XuiUnit.class);
+         this.setExposed(XuiScript.XuiVector.class);
+         this.setExposed(XuiScript.XuiVectorPosAlign.class);
+         this.setExposed(XuiScriptType.class);
+         this.setExposed(XuiSkin.class);
+         this.setExposed(XuiSkin.EntityUiStyle.class);
+         this.setExposed(XuiSkin.ComponentUiStyle.class);
+         this.setExposed(XuiVarType.class);
          this.setExposed(ScriptManager.class);
+         this.setExposed(ScriptType.class);
+         this.setExposed(SeamManager.class);
+         this.setExposed(SeatingManager.class);
+         this.setExposed(SpriteModelManager.class);
          this.setExposed(TemplateText.class);
          this.setExposed(ReplaceProviderCharacter.class);
+         this.setExposed(TileDepthTexture.class);
+         this.setExposed(TileDepthTextureAssignmentManager.class);
+         this.setExposed(TileDepthTextureManager.class);
+         this.setExposed(TileDepthTextures.class);
+         this.setExposed(TileGeometryManager.class);
+         this.setExposed(TilesetDepthTexture.class);
          this.setExposed(ActionProgressBar.class);
          this.setExposed(Clock.class);
          this.setExposed(UIDebugConsole.class);
@@ -1549,14 +2252,19 @@ public final class LuaManager {
          this.setExposed(TextManager.class);
          this.setExposed(UI3DModel.class);
          this.setExposed(UIElement.class);
+         this.setExposed(AtomUI.class);
+         this.setExposed(AtomUIText.class);
+         this.setExposed(AtomUITexture.class);
+         this.setExposed(AtomUITextEntry.class);
+         this.setExposed(AtomUIMap.class);
          this.setExposed(UIFont.class);
          this.setExposed(UITransition.class);
          this.setExposed(UIManager.class);
-         this.setExposed(UIServerToolbox.class);
          this.setExposed(UITextBox2.class);
          this.setExposed(VehicleGauge.class);
          this.setExposed(TextDrawObject.class);
          this.setExposed(PZArrayList.class);
+         this.setExposed(PZUnmodifiableList.class);
          this.setExposed(PZCalendar.class);
          this.setExposed(BaseVehicle.class);
          this.setExposed(EditVehicleState.class);
@@ -1565,6 +2273,7 @@ public final class LuaManager {
          this.setExposed(PathFindState2.class);
          this.setExposed(UI3DScene.class);
          this.setExposed(VehicleDoor.class);
+         this.setExposed(VehicleEngineRPM.class);
          this.setExposed(VehicleLight.class);
          this.setExposed(VehiclePart.class);
          this.setExposed(VehicleType.class);
@@ -1579,6 +2288,9 @@ public final class LuaManager {
          this.setExposed(BodyLocation.class);
          this.setExposed(BodyLocationGroup.class);
          this.setExposed(BodyLocations.class);
+         this.setExposed(Role.class);
+         this.setExposed(Capability.class);
+         this.setExposed(NetworkUser.class);
          this.setExposed(DummySoundManager.class);
          this.setExposed(GameSounds.class);
          this.setExposed(GameTime.class);
@@ -1600,7 +2312,6 @@ public final class LuaManager {
          this.setExposed(BaseAmbientStreamManager.class);
          this.setExposed(AmbientStreamManager.class);
          this.setExposed(Nutrition.class);
-         this.setExposed(BSFurnace.class);
          this.setExposed(MultiStageBuilding.class);
          this.setExposed(MultiStageBuilding.Stage.class);
          this.setExposed(SleepingEvent.class);
@@ -1618,6 +2329,12 @@ public final class LuaManager {
          this.setExposed(Keyboard.class);
          this.setExposed(DBResult.class);
          this.setExposed(NonPvpZone.class);
+         this.setExposed(DesignationZoneAnimal.class);
+         this.setExposed(AnimalTracks.class);
+         this.setExposed(IsoAnimalTrack.class);
+         this.setExposed(AnimalChunk.class);
+         this.setExposed(VirtualAnimal.class);
+         this.setExposed(DesignationZone.class);
          this.setExposed(DBTicket.class);
          this.setExposed(StashSystem.class);
          this.setExposed(StashBuilding.class);
@@ -1644,6 +2361,20 @@ public final class LuaManager {
          this.setExposed(RBBurntCorpse.class);
          this.setExposed(RBShopLooted.class);
          this.setExposed(RBKateAndBaldspot.class);
+         this.setExposed(RBGunstoreSiege.class);
+         this.setExposed(RBPoliceSiege.class);
+         this.setExposed(RBHeatBreakAfternoon.class);
+         this.setExposed(RBTrashed.class);
+         this.setExposed(RBBarn.class);
+         this.setExposed(RBDorm.class);
+         this.setExposed(RBNolans.class);
+         this.setExposed(RBJackieJaye.class);
+         this.setExposed(RBReverend.class);
+         this.setExposed(RBTwiggy.class);
+         this.setExposed(RBWoodcraft.class);
+         this.setExposed(RBJoanHartford.class);
+         this.setExposed(RBJudge.class);
+         this.setExposed(RBMayorWestPoint.class);
          this.setExposed(RandomizedDeadSurvivorBase.class);
          this.setExposed(RDSZombiesEating.class);
          this.setExposed(RDSBleach.class);
@@ -1651,6 +2382,7 @@ public final class LuaManager {
          this.setExposed(RDSGunmanInBathroom.class);
          this.setExposed(RDSGunslinger.class);
          this.setExposed(RDSZombieLockedBathroom.class);
+         this.setExposed(RDSBanditRaid.class);
          this.setExposed(RDSBandPractice.class);
          this.setExposed(RDSBathroomZed.class);
          this.setExposed(RDSBedroomZed.class);
@@ -1669,6 +2401,13 @@ public final class LuaManager {
          this.setExposed(RDSHouseParty.class);
          this.setExposed(RDSTinFoilHat.class);
          this.setExposed(RDSHockeyPsycho.class);
+         this.setExposed(RDSDevouredByRats.class);
+         this.setExposed(RDSRPGNight.class);
+         this.setExposed(RDSRatInfested.class);
+         this.setExposed(RDSRatKing.class);
+         this.setExposed(RDSRatWar.class);
+         this.setExposed(RDSResourceGarage.class);
+         this.setExposed(RDSGrouchos.class);
          this.setExposed(RandomizedVehicleStoryBase.class);
          this.setExposed(RVSCarCrash.class);
          this.setExposed(RVSBanditRoad.class);
@@ -1683,6 +2422,16 @@ public final class LuaManager {
          this.setExposed(RVSChangingTire.class);
          this.setExposed(RVSFlippedCrash.class);
          this.setExposed(RVSTrailerCrash.class);
+         this.setExposed(RVSCarCrashDeer.class);
+         this.setExposed(RVSDeadEnd.class);
+         this.setExposed(RVSRegionalProfessionVehicle.class);
+         this.setExposed(RVSRoadKill.class);
+         this.setExposed(RVSRoadKillSmall.class);
+         this.setExposed(RVSAnimalOnRoad.class);
+         this.setExposed(RVSHerdOnRoad.class);
+         this.setExposed(RVSAnimalTrailerOnRoad.class);
+         this.setExposed(RVSRichJerk.class);
+         this.setExposed(RVSPlonkies.class);
          this.setExposed(RandomizedZoneStoryBase.class);
          this.setExposed(RZSForestCamp.class);
          this.setExposed(RZSForestCampEaten.class);
@@ -1696,20 +2445,55 @@ public final class LuaManager {
          this.setExposed(RZSBaseball.class);
          this.setExposed(RZSMusicFestStage.class);
          this.setExposed(RZSMusicFest.class);
+         this.setExposed(RZSBurntWreck.class);
+         this.setExposed(RZSHermitCamp.class);
+         this.setExposed(RZSHillbillyHoedown.class);
+         this.setExposed(RZSHogWild.class);
+         this.setExposed(RZSRockerParty.class);
+         this.setExposed(RZSSadCamp.class);
+         this.setExposed(RZSSurvivalistCamp.class);
+         this.setExposed(RZSVanCamp.class);
+         this.setExposed(RZSEscapedAnimal.class);
+         this.setExposed(RZSEscapedHerd.class);
+         this.setExposed(RZSAttachedAnimal.class);
+         this.setExposed(RZSOrphanedFawn.class);
+         this.setExposed(RZSNastyMattress.class);
+         this.setExposed(RZSWasteDump.class);
+         this.setExposed(RZSMurderScene.class);
+         this.setExposed(RZSTragicPicnic.class);
+         this.setExposed(RZSRangerSmith.class);
+         this.setExposed(RZSOccultActivity.class);
+         this.setExposed(RZSWaterPump.class);
+         this.setExposed(RZSOldFirepit.class);
+         this.setExposed(RZSOldShelter.class);
+         this.setExposed(RZSCampsite.class);
+         this.setExposed(RZSCharcoalBurner.class);
+         this.setExposed(RZSDean.class);
+         this.setExposed(RZSDuke.class);
+         this.setExposed(RZSFrankHemingway.class);
+         this.setExposed(RZSKirstyKormick.class);
+         this.setExposed(RZSSirTwiggy.class);
+         this.setExposed(RZJackieJaye.class);
          this.setExposed(MapGroups.class);
          this.setExposed(BeardStyles.class);
          this.setExposed(BeardStyle.class);
          this.setExposed(HairStyles.class);
          this.setExposed(HairStyle.class);
+         this.setExposed(VoiceStyles.class);
+         this.setExposed(VoiceStyle.class);
          this.setExposed(BloodClothingType.class);
          this.setExposed(WeaponType.class);
          this.setExposed(IsoWaterGeometry.class);
          this.setExposed(ModData.class);
          this.setExposed(WorldMarkers.class);
+         this.setExposed(SyncPlayerStatsPacket.class);
+         this.setExposed(BodyPartSyncPacket.class);
          this.setExposed(ChatMessage.class);
          this.setExposed(ChatBase.class);
          this.setExposed(ServerChatMessage.class);
          this.setExposed(Safety.class);
+         this.setExposed(NetTimedAction.class);
+         this.setExposed(NetTimedActionPacket.class);
          if (Core.bDebug) {
             this.setExposed(Field.class);
             this.setExposed(Method.class);
@@ -1735,6 +2519,7 @@ public final class LuaManager {
 
          this.exposeGlobalFunctions(new GlobalObject());
          LuaManager.exposeKeyboardKeys(LuaManager.env);
+         LuaManager.exposeMouseButtons(LuaManager.env);
          LuaManager.exposeLuaCalendar();
       }
 
@@ -1823,7 +2608,7 @@ public final class LuaManager {
                return var5;
             }
          } catch (Exception var7) {
-            DebugLog.General.error("LuaManager.loadZomboidModel> Exception thrown loading model: " + var0 + " mesh:" + var1 + " tex:" + var2 + " shader:" + var3 + " isStatic:" + var4);
+            DebugLog.Lua.error("LuaManager.loadZomboidModel> Exception thrown loading model: " + var0 + " mesh:" + var1 + " tex:" + var2 + " shader:" + var3 + " isStatic:" + var4);
             var7.printStackTrace();
             return null;
          }
@@ -1957,6 +2742,14 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getAllAnimalsDefinitions",
+         global = true
+      )
+      public static ArrayList<AnimalDefinitions> getAllAnimalsDefinitions() {
+         return AnimalDefinitions.getAnimalDefsArray();
+      }
+
+      @LuaMethod(
          name = "setPuddles",
          global = true
       )
@@ -1967,6 +2760,14 @@ public final class LuaManager {
          var1 = IsoPuddles.getInstance().getPuddlesFloat(1);
          var1.setEnableAdmin(true);
          var1.setAdminValue(PZMath.clamp_01(var0 * 1.2F));
+      }
+
+      @LuaMethod(
+         name = "fastfloor",
+         global = true
+      )
+      public static float fastfloor(float var0) {
+         return (float)PZMath.fastfloor(var0);
       }
 
       @LuaMethod(
@@ -1994,6 +2795,21 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "convertToPZNetTable",
+         global = true
+      )
+      public static KahluaTable convertToPZNetTable(KahluaTable var0) {
+         PZNetKahluaTableImpl var1 = new PZNetKahluaTableImpl(new LinkedHashMap());
+         KahluaTableIterator var2 = var0.iterator();
+
+         while(var2.advance()) {
+            var1.rawset(var2.getKey(), var2.getValue());
+         }
+
+         return var1;
+      }
+
+      @LuaMethod(
          name = "instanceof",
          global = true
       )
@@ -2018,18 +2834,8 @@ public final class LuaManager {
          name = "serverConnect",
          global = true
       )
-      public static void serverConnect(String var0, String var1, String var2, String var3, String var4, String var5, String var6, boolean var7) {
-         Core.GameMode = "Multiplayer";
-         Core.setDifficulty("Hardcore");
-         if (GameClient.connection != null) {
-            GameClient.connection.forceDisconnect("lua-connect");
-         }
-
-         GameClient.instance.resetDisconnectTimer();
-         GameClient.bClient = true;
-         GameClient.bCoopInvite = false;
-         ZomboidFileSystem.instance.cleanMultiplayerSaves();
-         GameClient.instance.doConnect(var0, var1, var2, var3, var4, var5, var6, var7);
+      public static void serverConnect(String var0, String var1, String var2, String var3, String var4, String var5, String var6, boolean var7, boolean var8, int var9, String var10) {
+         ConnectionManager.getInstance().serverConnect(var0, var1, var2, var3, var4, var5, var6, var7, var8, var9, var10);
       }
 
       @LuaMethod(
@@ -2037,15 +2843,7 @@ public final class LuaManager {
          global = true
       )
       public static void serverConnectCoop(String var0) {
-         Core.GameMode = "Multiplayer";
-         Core.setDifficulty("Hardcore");
-         if (GameClient.connection != null) {
-            GameClient.connection.forceDisconnect("lua-connect-coop");
-         }
-
-         GameClient.bClient = true;
-         GameClient.bCoopInvite = true;
-         GameClient.instance.doConnectCoop(var0);
+         ConnectionManager.getInstance().serverConnectCoop(var0);
       }
 
       @LuaMethod(
@@ -2067,7 +2865,7 @@ public final class LuaManager {
          global = true
       )
       public static void connectionManagerLog(String var0, String var1) {
-         ConnectionManager.log(var0, var1, (UdpConnection)null);
+         ConnectionManager.log(var0, var1, GameClient.connection);
       }
 
       @LuaMethod(
@@ -2079,6 +2877,21 @@ public final class LuaManager {
             GameClient.connection.forceDisconnect("lua-force-disconnect");
          }
 
+      }
+
+      @LuaMethod(
+         name = "checkPermissions",
+         global = true
+      )
+      public static boolean checkPermissions(IsoPlayer var0, Capability var1) {
+         if (GameServer.bServer && var0 != null && var1 != null) {
+            UdpConnection var2 = GameServer.getConnectionFromPlayer(var0);
+            if (var2 != null) {
+               return AntiCheatCapability.validate(var2, var1);
+            }
+         }
+
+         return true;
       }
 
       @LuaMethod(
@@ -2135,6 +2948,433 @@ public final class LuaManager {
       )
       public static KahluaTable getPacketCounts(int var0) {
          return GameClient.bClient ? PacketTypes.getPacketCounts(var0) : null;
+      }
+
+      @LuaMethod(
+         name = "sendEvent",
+         global = true
+      )
+      public static void sendEvent(IsoPlayer var0, String var1) {
+         if (GameClient.bClient) {
+            GameClient.sendEvent(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAnimalGenome",
+         global = true
+      )
+      public static void sendAnimalGenome(IsoAnimal var0) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.AnimalCommand, AnimalCommandPacket.Type.UpdateGenome, var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "addAnimal",
+         global = true
+      )
+      public static IsoAnimal addAnimal(IsoCell var0, int var1, int var2, int var3, String var4, AnimalBreed var5, boolean var6) {
+         return new IsoAnimal(var0, var1, var2, var3, var4, var5, var6);
+      }
+
+      @LuaMethod(
+         name = "addAnimal",
+         global = true
+      )
+      public static IsoAnimal addAnimal(IsoCell var0, int var1, int var2, int var3, String var4, AnimalBreed var5) {
+         return new IsoAnimal(var0, var1, var2, var3, var4, var5);
+      }
+
+      @LuaMethod(
+         name = "removeAnimal",
+         global = true
+      )
+      public static void removeAnimal(int var0) {
+         IsoAnimal var1 = getAnimal(var0);
+         if (var1 != null) {
+            var1.remove();
+         } else {
+            AnimalSynchronizationManager.getInstance().delete((short)var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "getFakeAttacker",
+         global = true
+      )
+      public static IsoGameCharacter getFakeAttacker() {
+         return IsoWorld.instance.CurrentCell.getFakeZombieForHit();
+      }
+
+      @LuaMethod(
+         name = "sendHitPlayer",
+         global = true
+      )
+      public static void sendHitPlayer(IsoPlayer var0, String var1, String var2, String var3, boolean var4, boolean var5, boolean var6, boolean var7) {
+         if (GameClient.bClient) {
+            Object var8;
+            if (var1 == null && IsoPlayer.getInstance().getPrimaryHandItem() != null) {
+               var8 = IsoPlayer.getInstance().getPrimaryHandItem();
+            } else {
+               if (var1 == null) {
+                  var1 = "Base.BareHands";
+               }
+
+               switch (var1) {
+                  case "Base.Katana":
+                  case "Base.Pistol":
+                     var8 = InventoryItemFactory.CreateItem(var1);
+                     break;
+                  case "Base.BareHands":
+                  default:
+                     var8 = IsoPlayer.getInstance().bareHands;
+               }
+            }
+
+            GameClient.sendPlayerHit(IsoPlayer.getInstance(), var0, (HandWeapon)var8, Float.parseFloat(var2), var5, Float.parseFloat(var3), var4, var6, var7);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendHitVehicle",
+         global = true
+      )
+      public static void sendHitVehicle(IsoGameCharacter var0, String var1, boolean var2, String var3, String var4, boolean var5) {
+         if (GameClient.bClient) {
+            BaseVehicle var6 = IsoPlayer.getInstance().getNearVehicle();
+            if (var6 != null) {
+               GameClient.sendVehicleHit(IsoPlayer.getInstance(), var0, var6, Float.parseFloat(var1), var2, Integer.parseInt(var3), Float.parseFloat(var4), var5);
+            }
+         }
+
+      }
+
+      @LuaMethod(
+         name = "requestUsers",
+         global = true
+      )
+      public static void requestUsers() {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.RequestNetworkUsers);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "requestPVPEvents",
+         global = true
+      )
+      public static void requestPVPEvents() {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.PVPEvents, false);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "clearPVPEvents",
+         global = true
+      )
+      public static void clearPVPEvents() {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.PVPEvents, true);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "getUsers",
+         global = true
+      )
+      public static ArrayList<NetworkUser> getUsers() {
+         return NetworkUsers.instance.getUsers();
+      }
+
+      @LuaMethod(
+         name = "networkUserAction",
+         global = true
+      )
+      public static void networkUserAction(String var0, String var1, String var2) {
+         INetworkPacket.send(PacketTypes.PacketType.NetworkUserAction, var0, var1, var2);
+      }
+
+      @LuaMethod(
+         name = "requestRoles",
+         global = true
+      )
+      public static void requestRoles() {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.RequestRoles);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "getRoles",
+         global = true
+      )
+      public static ArrayList<Role> getRoles() {
+         return Roles.getRoles();
+      }
+
+      @LuaMethod(
+         name = "getCapabilities",
+         global = true
+      )
+      public static ArrayList<Capability> getCapabilities() {
+         ArrayList var0 = new ArrayList();
+         Capability[] var1 = Capability.values();
+         int var2 = var1.length;
+
+         for(int var3 = 0; var3 < var2; ++var3) {
+            Capability var4 = var1[var3];
+            var0.add(var4);
+         }
+
+         return var0;
+      }
+
+      @LuaMethod(
+         name = "addRole",
+         global = true
+      )
+      public static void addRole(String var0) {
+         Roles.addRole(var0);
+      }
+
+      @LuaMethod(
+         name = "setupRole",
+         global = true
+      )
+      public static void setupRole(Role var0, String var1, Color var2, KahluaTable var3) {
+         ArrayList var4 = new ArrayList();
+         KahluaTableIterator var5 = var3.iterator();
+
+         while(var5.advance()) {
+            if ((Boolean)var5.getValue()) {
+               var4.add((Capability)var5.getKey());
+            }
+         }
+
+         Roles.setupRole(var0.getName(), var1, var2, var4);
+      }
+
+      @LuaMethod(
+         name = "deleteRole",
+         global = true
+      )
+      public static void deleteRole(String var0) {
+         Roles.deleteRole(var0, IsoPlayer.getInstance().getUsername());
+      }
+
+      @LuaMethod(
+         name = "setDefaultRoleFor",
+         global = true
+      )
+      public static void setDefaultRoleFor(String var0, String var1) {
+         Roles.setDefaultRoleFor(var0, var1);
+      }
+
+      @LuaMethod(
+         name = "getWarNearest",
+         global = true
+      )
+      public static WarManager.War getWarNearest() {
+         return WarManager.getWarNearest(IsoPlayer.getInstance());
+      }
+
+      @LuaMethod(
+         name = "getWars",
+         global = true
+      )
+      public static ArrayList<WarManager.War> getWars() {
+         return WarManager.getWarRelevent(IsoPlayer.getInstance());
+      }
+
+      @LuaMethod(
+         name = "getHutch",
+         global = true
+      )
+      public static IsoHutch getHutch(int var0, int var1, int var2) {
+         return IsoHutch.getHutch(var0, var1, var2);
+      }
+
+      @LuaMethod(
+         name = "getAnimal",
+         global = true
+      )
+      public static IsoAnimal getAnimal(int var0) {
+         return AnimalInstanceManager.getInstance().get((short)var0);
+      }
+
+      @LuaMethod(
+         name = "sendAddAnimalFromHandsInTrailer",
+         global = true
+      )
+      public static void sendAddAnimalFromHandsInTrailer(IsoAnimal var0, IsoPlayer var1, BaseVehicle var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.AddAnimalFromHandsInTrailer, var0, var1, var2, null);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAddAnimalFromHandsInTrailer",
+         global = true
+      )
+      public static void sendAddAnimalFromHandsInTrailer(IsoDeadBody var0, IsoPlayer var1, BaseVehicle var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.AddAnimalFromHandsInTrailer, var0, var1, var2, null);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAddAnimalInTrailer",
+         global = true
+      )
+      public static void sendAddAnimalInTrailer(IsoAnimal var0, IsoPlayer var1, BaseVehicle var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.AddAnimalInTrailer, var0, var1, var2, null);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAddAnimalInTrailer",
+         global = true
+      )
+      public static void sendAddAnimalInTrailer(IsoDeadBody var0, IsoPlayer var1, BaseVehicle var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.AddAnimalInTrailer, var0, var1, var2, null);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendRemoveAnimalFromTrailer",
+         global = true
+      )
+      public static void sendRemoveAnimalFromTrailer(IsoAnimal var0, IsoPlayer var1, BaseVehicle var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.RemoveAnimalFromTrailer, var0, var1, var2, null);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendRemoveAndGrabAnimalFromTrailer",
+         global = true
+      )
+      public static void sendRemoveAndGrabAnimalFromTrailer(IsoAnimal var0, IsoPlayer var1, BaseVehicle var2, AnimalInventoryItem var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.RemoveAndGrabAnimalFromTrailer, var0, var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendRemoveAndGrabAnimalFromTrailer",
+         global = true
+      )
+      public static void sendRemoveAndGrabAnimalFromTrailer(IsoDeadBody var0, IsoPlayer var1, BaseVehicle var2, AnimalInventoryItem var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.RemoveAndGrabAnimalFromTrailer, var0, var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAttachAnimalToPlayer",
+         global = true
+      )
+      public static void sendAttachAnimalToPlayer(IsoAnimal var0, IsoPlayer var1, IsoObject var2, boolean var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var1.getX(), var1.getY(), AnimalCommandPacket.Type.AttachAnimalToPlayer, var0, var1, var0, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAttachAnimalToTree",
+         global = true
+      )
+      public static void sendAttachAnimalToTree(IsoAnimal var0, IsoPlayer var1, IsoObject var2, boolean var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var2.getX(), var2.getY(), AnimalCommandPacket.Type.AttachAnimalToTree, var0, var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendPickupAnimal",
+         global = true
+      )
+      public static void sendPickupAnimal(IsoAnimal var0, IsoPlayer var1, AnimalInventoryItem var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var1.getX(), var1.getY(), AnimalCommandPacket.Type.PickupAnimal, var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendButcherAnimal",
+         global = true
+      )
+      public static void sendButcherAnimal(IsoDeadBody var0, IsoPlayer var1) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var0.getX(), var0.getY(), AnimalCommandPacket.Type.ButcherAnimal, var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendFeedAnimalFromHand",
+         global = true
+      )
+      public static void sendFeedAnimalFromHand(IsoAnimal var0, IsoPlayer var1, InventoryItem var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var1.getX(), var1.getY(), AnimalCommandPacket.Type.FeedAnimalFromHand, var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendHutchGrabAnimal",
+         global = true
+      )
+      public static void sendHutchGrabAnimal(IsoAnimal var0, IsoPlayer var1, IsoObject var2, InventoryItem var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var1.getX(), var1.getY(), AnimalCommandPacket.Type.HutchGrabAnimal, var0, var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendHutchGrabCorpseAction",
+         global = true
+      )
+      public static void sendHutchGrabCorpseAction(IsoAnimal var0, IsoPlayer var1, IsoObject var2, InventoryItem var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var1.getX(), var1.getY(), AnimalCommandPacket.Type.HutchGrabCorpseAction, var0, var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendHutchRemoveAnimalAction",
+         global = true
+      )
+      public static void sendHutchRemoveAnimalAction(IsoAnimal var0, IsoPlayer var1, IsoObject var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.AnimalCommand, var1.getX(), var1.getY(), AnimalCommandPacket.Type.HutchRemoveAnimal, var0, var1, var2);
+         }
+
       }
 
       @LuaMethod(
@@ -2245,9 +3485,12 @@ public final class LuaManager {
          global = true
       )
       public static float isoToScreenX(int var0, float var1, float var2, float var3) {
-         float var4 = IsoUtils.XToScreen(var1, var2, var3, 0) - IsoCamera.cameras[var0].getOffX();
-         var4 /= Core.getInstance().getZoom(var0);
-         return (float)IsoCamera.getScreenLeft(var0) + var4;
+         PlayerCamera var4 = IsoCamera.cameras[var0];
+         float var5 = var4.fixJigglyModelsSquareX;
+         float var6 = var4.fixJigglyModelsSquareY;
+         float var7 = IsoUtils.XToScreen(var1 + var5, var2 + var6, var3, 0) - var4.getOffX();
+         var7 /= var4.zoom;
+         return (float)IsoCamera.getScreenLeft(var0) + var7;
       }
 
       @LuaMethod(
@@ -2255,9 +3498,12 @@ public final class LuaManager {
          global = true
       )
       public static float isoToScreenY(int var0, float var1, float var2, float var3) {
-         float var4 = IsoUtils.YToScreen(var1, var2, var3, 0) - IsoCamera.cameras[var0].getOffY();
-         var4 /= Core.getInstance().getZoom(var0);
-         return (float)IsoCamera.getScreenTop(var0) + var4;
+         PlayerCamera var4 = IsoCamera.cameras[var0];
+         float var5 = var4.fixJigglyModelsSquareX;
+         float var6 = var4.fixJigglyModelsSquareY;
+         float var7 = IsoUtils.YToScreen(var1 + var5, var2 + var6, var3, 0) - var4.getOffY();
+         var7 /= var4.zoom;
+         return (float)IsoCamera.getScreenTop(var0) + var7;
       }
 
       @LuaMethod(
@@ -2313,7 +3559,7 @@ public final class LuaManager {
       public static void setActivePlayer(int var0) {
          if (!GameClient.bClient) {
             IsoPlayer.setInstance(IsoPlayer.players[var0]);
-            IsoCamera.CamCharacter = IsoPlayer.getInstance();
+            IsoCamera.setCameraCharacter(IsoPlayer.getInstance());
          }
       }
 
@@ -2435,11 +3681,19 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getAnimalChunk",
+         global = true
+      )
+      public static AnimalChunk getAnimalChunk(int var0, int var1) {
+         return AnimalManagerWorker.getInstance().getAnimalChunk((float)var0, (float)var1);
+      }
+
+      @LuaMethod(
          name = "AddWorldSound",
          global = true
       )
       public static void AddWorldSound(IsoPlayer var0, int var1, int var2) {
-         WorldSoundManager.instance.addSound((Object)null, (int)var0.getX(), (int)var0.getY(), (int)var0.getZ(), var1, var2, false);
+         WorldSoundManager.instance.addSound((Object)null, PZMath.fastfloor(var0.getX()), PZMath.fastfloor(var0.getY()), PZMath.fastfloor(var0.getZ()), var1, var2, false);
       }
 
       @LuaMethod(
@@ -2454,9 +3708,9 @@ public final class LuaManager {
          global = true
       )
       public static void pauseSoundAndMusic() {
-         DebugLog.log("EXITDEBUG: pauseSoundAndMusic 1");
+         DebugType.ExitDebug.debugln("pauseSoundAndMusic 1");
          SoundManager.instance.pauseSoundAndMusic();
-         DebugLog.log("EXITDEBUG: pauseSoundAndMusic 2");
+         DebugType.ExitDebug.debugln("pauseSoundAndMusic 2");
       }
 
       @LuaMethod(
@@ -2512,6 +3766,17 @@ public final class LuaManager {
             LuaManager.loaded.remove(var0);
             LuaManager.RunLua(var0, true);
          }
+      }
+
+      @LuaMethod(
+         name = "setSpawnRegion",
+         global = true
+      )
+      public static void setSpawnRegion(String var0) {
+         if (GameClient.bClient) {
+            IsoWorld.instance.setSpawnRegion(var0);
+         }
+
       }
 
       @LuaMethod(
@@ -2596,22 +3861,6 @@ public final class LuaManager {
       )
       public static void setShowServerInfo(boolean var0) {
          NetworkAIParams.setShowServerInfo(var0);
-      }
-
-      @LuaMethod(
-         name = "isShowPingInfo",
-         global = true
-      )
-      public static boolean isShowPingInfo() {
-         return NetworkAIParams.isShowPingInfo();
-      }
-
-      @LuaMethod(
-         name = "setShowPingInfo",
-         global = true
-      )
-      public static void setShowPingInfo(boolean var0) {
-         NetworkAIParams.setShowPingInfo(var0);
       }
 
       @LuaMethod(
@@ -2731,12 +3980,78 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "sendSyncPlayerFields",
+         global = true
+      )
+      public static void sendSyncPlayerFields(IsoPlayer var0, byte var1) {
+         if (GameServer.bServer) {
+            GameServer.sendSyncPlayerFields(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
          name = "sendClothing",
          global = true
       )
-      public static void sendClothing(IsoPlayer var0) {
-         if (GameClient.bClient) {
-            GameClient.instance.sendClothing(var0, "", (InventoryItem)null);
+      public static void sendClothing(IsoPlayer var0, String var1, InventoryItem var2) {
+         if (GameServer.bServer) {
+            GameServer.sendSyncClothing(var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "syncVisuals",
+         global = true
+      )
+      public static void syncVisuals(IsoPlayer var0) {
+         if (GameServer.bServer) {
+            GameServer.syncVisuals(var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendEquip",
+         global = true
+      )
+      public static void sendEquip(IsoPlayer var0) {
+         if (GameServer.bServer) {
+            GameServer.updateHandEquips(GameServer.getConnectionFromPlayer(var0), var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendDamage",
+         global = true
+      )
+      public static void sendDamage(IsoPlayer var0) {
+         if (GameServer.bServer) {
+            INetworkPacket.send(var0, PacketTypes.PacketType.PlayerDamage, var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendPlayerEffects",
+         global = true
+      )
+      public static void sendPlayerEffects(IsoPlayer var0) {
+         if (GameServer.bServer) {
+            INetworkPacket.send(var0, PacketTypes.PacketType.PlayerEffectsSync, var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendItemStats",
+         global = true
+      )
+      public static void sendItemStats(InventoryItem var0) {
+         if (GameServer.bServer) {
+            GameServer.sendItemStats(var0);
          }
 
       }
@@ -2806,11 +4121,11 @@ public final class LuaManager {
       }
 
       @LuaMethod(
-         name = "canModifyPlayerStats",
+         name = "isMultiplayer",
          global = true
       )
-      public static boolean canModifyPlayerStats() {
-         return !GameClient.bClient ? true : GameClient.canModifyPlayerStats();
+      public static boolean isMultiplayer() {
+         return GameClient.bClient || GameServer.bServer;
       }
 
       @LuaMethod(
@@ -2829,12 +4144,30 @@ public final class LuaManager {
          return GameClient.canSeePlayerStats();
       }
 
+      /** @deprecated */
+      @Deprecated
       @LuaMethod(
          name = "getAccessLevel",
          global = true
       )
       public static String getAccessLevel() {
-         return PlayerType.toString(GameClient.connection.accessLevel);
+         return GameClient.connection.role.getName();
+      }
+
+      /** @deprecated */
+      @Deprecated
+      @LuaMethod(
+         name = "haveAccess",
+         global = true
+      )
+      public static boolean haveAccess(String var0) {
+         try {
+            Capability var1 = Capability.valueOf(var0);
+            return GameClient.connection.role.haveCapability(var1);
+         } catch (Exception var2) {
+            DebugLog.General.printException(var2, "access=" + var0, LogSeverity.Error);
+            return false;
+         }
       }
 
       @LuaMethod(
@@ -2845,7 +4178,7 @@ public final class LuaManager {
          if (GameServer.bServer) {
             return GameServer.getPlayers();
          } else {
-            return GameClient.bClient ? GameClient.instance.getPlayers() : null;
+            return GameClient.bClient ? GameClient.instance.getPlayers() : new ArrayList();
          }
       }
 
@@ -2881,10 +4214,6 @@ public final class LuaManager {
 
             var2.setWorld(0);
             var1 = IsoWorld.instance.getMap();
-         }
-
-         if (!GameClient.bClient && !GameServer.bServer) {
-            var1 = MapGroups.addMissingVanillaDirectories(var1);
          }
 
          String[] var10 = var1.split(";");
@@ -2944,13 +4273,31 @@ public final class LuaManager {
                }
 
                if (var6 != null) {
-                  var1 = new File(var6.getDir() + "/media/maps/");
+                  var1 = new File(var6.getCommonDir() + "/media/maps/");
+                  int var7;
+                  String var8;
+                  ChooseGameInfo.Map var9;
                   if (var1.exists()) {
                      var2 = var1.list();
                      if (var2 != null) {
-                        for(int var7 = 0; var7 < var2.length; ++var7) {
-                           String var8 = var2[var7];
-                           ChooseGameInfo.Map var9 = ChooseGameInfo.getMapDetails(var8);
+                        for(var7 = 0; var7 < var2.length; ++var7) {
+                           var8 = var2[var7];
+                           var9 = ChooseGameInfo.getMapDetails(var8);
+                           if (var9.getLotDirectories() != null && !var9.getLotDirectories().isEmpty() && !var8.equals("challengemaps")) {
+                              var0.rawset(var3, var8);
+                              ++var3;
+                           }
+                        }
+                     }
+                  }
+
+                  var1 = new File(var6.getVersionDir() + "/media/maps/");
+                  if (var1.exists()) {
+                     var2 = var1.list();
+                     if (var2 != null) {
+                        for(var7 = 0; var7 < var2.length; ++var7) {
+                           var8 = var2[var7];
+                           var9 = ChooseGameInfo.getMapDetails(var8);
                            if (var9.getLotDirectories() != null && !var9.getLotDirectories().isEmpty() && !var8.equals("challengemaps")) {
                               var0.rawset(var3, var8);
                               ++var3;
@@ -3050,12 +4397,35 @@ public final class LuaManager {
             var2 = new BufferedReader(new FileReader(var3, StandardCharsets.UTF_8));
             String var4 = null;
             Server var5 = null;
+            boolean var6 = true;
 
             while((var4 = var2.readLine()) != null) {
                if (var4.startsWith("name=")) {
                   var5 = new Server();
                   var0.add(var5);
                   var5.setName(var4.replaceFirst("name=", ""));
+                  var6 = true;
+                  var10002 = LuaManager.getLuaCacheDir();
+                  File var7 = new File(var10002 + File.separator + var5.getName() + "_icon.jpg");
+                  if (var7.exists()) {
+                     var5.setServerIcon(new Texture(var7.getAbsolutePath()));
+                  } else {
+                     var5.setServerIcon(Texture.getSharedTexture("media/ui/zomboidIcon64.png"));
+                  }
+
+                  var10002 = LuaManager.getLuaCacheDir();
+                  var7 = new File(var10002 + File.separator + var5.getName() + "_loadingScreen.jpg");
+                  if (var7.exists()) {
+                     var5.setServerLoadingScreen(new Texture(var7.getAbsolutePath()));
+                  }
+
+                  var10002 = LuaManager.getLuaCacheDir();
+                  var7 = new File(var10002 + File.separator + var5.getName() + "_loginScreen.jpg");
+                  if (var7.exists()) {
+                     var5.setServerLoginScreen(new Texture(var7.getAbsolutePath()));
+                  }
+               } else if (var4.startsWith("serverCustomizationLastUpdate=")) {
+                  var5.setServerCustomizationLastUpdate(Integer.valueOf(var4.replaceFirst("serverCustomizationLastUpdate=", "")));
                } else if (var4.startsWith("ip=")) {
                   var5.setIp(var4.replaceFirst("ip=", ""));
                } else if (var4.startsWith("localip=")) {
@@ -3066,8 +4436,19 @@ public final class LuaManager {
                   var5.setPort(var4.replaceFirst("port=", ""));
                } else if (var4.startsWith("user=")) {
                   var5.setUserName(var4.replaceFirst("user=", ""));
+               } else if (var4.startsWith("remember=")) {
+                  var5.setSavePwd(Boolean.parseBoolean(var4.replaceFirst("remember=", "")));
+                  var6 = false;
+               } else if (var4.startsWith("authType=")) {
+                  var5.setAuthType(Integer.parseInt(var4.replaceFirst("authType=", "")));
+               } else if (var4.startsWith("loginScreenId=")) {
+                  var5.setLoginScreenId(Integer.parseInt(var4.replaceFirst("loginScreenId=", "")));
                } else if (var4.startsWith("password=")) {
-                  var5.setPwd(var4.replaceFirst("password=", ""));
+                  if (var6) {
+                     var5.setNeedSave(true);
+                  }
+
+                  var5.setPwd(var4.replaceFirst("password=", ""), var6);
                } else if (var4.startsWith("serverpassword=")) {
                   var5.setServerPassword(var4.replaceFirst("serverpassword=", ""));
                } else if (var4.startsWith("usesteamrelay=")) {
@@ -3075,20 +4456,20 @@ public final class LuaManager {
                }
             }
 
-            int var6 = 1;
+            int var21 = 1;
 
-            for(int var7 = 0; var7 < var0.size(); ++var7) {
-               Server var8 = (Server)var0.get(var7);
-               Double var9 = (double)var6;
-               var1.rawset(var9, var8);
-               ++var6;
+            for(int var8 = 0; var8 < var0.size(); ++var8) {
+               Server var9 = (Server)var0.get(var8);
+               Double var10 = (double)var21;
+               var1.rawset(var10, var9);
+               ++var21;
             }
-         } catch (Exception var18) {
-            var18.printStackTrace();
+         } catch (Exception var19) {
+            var19.printStackTrace();
          } finally {
             try {
                var2.close();
-            } catch (Exception var17) {
+            } catch (Exception var18) {
             }
 
          }
@@ -3100,9 +4481,24 @@ public final class LuaManager {
          name = "ping",
          global = true
       )
-      public static void ping(String var0, String var1, String var2, String var3) {
-         GameClient.askPing = true;
-         serverConnect(var0, var1, var2, "", var3, "", "", false);
+      public static void ping(String var0, String var1, String var2, String var3, boolean var4) {
+         ConnectionManager.getInstance().ping(var0, var1, var2, var3, var4);
+      }
+
+      @LuaMethod(
+         name = "getCustomizationData",
+         global = true
+      )
+      public static void getCustomizationData(String var0, String var1, String var2, String var3, String var4, String var5, boolean var6) {
+         ConnectionManager.getInstance().getCustomizationData(var0, var1, var2, var3, var4, var5, var6);
+      }
+
+      @LuaMethod(
+         name = "getClientLoadingScreen",
+         global = true
+      )
+      public static Texture getClientLoadingScreen(int var0) {
+         return CustomizationManager.getInstance().getClientCustomBackground(var0);
       }
 
       @LuaMethod(
@@ -3110,7 +4506,7 @@ public final class LuaManager {
          global = true
       )
       public static void stopPing() {
-         GameClient.askPing = false;
+         ConnectionManager.getInstance().stopPing();
       }
 
       @LuaMethod(
@@ -3214,8 +4610,15 @@ public final class LuaManager {
          global = true
       )
       public static KahluaTable getSaveDirectoryTable() {
-         KahluaTable var0 = LuaManager.platform.newTable();
-         return var0;
+         return LuaManager.platform.newTable();
+      }
+
+      @LuaMethod(
+         name = "getCurrentSaveName",
+         global = true
+      )
+      public static String getCurrentSaveName() {
+         return ZomboidFileSystem.instance.getCurrentSaveDir();
       }
 
       public static List<String> getMods() {
@@ -3365,7 +4768,7 @@ public final class LuaManager {
       )
       public static void sendSafehouseInvite(SafeHouse var0, IsoPlayer var1, String var2) {
          if (GameClient.bClient) {
-            GameClient.sendSafehouseInvite(var0, var1, var2);
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseInvite, var0, var1, var2);
          }
 
       }
@@ -3374,9 +4777,87 @@ public final class LuaManager {
          name = "acceptSafehouseInvite",
          global = true
       )
-      public static void acceptSafehouseInvite(SafeHouse var0, String var1) {
+      public static void acceptSafehouseInvite(SafeHouse var0, String var1, IsoPlayer var2) {
          if (GameClient.bClient) {
-            GameClient.acceptSafehouseInvite(var0, var1);
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseAccept, var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafehouseChangeMember",
+         global = true
+      )
+      public static void sendSafehouseChangeMember(SafeHouse var0, String var1) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseChangeMember, var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafehouseChangeOwner",
+         global = true
+      )
+      public static void sendSafehouseChangeOwner(SafeHouse var0, String var1) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseChangeOwner, var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafehouseChangeRespawn",
+         global = true
+      )
+      public static void sendSafehouseChangeRespawn(SafeHouse var0, String var1, boolean var2) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseChangeRespawn, var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafehouseChangeTitle",
+         global = true
+      )
+      public static void sendSafehouseChangeTitle(SafeHouse var0, String var1) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseChangeTitle, var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafezoneClaim",
+         global = true
+      )
+      public static void sendSafezoneClaim(String var0, int var1, int var2, int var3, int var4, String var5) {
+         if (GameClient.bClient) {
+            IsoPlayer var6 = GameClient.instance.getPlayerFromUsername(var0);
+            INetworkPacket.send(PacketTypes.PacketType.SafezoneClaim, var6, var1, var2, var3, var4, var5);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafehouseClaim",
+         global = true
+      )
+      public static void sendSafehouseClaim(IsoGridSquare var0, IsoPlayer var1, String var2) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseClaim, var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendSafehouseRelease",
+         global = true
+      )
+      public static void sendSafehouseRelease(SafeHouse var0) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SafehouseRelease, var0);
          }
 
       }
@@ -3386,7 +4867,7 @@ public final class LuaManager {
          global = true
       )
       public static void createHordeFromTo(float var0, float var1, float var2, float var3, int var4) {
-         ZombiePopulationManager.instance.createHordeFromTo((int)var0, (int)var1, (int)var2, (int)var3, var4);
+         ZombiePopulationManager.instance.createHordeFromTo(PZMath.fastfloor(var0), PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3), var4);
       }
 
       @LuaMethod(
@@ -3576,52 +5057,92 @@ public final class LuaManager {
             if (var1 == null) {
                return null;
             } else {
-               String var10000 = var1.getDir();
-               String var2 = var10000 + File.separator + "media" + File.separator + "maps";
-               File var3 = new File(var2);
-               if (var3.exists() && var3.isDirectory()) {
-                  ArrayList var4 = null;
-                  DirectoryStream var5 = Files.newDirectoryStream(var3.toPath());
+               ArrayList var2 = null;
+               String var10000 = var1.getCommonDir();
+               String var3 = var10000 + File.separator + "media" + File.separator + "maps";
+               File var4 = new File(var3);
+               DirectoryStream var5;
+               Iterator var6;
+               Path var7;
+               if (var4.exists() && var4.isDirectory()) {
+                  var5 = Files.newDirectoryStream(var4.toPath());
 
                   try {
-                     Iterator var6 = var5.iterator();
+                     var6 = var5.iterator();
 
                      while(var6.hasNext()) {
-                        Path var7 = (Path)var6.next();
+                        var7 = (Path)var6.next();
                         if (Files.isDirectory(var7, new LinkOption[0])) {
-                           var3 = new File(var2 + File.separator + var7.getFileName().toString() + File.separator + "map.info");
-                           if (var3.exists()) {
-                              if (var4 == null) {
-                                 var4 = new ArrayList();
+                           var4 = new File(var3 + File.separator + var7.getFileName().toString() + File.separator + "map.info");
+                           if (var4.exists()) {
+                              if (var2 == null) {
+                                 var2 = new ArrayList();
                               }
 
-                              var4.add(var7.getFileName().toString());
+                              var2.add(var7.getFileName().toString());
                            }
                         }
                      }
-                  } catch (Throwable var9) {
+                  } catch (Throwable var11) {
                      if (var5 != null) {
                         try {
                            var5.close();
                         } catch (Throwable var8) {
-                           var9.addSuppressed(var8);
+                           var11.addSuppressed(var8);
                         }
                      }
 
-                     throw var9;
+                     throw var11;
                   }
 
                   if (var5 != null) {
                      var5.close();
                   }
-
-                  return var4;
-               } else {
-                  return null;
                }
+
+               var10000 = var1.getVersionDir();
+               var3 = var10000 + File.separator + "media" + File.separator + "maps";
+               var4 = new File(var3);
+               if (var4.exists() && var4.isDirectory()) {
+                  var5 = Files.newDirectoryStream(var4.toPath());
+
+                  try {
+                     var6 = var5.iterator();
+
+                     while(var6.hasNext()) {
+                        var7 = (Path)var6.next();
+                        if (Files.isDirectory(var7, new LinkOption[0])) {
+                           var4 = new File(var3 + File.separator + var7.getFileName().toString() + File.separator + "map.info");
+                           if (var4.exists()) {
+                              if (var2 == null) {
+                                 var2 = new ArrayList();
+                              }
+
+                              var2.add(var7.getFileName().toString());
+                           }
+                        }
+                     }
+                  } catch (Throwable var10) {
+                     if (var5 != null) {
+                        try {
+                           var5.close();
+                        } catch (Throwable var9) {
+                           var10.addSuppressed(var9);
+                        }
+                     }
+
+                     throw var10;
+                  }
+
+                  if (var5 != null) {
+                     var5.close();
+                  }
+               }
+
+               return var2;
             }
-         } catch (Exception var10) {
-            var10.printStackTrace();
+         } catch (Exception var12) {
+            var12.printStackTrace();
             return null;
          }
       }
@@ -3636,12 +5157,16 @@ public final class LuaManager {
             if (var2 == null) {
                return false;
             } else {
-               String var10000 = var2.getDir();
+               String var10000 = var2.getCommonDir();
                String var3 = var10000 + File.separator + "media" + File.separator + "maps" + File.separator + var1 + File.separator + "spawnpoints.lua";
-               return (new File(var3)).exists();
+               var10000 = var2.getVersionDir();
+               String var4 = var10000 + File.separator + "media" + File.separator + "maps" + File.separator + var1 + File.separator + "spawnpoints.lua";
+               File var5 = new File(var3);
+               File var6 = new File(var4);
+               return var5.exists() || var6.exists();
             }
-         } catch (Exception var4) {
-            var4.printStackTrace();
+         } catch (Exception var7) {
+            var7.printStackTrace();
             return false;
          }
       }
@@ -3703,6 +5228,18 @@ public final class LuaManager {
          } else {
             return ClientPlayerDB.getInstance().clientLoadNetworkPlayer() && ClientPlayerDB.getInstance().isAliveMainNetworkPlayer();
          }
+      }
+
+      @LuaMethod(
+         name = "cacheFileExists",
+         global = true
+      )
+      public static boolean cacheFileExists(String var0) {
+         String var1 = var0.replace("/", File.separator);
+         var1 = var1.replace("\\", File.separator);
+         String var10002 = ZomboidFileSystem.instance.getCacheDir();
+         File var2 = new File(var10002 + File.separator + "Lua" + File.separator + var1);
+         return var2.exists();
       }
 
       @LuaMethod(
@@ -3769,17 +5306,25 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "instanceItem",
+         global = true
+      )
+      public static InventoryItem instanceItem(String var0, float var1) {
+         return InventoryItemFactory.CreateItem(var0, var1);
+      }
+
+      @LuaMethod(
          name = "createNewScriptItem",
          global = true
       )
       public static Item createNewScriptItem(String var0, String var1, String var2, String var3, String var4) {
          Item var5 = new Item();
-         var5.module = ScriptManager.instance.getModule(var0);
-         var5.module.ItemMap.put(var1, var5);
+         var5.setModule(ScriptManager.instance.getModule(var0));
+         var5.getModule().items.getScriptMap().put(var1, var5);
          var5.Icon = "Item_" + var4;
          var5.DisplayName = var2;
          var5.name = var1;
-         var5.moduleDotType = var5.module.name + "." + var1;
+         var5.moduleDotType = var5.getModule().name + "." + var1;
 
          try {
             var5.type = Item.Type.valueOf(var3);
@@ -3796,8 +5341,8 @@ public final class LuaManager {
       public static Item cloneItemType(String var0, String var1) {
          Item var2 = ScriptManager.instance.FindItem(var1);
          Item var3 = new Item();
-         var3.module = var2.getModule();
-         var3.module.ItemMap.put(var0, var3);
+         var3.setModule(var2.getModule());
+         var3.getModule().items.getScriptMap().put(var0, var3);
          return var3;
       }
 
@@ -3872,6 +5417,40 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "callLua",
+         global = true
+      )
+      public static void callLua(String var0, Object var1) {
+         LuaManager.caller.pcall(LuaManager.thread, LuaManager.env.rawget(var0), var1);
+      }
+
+      @LuaMethod(
+         name = "callLuaReturn",
+         global = true
+      )
+      public static ArrayList<Object> callLuaReturn(String var0, ArrayList<Object> var1) {
+         if (var1 == null) {
+            var1 = new ArrayList();
+         }
+
+         ArrayList var2 = new ArrayList();
+         LuaReturn var3 = LuaManager.caller.protectedCall(LuaManager.thread, LuaManager.env.rawget(var0), new Object[]{var1});
+         if (var3 instanceof LuaSuccess var4) {
+            var2.addAll(var4);
+         }
+
+         return var2;
+      }
+
+      @LuaMethod(
+         name = "callLuaBool",
+         global = true
+      )
+      public static Boolean callLuaBool(String var0, Object var1) {
+         return LuaManager.caller.pcallBoolean(LuaManager.thread, LuaManager.env.rawget(var0), var1, (Object)null);
+      }
+
+      @LuaMethod(
          name = "getWorld",
          global = true
       )
@@ -3885,6 +5464,46 @@ public final class LuaManager {
       )
       public static IsoCell getCell() {
          return IsoWorld.instance.getCell();
+      }
+
+      @LuaMethod(
+         name = "getCellSizeInChunks",
+         global = true
+      )
+      public static Double getCellSizeInChunks() {
+         return BoxedStaticValues.toDouble((double)IsoCell.CellSizeInChunks);
+      }
+
+      @LuaMethod(
+         name = "getCellSizeInSquares",
+         global = true
+      )
+      public static Double getCellSizeInSquares() {
+         return BoxedStaticValues.toDouble((double)IsoCell.CellSizeInSquares);
+      }
+
+      @LuaMethod(
+         name = "getChunkSizeInSquares",
+         global = true
+      )
+      public static Double getChunkSizeInSquares() {
+         return BoxedStaticValues.toDouble(8.0);
+      }
+
+      @LuaMethod(
+         name = "getMinimumWorldLevel",
+         global = true
+      )
+      public static Double getMinimumWorldLevel() {
+         return BoxedStaticValues.toDouble(-32.0);
+      }
+
+      @LuaMethod(
+         name = "getMaximumWorldLevel",
+         global = true
+      )
+      public static Double getMaximumWorldLevel() {
+         return BoxedStaticValues.toDouble(31.0);
       }
 
       @LuaMethod(
@@ -4087,7 +5706,7 @@ public final class LuaManager {
                   return null;
                }
 
-               var10000 = var4.getDir();
+               var10000 = var4.getCommonDir();
                var3 = var10000 + File.separator + var1;
             }
 
@@ -4142,21 +5761,33 @@ public final class LuaManager {
             AnimationSet.GetAnimationSet("zombie", true);
             AnimationSet.GetAnimationSet("zombie-crawler", true);
 
-            for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
-               IsoPlayer var5 = IsoPlayer.players[var4];
-               if (var5 != null) {
-                  var5.advancedAnimator.OnAnimDataChanged(var0);
+            for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
+               IsoPlayer var6 = IsoPlayer.players[var5];
+               if (var6 != null) {
+                  var6.advancedAnimator.OnAnimDataChanged(var0);
                }
             }
 
-            var1 = IsoWorld.instance.CurrentCell.getZombieList().iterator();
+            if (IsoWorld.instance.CurrentCell != null) {
+               var1 = IsoWorld.instance.CurrentCell.getZombieList().iterator();
+
+               while(var1.hasNext()) {
+                  IsoZombie var7 = (IsoZombie)var1.next();
+                  var7.advancedAnimator.OnAnimDataChanged(var0);
+               }
+            }
+
+            var1 = IsoWorld.instance.CurrentCell.getObjectList().iterator();
 
             while(var1.hasNext()) {
-               IsoZombie var6 = (IsoZombie)var1.next();
-               var6.advancedAnimator.OnAnimDataChanged(var0);
+               IsoMovingObject var8 = (IsoMovingObject)var1.next();
+               IsoAnimal var3 = (IsoAnimal)Type.tryCastTo(var8, IsoAnimal.class);
+               if (var3 != null) {
+                  var3.advancedAnimator.OnAnimDataChanged(var0);
+               }
             }
-         } catch (Exception var3) {
-            ExceptionLogger.logException(var3);
+         } catch (Exception var4) {
+            ExceptionLogger.logException(var4);
          }
 
       }
@@ -4179,7 +5810,7 @@ public final class LuaManager {
             if (var4 == null) {
                return null;
             } else {
-               String var10000 = var4.getDir();
+               String var10000 = var4.getCommonDir();
                String var5 = var10000 + File.separator + var1;
                var5 = var5.replace("/", File.separator);
                var5 = var5.replace("\\", File.separator);
@@ -4221,6 +5852,41 @@ public final class LuaManager {
       )
       public static void updateFire() {
          IsoFireManager.Update();
+      }
+
+      @LuaMethod(
+         name = "deletePlayerFromDatabase",
+         global = true
+      )
+      public static void deletePlayerFromDatabase(String var0, String var1, String var2) {
+         try {
+            ServerWorldDatabase.instance.connect();
+            ServerWorldDatabase.instance.removeUser(var1, var2);
+            ServerWorldDatabase.instance.close();
+            PlayerDBHelper.removePlayer(ZomboidFileSystem.instance.getSaveDir() + File.separator + var0, var1, var2);
+         } catch (SQLException var4) {
+            var4.printStackTrace();
+         }
+
+      }
+
+      @LuaMethod(
+         name = "checkPlayerExistsInDatabase",
+         global = true
+      )
+      public static boolean checkPlayerExistsInDatabase(String var0, String var1, String var2) {
+         boolean var3 = false;
+
+         try {
+            ServerWorldDatabase.instance.connect();
+            var3 = ServerWorldDatabase.instance.containsUser(var1, var2);
+            ServerWorldDatabase.instance.close();
+            var3 |= PlayerDBHelper.containsNetworkPlayer(ZomboidFileSystem.instance.getSaveDir() + File.separator + var0, var1, var2);
+         } catch (SQLException var5) {
+            var5.printStackTrace();
+         }
+
+         return var3;
       }
 
       @LuaMethod(
@@ -4653,7 +6319,6 @@ public final class LuaManager {
 
          if (var2) {
             var1.applyTraits(IsoWorld.instance.getLuaTraits());
-            var1.createKeyRing();
             ProfessionFactory.Profession var3 = ProfessionFactory.getProfession(var1.getDescriptor().getProfession());
             Iterator var4;
             String var5;
@@ -4694,7 +6359,7 @@ public final class LuaManager {
          }
 
          IsoPlayer.numPlayers = Math.max(IsoPlayer.numPlayers, var0 + 1);
-         IsoWorld.instance.AddCoopPlayers.add(new AddCoopPlayer(var1));
+         IsoWorld.instance.AddCoopPlayers.add(new AddCoopPlayer(var1, var2));
          if (var0 == 0) {
             IsoPlayer.setInstance(var1);
          }
@@ -4706,7 +6371,7 @@ public final class LuaManager {
          global = true
       )
       public static int toInt(double var0) {
-         return (int)var0;
+         return PZMath.fastfloor(var0);
       }
 
       @LuaMethod(
@@ -4727,11 +6392,11 @@ public final class LuaManager {
             if (var2 == null) {
                IsoPlayer var5 = IsoPlayer.getInstance();
                IsoWorld var6 = IsoWorld.instance;
-               int var7 = var6.getLuaPosX() + 300 * var6.getLuaSpawnCellX();
-               int var8 = var6.getLuaPosY() + 300 * var6.getLuaSpawnCellY();
+               int var7 = var6.getLuaPosX();
+               int var8 = var6.getLuaPosY();
                int var9 = var6.getLuaPosZ();
                DebugLog.Lua.debugln("coop player spawning at " + var7 + "," + var8 + "," + var9);
-               var2 = new IsoPlayer(var6.CurrentCell, var6.getLuaPlayerDesc(), var7, var8, var9);
+               var2 = new IsoPlayer(var6.CurrentCell, GameClient.bClient ? null : var6.getLuaPlayerDesc(), var7, var8, var9);
                IsoPlayer.setInstance(var5);
                var6.CurrentCell.getAddList().remove(var2);
                var6.CurrentCell.getObjectList().remove(var2);
@@ -4768,11 +6433,11 @@ public final class LuaManager {
          if (var0 == null) {
             IsoPlayer var3 = IsoPlayer.getInstance();
             IsoWorld var4 = IsoWorld.instance;
-            int var5 = var4.getLuaPosX() + 300 * var4.getLuaSpawnCellX();
-            int var6 = var4.getLuaPosY() + 300 * var4.getLuaSpawnCellY();
+            int var5 = var4.getLuaPosX();
+            int var6 = var4.getLuaPosY();
             int var7 = var4.getLuaPosZ();
             DebugLog.Lua.debugln("coop player spawning at " + var5 + "," + var6 + "," + var7);
-            var0 = new IsoPlayer(var4.CurrentCell, var4.getLuaPlayerDesc(), var5, var6, var7);
+            var0 = new IsoPlayer(var4.CurrentCell, GameClient.bClient ? null : var4.getLuaPlayerDesc(), var5, var6, var7);
             IsoPlayer.setInstance(var3);
             var4.CurrentCell.getAddList().remove(var0);
             var4.CurrentCell.getObjectList().remove(var0);
@@ -4987,6 +6652,10 @@ public final class LuaManager {
             var3.mkdirs();
          }
 
+         if (!Core.getInstance().isNoSave()) {
+            SavefileNaming.ensureSubdirectoriesExist(var2);
+         }
+
          Core.GameSaveWorld = var0;
       }
 
@@ -5169,7 +6838,7 @@ public final class LuaManager {
          if (var0 == 0.0) {
             return 0.0;
          } else {
-            return var0 < 0.0 ? (double)(-Rand.Next(-((long)var0), Rand.randlua)) : (double)Rand.Next((long)var0, Rand.randlua);
+            return var0 < 0.0 ? (double)(-RandLua.INSTANCE.Next(-((long)var0))) : (double)RandLua.INSTANCE.Next((long)var0);
          }
       }
 
@@ -5178,7 +6847,7 @@ public final class LuaManager {
          global = true
       )
       public static double ZombRandBetween(double var0, double var2) {
-         return (double)Rand.Next((long)var0, (long)var2, Rand.randlua);
+         return (double)RandLua.INSTANCE.Next((long)var0, (long)var2);
       }
 
       @LuaMethod(
@@ -5186,7 +6855,7 @@ public final class LuaManager {
          global = true
       )
       public static double ZombRand(double var0, double var2) {
-         return (double)Rand.Next((int)var0, (int)var2, Rand.randlua);
+         return (double)RandLua.INSTANCE.Next((int)var0, (int)var2);
       }
 
       @LuaMethod(
@@ -5194,7 +6863,7 @@ public final class LuaManager {
          global = true
       )
       public static float ZombRandFloat(float var0, float var1) {
-         return Rand.Next(var0, var1, Rand.randlua);
+         return RandLua.INSTANCE.Next(var0, var1);
       }
 
       @LuaMethod(
@@ -5214,10 +6883,26 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "isKeyDown",
+         global = true
+      )
+      public static boolean isKeyDown(String var0) {
+         return GameKeyboard.isKeyDown(var0);
+      }
+
+      @LuaMethod(
          name = "wasKeyDown",
          global = true
       )
       public static boolean wasKeyDown(int var0) {
+         return GameKeyboard.wasKeyDown(var0);
+      }
+
+      @LuaMethod(
+         name = "wasKeyDown",
+         global = true
+      )
+      public static boolean wasKeyDown(String var0) {
          return GameKeyboard.wasKeyDown(var0);
       }
 
@@ -5230,11 +6915,27 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "isKeyPressed",
+         global = true
+      )
+      public static boolean isKeyPressed(String var0) {
+         return GameKeyboard.isKeyPressed(var0);
+      }
+
+      @LuaMethod(
+         name = "getBaseSoundBank",
+         global = true
+      )
+      public static BaseSoundBank getBaseSoundBank() {
+         return BaseSoundBank.instance;
+      }
+
+      @LuaMethod(
          name = "getFMODSoundBank",
          global = true
       )
       public static BaseSoundBank getFMODSoundBank() {
-         return BaseSoundBank.instance;
+         return FMODSoundBank.instance;
       }
 
       @LuaMethod(
@@ -5278,6 +6979,14 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "setZoomLevels",
+         global = true
+      )
+      public static void setZoomLevels(Double... var0) {
+         Core.getInstance().OffscreenBuffer.setZoomLevels(var0);
+      }
+
+      @LuaMethod(
          name = "getCore",
          global = true
       )
@@ -5291,6 +7000,14 @@ public final class LuaManager {
       )
       public static String getGameVersion() {
          return Core.getInstance().getGameVersion().toString();
+      }
+
+      @LuaMethod(
+         name = "getBreakModGameVersion",
+         global = true
+      )
+      public static GameVersion getBreakModGameVersion() {
+         return Core.getInstance().getBreakModGameVersion();
       }
 
       @LuaMethod(
@@ -5314,9 +7031,9 @@ public final class LuaManager {
          global = true
       )
       public static void setShowPausedMessage(boolean var0) {
-         DebugLog.log("EXITDEBUG: setShowPausedMessage 1");
+         DebugType.ExitDebug.debugln("setShowPausedMessage 1");
          UIManager.setShowPausedMessage(var0);
-         DebugLog.log("EXITDEBUG: setShowPausedMessage 2");
+         DebugType.ExitDebug.debugln("setShowPausedMessage 2");
       }
 
       @LuaMethod(
@@ -5349,7 +7066,15 @@ public final class LuaManager {
       )
       public static int getLocalVarCount(Coroutine var0) {
          LuaCallFrame var1 = var0.currentCallFrame();
-         return var1 == null ? 0 : var1.LocalVarNames.size();
+         return var1 == null ? 0 : var1.getLocalVarCount();
+      }
+
+      @LuaMethod(
+         name = "getLocalVarCount",
+         global = true
+      )
+      public static int getLocalVarCount(LuaCallFrame var0) {
+         return var0.getLocalVarCount();
       }
 
       @LuaMethod(
@@ -5394,17 +7119,19 @@ public final class LuaManager {
          global = true
       )
       public static void openURl(String var0) {
-         Desktop var1 = Desktop.isDesktopSupported() ? Desktop.getDesktop() : null;
-         if (var1 != null && var1.isSupported(Action.BROWSE)) {
-            try {
-               URI var2 = new URI(var0);
-               var1.browse(var2);
-            } catch (Exception var3) {
-               ExceptionLogger.logException(var3);
-            }
+         if (var0.startsWith("https://steamcommunity.com") || var0.startsWith("https://projectzomboid.com") || var0.startsWith("https://theindiestone.com")) {
+            Desktop var1 = Desktop.isDesktopSupported() ? Desktop.getDesktop() : null;
+            if (var1 != null && var1.isSupported(Action.BROWSE)) {
+               try {
+                  URI var2 = new URI(var0);
+                  var1.browse(var2);
+               } catch (Exception var3) {
+                  ExceptionLogger.logException(var3);
+               }
 
-         } else {
-            DesktopBrowser.openURL(var0);
+            } else {
+               DesktopBrowser.openURL(var0);
+            }
          }
       }
 
@@ -5513,11 +7240,23 @@ public final class LuaManager {
                File var3 = new File(var2);
                if (var3.exists() && var3.isDirectory()) {
                   switch (var1) {
+                     case "DeleteAPopXYBin":
+                        deleteSavefileFilesMatching(new File(var3, "apop"), "apop_-?[0-9]+_-?[0-9]+\\.bin");
+                        break;
                      case "DeleteChunkDataXYBin":
-                        deleteSavefileFilesMatching(var3, "chunkdata_[0-9]+_[0-9]+\\.bin");
+                        deleteSavefileFilesMatching(new File(var3, "chunkdata"), "chunkdata_-?[0-9]+_-?[0-9]+\\.bin");
+                        break;
+                     case "DeleteEntityDataBin":
+                        deleteSavefileFilesMatching(var3, "entity_data.bin");
                         break;
                      case "DeleteMapXYBin":
-                        deleteSavefileFilesMatching(var3, "map_[0-9]+_[0-9]+\\.bin");
+                        deleteSavefileFilesMatching(new File(var3, "map"), "map_-?[0-9]+_-?[0-9]+\\.bin");
+                        break;
+                     case "DeleteMapAnimalsBin":
+                        deleteSavefileFilesMatching(var3, "map_animals\\.bin");
+                        break;
+                     case "DeleteMapBasementsBin":
+                        deleteSavefileFilesMatching(var3, "map_basements\\.bin");
                         break;
                      case "DeleteMapMetaBin":
                         deleteSavefileFilesMatching(var3, "map_meta\\.bin");
@@ -5541,10 +7280,10 @@ public final class LuaManager {
                         deleteSavefileFilesMatching(var3, "z_outfits\\.bin");
                         break;
                      case "DeleteZPopVirtualBin":
-                        deleteSavefileFilesMatching(var3, "zpop_virtual\\.bin");
+                        deleteSavefileFilesMatching(new File(var3, "zpop"), "zpop_virtual\\.bin");
                         break;
                      case "DeleteZPopXYBin":
-                        deleteSavefileFilesMatching(var3, "zpop_[0-9]+_[0-9]+\\.bin");
+                        deleteSavefileFilesMatching(new File(var3, "zpop"), "zpop_[0-9]+_[0-9]+\\.bin");
                         break;
                      case "WriteModsDotTxt":
                         ActiveMods var6 = ActiveMods.getById("currentGame");
@@ -5566,7 +7305,15 @@ public final class LuaManager {
       )
       public static String getLocalVarName(Coroutine var0, int var1) {
          LuaCallFrame var2 = var0.currentCallFrame();
-         return (String)var2.LocalVarNames.get(var1);
+         return var2.getLocalVarName(var1);
+      }
+
+      @LuaMethod(
+         name = "getLocalVarName",
+         global = true
+      )
+      public static String getLocalVarName(LuaCallFrame var0, int var1) {
+         return var0.getLocalVarName(var1);
       }
 
       @LuaMethod(
@@ -5575,7 +7322,15 @@ public final class LuaManager {
       )
       public static int getLocalVarStack(Coroutine var0, int var1) {
          LuaCallFrame var2 = var0.currentCallFrame();
-         return (Integer)var2.LocalVarToStackMap.get(var2.LocalVarNames.get(var1));
+         return var2.getLocalVarStackIndex(var1);
+      }
+
+      @LuaMethod(
+         name = "getLocalVarStackIndex",
+         global = true
+      )
+      public static int getLocalVarStackIndex(LuaCallFrame var0, int var1) {
+         return var0.getLocalVarStackIndex(var1);
       }
 
       @LuaMethod(
@@ -5629,6 +7384,30 @@ public final class LuaManager {
       )
       public static LuaCallFrame getCoroutineCallframeStack(Coroutine var0, int var1) {
          return var0.getCallFrame(var1);
+      }
+
+      @LuaMethod(
+         name = "getLuaStackTrace",
+         global = true
+      )
+      public static ArrayList<String> getLuaStackTrace() {
+         ArrayList var0 = new ArrayList();
+         Coroutine var1 = LuaManager.thread.getCurrentCoroutine();
+         if (var1 == null) {
+            return var0;
+         } else {
+            int var2 = var1.getCallframeTop();
+
+            for(int var3 = var2 - 1; var3 >= 0; --var3) {
+               LuaCallFrame var4 = var1.getCallFrame(var3);
+               String var5 = KahluaUtil.rawTostring2(var4);
+               if (var5 != null) {
+                  var0.add(var5);
+               }
+            }
+
+            return var0;
+         }
       }
 
       @LuaMethod(
@@ -5694,8 +7473,8 @@ public final class LuaManager {
       )
       public static IsoDirections getDirectionTo(IsoGameCharacter var0, IsoObject var1) {
          Vector2 var2 = new Vector2(var1.getX(), var1.getY());
-         var2.x -= var0.x;
-         var2.y -= var0.y;
+         var2.x -= var0.getX();
+         var2.y -= var0.getY();
          return IsoDirections.fromAngle(var2);
       }
 
@@ -5739,8 +7518,8 @@ public final class LuaManager {
          name = "drawOverheadMap",
          global = true
       )
-      public static void drawOverheadMap(UIElement var0, float var1, float var2, float var3) {
-         IngameState.renderDebugOverhead2(getCell(), 0, var1, var0.getAbsoluteX().intValue(), var0.getAbsoluteY().intValue(), var2, var3, var0.getWidth().intValue(), var0.getHeight().intValue());
+      public static void drawOverheadMap(UIElement var0, int var1, float var2, float var3, float var4) {
+         IngameState.renderDebugOverhead2(getCell(), var1, var2, var0.getAbsoluteX().intValue(), var0.getAbsoluteY().intValue(), var3, var4, var0.getWidth().intValue(), var0.getHeight().intValue());
       }
 
       @LuaMethod(
@@ -5891,6 +7670,14 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "isQuitCooldown",
+         global = true
+      )
+      public static boolean isQuitCooldown() {
+         return SafetySystemManager.getCooldown(GameClient.connection) > 0.0F;
+      }
+
+      @LuaMethod(
          name = "getGameSpeed",
          global = true
       )
@@ -5903,12 +7690,22 @@ public final class LuaManager {
          global = true
       )
       public static void setGameSpeed(int var0) {
-         DebugLog.log("EXITDEBUG: setGameSpeed 1");
+         DebugType.ExitDebug.debugln("setGameSpeed 1");
          if (UIManager.getSpeedControls() == null) {
-            DebugLog.log("EXITDEBUG: setGameSpeed 2");
+            DebugType.ExitDebug.debugln("setGameSpeed 2");
          } else {
             UIManager.getSpeedControls().SetCurrentGameSpeed(var0);
-            DebugLog.log("EXITDEBUG: setGameSpeed 3");
+            DebugType.ExitDebug.debugln("setGameSpeed 3");
+         }
+      }
+
+      @LuaMethod(
+         name = "stepForward",
+         global = true
+      )
+      public static void stepForward() {
+         if (UIManager.getSpeedControls() != null) {
+            UIManager.getSpeedControls().stepForward();
          }
       }
 
@@ -5958,6 +7755,14 @@ public final class LuaManager {
       )
       public static boolean isMouseButtonDown(int var0) {
          return Mouse.isButtonDown(var0);
+      }
+
+      @LuaMethod(
+         name = "isMouseButtonPressed",
+         global = true
+      )
+      public static boolean isMouseButtonPressed(int var0) {
+         return Mouse.isButtonPressed(var0);
       }
 
       @LuaMethod(
@@ -6026,6 +7831,7 @@ public final class LuaManager {
             String var5 = var4.format(var3);
             var1.rawset("lastPlayed", var5);
             String[] var6 = var0.split("\\" + File.separator);
+            var1.rawset("saveDir", var0);
             var1.rawset("saveName", var2.getName());
             var1.rawset("gameMode", var6[var6.length - 2]);
          }
@@ -6043,49 +7849,46 @@ public final class LuaManager {
                   try {
                      int var26 = var24.readInt();
                      var1.rawset("worldVersion", (double)var26);
-                     if (var26 >= 18) {
-                        try {
-                           var28 = GameWindow.ReadString(var24);
-                           if (var28.equals("DEFAULT")) {
-                              var28 = "Muldraugh, KY";
-                           }
 
-                           var1.rawset("mapName", var28);
-                        } catch (Exception var17) {
+                     try {
+                        var28 = GameWindow.ReadString(var24);
+                        if (var28.equals("DEFAULT")) {
+                           var28 = "Muldraugh, KY";
                         }
+
+                        var1.rawset("mapName", var28);
+                     } catch (Exception var17) {
                      }
 
-                     if (var26 >= 74) {
-                        try {
-                           var28 = GameWindow.ReadString(var24);
-                           var1.rawset("difficulty", var28);
-                        } catch (Exception var16) {
-                        }
+                     try {
+                        var28 = GameWindow.ReadString(var24);
+                        var1.rawset("difficulty", var28);
+                     } catch (Exception var16) {
                      }
-                  } catch (Throwable var19) {
+                  } catch (Throwable var18) {
                      try {
                         var24.close();
                      } catch (Throwable var15) {
-                        var19.addSuppressed(var15);
+                        var18.addSuppressed(var15);
                      }
 
-                     throw var19;
+                     throw var18;
                   }
 
                   var24.close();
-               } catch (Throwable var20) {
+               } catch (Throwable var19) {
                   try {
                      var22.close();
                   } catch (Throwable var14) {
-                     var20.addSuppressed(var14);
+                     var19.addSuppressed(var14);
                   }
 
-                  throw var20;
+                  throw var19;
                }
 
                var22.close();
-            } catch (Exception var21) {
-               ExceptionLogger.logException(var21);
+            } catch (Exception var20) {
+               ExceptionLogger.logException(var20);
             }
          }
 
@@ -6115,8 +7918,8 @@ public final class LuaManager {
                var13.rawset("isDead", var12);
                var7.rawset(var9 / 3 + 1, var13);
             }
-         } catch (Exception var18) {
-            ExceptionLogger.logException(var18);
+         } catch (Exception var21) {
+            ExceptionLogger.logException(var21);
          }
 
          var1.rawset("players", var7);
@@ -6255,12 +8058,12 @@ public final class LuaManager {
             var1.rawset("OnlineID", var0.OnlineID);
             var1.rawset("RealX", var0.realx);
             var1.rawset("RealY", var0.realy);
-            var1.rawset("X", var0.x);
-            var1.rawset("Y", var0.y);
+            var1.rawset("X", var0.getX());
+            var1.rawset("Y", var0.getY());
             var1.rawset("TargetX", var0.networkAI.targetX);
             var1.rawset("TargetY", var0.networkAI.targetY);
             var1.rawset("PathLength", var0.getPathFindBehavior2().getPathLength());
-            var1.rawset("TargetLength", Math.sqrt((double)((var0.x - var0.getPathFindBehavior2().getTargetX()) * (var0.x - var0.getPathFindBehavior2().getTargetX()) + (var0.y - var0.getPathFindBehavior2().getTargetY()) * (var0.y - var0.getPathFindBehavior2().getTargetY()))));
+            var1.rawset("TargetLength", Math.sqrt((double)((var0.getX() - var0.getPathFindBehavior2().getTargetX()) * (var0.getX() - var0.getPathFindBehavior2().getTargetX()) + (var0.getY() - var0.getPathFindBehavior2().getTargetY()) * (var0.getY() - var0.getPathFindBehavior2().getTargetY()))));
             var1.rawset("clientActionState", var0.getActionStateName());
             var1.rawset("clientAnimationState", var0.getAnimationStateName());
             var1.rawset("finderProgress", var0.getFinder().progress.name());
@@ -6284,14 +8087,14 @@ public final class LuaManager {
             var1.rawset("OnlineID", var0.OnlineID);
             var1.rawset("RealX", var0.realx);
             var1.rawset("RealY", var0.realy);
-            var1.rawset("X", var0.x);
-            var1.rawset("Y", var0.y);
+            var1.rawset("X", var0.getX());
+            var1.rawset("Y", var0.getY());
             var1.rawset("TargetX", var0.networkAI.targetX);
             var1.rawset("TargetY", var0.networkAI.targetY);
             var1.rawset("TargetT", var0.networkAI.targetZ);
             var1.rawset("ServerT", var2);
             var1.rawset("PathLength", var0.getPathFindBehavior2().getPathLength());
-            var1.rawset("TargetLength", Math.sqrt((double)((var0.x - var0.getPathFindBehavior2().getTargetX()) * (var0.x - var0.getPathFindBehavior2().getTargetX()) + (var0.y - var0.getPathFindBehavior2().getTargetY()) * (var0.y - var0.getPathFindBehavior2().getTargetY()))));
+            var1.rawset("TargetLength", Math.sqrt((double)((var0.getX() - var0.getPathFindBehavior2().getTargetX()) * (var0.getX() - var0.getPathFindBehavior2().getTargetX()) + (var0.getY() - var0.getPathFindBehavior2().getTargetY()) * (var0.getY() - var0.getPathFindBehavior2().getTargetY()))));
             var1.rawset("clientActionState", var0.getActionStateName());
             var1.rawset("clientAnimationState", var0.getAnimationStateName());
             var1.rawset("finderProgress", var0.getFinder().progress.name());
@@ -6328,6 +8131,12 @@ public final class LuaManager {
             var2.rawset("lots", var3);
             var2.rawset("thumb", var1.getThumbnail());
             var2.rawset("title", var1.getTitle());
+            var2.rawset("worldmap", var1.getWorldmap());
+            var2.rawset("spawnSelectImagePyramid", var1.getSpawnSelectImagePyramid());
+            var2.rawset("zoomX", BoxedStaticValues.toDouble((double)var1.getZoomX()));
+            var2.rawset("zoomY", BoxedStaticValues.toDouble((double)var1.getZoomY()));
+            var2.rawset("zoomS", BoxedStaticValues.toDouble((double)var1.getZoomS()));
+            var2.rawset("demoVideo", var1.getDemoVideo());
             return var2;
          }
       }
@@ -6425,6 +8234,90 @@ public final class LuaManager {
       )
       public static Texture getTexture(String var0) {
          return Texture.getSharedTexture(var0);
+      }
+
+      @LuaMethod(
+         name = "tryGetTexture",
+         global = true
+      )
+      public static Texture tryGetTexture(String var0) {
+         return Texture.trygetTexture(var0);
+      }
+
+      @LuaMethod(
+         name = "sendSecretKey",
+         global = true
+      )
+      public static void sendSecretKey(String var0, String var1, String var2, String var3, boolean var4, int var5, String var6) {
+         ConnectionManager.getInstance().sendSecretKey(var0, var1, var2, var3, var4, var5, var6);
+      }
+
+      @LuaMethod(
+         name = "stopSendSecretKey",
+         global = true
+      )
+      public static void stopSendSecretKey() {
+         GameClient.sendQR = false;
+      }
+
+      @LuaMethod(
+         name = "generateSecretKey",
+         global = true
+      )
+      public static String generateSecretKey(String var0) {
+         return GameClient.instance.generateSecretKey(var0);
+      }
+
+      @LuaMethod(
+         name = "sendGoogleAuth",
+         global = true
+      )
+      public static void sendGoogleAuth(String var0, String var1) {
+         INetworkPacket.send(PacketTypes.PacketType.GoogleAuth, var0, var1);
+      }
+
+      @LuaMethod(
+         name = "createQRCodeTex",
+         global = true
+      )
+      public static Texture createQRCodeTex(String var0, String var1) throws WriterException, IOException {
+         String var2 = GameClient.instance.getQR(var0, var1);
+         short var3 = 180;
+         short var4 = 180;
+         BitMatrix var5 = (new MultiFormatWriter()).encode(var2, BarcodeFormat.QR_CODE, var4, var3);
+         BufferedImage var6 = MatrixToImageWriter.toBufferedImage(var5);
+         BufferedImage var7 = new BufferedImage(var4, var3, 1);
+         Graphics2D var8 = (Graphics2D)var7.getGraphics();
+         var8.drawImage(var6, 0, 0, (ImageObserver)null);
+         ByteArrayOutputStream var9 = new ByteArrayOutputStream();
+         ImageIO.write(var7, "PNG", var9);
+         byte[] var10 = var9.toByteArray();
+         ByteArrayInputStream var11 = new ByteArrayInputStream(var10);
+         Texture var12 = null;
+
+         try {
+            BufferedInputStream var13 = new BufferedInputStream(var11, var10.length);
+            var12 = new Texture("QRCode", var13, false);
+            return var12;
+         } catch (Exception var14) {
+            DebugLog.General.println("Texture creation failed!");
+            return null;
+         }
+      }
+
+      @LuaMethod(
+         name = "getVideo",
+         global = true
+      )
+      public static VideoTexture getVideo(String var0, int var1, int var2) {
+         if (LuaManager.videoTextures.containsKey(var0)) {
+            return (VideoTexture)LuaManager.videoTextures.get(var0);
+         } else {
+            VideoTexture var3 = new VideoTexture(var0, var1, var2, false);
+            var3.LoadVideoFile();
+            LuaManager.videoTextures.put(var0, var3);
+            return (VideoTexture)LuaManager.videoTextures.get(var0);
+         }
       }
 
       @LuaMethod(
@@ -6555,7 +8448,260 @@ public final class LuaManager {
          global = true
       )
       public static String getItemNameFromFullType(String var0) {
-         return Translator.getItemNameFromFullType(var0);
+         return DebugOptions.instance.Asset.CheckItemTexAndNames.getValue() ? "ItemNameFromFullType" : Translator.getItemNameFromFullType(var0);
+      }
+
+      @LuaMethod(
+         name = "getItem",
+         global = true
+      )
+      public static Item getItem(String var0) {
+         return InventoryItemFactory.getItem(var0, true);
+      }
+
+      @LuaMethod(
+         name = "getItemStaticModel",
+         global = true
+      )
+      public static String getItemStaticModel(String var0) {
+         Item var1 = getItem(var0);
+         return var1 == null ? null : var1.getStaticModel();
+      }
+
+      @LuaMethod(
+         name = "isItemFood",
+         global = true
+      )
+      public static boolean isItemFood(String var0) {
+         Item var1 = getItem(var0);
+         return var1 != null && Item.Type.Food.equals(var1.type);
+      }
+
+      @LuaMethod(
+         name = "getItemFoodType",
+         global = true
+      )
+      public static String getItemFoodType(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return "ItemFoodType";
+         } else {
+            Item var1 = getItem(var0);
+            return var1 != null ? var1.FoodType : null;
+         }
+      }
+
+      @LuaMethod(
+         name = "isItemFresh",
+         global = true
+      )
+      public static boolean isItemFresh(String var0, float var1) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return false;
+         } else {
+            Item var2 = getItem(var0);
+            if (var2 != null) {
+               return var1 < (float)var2.DaysFresh;
+            } else {
+               return false;
+            }
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemCount",
+         global = true
+      )
+      public static int getItemCount(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return 101;
+         } else {
+            Item var1 = getItem(var0);
+            return var1 != null ? var1.getCount() : 0;
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemWeight",
+         global = true
+      )
+      public static float getItemWeight(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return 101.0F;
+         } else {
+            Item var1 = getItem(var0);
+            if (var1 != null) {
+               return Item.Type.Weapon.equals(var1.type) ? var1.getWeaponWeight() : var1.getActualWeight();
+            } else {
+               return 0.0F;
+            }
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemActualWeight",
+         global = true
+      )
+      public static float getItemActualWeight(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return 101.0F;
+         } else {
+            Item var1 = getItem(var0);
+            return var1 != null ? var1.getActualWeight() : 0.0F;
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemConditionMax",
+         global = true
+      )
+      public static int getItemConditionMax(String var0) {
+         Item var1 = getItem(var0);
+         return var1 != null ? var1.getConditionMax() : 0;
+      }
+
+      @LuaMethod(
+         name = "getItemEvolvedRecipeName",
+         global = true
+      )
+      public static String getItemEvolvedRecipeName(String var0) {
+         Item var1 = getItem(var0);
+         return var1 != null ? var1.evolvedRecipeName : null;
+      }
+
+      @LuaMethod(
+         name = "hasItemTag",
+         global = true
+      )
+      public static boolean hasItemTag(String var0, String var1) {
+         Item var2 = getItem(var0);
+         if (var2 != null) {
+            Stream var10000 = var2.Tags.stream();
+            Objects.requireNonNull(var1);
+            return var10000.anyMatch(var1::equalsIgnoreCase);
+         } else {
+            return false;
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemDisplayName",
+         global = true
+      )
+      public static String getItemDisplayName(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return "ItemDisplayName";
+         } else {
+            Item var1 = getItem(var0);
+            return var1 != null ? var1.getDisplayName() : var0;
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemName",
+         global = true
+      )
+      public static String getItemName(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return "ItemName";
+         } else {
+            Item var1 = getItem(var0);
+            if (var1 != null) {
+               String var2 = var1.getDisplayName();
+               return var1.vehicleType > 0 ? Translator.getText("IGUI_ItemNameMechanicalType", var2, Translator.getText("IGUI_VehicleType_" + var1.vehicleType)) : var2;
+            } else {
+               return var0;
+            }
+         }
+      }
+
+      @LuaMethod(
+         name = "getItemTextureName",
+         global = true
+      )
+      public static String getItemTextureName(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return "ItemTextureName";
+         } else {
+            Texture var1 = getItemTex(var0);
+            return var1 != null ? var1.getName() : null;
+         }
+      }
+
+      private static String getItemTextureColor(Item var0, String var1) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return "ItemTextureColor";
+         } else {
+            String var2 = "";
+            String var3 = null;
+            if (!var0.getPaletteChoices().isEmpty() || var1 != null) {
+               var3 = (String)var0.getPaletteChoices().get(Rand.Next(var0.getPaletteChoices().size()));
+               if (var1 != null) {
+                  var3 = var1;
+               }
+
+               String var10000 = var3.replace(var0.getPalettesStart(), "");
+               var2 = "_" + var10000;
+            }
+
+            return var2;
+         }
+      }
+
+      @LuaMethod(
+         name = "getAndFindNearestTracks",
+         global = true
+      )
+      public static ArrayList<AnimalTracks> getAndFindNearestTracks(IsoGameCharacter var0) {
+         if (GameClient.bClient) {
+            GameClient.instance.sendGetAnimalTracks(var0);
+         } else if (!GameServer.bServer) {
+            return AnimalTracks.getAndFindNearestTracks(var0);
+         }
+
+         return null;
+      }
+
+      @LuaMethod(
+         name = "getItemTex",
+         global = true
+      )
+      public static Texture getItemTex(String var0) {
+         if (DebugOptions.instance.Asset.CheckItemTexAndNames.getValue()) {
+            return Texture.trygetTexture("media/textures/Foraging/question_mark.png");
+         } else {
+            Item var1 = getItem(var0);
+            if (var1 != null) {
+               Texture var2 = null;
+               switch (var1.getType()) {
+                  case AlarmClock:
+                  case Animal:
+                  case Drainable:
+                  case Food:
+                  case Literature:
+                  case Map:
+                  case Moveable:
+                  case Normal:
+                  case Weapon:
+                     var2 = var1.NormalTexture;
+                     break;
+                  case AlarmClockClothing:
+                  case Clothing:
+                     String var10000 = var1.getIcon().replace(".png", "");
+                     var2 = Texture.trygetTexture("Item_" + var10000 + getItemTextureColor(var1, (String)null));
+                     break;
+                  case Container:
+                  case Key:
+                  case Radio:
+                  case WeaponPart:
+                     var2 = Texture.trygetTexture("Item_" + var1.getIcon());
+                  case KeyRing:
+               }
+
+               return var2;
+            } else {
+               return null;
+            }
+         }
       }
 
       @LuaMethod(
@@ -6595,7 +8741,7 @@ public final class LuaManager {
          global = true
       )
       public static void getServerModData() {
-         GameClient.getCustomModData();
+         INetworkPacket.send(PacketTypes.PacketType.GetModData);
       }
 
       @LuaMethod(
@@ -6611,6 +8757,19 @@ public final class LuaManager {
          }
 
          return false;
+      }
+
+      @LuaMethod(
+         name = "isPlaystationController",
+         global = true
+      )
+      public static boolean isPlaystationController(int var0) {
+         Controller var1 = GameWindow.GameInput.getController(var0);
+         if (var1 == null) {
+            return false;
+         } else {
+            return var1.getJoystickName().contains("Playstation") || var1.getJoystickName().contains("Dualshock");
+         }
       }
 
       @LuaMethod(
@@ -6635,7 +8794,9 @@ public final class LuaManager {
          global = true
       )
       public static void sendClientCommand(IsoPlayer var0, String var1, String var2, KahluaTable var3) {
-         if (var0 != null && var0.isLocalPlayer()) {
+         if (GameServer.bServer) {
+            LuaEventManager.triggerEvent("OnClientCommand", var1, var2, var0, var3);
+         } else if (var0 != null && var0.isLocalPlayer()) {
             if (GameClient.bClient && GameClient.bIngame) {
                GameClient.instance.sendClientCommand(var0, var1, var2, var3);
             } else {
@@ -6669,6 +8830,36 @@ public final class LuaManager {
             GameServer.sendServerCommand(var0, var1, var2, var3);
          }
 
+      }
+
+      @LuaMethod(
+         name = "sendServerCommandV",
+         global = true
+      )
+      public void sendServerCommandV(String var1, String var2, Object... var3) {
+         if (GameServer.bServer) {
+            GameServer.sendServerCommandV(var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendClientCommandV",
+         global = true
+      )
+      public void sendClientCommandV(IsoPlayer var1, String var2, String var3, Object... var4) {
+         if (GameClient.bClient) {
+            GameClient.instance.sendClientCommandV(var1, var2, var3, var4);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "addVariableToSyncList",
+         global = true
+      )
+      public static void addVariableToSyncList(String var0) {
+         VariableSyncPacket.syncedVariables.add(var0);
       }
 
       @LuaMethod(
@@ -6708,95 +8899,49 @@ public final class LuaManager {
          global = true
       )
       public static boolean isAdmin() {
-         return GameClient.bClient && GameClient.connection.accessLevel == 32;
+         return GameClient.bClient && GameClient.connection.role == Roles.getDefaultForAdmin();
       }
 
+      /** @deprecated */
+      @Deprecated
       @LuaMethod(
          name = "canModifyPlayerScoreboard",
          global = true
       )
       public static boolean canModifyPlayerScoreboard() {
-         return GameClient.bClient && GameClient.connection.accessLevel != 1;
+         return GameClient.bClient && GameClient.connection.role.haveCapability(Capability.CanModifyPlayerStatsInThePlayerStatsUI);
       }
 
+      /** @deprecated */
+      @Deprecated
       @LuaMethod(
          name = "isAccessLevel",
          global = true
       )
       public static boolean isAccessLevel(String var0) {
-         if (GameClient.bClient) {
-            if (GameClient.connection.accessLevel == 1) {
-               return false;
-            } else {
-               return GameClient.connection.accessLevel == PlayerType.fromString(var0);
-            }
-         } else {
-            return false;
+         return GameClient.bClient ? GameClient.connection.role.getName().equals(var0) : false;
+      }
+
+      @LuaMethod(
+         name = "sendHumanVisual",
+         global = true
+      )
+      public static void sendHumanVisual(IsoPlayer var0) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.HumanVisual, (float)var0.square.x, (float)var0.square.y, var0);
          }
+
       }
 
       @LuaMethod(
-         name = "sendBandage",
+         name = "stopFire",
          global = true
       )
-      public static void sendBandage(int var0, int var1, boolean var2, float var3, boolean var4, String var5) {
-         GameClient.instance.sendBandage(var0, var1, var2, var3, var4, var5);
-      }
+      public static void stopFire(Object var0) {
+         if (GameServer.bServer) {
+            INetworkPacket.processPacketOnServer(PacketTypes.PacketType.StopFire, (UdpConnection)null, var0);
+         }
 
-      @LuaMethod(
-         name = "sendCataplasm",
-         global = true
-      )
-      public static void sendCataplasm(int var0, int var1, float var2, float var3, float var4) {
-         GameClient.instance.sendCataplasm(var0, var1, var2, var3, var4);
-      }
-
-      @LuaMethod(
-         name = "sendStitch",
-         global = true
-      )
-      public static void sendStitch(IsoGameCharacter var0, IsoGameCharacter var1, BodyPart var2, InventoryItem var3, boolean var4) {
-         GameClient.instance.sendStitch(var0, var1, var2, var3, var4);
-      }
-
-      @LuaMethod(
-         name = "sendDisinfect",
-         global = true
-      )
-      public static void sendDisinfect(IsoGameCharacter var0, IsoGameCharacter var1, BodyPart var2, InventoryItem var3) {
-         GameClient.instance.sendDisinfect(var0, var1, var2, var3);
-      }
-
-      @LuaMethod(
-         name = "sendSplint",
-         global = true
-      )
-      public static void sendSplint(int var0, int var1, boolean var2, float var3, String var4) {
-         GameClient.instance.sendSplint(var0, var1, var2, var3, var4);
-      }
-
-      @LuaMethod(
-         name = "sendRemoveGlass",
-         global = true
-      )
-      public static void sendRemoveGlass(IsoGameCharacter var0, IsoGameCharacter var1, BodyPart var2, boolean var3) {
-         GameClient.instance.sendRemoveGlass(var0, var1, var2, var3);
-      }
-
-      @LuaMethod(
-         name = "sendRemoveBullet",
-         global = true
-      )
-      public static void sendRemoveBullet(IsoGameCharacter var0, IsoGameCharacter var1, BodyPart var2) {
-         GameClient.instance.sendRemoveBullet(var0, var1, var2);
-      }
-
-      @LuaMethod(
-         name = "sendCleanBurn",
-         global = true
-      )
-      public static void sendCleanBurn(IsoGameCharacter var0, IsoGameCharacter var1, BodyPart var2, InventoryItem var3) {
-         GameClient.instance.sendCleanBurn(var0, var1, var2, var3);
       }
 
       @LuaMethod(
@@ -6811,24 +8956,24 @@ public final class LuaManager {
          name = "sendRequestInventory",
          global = true
       )
-      public static void sendRequestInventory(IsoPlayer var0) {
-         GameClient.sendRequestInventory(var0);
+      public static void sendRequestInventory(int var0, String var1) {
+         INetworkPacket.send(PacketTypes.PacketType.PlayerInventory, (short)var0, var1);
       }
 
       @LuaMethod(
          name = "InvMngGetItem",
          global = true
       )
-      public static void InvMngGetItem(long var0, String var2, IsoPlayer var3) {
-         GameClient.invMngRequestItem((int)var0, var2, var3);
+      public static void InvMngGetItem(long var0, String var2, int var3, String var4) {
+         GameClient.invMngRequestItem((int)var0, var2, (short)var3, var4);
       }
 
       @LuaMethod(
          name = "InvMngRemoveItem",
          global = true
       )
-      public static void InvMngRemoveItem(long var0, IsoPlayer var2) {
-         GameClient.invMngRequestRemoveItem((int)var0, var2);
+      public static void InvMngRemoveItem(long var0, int var2, String var3) {
+         GameClient.invMngRequestRemoveItem((int)var0, (short)var2, var3);
       }
 
       @LuaMethod(
@@ -6861,13 +9006,13 @@ public final class LuaManager {
       )
       public static void setAdmin() {
          if (CoopMaster.instance.isRunning()) {
-            String var0 = "admin";
-            if (GameClient.connection.accessLevel == 32) {
+            String var0 = Roles.getDefaultForAdmin().getName();
+            if (GameClient.connection.role == Roles.getDefaultForAdmin()) {
                var0 = "";
             }
 
-            GameClient.connection.accessLevel = PlayerType.fromString(var0);
-            IsoPlayer.getInstance().accessLevel = var0;
+            GameClient.connection.role = Roles.getDefaultForAdmin();
+            IsoPlayer.getInstance().setRole(GameClient.connection.role);
             GameClient.SendCommandToServer("/setaccesslevel \"" + IsoPlayer.getInstance().username + "\" \"" + (var0.equals("") ? "none" : var0) + "\"");
             if (var0.equals("") && IsoPlayer.getInstance().isInvisible() || var0.equals("admin") && !IsoPlayer.getInstance().isInvisible()) {
                GameClient.SendCommandToServer("/invisible");
@@ -6885,13 +9030,6 @@ public final class LuaManager {
             GameClient.instance.addWarningPoint(var0, var1, var2);
          }
 
-      }
-
-      @LuaMethod(
-         name = "toggleSafetyServer",
-         global = true
-      )
-      public static void toggleSafetyServer(IsoPlayer var0) {
       }
 
       @LuaMethod(
@@ -6930,7 +9068,7 @@ public final class LuaManager {
          name = "getZone",
          global = true
       )
-      public static IsoMetaGrid.Zone getZone(int var0, int var1, int var2) {
+      public static Zone getZone(int var0, int var1, int var2) {
          return IsoWorld.instance.MetaGrid.getZoneAt(var0, var1, var2);
       }
 
@@ -6938,7 +9076,7 @@ public final class LuaManager {
          name = "getZones",
          global = true
       )
-      public static ArrayList<IsoMetaGrid.Zone> getZones(int var0, int var1, int var2) {
+      public static ArrayList<Zone> getZones(int var0, int var1, int var2) {
          return IsoWorld.instance.MetaGrid.getZonesAt(var0, var1, var2);
       }
 
@@ -6946,8 +9084,40 @@ public final class LuaManager {
          name = "getVehicleZoneAt",
          global = true
       )
-      public static IsoMetaGrid.VehicleZone getVehicleZoneAt(int var0, int var1, int var2) {
+      public static VehicleZone getVehicleZoneAt(int var0, int var1, int var2) {
          return IsoWorld.instance.MetaGrid.getVehicleZoneAt(var0, var1, var2);
+      }
+
+      @LuaMethod(
+         name = "getCellMinX",
+         global = true
+      )
+      public static int getCellMinX() {
+         return IsoWorld.instance.MetaGrid.getMinX();
+      }
+
+      @LuaMethod(
+         name = "getCellMaxX",
+         global = true
+      )
+      public static int getCellMaxX() {
+         return IsoWorld.instance.MetaGrid.getMaxX();
+      }
+
+      @LuaMethod(
+         name = "getCellMinY",
+         global = true
+      )
+      public static int getCellMinY() {
+         return IsoWorld.instance.MetaGrid.getMinY();
+      }
+
+      @LuaMethod(
+         name = "getCellMaxY",
+         global = true
+      )
+      public static int getCellMaxY() {
+         return IsoWorld.instance.MetaGrid.getMaxY();
       }
 
       @LuaMethod(
@@ -7046,6 +9216,22 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getStreamModeActive",
+         global = true
+      )
+      public static Boolean getStreamModeActive() {
+         return SteamUtils.isStreamModeEnabled();
+      }
+
+      @LuaMethod(
+         name = "getRemotePlayModeActive",
+         global = true
+      )
+      public static Boolean getRemotePlayModeActive() {
+         return SteamRemotePlay.GetSessionCount() > 0;
+      }
+
+      @LuaMethod(
          name = "isValidSteamID",
          global = true
       )
@@ -7076,7 +9262,7 @@ public final class LuaManager {
       public static boolean getSteamScoreboard() {
          if (SteamUtils.isSteamModeEnabled() && GameClient.bClient) {
             String var0 = ServerOptions.instance.SteamScoreboard.getValue();
-            return "true".equals(var0) || GameClient.connection.accessLevel == 32 && "admin".equals(var0);
+            return "true".equals(var0) || GameClient.connection.role.haveCapability(Capability.GetSteamScoreboard) && "admin".equals(var0);
          } else {
             return false;
          }
@@ -7128,10 +9314,12 @@ public final class LuaManager {
          global = true
       )
       public static void activateSteamOverlayToWebPage(String var0) {
-         if (SteamUtils.isOverlayEnabled()) {
-            SteamFriends.ActivateGameOverlayToWebPage(var0);
-         }
+         if (var0.startsWith("https://steamcommunity.com") || var0.startsWith("https://projectzomboid.com") || var0.startsWith("https://theindiestone.com")) {
+            if (SteamUtils.isOverlayEnabled()) {
+               SteamFriends.ActivateGameOverlayToWebPage(var0);
+            }
 
+         }
       }
 
       @LuaMethod(
@@ -7347,7 +9535,7 @@ public final class LuaManager {
          name = "tradingUISendRemoveItem",
          global = true
       )
-      public static void tradingUISendRemoveItem(IsoPlayer var0, IsoPlayer var1, int var2) {
+      public static void tradingUISendRemoveItem(IsoPlayer var0, IsoPlayer var1, InventoryItem var2) {
          GameClient.instance.tradingUISendRemoveItem(var0, var1, var2);
       }
 
@@ -7357,6 +9545,14 @@ public final class LuaManager {
       )
       public static void tradingUISendUpdateState(IsoPlayer var0, IsoPlayer var1, int var2) {
          GameClient.instance.tradingUISendUpdateState(var0, var1, var2);
+      }
+
+      @LuaMethod(
+         name = "sendWarManagerUpdate",
+         global = true
+      )
+      public static void sendWarManagerUpdate(int var0, String var1, WarManager.State var2) {
+         INetworkPacket.send(PacketTypes.PacketType.WarStateSync, var0, var1, var2);
       }
 
       @LuaMethod(
@@ -7424,7 +9620,7 @@ public final class LuaManager {
                      var5.setIp(var4.address);
                      var5.setPort(Integer.toString(var4.port));
                      var5.setMods(var4.tags);
-                     var5.setVersion(Core.getInstance().getVersion());
+                     var5.setVersion(Core.getInstance().getVersionNumber());
                      var5.setLastUpdate(1);
                      var1.add(var5);
                   }
@@ -7473,7 +9669,7 @@ public final class LuaManager {
                            var14.setMods(var13.getElementsByTagName("mods").item(0).getTextContent());
                         }
 
-                        var14.setLastUpdate((new Double(Math.floor((double)((getTimestamp() - (long)var15) / 60L)))).intValue());
+                        var14.setLastUpdate(PZMath.fastfloor((float)((getTimestamp() - (long)var15) / 60L)));
                         NodeList var16 = var13.getElementsByTagName("password");
                         var14.setPasswordProtected(var16 != null && var16.getLength() != 0 && var16.item(0).getTextContent().equals("1"));
                         var1.add(var14);
@@ -7621,6 +9817,14 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getFMODEventPathList",
+         global = true
+      )
+      public static ArrayList<String> getFMODEventPathList() {
+         return FMODManager.instance.getEventPathList();
+      }
+
+      @LuaMethod(
          name = "debugSetRoomType",
          global = true
       )
@@ -7645,23 +9849,6 @@ public final class LuaManager {
       }
 
       @LuaMethod(
-         name = "getUrlInputStream",
-         global = true
-      )
-      public static DataInputStream getUrlInputStream(String var0) {
-         if (var0 != null && (var0.startsWith("https://") || var0.startsWith("http://"))) {
-            try {
-               return new DataInputStream((new URL(var0)).openStream());
-            } catch (IOException var2) {
-               var2.printStackTrace();
-               return null;
-            }
-         } else {
-            return null;
-         }
-      }
-
-      @LuaMethod(
          name = "renderIsoCircle",
          global = true
       )
@@ -7683,6 +9870,41 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "renderIsoRect",
+         global = true
+      )
+      public static void renderIsoRect(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, int var8) {
+         float var9 = IsoUtils.XToScreenExact(var0 - 1.0F, var1 - 1.0F, var2, 0);
+         float var10 = IsoUtils.YToScreenExact(var0 - 1.0F, var1 - 1.0F, var2, 0);
+         float var11 = IsoUtils.XToScreenExact(var0 - 1.0F + var3, var1 - 1.0F, var2, 0);
+         float var12 = IsoUtils.YToScreenExact(var0 - 1.0F, var1 - 1.0F + var3, var2, 0);
+         LineDrawer.drawLine(var9, var10, var11, var12, var4, var5, var6, var7, var8);
+         var9 = IsoUtils.XToScreenExact(var0 - 1.0F, var1 - 1.0F, var2, 0);
+         var10 = IsoUtils.YToScreenExact(var0 - 1.0F, var1 - 1.0F, var2, 0);
+         var11 = IsoUtils.XToScreenExact(var0 - 1.0F - var3, var1 - 1.0F, var2, 0);
+         var12 = IsoUtils.YToScreenExact(var0 - 1.0F, var1 - 1.0F + var3, var2, 0);
+         LineDrawer.drawLine(var9, var10, var11, var12, var4, var5, var6, var7, var8);
+         var9 = IsoUtils.XToScreenExact(var0 - 1.0F + var3, var1 - 1.0F + var3, var2, 0);
+         var10 = IsoUtils.YToScreenExact(var0 - 1.0F + var3, var1 - 1.0F + var3, var2, 0);
+         var11 = IsoUtils.XToScreenExact(var0 - 1.0F - var3, var1 - 1.0F, var2, 0);
+         var12 = IsoUtils.YToScreenExact(var0 - 1.0F, var1 - 1.0F + var3, var2, 0);
+         LineDrawer.drawLine(var9, var10, var11, var12, var4, var5, var6, var7, var8);
+         var9 = IsoUtils.XToScreenExact(var0 - 1.0F + var3, var1 - 1.0F + var3, var2, 0);
+         var10 = IsoUtils.YToScreenExact(var0 - 1.0F + var3, var1 - 1.0F + var3, var2, 0);
+         var11 = IsoUtils.XToScreenExact(var0 - 1.0F + var3, var1 - 1.0F, var2, 0);
+         var12 = IsoUtils.YToScreenExact(var0 - 1.0F, var1 - 1.0F + var3, var2, 0);
+         LineDrawer.drawLine(var9, var10, var11, var12, var4, var5, var6, var7, var8);
+      }
+
+      @LuaMethod(
+         name = "renderLine",
+         global = true
+      )
+      public static void renderLine(float var0, float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9) {
+         LineDrawer.addLine(var0, var1, var2, var3, var4, var5, var6, var7, var8, var9);
+      }
+
+      @LuaMethod(
          name = "configureLighting",
          global = true
       )
@@ -7691,6 +9913,19 @@ public final class LuaManager {
             LightingJNI.configure(var0);
          }
 
+      }
+
+      @LuaMethod(
+         name = "invalidateLighting",
+         global = true
+      )
+      public static void invalidateLighting() {
+         for(int var0 = 0; var0 < IsoPlayer.numPlayers; ++var0) {
+            LosUtil.cachecleared[var0] = true;
+         }
+
+         IsoGridSquare.setRecalcLightTime(-1.0F);
+         GameTime.getInstance().lightSourceUpdate = 100.0F;
       }
 
       @LuaMethod(
@@ -7781,6 +10016,17 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "addBloodSplat",
+         global = true
+      )
+      public void addBloodSplat(IsoGridSquare var1, int var2, float var3, float var4) {
+         for(int var5 = 0; var5 < var2; ++var5) {
+            var1.getChunk().addBloodSplat((float)var1.x + var3, (float)var1.y + var4, (float)var1.z, Rand.Next(20));
+         }
+
+      }
+
+      @LuaMethod(
          name = "addCarCrash",
          global = true
       )
@@ -7789,7 +10035,7 @@ public final class LuaManager {
          if (var0 != null) {
             IsoChunk var1 = var0.getChunk();
             if (var1 != null) {
-               IsoMetaGrid.Zone var2 = var0.getZone();
+               Zone var2 = var0.getZone();
                if (var2 != null) {
                   if (var1.canAddRandomCarCrash(var2, true)) {
                      var0.chunk.addRandomCarCrash(var2, true);
@@ -7825,6 +10071,7 @@ public final class LuaManager {
 
             IsoDeadBody var6 = new IsoDeadBody(var3, true);
             ItemPickerJava.fillContainerType(var2, var6.getContainer(), var3.isFemale() ? "inventoryfemale" : "inventorymale", (IsoGameCharacter)null);
+            LuaEventManager.triggerEvent("OnFillContainer", "Random Dead Body", var6.getContainer().getType(), var6.getContainer());
             return var6;
          }
       }
@@ -7899,62 +10146,67 @@ public final class LuaManager {
          global = true
       )
       public static ArrayList<IsoZombie> addZombiesInOutfit(int var0, int var1, int var2, int var3, String var4, Integer var5) {
-         return addZombiesInOutfit(var0, var1, var2, var3, var4, var5, false, false, false, false, 1.0F);
+         return addZombiesInOutfit(var0, var1, var2, var3, var4, var5, false, false, false, false, false, false, 1.0F);
       }
 
       @LuaMethod(
          name = "addZombiesInOutfit",
          global = true
       )
-      public static ArrayList<IsoZombie> addZombiesInOutfit(int var0, int var1, int var2, int var3, String var4, Integer var5, boolean var6, boolean var7, boolean var8, boolean var9, float var10) {
-         ArrayList var11 = new ArrayList();
-         if (IsoWorld.getZombiesDisabled()) {
-            return var11;
+      public static ArrayList<IsoZombie> addZombiesInOutfit(int var0, int var1, int var2, int var3, String var4, Integer var5, boolean var6, boolean var7, boolean var8, boolean var9, boolean var10, boolean var11, float var12) {
+         ArrayList var13 = new ArrayList();
+         if (IsoWorld.getZombiesDisabled() && !Core.getInstance().getDebug()) {
+            return var13;
          } else {
-            IsoGridSquare var12 = IsoCell.getInstance().getGridSquare(var0, var1, var2);
-            if (var12 == null) {
-               return var11;
+            IsoGridSquare var14 = IsoCell.getInstance().getGridSquare(var0, var1, var2);
+            if (var14 == null) {
+               return var13;
             } else {
-               for(int var13 = 0; var13 < var3; ++var13) {
-                  if (var10 <= 0.0F) {
-                     var12.getChunk().AddCorpses(var0 / 10, var1 / 10);
+               for(int var15 = 0; var15 < var3; ++var15) {
+                  if (var12 <= 0.0F) {
+                     var14.getChunk().AddCorpses(var0 / 8, var1 / 8);
                   } else {
                      VirtualZombieManager.instance.choices.clear();
-                     VirtualZombieManager.instance.choices.add(var12);
-                     IsoZombie var14 = VirtualZombieManager.instance.createRealZombieAlways(IsoDirections.getRandom().index(), false);
-                     if (var14 != null) {
+                     VirtualZombieManager.instance.choices.add(var14);
+                     IsoZombie var16 = VirtualZombieManager.instance.createRealZombieAlways(IsoDirections.getRandom().index(), false);
+                     if (var16 != null) {
                         if (var5 != null) {
-                           var14.setFemaleEtc(Rand.Next(100) < var5);
+                           var16.setFemaleEtc(Rand.Next(100) < var5);
                         }
 
                         if (var4 != null) {
-                           var14.dressInPersistentOutfit(var4);
-                           var14.bDressInRandomOutfit = false;
+                           var16.dressInPersistentOutfit(var4);
+                           var16.bDressInRandomOutfit = false;
                         } else {
-                           var14.bDressInRandomOutfit = true;
+                           var16.bDressInRandomOutfit = true;
                         }
 
-                        var14.bLunger = true;
-                        var14.setKnockedDown(var9);
+                        var16.bLunger = true;
+                        var16.setKnockedDown(var9);
                         if (var6) {
-                           var14.setCrawler(true);
-                           var14.setCanWalk(false);
-                           var14.setOnFloor(true);
-                           var14.setKnockedDown(true);
-                           var14.setCrawlerType(1);
-                           var14.DoZombieStats();
+                           var16.setCrawler(true);
+                           var16.setCanWalk(false);
+                           var16.setOnFloor(true);
+                           var16.setKnockedDown(true);
+                           var16.setCrawlerType(1);
+                           var16.DoZombieStats();
                         }
 
-                        var14.setFakeDead(var8);
-                        var14.setFallOnFront(var7);
-                        var14.setHealth(var10);
-                        var11.add(var14);
+                        var16.setFakeDead(var8);
+                        var16.setFallOnFront(var7);
+                        var16.setInvulnerable(var10);
+                        var16.setHealth(var12);
+                        if (var11) {
+                           var16.setSitAgainstWall(true);
+                        }
+
+                        var13.add(var16);
                      }
                   }
                }
 
-               ZombieSpawnRecorder.instance.record(var11, GlobalObject.class.getSimpleName());
-               return var11;
+               ZombieSpawnRecorder.instance.record(var13, GlobalObject.class.getSimpleName());
+               return var13;
             }
          }
       }
@@ -8079,38 +10331,45 @@ public final class LuaManager {
          name = "addVehicle",
          global = true
       )
-      public static BaseVehicle addVehicle(String var0) {
+      public static BaseVehicle addVehicle(String var0, int var1, int var2, int var3) {
          if (!StringUtils.isNullOrWhitespace(var0) && ScriptManager.instance.getVehicle(var0) == null) {
             DebugLog.Lua.warn("No such vehicle script \"" + var0 + "\"");
             return null;
          } else {
-            ArrayList var1 = ScriptManager.instance.getAllVehicleScripts();
-            if (var1.isEmpty()) {
+            ArrayList var4 = ScriptManager.instance.getAllVehicleScripts();
+            if (var4.isEmpty()) {
                DebugLog.Lua.warn("No vehicle scripts defined");
                return null;
             } else {
                WorldSimulation.instance.create();
-               BaseVehicle var2 = new BaseVehicle(IsoWorld.instance.CurrentCell);
+               BaseVehicle var5 = new BaseVehicle(IsoWorld.instance.CurrentCell);
                if (StringUtils.isNullOrWhitespace(var0)) {
-                  VehicleScript var3 = (VehicleScript)PZArrayUtil.pickRandom((List)var1);
-                  var0 = var3.getFullName();
+                  VehicleScript var6 = (VehicleScript)PZArrayUtil.pickRandom((List)var4);
+                  var0 = var6.getFullName();
                }
 
-               var2.setScriptName(var0);
-               var2.setX(IsoPlayer.getInstance().getX());
-               var2.setY(IsoPlayer.getInstance().getY());
-               var2.setZ(0.0F);
-               if (IsoChunk.doSpawnedVehiclesInInvalidPosition(var2)) {
-                  var2.setSquare(IsoPlayer.getInstance().getSquare());
-                  var2.square.chunk.vehicles.add(var2);
-                  var2.chunk = var2.square.chunk;
-                  var2.addToWorld();
-                  VehiclesDB2.instance.addVehicle(var2);
+               var5.setScriptName(var0);
+               if (var1 != 0 && var2 != 0) {
+                  var5.setX((float)var1);
+                  var5.setY((float)var2);
+                  var5.setZ((float)var3);
+               } else {
+                  var5.setX(IsoPlayer.getInstance().getX());
+                  var5.setY(IsoPlayer.getInstance().getY());
+                  var5.setZ(0.0F);
+               }
+
+               if (IsoChunk.doSpawnedVehiclesInInvalidPosition(var5)) {
+                  var5.setSquare(IsoPlayer.getInstance().getSquare());
+                  var5.square.chunk.vehicles.add(var5);
+                  var5.chunk = var5.square.chunk;
+                  var5.addToWorld();
+                  VehiclesDB2.instance.addVehicle(var5);
                } else {
                   DebugLog.Lua.error("ERROR: I can not spawn the vehicle. Invalid position. Try to change position.");
                }
 
-               return null;
+               return var5;
             }
          }
       }
@@ -8266,19 +10525,7 @@ public final class LuaManager {
          global = true
       )
       public static void reloadSoundFiles() {
-         try {
-            Iterator var0 = ZomboidFileSystem.instance.ActiveFileMap.keySet().iterator();
-
-            while(var0.hasNext()) {
-               String var1 = (String)var0.next();
-               if (var1.matches(".*/sounds_.+\\.txt")) {
-                  GameSounds.ReloadFile(var1);
-               }
-            }
-         } catch (Throwable var2) {
-            ExceptionLogger.logException(var2);
-         }
-
+         ScriptManager.instance.ReloadScripts(EnumSet.of(ScriptType.Sound));
       }
 
       @LuaMethod(
@@ -8306,6 +10553,14 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getSpriteModelEditorState",
+         global = true
+      )
+      public static SpriteModelEditorState getSpriteModelEditorState() {
+         return SpriteModelEditorState.instance;
+      }
+
+      @LuaMethod(
          name = "showAnimationViewer",
          global = true
       )
@@ -8330,11 +10585,43 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getTileGeometryState",
+         global = true
+      )
+      public static TileGeometryState getTileGeometryState() {
+         return TileGeometryState.instance;
+      }
+
+      @LuaMethod(
          name = "showGlobalObjectDebugger",
          global = true
       )
       public static void showGlobalObjectDebugger() {
          IngameState.instance.showGlobalObjectDebugger = true;
+      }
+
+      @LuaMethod(
+         name = "showSeamEditor",
+         global = true
+      )
+      public static void showSeamEditor() {
+         IngameState.instance.showSeamEditor = true;
+      }
+
+      @LuaMethod(
+         name = "getSeamEditorState",
+         global = true
+      )
+      public static SeamEditorState getSeamEditorState() {
+         return SeamEditorState.instance;
+      }
+
+      @LuaMethod(
+         name = "showSpriteModelEditor",
+         global = true
+      )
+      public static void showSpriteModelEditor() {
+         IngameState.instance.showSpriteModelEditor = true;
       }
 
       @LuaMethod(
@@ -8359,30 +10646,16 @@ public final class LuaManager {
       )
       public static void reloadVehicles() {
          try {
-            Iterator var0 = ScriptManager.instance.scriptsWithVehicleTemplates.iterator();
-
-            String var1;
-            while(var0.hasNext()) {
-               var1 = (String)var0.next();
-               ScriptManager.instance.LoadFile(var1, true);
-            }
-
-            var0 = ScriptManager.instance.scriptsWithVehicles.iterator();
-
-            while(var0.hasNext()) {
-               var1 = (String)var0.next();
-               ScriptManager.instance.LoadFile(var1, true);
-            }
-
+            ScriptManager.instance.ReloadScripts(EnumSet.of(ScriptType.Vehicle, ScriptType.VehicleTemplate));
             BaseVehicle.LoadAllVehicleTextures();
-            var0 = IsoWorld.instance.CurrentCell.vehicles.iterator();
+            Iterator var0 = IsoWorld.instance.CurrentCell.vehicles.iterator();
 
             while(var0.hasNext()) {
-               BaseVehicle var3 = (BaseVehicle)var0.next();
-               var3.scriptReloaded();
+               BaseVehicle var1 = (BaseVehicle)var0.next();
+               var1.scriptReloaded();
             }
          } catch (Exception var2) {
-            var2.printStackTrace();
+            ExceptionLogger.logException(var2);
          }
 
       }
@@ -8393,11 +10666,130 @@ public final class LuaManager {
       )
       public static void reloadEngineRPM() {
          try {
-            ScriptManager.instance.LoadFile(ZomboidFileSystem.instance.getString("media/scripts/vehicles/engine_rpm.txt"), true);
+            ScriptManager.instance.ReloadScripts(EnumSet.of(ScriptType.VehicleEngineRPM));
          } catch (Exception var1) {
-            var1.printStackTrace();
+            ExceptionLogger.logException(var1);
          }
 
+      }
+
+      @LuaMethod(
+         name = "reloadXui",
+         global = true
+      )
+      public static void reloadXui() {
+         try {
+            ScriptManager.instance.ReloadScripts(XuiManager.XuiScriptTypes);
+         } catch (Exception var1) {
+            ExceptionLogger.logException(var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "reloadScripts",
+         global = true
+      )
+      public static void reloadScripts(ScriptType var0) {
+         try {
+            if (XuiManager.XuiScriptTypes.contains(var0)) {
+               reloadXui();
+               return;
+            }
+
+            if (var0 == ScriptType.Vehicle || var0 == ScriptType.VehicleTemplate) {
+               reloadVehicles();
+               return;
+            }
+
+            if (var0 == ScriptType.Entity || var0 == ScriptType.EntityTemplate) {
+               ScriptManager.instance.ReloadScripts(EnumSet.of(ScriptType.Entity, ScriptType.EntityTemplate));
+               return;
+            }
+
+            ScriptManager.instance.ReloadScripts(var0);
+         } catch (Exception var2) {
+            ExceptionLogger.logException(var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "reloadEntityScripts",
+         global = true
+      )
+      public static void reloadEntityScripts() {
+         try {
+            EnumSet var0 = EnumSet.noneOf(ScriptType.class);
+            var0.addAll(XuiManager.XuiScriptTypes);
+            var0.add(ScriptType.EntityTemplate);
+            var0.add(ScriptType.Entity);
+            var0.add(ScriptType.ItemConfig);
+            var0.add(ScriptType.ItemFilter);
+            var0.add(ScriptType.CraftRecipe);
+            var0.add(ScriptType.FluidFilter);
+            var0.add(ScriptType.StringList);
+            var0.add(ScriptType.EnergyDefinition);
+            var0.add(ScriptType.FluidDefinition);
+            var0.add(ScriptType.Item);
+            DebugLog.General.println("Reloading entity related scripts: " + var0);
+            ScriptManager.instance.ReloadScripts(var0);
+         } catch (Exception var1) {
+            ExceptionLogger.logException(var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "reloadEntitiesDebug",
+         global = true
+      )
+      public static void reloadEntitiesDebug() {
+         try {
+            GameEntityManager.reloadDebug();
+         } catch (Exception var1) {
+            ExceptionLogger.logException(var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "reloadEntityDebug",
+         global = true
+      )
+      public static void reloadEntityDebug(GameEntity var0) {
+         try {
+            GameEntityManager.reloadDebugEntity(var0);
+         } catch (Exception var2) {
+            ExceptionLogger.logException(var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "reloadEntityFromScriptDebug",
+         global = true
+      )
+      public static void reloadEntityFromScriptDebug(GameEntity var0) {
+         try {
+            GameEntityManager.reloadEntityFromScriptDebug(var0);
+         } catch (Exception var2) {
+            ExceptionLogger.logException(var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "getIsoEntitiesDebug",
+         global = true
+      )
+      public static ArrayList<GameEntity> getIsoEntitiesDebug() {
+         try {
+            return GameEntityManager.getIsoEntitiesDebug();
+         } catch (Exception var1) {
+            var1.printStackTrace();
+            return null;
+         }
       }
 
       @LuaMethod(
@@ -8628,6 +11020,14 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getRagdollSettingsManager",
+         global = true
+      )
+      public static RagdollSettingsManager getRagdollSettingsManager() {
+         return RagdollSettingsManager.getInstance();
+      }
+
+      @LuaMethod(
          name = "getClimateMoon",
          global = true
       )
@@ -8771,6 +11171,48 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "getVoiceStylesInstance",
+         global = true
+      )
+      public static VoiceStyles getVoiceStylesInstance() {
+         return VoiceStyles.instance;
+      }
+
+      @LuaMethod(
+         name = "getAllVoiceStyles",
+         global = true
+      )
+      public static ArrayList<VoiceStyle> getAllVoiceStyles() {
+         ArrayList var0 = new ArrayList();
+         if (VoiceStyles.instance == null) {
+            return var0;
+         } else {
+            ArrayList var1 = new ArrayList(VoiceStyles.instance.m_Styles);
+            var1.sort((var0x, var1x) -> {
+               if (var0x.name.isEmpty()) {
+                  return -1;
+               } else if (var1x.name.isEmpty()) {
+                  return 1;
+               } else {
+                  String var2 = getText("IGUI_Voice_" + var0x.name);
+                  String var3 = getText("IGUI_Voice_" + var1x.name);
+                  return var2.compareTo(var3);
+               }
+            });
+            Iterator var2 = var1.iterator();
+
+            while(var2.hasNext()) {
+               VoiceStyle var3 = (VoiceStyle)var2.next();
+               if (!var3.name.isEmpty()) {
+                  var0.add(var3);
+               }
+            }
+
+            return var0;
+         }
+      }
+
+      @LuaMethod(
          name = "getAllItemsForBodyLocation",
          global = true
       )
@@ -8852,12 +11294,106 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "sendPlaySound",
+         global = true
+      )
+      public void sendPlaySound(String var1, boolean var2, IsoMovingObject var3) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.PlaySound, (float)((int)var3.getX()), (float)((int)var3.getY()), var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
          name = "sendAddXp",
          global = true
       )
-      public void sendAddXp(IsoPlayer var1, PerkFactory.Perk var2, int var3) {
+      public void sendAddXp(IsoPlayer var1, PerkFactory.Perk var2, float var3, boolean var4) {
          if (GameClient.bClient && var1.isExistInTheWorld()) {
-            GameClient.instance.sendAddXp(var1, var2, var3);
+            GameClient.instance.sendAddXp(var1, var2, var3, var4);
+         } else if (!GameServer.bServer) {
+            var1.getXp().AddXP(var2, var3, var4);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendIconFound",
+         global = true
+      )
+      public void sendIconFound(IsoPlayer var1, String var2, float var3) {
+         if (GameClient.bClient) {
+            GameClient.sendForageItemFound(var1, var2, var3);
+         } else {
+            LuaEventManager.triggerEvent("OnItemFound", var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "addXpNoMultiplier",
+         global = true
+      )
+      public void addXpNoMultiplier(IsoPlayer var1, PerkFactory.Perk var2, float var3) {
+         if (var1.isExistInTheWorld()) {
+            if (GameServer.bServer) {
+               GameServer.addXp(var1, var2, var3, true);
+            } else if (!GameClient.bClient) {
+               var1.getXp().AddXP(var2, var3, true, false, false);
+            }
+
+         }
+      }
+
+      @LuaMethod(
+         name = "addXp",
+         global = true
+      )
+      public void addXp(IsoPlayer var1, PerkFactory.Perk var2, float var3) {
+         if (var1.isExistInTheWorld()) {
+            if (GameServer.bServer) {
+               GameServer.addXp(var1, var2, var3);
+            } else if (!GameClient.bClient) {
+               var1.getXp().AddXP(var2, var3);
+            }
+
+         }
+      }
+
+      @LuaMethod(
+         name = "addXpMultiplier",
+         global = true
+      )
+      public void addXpMultiplier(IsoPlayer var1, PerkFactory.Perk var2, float var3, int var4, int var5) {
+         if (var1.isExistInTheWorld()) {
+            if (GameServer.bServer) {
+               GameServer.addXpMultiplier(var1, var2, var3, var4, var5);
+            } else if (!GameClient.bClient) {
+               var1.getXp().addXpMultiplier(var2, var3, var4, var5);
+            }
+
+         }
+      }
+
+      @LuaMethod(
+         name = "syncBodyPart",
+         global = true
+      )
+      public void syncBodyPart(BodyPart var1, long var2) {
+         if (GameServer.bServer && var1.getParentChar() instanceof IsoPlayer) {
+            IsoPlayer var4 = (IsoPlayer)var1.getParentChar();
+            INetworkPacket.send(var4, PacketTypes.PacketType.BodyPartSync, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "syncPlayerStats",
+         global = true
+      )
+      public void syncPlayerStats(IsoPlayer var1, int var2) {
+         if (GameServer.bServer && var1.isExistInTheWorld()) {
+            INetworkPacket.send(var1, PacketTypes.PacketType.SyncPlayerStats, var1, var2);
          }
 
       }
@@ -8887,7 +11423,71 @@ public final class LuaManager {
          global = true
       )
       public void Render3DItem(InventoryItem var1, IsoGridSquare var2, float var3, float var4, float var5, float var6) {
-         WorldItemModelDrawer.renderMain(var1, var2, var3, var4, var5, 0.0F, var6);
+         if (var1 != null && var2 != null) {
+            ItemModelRenderer.RenderStatus var7 = WorldItemModelDrawer.renderMain(var1, var2, var2, var3, var4, var5, 0.0F, var6, true);
+            if (var7 != ItemModelRenderer.RenderStatus.Loading && var7 != ItemModelRenderer.RenderStatus.Ready) {
+               String var8 = var1.getTex().getName();
+               if (var1.isUseWorldItem()) {
+                  var8 = var1.getWorldTexture();
+               }
+
+               Texture var9;
+               try {
+                  var9 = Texture.getSharedTexture(var8);
+                  if (var9 == null) {
+                     var8 = var1.getTex().getName();
+                  }
+               } catch (Exception var19) {
+                  var8 = "media/inventory/world/WItem_Sack.png";
+               }
+
+               var9 = Texture.getSharedTexture(var8);
+               if (var9 != null) {
+                  float var10 = 1.0F;
+                  float var11 = 1.0F;
+                  float var12;
+                  float var13;
+                  float var14;
+                  float var15;
+                  if (var1.getScriptItem() == null) {
+                     var12 = (float)var9.getWidthOrig();
+                     var13 = (float)var9.getHeightOrig();
+                     var14 = (float)(16 * Core.TileScale);
+                     var15 = (float)(16 * Core.TileScale);
+                     if (var12 > 0.0F && var13 > 0.0F && var14 > 0.0F && var15 > 0.0F) {
+                        float var16 = var15 * var12 / var13;
+                        float var17 = var14 * var13 / var12;
+                        boolean var18 = var16 <= var14;
+                        if (var18) {
+                           var14 = var16;
+                        } else {
+                           var15 = var17;
+                        }
+
+                        var10 = var14 / var12;
+                        var11 = var15 / var13;
+                     }
+                  } else {
+                     float var10001 = (float)Core.TileScale;
+                     var10 = var11 = var1.getScriptItem().ScaleWorldIcon * (var10001 / 2.0F);
+                  }
+
+                  var12 = IsoUtils.XToScreen(var3, var4, var5, 0) - IsoCamera.frameState.OffX;
+                  var13 = IsoUtils.YToScreen(var3, var4, var5, 0) - IsoCamera.frameState.OffY;
+                  var14 = (float)var9.getWidthOrig() * var10 / 2.0F;
+                  var15 = (float)var9.getHeightOrig() * var11 * 3.0F / 4.0F;
+                  if (PerformanceSettings.FBORenderChunk) {
+                     SpriteRenderer.instance.StartShader(0, IsoCamera.frameState.playerIndex);
+                     IndieGL.glDepthMask(false);
+                     IndieGL.enableDepthTest();
+                     IndieGL.glDepthFunc(515);
+                     TextureDraw.nextZ = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var3 + 0.25F, var4 + 0.25F, var5).depthStart * 2.0F - 1.0F;
+                  }
+
+                  var9.render(var12 - var14, var13 - var15, (float)var9.getWidth(), (float)var9.getHeight(), 1.0F, 1.0F, 1.0F, 1.0F, (Consumer)null);
+               }
+            }
+         }
       }
 
       @LuaMethod(
@@ -8907,40 +11507,104 @@ public final class LuaManager {
       }
 
       @LuaMethod(
+         name = "NewMapBinaryFile",
+         global = true
+      )
+      public void NewMapBinaryFile(String var1) throws IOException {
+         switch (var1) {
+            case "TEST":
+               NewMapBinaryFile.SpawnBasement("basement1", PZMath.fastfloor(IsoPlayer.getInstance().getX()), PZMath.fastfloor(IsoPlayer.getInstance().getY()));
+            default:
+         }
+      }
+
+      @LuaMethod(
          name = "getAverageFPS",
          global = true
       )
       public Double getAverageFSP() {
          float var1 = GameWindow.averageFPS;
-         if (!PerformanceSettings.isUncappedFPS()) {
+         if (!PerformanceSettings.instance.isFramerateUncapped()) {
             var1 = Math.min(var1, (float)PerformanceSettings.getLockFPS());
          }
 
-         return BoxedStaticValues.toDouble(Math.floor((double)var1));
+         return BoxedStaticValues.toDouble((double)PZMath.fastfloor(var1));
+      }
+
+      @LuaMethod(
+         name = "getCPUTime",
+         global = true
+      )
+      public long getCPUTime() {
+         return GameWindow.getUpdateTime() / 1000000L;
+      }
+
+      @LuaMethod(
+         name = "getGPUTime",
+         global = true
+      )
+      public long getGPUTime() {
+         return RenderThread.getRenderTime() / 1000000L;
+      }
+
+      @LuaMethod(
+         name = "getCPUWait",
+         global = true
+      )
+      public long getCPUWait() {
+         return SpriteRenderer.getWaitTime() / 1000000L;
+      }
+
+      @LuaMethod(
+         name = "getGPUWait",
+         global = true
+      )
+      public long getGPUWait() {
+         return RenderThread.getWaitTime() / 1000000L;
+      }
+
+      @LuaMethod(
+         name = "getServerFPS",
+         global = true
+      )
+      public int getServerFPS() {
+         return 10;
       }
 
       @LuaMethod(
          name = "createItemTransaction",
          global = true
       )
-      public static void createItemTransaction(InventoryItem var0, ItemContainer var1, ItemContainer var2) {
-         if (GameClient.bClient && var0 != null) {
-            int var3 = (Integer)Optional.ofNullable(var1).map(ItemContainer::getContainingItem).map(InventoryItem::getID).orElse(-1);
-            int var4 = (Integer)Optional.ofNullable(var2).map(ItemContainer::getContainingItem).map(InventoryItem::getID).orElse(-1);
-            ItemTransactionManager.createItemTransaction(var0.getID(), var3, var4);
-         }
+      public static byte createItemTransaction(IsoPlayer var0, InventoryItem var1, ItemContainer var2, ItemContainer var3) {
+         return GameClient.bClient ? TransactionManager.createItemTransaction(var0, var1, var2, var3) : 0;
+      }
 
+      /** @deprecated */
+      @Deprecated
+      @LuaMethod(
+         name = "createItemTransactionWithPosData",
+         global = true
+      )
+      public static byte createItemTransactionWithPosData(IsoPlayer var0, InventoryItem var1, ItemContainer var2, ItemContainer var3, String var4, float var5, float var6, float var7) {
+         IsoDirections var8 = var4 == null ? IsoDirections.N : IsoDirections.valueOf(var4);
+         return GameClient.bClient ? TransactionManager.createItemTransaction(var0, var1, var2, var3, var8, var5, var6, var7) : 0;
+      }
+
+      @LuaMethod(
+         name = "changeItemTypeTransaction",
+         global = true
+      )
+      public static byte changeItemTypeTransaction(IsoPlayer var0, InventoryItem var1, String var2) {
+         return GameClient.bClient && var1 != null && !StringUtils.isNullOrEmpty(var2) ? TransactionManager.changeItemTypeTransaction(var0, var1, var1.getContainer(), var1.getContainer(), var2) : 0;
       }
 
       @LuaMethod(
          name = "removeItemTransaction",
          global = true
       )
-      public static void removeItemTransaction(InventoryItem var0, ItemContainer var1, ItemContainer var2) {
-         if (GameClient.bClient && var0 != null) {
-            int var3 = (Integer)Optional.ofNullable(var1).map(ItemContainer::getContainingItem).map(InventoryItem::getID).orElse(-1);
-            int var4 = (Integer)Optional.ofNullable(var2).map(ItemContainer::getContainingItem).map(InventoryItem::getID).orElse(-1);
-            ItemTransactionManager.removeItemTransaction(var0.getID(), var3, var4);
+      public static void removeItemTransaction(byte var0, boolean var1) {
+         if (GameClient.bClient) {
+            TransactionManager.removeItemTransaction(var0, var1);
          }
 
       }
@@ -8949,14 +11613,263 @@ public final class LuaManager {
          name = "isItemTransactionConsistent",
          global = true
       )
-      public static boolean isItemTransactionConsistent(InventoryItem var0, ItemContainer var1, ItemContainer var2) {
-         if (GameClient.bClient && var0 != null) {
-            int var3 = (Integer)Optional.ofNullable(var1).map(ItemContainer::getContainingItem).map(InventoryItem::getID).orElse(-1);
-            int var4 = (Integer)Optional.ofNullable(var2).map(ItemContainer::getContainingItem).map(InventoryItem::getID).orElse(-1);
-            return ItemTransactionManager.isConsistent(var0.getID(), var3, var4);
+      public static boolean isItemTransactionConsistent(InventoryItem var0, ItemContainer var1, ItemContainer var2, String var3) {
+         if (GameClient.bClient) {
+            int var4 = -1;
+            if (var0 != null) {
+               var4 = var0.id;
+            }
+
+            if (var1.getType().equals("floor") && var0.getWorldItem() != null) {
+               var4 = -1;
+            }
+
+            return TransactionManager.isConsistent(var4, var1, var2, var3, (ItemTransactionPacket)null) == 0;
          } else {
             return true;
          }
+      }
+
+      @LuaMethod(
+         name = "isItemTransactionDone",
+         global = true
+      )
+      public static boolean isItemTransactionDone(byte var0) {
+         return GameClient.bClient && var0 != 0 ? TransactionManager.isDone(var0) : true;
+      }
+
+      @LuaMethod(
+         name = "isItemTransactionRejected",
+         global = true
+      )
+      public static boolean isItemTransactionRejected(byte var0) {
+         return GameClient.bClient && var0 != 0 ? TransactionManager.isRejected(var0) : true;
+      }
+
+      @LuaMethod(
+         name = "getItemTransactionDuration",
+         global = true
+      )
+      public static int getItemTransactionDuration(byte var0) {
+         return GameClient.bClient && var0 != 0 ? TransactionManager.getDuration(var0) / 20 : -1;
+      }
+
+      @LuaMethod(
+         name = "isActionDone",
+         global = true
+      )
+      public static boolean isActionDone(byte var0) {
+         return GameClient.bClient && var0 != 0 ? ActionManager.isDone(var0) : true;
+      }
+
+      @LuaMethod(
+         name = "isActionRejected",
+         global = true
+      )
+      public static boolean isActionRejected(byte var0) {
+         return GameClient.bClient && var0 != 0 ? ActionManager.isRejected(var0) : true;
+      }
+
+      @LuaMethod(
+         name = "getActionDuration",
+         global = true
+      )
+      public static int getActionDuration(byte var0) {
+         return GameClient.bClient && var0 != 0 ? ActionManager.getDuration(var0) / 20 : -1;
+      }
+
+      @LuaMethod(
+         name = "removeAction",
+         global = true
+      )
+      public static void removeAction(byte var0, boolean var1) {
+         if (GameClient.bClient) {
+            ActionManager.remove(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "emulateAnimEvent",
+         global = true
+      )
+      public static void emulateAnimEvent(NetTimedAction var0, long var1, String var3, String var4) {
+         if (GameServer.bServer) {
+            AnimEventEmulator.getInstance().create(var0, var1, false, var3, var4);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "emulateAnimEventOnce",
+         global = true
+      )
+      public static void emulateAnimEventOnce(NetTimedAction var0, long var1, String var3, String var4) {
+         if (GameServer.bServer) {
+            AnimEventEmulator.getInstance().create(var0, var1, true, var3, var4);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "showDebugInfoInChat",
+         global = true
+      )
+      public static void showDebugInfoInChat(String var0) {
+         if (GameClient.bClient && DebugLog.isLogEnabled(DebugType.Action, LogSeverity.Trace)) {
+            ChatManager.getInstance().showServerChatMessage(var0);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "createBuildAction",
+         global = true
+      )
+      public static byte createBuildAction(IsoPlayer var0, float var1, float var2, float var3, boolean var4, String var5, KahluaTable var6) {
+         if (GameClient.bClient) {
+            String var7 = var6.getMetatable().getString("Type");
+            if (GameClient.bClient && DebugLog.isLogEnabled(DebugType.Action, LogSeverity.Trace)) {
+               ChatManager.getInstance().showServerChatMessage(" BUILD createBuildAction objectType:" + var7 + " spriteName:" + var5 + " north:" + (var4 ? "true" : "false"));
+            }
+
+            return ActionManager.getInstance().createBuildAction(var0, var1, var2, var3, var4, var5, var6);
+         } else {
+            return 0;
+         }
+      }
+
+      @LuaMethod(
+         name = "startFishingAction",
+         global = true
+      )
+      public static byte startFishingAction(IsoPlayer var0, InventoryItem var1, IsoGridSquare var2, KahluaTable var3) {
+         return GameClient.bClient ? ActionManager.getInstance().createFishingAction(var0, var1, var2, var3) : 0;
+      }
+
+      /** @deprecated */
+      @LuaMethod(
+         name = "syncInventory",
+         global = true
+      )
+      @Deprecated
+      public void syncInventory(IsoPlayer var1) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SyncInventory, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "syncItemModData",
+         global = true
+      )
+      public void syncItemModData(IsoPlayer var1, InventoryItem var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.sendToRelative(PacketTypes.PacketType.SyncItemModData, (float)((int)var1.getX()), (float)((int)var1.getY()), var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "syncItemFields",
+         global = true
+      )
+      public void syncItemFields(IsoPlayer var1, InventoryItem var2) {
+         if (GameClient.bClient) {
+            INetworkPacket.send(PacketTypes.PacketType.SyncItemFields, var1, var2);
+         } else if (GameServer.bServer) {
+            INetworkPacket.send(var1, PacketTypes.PacketType.SyncItemFields, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "syncHandWeaponFields",
+         global = true
+      )
+      public void syncHandWeaponFields(IsoPlayer var1, HandWeapon var2) {
+         if (GameServer.bServer) {
+            INetworkPacket.send(var1, PacketTypes.PacketType.SyncHandWeaponFields, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "getPickedUpFish",
+         global = true
+      )
+      public InventoryItem getPickedUpFish(IsoPlayer var1) {
+         return GameServer.bServer ? FishingAction.getPickedUpFish(var1) : null;
+      }
+
+      @LuaMethod(
+         name = "sendAddItemToContainer",
+         global = true
+      )
+      public static void sendAddItemToContainer(ItemContainer var0, InventoryItem var1) {
+         if (GameServer.bServer) {
+            GameServer.sendAddItemToContainer(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendAddItemsToContainer",
+         global = true
+      )
+      public static void sendAddItemsToContainer(ItemContainer var0, ArrayList<InventoryItem> var1) {
+         if (GameServer.bServer) {
+            GameServer.sendAddItemsToContainer(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendReplaceItemInContainer",
+         global = true
+      )
+      public static void sendReplaceItemInContainer(ItemContainer var0, InventoryItem var1, InventoryItem var2) {
+         if (GameServer.bServer) {
+            GameServer.sendReplaceItemInContainer(var0, var1, var2);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendRemoveItemFromContainer",
+         global = true
+      )
+      public static void sendRemoveItemFromContainer(ItemContainer var0, InventoryItem var1) {
+         if (GameServer.bServer) {
+            GameServer.sendRemoveItemFromContainer(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "sendRemoveItemsFromContainer",
+         global = true
+      )
+      public static void sendRemoveItemsFromContainer(ItemContainer var0, ArrayList<InventoryItem> var1) {
+         if (GameServer.bServer) {
+            GameServer.sendRemoveItemsFromContainer(var0, var1);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "replaceItemInContainer",
+         global = true
+      )
+      public static void replaceItemInContainer(ItemContainer var0, InventoryItem var1, InventoryItem var2) {
+         if (!GameServer.bServer && !GameClient.bClient) {
+            IsoPlayer var3 = (IsoPlayer)var0.getParent();
+            if (var3 != null) {
+               ActionManager.getInstance().replaceObjectInQueuedActions(var3, var1, var2);
+            }
+         }
+
       }
 
       @LuaMethod(
@@ -8965,6 +11878,14 @@ public final class LuaManager {
       )
       public static KahluaTable getServerStatistic() {
          return MPStatistic.getInstance().getStatisticTableForLua();
+      }
+
+      @LuaMethod(
+         name = "log",
+         global = true
+      )
+      public static void log(DebugType var0, String var1) {
+         DebugLog.getOrCreateDebugLogStream(var0).debugln(var1);
       }
 
       @LuaMethod(
@@ -8991,7 +11912,7 @@ public final class LuaManager {
          global = true
       )
       public static void checkModsNeedUpdate(UdpConnection var0) {
-         DebugLog.log("CheckModsNeedUpdate: Checking...");
+         DebugLog.Mod.println("CheckModsNeedUpdate: Checking...");
          if (SteamUtils.isSteamModeEnabled() && isServer()) {
             ArrayList var1 = getSteamWorkshopItemIDs();
             new ItemQueryJava(var1, var0);
@@ -9005,6 +11926,29 @@ public final class LuaManager {
       )
       public static SearchMode getSearchMode() {
          return SearchMode.getInstance();
+      }
+
+      @LuaMethod(
+         name = "transmitBigWaterSplash",
+         global = true
+      )
+      public static void transmitBigWaterSplash(int var0, int var1, float var2, float var3) {
+         if (GameClient.bClient) {
+            GameClient.sendBigWaterSplash(var0, var1, var2, var3);
+         }
+
+         if (GameServer.bServer) {
+            GameServer.transmitBigWaterSplash(var0, var1, var2, var3);
+         }
+
+      }
+
+      @LuaMethod(
+         name = "addAreaHighlight",
+         global = true
+      )
+      public static void addAreaHighlight(int var0, int var1, int var2, int var3, int var4, float var5, float var6, float var7, float var8) {
+         FBORenderAreaHighlights.getInstance().addHighlight(var0, var1, var2, var3, var4, var5, var6, var7, var8);
       }
 
       @LuaMethod(
@@ -9024,6 +11968,22 @@ public final class LuaManager {
             }
 
          }
+      }
+
+      @LuaMethod(
+         name = "javaListRemoveAt",
+         global = true
+      )
+      public static Object javaListRemoveAt(List<?> var0, int var1) {
+         return var0 == null ? null : var0.remove(var1);
+      }
+
+      @LuaMethod(
+         name = "sendDebugStory",
+         global = true
+      )
+      public static void sendDebugStory(IsoGridSquare var0, int var1, String var2) {
+         INetworkPacket.send(PacketTypes.PacketType.DebugStory, var0, var1, var2);
       }
 
       public static final class LuaFileWriter {
@@ -9166,7 +12126,7 @@ public final class LuaManager {
                ChatServer.getInstance().sendMessageToServerChat(this.connection, var1);
             }
 
-            DebugLog.log(var1);
+            DebugLog.Mod.println(var1);
          }
 
          public void onItemCreated(long var1, boolean var3) {

@@ -2,11 +2,13 @@ package zombie.randomizedWorld.randomizedBuilding;
 
 import java.util.ArrayList;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.stash.StashSystem;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.RoomDef;
+import zombie.iso.SpawnPoints;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
@@ -18,8 +20,7 @@ public final class RBShopLooted extends RandomizedBuildingBase {
       var1.setAllExplored(true);
       RoomDef var2 = null;
 
-      int var3;
-      for(var3 = 0; var3 < var1.rooms.size(); ++var3) {
+      for(int var3 = 0; var3 < var1.rooms.size(); ++var3) {
          RoomDef var4 = (RoomDef)var1.rooms.get(var3);
          if (this.buildingList.contains(var4.name)) {
             var2 = var4;
@@ -28,19 +29,24 @@ public final class RBShopLooted extends RandomizedBuildingBase {
       }
 
       if (var2 != null) {
-         var3 = Rand.Next(3, 8);
+         String var8 = "Bandit";
+         if (Rand.NextBool(3)) {
+            var8 = "PrivateMilitia";
+         }
 
-         int var7;
-         for(var7 = 0; var7 < var3; ++var7) {
-            this.addZombiesOnSquare(1, "Bandit", (Integer)null, var2.getFreeSquare());
+         int var9 = Rand.Next(3, 8);
+
+         int var5;
+         for(var5 = 0; var5 < var9; ++var5) {
+            this.addZombiesOnSquare(1, var8, (Integer)null, var2.getFreeSquare());
          }
 
          this.addZombiesOnSquare(2, "Police", (Integer)null, var2.getFreeSquare());
-         var7 = Rand.Next(3, 8);
+         var5 = Rand.Next(3, 8);
 
-         for(int var5 = 0; var5 < var7; ++var5) {
-            IsoGridSquare var6 = getRandomSquareForCorpse(var2);
-            createRandomDeadBody(var6, (IsoDirections)null, Rand.Next(5, 10), 5, (String)null);
+         for(int var6 = 0; var6 < var5; ++var6) {
+            IsoGridSquare var7 = getRandomSquareForCorpse(var2);
+            createRandomDeadBody(var7, (IsoDirections)null, Rand.Next(5, 10), 5, (String)null);
          }
 
       }
@@ -48,7 +54,13 @@ public final class RBShopLooted extends RandomizedBuildingBase {
 
    public boolean isValid(BuildingDef var1, boolean var2) {
       this.debugLine = "";
-      if (GameClient.bClient) {
+      if (SpawnPoints.instance.isSpawnBuilding(var1)) {
+         this.debugLine = "Spawn houses are invalid";
+         return false;
+      } else if (StashSystem.isStashBuilding(var1)) {
+         this.debugLine = "Stash buildings are invalid";
+         return false;
+      } else if (GameClient.bClient) {
          return false;
       } else if (!this.isTimeValid(var2)) {
          return false;
@@ -85,7 +97,6 @@ public final class RBShopLooted extends RandomizedBuildingBase {
       this.name = "Looted Shop";
       this.setChance(2);
       this.setAlwaysDo(true);
-      this.setMaximumDays(30);
       this.buildingList.add("conveniencestore");
       this.buildingList.add("warehouse");
       this.buildingList.add("medclinic");

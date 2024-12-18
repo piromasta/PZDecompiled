@@ -16,6 +16,7 @@ import zombie.ZomboidFileSystem;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.core.utils.UpdateLimit;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoCell;
@@ -245,30 +246,30 @@ public final class PlayerDB {
    private boolean loadPlayer(int var1, IsoPlayer var2) {
       PlayerData var3 = this.allocPlayerData();
 
+      boolean var4;
       try {
          var3.m_sqlID = var1;
-         boolean var4;
-         if (this.m_store.load(var3)) {
-            var2.load(var3.m_byteBuffer, var3.m_WorldVersion);
-            if (var3.m_isDead) {
-               var2.getBodyDamage().setOverallBodyHealth(0.0F);
-               var2.setHealth(0.0F);
-            }
-
-            var2.sqlID = var1;
-            var4 = true;
+         if (!this.m_store.load(var3)) {
+            var4 = false;
             return var4;
          }
 
-         var4 = false;
-         return var4;
+         var2.load(var3.m_byteBuffer, var3.m_WorldVersion);
+         if (var3.m_isDead) {
+            var2.getBodyDamage().setOverallBodyHealth(0.0F);
+            var2.setHealth(0.0F);
+         }
+
+         var2.sqlID = var1;
+         var4 = true;
       } catch (Exception var8) {
          ExceptionLogger.logException(var8);
+         return false;
       } finally {
          this.releasePlayerData(var3);
       }
 
-      return false;
+      return var4;
    }
 
    public boolean loadLocalPlayer(int var1) {
@@ -281,14 +282,19 @@ public final class PlayerDB {
          }
 
          if (this.loadPlayer(var1, var2)) {
-            int var3 = (int)(var2.x / 10.0F);
-            int var4 = (int)(var2.y / 10.0F);
-            IsoCell.getInstance().ChunkMap[IsoPlayer.getPlayerIndex()].WorldX = var3 + IsoWorld.saveoffsetx * 30;
-            IsoCell.getInstance().ChunkMap[IsoPlayer.getPlayerIndex()].WorldY = var4 + IsoWorld.saveoffsety * 30;
-            return true;
+            int var3 = PZMath.fastfloor(var2.getX() / 8.0F);
+            int var4 = PZMath.fastfloor(var2.getY() / 8.0F);
+            IsoChunkMap var5 = IsoCell.getInstance().ChunkMap[IsoPlayer.getPlayerIndex()];
+            if ($assertionsDisabled || var3 + IsoWorld.saveoffsetx * IsoCell.CellSizeInChunks == var5.WorldX && var4 + IsoWorld.saveoffsety * IsoCell.CellSizeInChunks == var5.WorldY) {
+               var5.WorldX = var3 + IsoWorld.saveoffsetx * IsoCell.CellSizeInChunks;
+               var5.WorldY = var4 + IsoWorld.saveoffsety * IsoCell.CellSizeInChunks;
+               return true;
+            }
+
+            throw new AssertionError();
          }
-      } catch (Exception var5) {
-         ExceptionLogger.logException(var5);
+      } catch (Exception var6) {
+         ExceptionLogger.logException(var6);
       }
 
       return false;
@@ -321,17 +327,17 @@ public final class PlayerDB {
             return false;
          }
 
-         IsoChunkMap.WorldXA = (int)var2.m_x;
-         IsoChunkMap.WorldYA = (int)var2.m_y;
-         IsoChunkMap.WorldZA = (int)var2.m_z;
-         IsoChunkMap.WorldXA += 300 * IsoWorld.saveoffsetx;
-         IsoChunkMap.WorldYA += 300 * IsoWorld.saveoffsety;
-         IsoChunkMap.SWorldX[0] = (int)(var2.m_x / 10.0F);
-         IsoChunkMap.SWorldY[0] = (int)(var2.m_y / 10.0F);
+         IsoChunkMap.WorldXA = PZMath.fastfloor(var2.m_x);
+         IsoChunkMap.WorldYA = PZMath.fastfloor(var2.m_y);
+         IsoChunkMap.WorldZA = PZMath.fastfloor(var2.m_z);
+         IsoChunkMap.WorldXA += IsoCell.CellSizeInSquares * IsoWorld.saveoffsetx;
+         IsoChunkMap.WorldYA += IsoCell.CellSizeInSquares * IsoWorld.saveoffsety;
+         IsoChunkMap.SWorldX[0] = PZMath.fastfloor(var2.m_x / 8.0F);
+         IsoChunkMap.SWorldY[0] = PZMath.fastfloor(var2.m_y / 8.0F);
          int[] var10000 = IsoChunkMap.SWorldX;
-         var10000[0] += 30 * IsoWorld.saveoffsetx;
+         var10000[0] += IsoCell.CellSizeInChunks * IsoWorld.saveoffsetx;
          var10000 = IsoChunkMap.SWorldY;
-         var10000[0] += 30 * IsoWorld.saveoffsety;
+         var10000[0] += IsoCell.CellSizeInChunks * IsoWorld.saveoffsety;
          var3 = true;
       } catch (Exception var7) {
          ExceptionLogger.logException(var7);
@@ -400,9 +406,9 @@ public final class PlayerDB {
                      InputStream var5 = var4.getBinaryStream(1);
                      var1.setBytes(var5);
                      var1.m_WorldVersion = var4.getInt(2);
-                     var1.m_x = (float)var4.getInt(3);
-                     var1.m_y = (float)var4.getInt(4);
-                     var1.m_z = (float)var4.getInt(5);
+                     var1.m_x = var4.getFloat(3);
+                     var1.m_y = var4.getFloat(4);
+                     var1.m_z = var4.getFloat(5);
                      var1.m_isDead = var4.getBoolean(6);
                      var1.m_name = var4.getString(7);
                      var6 = true;
@@ -449,9 +455,9 @@ public final class PlayerDB {
                   ResultSet var4 = var3.executeQuery();
                   if (var4.next()) {
                      var1.m_WorldVersion = var4.getInt(1);
-                     var1.m_x = (float)var4.getInt(2);
-                     var1.m_y = (float)var4.getInt(3);
-                     var1.m_z = (float)var4.getInt(4);
+                     var1.m_x = var4.getFloat(2);
+                     var1.m_y = var4.getFloat(3);
+                     var1.m_z = var4.getFloat(4);
                      var1.m_isDead = var4.getBoolean(5);
                      var1.m_name = var4.getString(6);
                      var5 = true;
@@ -548,8 +554,8 @@ public final class PlayerDB {
                PreparedStatement var3 = this.m_conn.prepareStatement(var2);
 
                try {
-                  var3.setInt(1, (int)(var1.m_x / 10.0F));
-                  var3.setInt(2, (int)(var1.m_y / 10.0F));
+                  var3.setInt(1, PZMath.fastfloor(var1.m_x) / 8);
+                  var3.setInt(2, PZMath.fastfloor(var1.m_y) / 8);
                   var3.setFloat(3, var1.m_x);
                   var3.setFloat(4, var1.m_y);
                   var3.setFloat(5, var1.m_z);
@@ -593,8 +599,8 @@ public final class PlayerDB {
                PreparedStatement var3 = this.m_conn.prepareStatement(var2);
 
                try {
-                  var3.setInt(1, (int)(var1.m_x / 10.0F));
-                  var3.setInt(2, (int)(var1.m_y / 10.0F));
+                  var3.setInt(1, PZMath.fastfloor(var1.m_x / 8.0F));
+                  var3.setInt(2, PZMath.fastfloor(var1.m_y / 8.0F));
                   var3.setFloat(3, var1.m_x);
                   var3.setFloat(4, var1.m_y);
                   var3.setFloat(5, var1.m_z);
@@ -676,7 +682,7 @@ public final class PlayerDB {
                break;
             } catch (BufferOverflowException var4) {
                if (var2.capacity() >= 2097152) {
-                  DebugLog.General.error("the player %s cannot be saved", var1.getUsername());
+                  DebugLog.DetailedInfo.error("the player %s cannot be saved", var1.getUsername());
                   throw var4;
                }
 

@@ -22,21 +22,18 @@ public final class Keyframe {
    }
 
    public void set(Keyframe var1) {
-      if (var1.Position != null) {
-         this.setPosition(var1.Position);
-      }
-
-      if (var1.Rotation != null) {
-         this.setRotation(var1.Rotation);
-      }
-
-      if (var1.Scale != null) {
-         this.setScale(var1.Scale);
-      }
-
+      this.setPosition(var1.Position);
+      this.setRotation(var1.Rotation);
+      this.setScale(var1.Scale);
       this.Time = var1.Time;
       this.Bone = var1.Bone;
       this.BoneName = var1.BoneName;
+   }
+
+   public void set(Vector3f var1, Quaternion var2, Vector3f var3) {
+      this.setPosition(var1);
+      this.setRotation(var2);
+      this.setScale(var3);
    }
 
    public void get(Vector3f var1, Quaternion var2, Vector3f var3) {
@@ -45,28 +42,40 @@ public final class Keyframe {
       setIfNotNull(var3, this.Scale, 1.0F, 1.0F, 1.0F);
    }
 
-   private void setScale(Vector3f var1) {
-      if (this.Scale == null) {
-         this.Scale = new Vector3f();
-      }
+   public void setScale(Vector3f var1) {
+      if (var1 == null) {
+         this.Scale = null;
+      } else {
+         if (this.Scale == null) {
+            this.Scale = new Vector3f();
+         }
 
-      this.Scale.set(var1);
+         this.Scale.set(var1);
+      }
    }
 
-   private void setRotation(Quaternion var1) {
-      if (this.Rotation == null) {
-         this.Rotation = new Quaternion();
-      }
+   public void setRotation(Quaternion var1) {
+      if (var1 == null) {
+         this.Rotation = null;
+      } else {
+         if (this.Rotation == null) {
+            this.Rotation = new Quaternion();
+         }
 
-      this.Rotation.set(var1);
+         this.Rotation.set(var1);
+      }
    }
 
-   private void setPosition(Vector3f var1) {
-      if (this.Position == null) {
-         this.Position = new Vector3f();
-      }
+   public void setPosition(Vector3f var1) {
+      if (var1 == null) {
+         this.Position = null;
+      } else {
+         if (this.Position == null) {
+            this.Position = new Vector3f();
+         }
 
-      this.Position.set(var1);
+         this.Position.set(var1);
+      }
    }
 
    public void clear() {

@@ -1,6 +1,7 @@
 package zombie.characters.BodyDamage;
 
 import java.nio.ByteBuffer;
+import zombie.CombatManager;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.SandboxOptions;
@@ -8,22 +9,22 @@ import zombie.Lua.LuaEventManager;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
-import zombie.inventory.types.Clothing;
+import zombie.core.network.ByteBufferWriter;
+import zombie.core.random.Rand;
 import zombie.network.BodyDamageSync;
 
 public final class BodyPart {
-   BodyPartType Type;
-   private float BiteDamage = 2.1875F;
-   private float BleedDamage = 0.2857143F;
+   public BodyPartType Type;
+   private final float BiteDamage = 2.1875F;
+   private final float BleedDamage = 0.2857143F;
    private float DamageScaler = 0.0057142857F;
    private float Health;
    private boolean bandaged;
    private boolean bitten;
    private boolean bleeding;
    private boolean IsBleedingStemmed;
-   private boolean IsCortorised;
+   private boolean IsCauterized;
    private boolean scratched;
    private boolean stitched;
    private boolean deepWounded;
@@ -37,12 +38,12 @@ public final class BodyPart {
    private float stiffness = 0.0F;
    private float woundInfectionLevel = 0.0F;
    private boolean infectedWound = false;
-   private float ScratchDamage = 0.9375F;
-   private float CutDamage = 1.875F;
-   private float WoundDamage = 3.125F;
-   private float BurnDamage = 3.75F;
-   private float BulletDamage = 3.125F;
-   private float FractureDamage = 3.125F;
+   private final float ScratchDamage = 0.9375F;
+   private final float CutDamage = 1.875F;
+   private final float WoundDamage = 3.125F;
+   private final float BurnDamage = 3.75F;
+   private final float BulletDamage = 3.125F;
+   private final float FractureDamage = 3.125F;
    private float bleedingTime = 0.0F;
    private float deepWoundTime = 0.0F;
    private boolean haveGlass = false;
@@ -118,12 +119,12 @@ public final class BodyPart {
       this.RestoreToFullHealth();
    }
 
-   public void AddDamage(float var1) {
-      this.Health -= var1;
-      if (this.Health < 0.0F) {
-         this.Health = 0.0F;
-      }
+   public IsoGameCharacter getParentChar() {
+      return this.ParentChar;
+   }
 
+   public void AddDamage(float var1) {
+      this.ReduceHealth(var1);
    }
 
    public boolean isBandageDirty() {
@@ -131,28 +132,30 @@ public final class BodyPart {
    }
 
    public void DamageUpdate() {
+      float var1;
       if (this.getDeepWoundTime() > 0.0F && !this.stitched()) {
+         var1 = 3.125F * this.DamageScaler * GameTime.getInstance().getMultiplier();
          if (this.bandaged()) {
-            this.Health -= this.WoundDamage / 2.0F * this.DamageScaler * GameTime.getInstance().getMultiplier();
-         } else {
-            this.Health -= this.WoundDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+            var1 = 1.5625F * this.DamageScaler * GameTime.getInstance().getMultiplier();
          }
+
+         CombatManager.getInstance().applyDamage(this, var1);
       }
 
       if (this.getScratchTime() > 0.0F && !this.bandaged()) {
-         this.Health -= this.ScratchDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+         CombatManager.getInstance().applyDamage(this, 0.9375F * this.DamageScaler * GameTime.getInstance().getMultiplier());
       }
 
       if (this.getCutTime() > 0.0F && !this.bandaged()) {
-         this.Health -= this.CutDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+         CombatManager.getInstance().applyDamage(this, 1.875F * this.DamageScaler * GameTime.getInstance().getMultiplier());
       }
 
       if (this.getBiteTime() > 0.0F && !this.bandaged()) {
-         this.Health -= this.BiteDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+         CombatManager.getInstance().applyDamage(this, 2.1875F * this.DamageScaler * GameTime.getInstance().getMultiplier());
       }
 
       if (this.getBleedingTime() > 0.0F && !this.bandaged()) {
-         float var1 = this.BleedDamage * this.DamageScaler * GameTime.getInstance().getMultiplier() * (this.getBleedingTime() / 10.0F);
+         var1 = 0.2857143F * this.DamageScaler * GameTime.getInstance().getMultiplier() * (this.getBleedingTime() / 10.0F);
          this.ParentChar.getBodyDamage().ReduceGeneralHealth(var1);
          LuaEventManager.triggerEvent("OnPlayerGetDamage", this.ParentChar, "BLEEDING", var1);
          if (Rand.NextBool(Rand.AdjustForFramerate(1000))) {
@@ -161,19 +164,20 @@ public final class BodyPart {
       }
 
       if (this.haveBullet()) {
+         var1 = 3.125F * this.DamageScaler * GameTime.getInstance().getMultiplier();
          if (this.bandaged()) {
-            this.Health -= this.BulletDamage / 2.0F * this.DamageScaler * GameTime.getInstance().getMultiplier();
-         } else {
-            this.Health -= this.BulletDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+            var1 = 1.5625F * this.DamageScaler * GameTime.getInstance().getMultiplier();
          }
+
+         CombatManager.getInstance().applyDamage(this, var1);
       }
 
       if (this.getBurnTime() > 0.0F && !this.bandaged()) {
-         this.Health -= this.BurnDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+         CombatManager.getInstance().applyDamage(this, 3.75F * this.DamageScaler * GameTime.getInstance().getMultiplier());
       }
 
       if (this.getFractureTime() > 0.0F && !this.isSplint()) {
-         this.Health -= this.FractureDamage * this.DamageScaler * GameTime.getInstance().getMultiplier();
+         CombatManager.getInstance().applyDamage(this, 3.125F * this.DamageScaler * GameTime.getInstance().getMultiplier());
       }
 
       if (this.getBiteTime() > 0.0F) {
@@ -221,50 +225,7 @@ public final class BodyPart {
          }
       }
 
-      if (this.isInfectedWound() || this.IsInfected || this.alcoholicBandage && this.getBandageLife() > 0.0F || !(this.getDeepWoundTime() > 0.0F) && !(this.getScratchTime() > 0.0F) && !(this.getCutTime() > 0.0F) && !(this.getStitchTime() > 0.0F)) {
-         if (this.isInfectedWound()) {
-            boolean var4 = false;
-            if (this.getAlcoholLevel() > 0.0F) {
-               this.setAlcoholLevel(this.getAlcoholLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
-               this.setWoundInfectionLevel(this.getWoundInfectionLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
-               if (this.getAlcoholLevel() < 0.0F) {
-                  this.setAlcoholLevel(0.0F);
-               }
-
-               var4 = true;
-            }
-
-            if (this.ParentChar.getReduceInfectionPower() > 0.0F) {
-               this.setWoundInfectionLevel(this.getWoundInfectionLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
-               this.ParentChar.setReduceInfectionPower(this.ParentChar.getReduceInfectionPower() - 2.0E-4F * GameTime.getInstance().getMultiplier());
-               if (this.ParentChar.getReduceInfectionPower() < 0.0F) {
-                  this.ParentChar.setReduceInfectionPower(0.0F);
-               }
-
-               var4 = true;
-            }
-
-            if (this.getGarlicFactor() > 0.0F) {
-               this.setWoundInfectionLevel(this.getWoundInfectionLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
-               this.setGarlicFactor(this.getGarlicFactor() - 8.0E-4F * GameTime.getInstance().getMultiplier());
-               var4 = true;
-            }
-
-            if (!var4) {
-               if (this.IsInfected) {
-                  this.setWoundInfectionLevel(this.getWoundInfectionLevel() + 2.0E-4F * GameTime.getInstance().getMultiplier());
-               } else if (this.haveGlass()) {
-                  this.setWoundInfectionLevel(this.getWoundInfectionLevel() + 1.0E-4F * GameTime.getInstance().getMultiplier());
-               } else {
-                  this.setWoundInfectionLevel(this.getWoundInfectionLevel() + 1.0E-5F * GameTime.getInstance().getMultiplier());
-               }
-
-               if (this.getWoundInfectionLevel() > 10.0F) {
-                  this.setWoundInfectionLevel(10.0F);
-               }
-            }
-         }
-      } else {
+      if (!this.isInfectedWound() && !this.IsInfected && (!this.alcoholicBandage || !(this.getBandageLife() > 0.0F)) && (this.getDeepWoundTime() > 0.0F || this.getScratchTime() > 0.0F || this.getCutTime() > 0.0F || this.getStitchTime() > 0.0F)) {
          int var3 = 40000;
          if (!this.bandaged()) {
             var3 -= 10000;
@@ -295,27 +256,12 @@ public final class BodyPart {
             }
          }
 
-         Clothing var2;
-         if (BodyPartType.ToIndex(this.getType()) <= BodyPartType.ToIndex(BodyPartType.Torso_Lower) && this.ParentChar.getClothingItem_Torso() instanceof Clothing) {
-            var2 = (Clothing)this.ParentChar.getClothingItem_Torso();
-            if (var2.isDirty()) {
-               var3 -= 20000;
-            }
-
-            if (var2.isBloody()) {
-               var3 -= 24000;
-            }
+         if (this.hasDirtyClothing()) {
+            var3 -= 20000;
          }
 
-         if (BodyPartType.ToIndex(this.getType()) >= BodyPartType.ToIndex(BodyPartType.UpperLeg_L) && BodyPartType.ToIndex(this.getType()) <= BodyPartType.ToIndex(BodyPartType.LowerLeg_R) && this.ParentChar.getClothingItem_Legs() instanceof Clothing) {
-            var2 = (Clothing)this.ParentChar.getClothingItem_Legs();
-            if (var2.isDirty()) {
-               var3 -= 20000;
-            }
-
-            if (var2.isBloody()) {
-               var3 -= 24000;
-            }
+         if (this.hasBloodyClothing()) {
+            var3 -= 24000;
          }
 
          if (var3 <= 5000) {
@@ -325,6 +271,47 @@ public final class BodyPart {
          if (Rand.Next(Rand.AdjustForFramerate(var3)) == 0) {
             this.setInfectedWound(true);
          }
+      } else if (this.isInfectedWound()) {
+         boolean var2 = false;
+         if (this.getAlcoholLevel() > 0.0F) {
+            this.setAlcoholLevel(this.getAlcoholLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
+            this.setWoundInfectionLevel(this.getWoundInfectionLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
+            if (this.getAlcoholLevel() < 0.0F) {
+               this.setAlcoholLevel(0.0F);
+            }
+
+            var2 = true;
+         }
+
+         if (this.ParentChar.getReduceInfectionPower() > 0.0F) {
+            this.setWoundInfectionLevel(this.getWoundInfectionLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
+            this.ParentChar.setReduceInfectionPower(this.ParentChar.getReduceInfectionPower() - 2.0E-4F * GameTime.getInstance().getMultiplier());
+            if (this.ParentChar.getReduceInfectionPower() < 0.0F) {
+               this.ParentChar.setReduceInfectionPower(0.0F);
+            }
+
+            var2 = true;
+         }
+
+         if (this.getGarlicFactor() > 0.0F) {
+            this.setWoundInfectionLevel(this.getWoundInfectionLevel() - 2.0E-4F * GameTime.getInstance().getMultiplier());
+            this.setGarlicFactor(this.getGarlicFactor() - 8.0E-4F * GameTime.getInstance().getMultiplier());
+            var2 = true;
+         }
+
+         if (!var2) {
+            if (this.IsInfected) {
+               this.setWoundInfectionLevel(this.getWoundInfectionLevel() + 2.0E-4F * GameTime.getInstance().getMultiplier());
+            } else if (this.haveGlass()) {
+               this.setWoundInfectionLevel(this.getWoundInfectionLevel() + 1.0E-4F * GameTime.getInstance().getMultiplier());
+            } else {
+               this.setWoundInfectionLevel(this.getWoundInfectionLevel() + 1.0E-5F * GameTime.getInstance().getMultiplier());
+            }
+         }
+      }
+
+      if (this.getWoundInfectionLevel() > 10.0F) {
+         this.setWoundInfectionLevel(10.0F);
       }
 
       if (!this.isInfectedWound() && this.getAlcoholLevel() > 0.0F) {
@@ -493,19 +480,11 @@ public final class BodyPart {
    }
 
    public void AddHealth(float var1) {
-      this.Health += var1;
-      if (this.Health > 100.0F) {
-         this.Health = 100.0F;
-      }
-
+      this.Health = PZMath.clamp(this.Health + var1, 0.0F, 100.0F);
    }
 
    public void ReduceHealth(float var1) {
-      this.Health -= var1;
-      if (this.Health < 0.0F) {
-         this.Health = 0.0F;
-      }
-
+      this.Health = PZMath.clamp(this.Health - var1, 0.0F, 100.0F);
    }
 
    public boolean HasInjury() {
@@ -528,8 +507,8 @@ public final class BodyPart {
       return this.IsBleedingStemmed;
    }
 
-   public boolean IsCortorised() {
-      return this.IsCortorised;
+   public boolean IsCauterized() {
+      return this.IsCauterized;
    }
 
    public boolean IsInfected() {
@@ -585,7 +564,7 @@ public final class BodyPart {
       this.haveGlass = false;
       this.infectedWound = false;
       this.IsBleedingStemmed = false;
-      this.IsCortorised = false;
+      this.IsCauterized = false;
       this.IsFakeInfected = false;
       this.IsInfected = false;
       this.lastTimeBurnWash = 0.0F;
@@ -601,6 +580,7 @@ public final class BodyPart {
       this.woundInfectionLevel = 0.0F;
       this.cutTime = 0.0F;
       this.cut = false;
+      this.stiffness = 0.0F;
    }
 
    public void setBandaged(boolean var1, float var2) {
@@ -656,15 +636,13 @@ public final class BodyPart {
       if (var1) {
          this.bleeding = true;
          this.IsBleedingStemmed = false;
-         this.IsCortorised = false;
+         this.IsCauterized = false;
          this.bandaged = false;
          this.setInfectedWound(true);
          this.setBiteTime(Rand.Next(50.0F, 80.0F));
          if (this.ParentChar.Traits.FastHealer.isSet()) {
             this.setBiteTime(Rand.Next(30.0F, 50.0F));
-         }
-
-         if (this.ParentChar.Traits.SlowHealer.isSet()) {
+         } else if (this.ParentChar.Traits.SlowHealer.isSet()) {
             this.setBiteTime(Rand.Next(80.0F, 150.0F));
          }
       }
@@ -693,7 +671,7 @@ public final class BodyPart {
       if (var1) {
          this.bleeding = true;
          this.IsBleedingStemmed = false;
-         this.IsCortorised = false;
+         this.IsCauterized = false;
          this.bandaged = false;
          if (var2) {
             this.IsInfected = true;
@@ -720,8 +698,8 @@ public final class BodyPart {
 
    }
 
-   public void SetCortorised(boolean var1) {
-      this.IsCortorised = var1;
+   public void SetCauterized(boolean var1) {
+      this.IsCauterized = var1;
       if (var1) {
          this.bleeding = false;
          this.IsBleedingStemmed = false;
@@ -737,15 +715,15 @@ public final class BodyPart {
 
    public void setCut(boolean var1, boolean var2) {
       this.cut = var1;
-      if (var1) {
+      if (!var1) {
+         this.setBleeding(false);
+      } else {
          this.setStitched(false);
          this.setBandaged(false, 0.0F);
          float var3 = Rand.Next(10.0F, 20.0F);
          if (this.ParentChar.Traits.FastHealer.isSet()) {
             var3 = Rand.Next(5.0F, 10.0F);
-         }
-
-         if (this.ParentChar.Traits.SlowHealer.isSet()) {
+         } else if (this.ParentChar.Traits.SlowHealer.isSet()) {
             var3 = Rand.Next(20.0F, 30.0F);
          }
 
@@ -762,10 +740,8 @@ public final class BodyPart {
          if (!var2) {
             this.generateZombieInfection(25);
          }
-      } else {
-         this.setBleeding(false);
-      }
 
+      }
    }
 
    public void generateZombieInfection(int var1) {
@@ -791,24 +767,24 @@ public final class BodyPart {
 
    public void setScratched(boolean var1, boolean var2) {
       this.scratched = var1;
-      if (var1) {
+      if (!var1) {
+         this.setBleeding(false);
+      } else {
          this.setStitched(false);
          this.setBandaged(false, 0.0F);
          float var3 = Rand.Next(7.0F, 15.0F);
          if (this.ParentChar.Traits.FastHealer.isSet()) {
             var3 = Rand.Next(4.0F, 10.0F);
-         }
-
-         if (this.ParentChar.Traits.SlowHealer.isSet()) {
+         } else if (this.ParentChar.Traits.SlowHealer.isSet()) {
             var3 = Rand.Next(15.0F, 25.0F);
          }
 
          switch (SandboxOptions.instance.InjurySeverity.getValue()) {
             case 1:
-               this.scratchTime *= 0.5F;
+               var3 *= 0.5F;
                break;
             case 3:
-               this.scratchTime *= 1.5F;
+               var3 *= 1.5F;
          }
 
          this.setScratchTime(var3);
@@ -816,38 +792,35 @@ public final class BodyPart {
          if (!var2) {
             this.generateZombieInfection(7);
          }
-      } else {
-         this.setBleeding(false);
-      }
 
+      }
    }
 
    public void SetScratchedWeapon(boolean var1) {
       this.scratched = var1;
-      if (var1) {
+      if (!var1) {
+         this.setBleeding(false);
+      } else {
          this.setStitched(false);
          this.setBandaged(false, 0.0F);
          float var2 = Rand.Next(5.0F, 10.0F);
          if (this.ParentChar.Traits.FastHealer.isSet()) {
             var2 = Rand.Next(1.0F, 5.0F);
-         }
-
-         if (this.ParentChar.Traits.SlowHealer.isSet()) {
+         } else if (this.ParentChar.Traits.SlowHealer.isSet()) {
             var2 = Rand.Next(10.0F, 20.0F);
          }
 
          switch (SandboxOptions.instance.InjurySeverity.getValue()) {
             case 1:
-               this.scratchTime *= 0.5F;
+               var2 *= 0.5F;
                break;
             case 3:
-               this.scratchTime *= 1.5F;
+               var2 *= 1.5F;
          }
 
          this.setScratchTime(var2);
          this.generateBleeding();
       }
-
    }
 
    public void generateDeepWound() {
@@ -893,6 +866,34 @@ public final class BodyPart {
       this.generateBleeding();
    }
 
+   public void generateFracture(float var1) {
+      if (SandboxOptions.instance.BoneFracture.getValue()) {
+         if (this.getFractureTime() <= 0.0F) {
+            this.ParentChar.playSound("FirstAidFracture");
+         }
+
+         this.setFractureTime(var1);
+      }
+   }
+
+   public void generateFractureNew(float var1) {
+      if (this.ParentChar.Traits.FastHealer.isSet()) {
+         var1 *= 0.6F;
+      } else if (this.ParentChar.Traits.SlowHealer.isSet()) {
+         var1 *= 1.8F;
+      }
+
+      switch (SandboxOptions.instance.InjurySeverity.getValue()) {
+         case 1:
+            var1 *= 0.5F;
+            break;
+         case 3:
+            var1 *= 1.5F;
+      }
+
+      this.generateFracture(var1);
+   }
+
    public void SetScratchedWindow(boolean var1) {
       if (var1) {
          this.setBandaged(false, 0.0F);
@@ -904,18 +905,16 @@ public final class BodyPart {
             float var2 = Rand.Next(12.0F, 20.0F);
             if (this.ParentChar.Traits.FastHealer.isSet()) {
                var2 = Rand.Next(5.0F, 10.0F);
-            }
-
-            if (this.ParentChar.Traits.SlowHealer.isSet()) {
+            } else if (this.ParentChar.Traits.SlowHealer.isSet()) {
                var2 = Rand.Next(20.0F, 30.0F);
             }
 
             switch (SandboxOptions.instance.InjurySeverity.getValue()) {
                case 1:
-                  this.scratchTime *= 0.5F;
+                  var2 *= 0.5F;
                   break;
                case 3:
-                  this.scratchTime *= 1.5F;
+                  var2 *= 1.5F;
             }
 
             this.setScratchTime(var2);
@@ -923,7 +922,6 @@ public final class BodyPart {
 
          this.generateBleeding();
       }
-
    }
 
    public void setStitched(boolean var1) {
@@ -967,7 +965,7 @@ public final class BodyPart {
       if (this.getBiteTime() > 0.0F) {
          if (this.bandaged()) {
             var1 += 30.0F;
-         } else if (!this.bandaged()) {
+         } else {
             var1 += 50.0F;
          }
       }
@@ -1237,7 +1235,7 @@ public final class BodyPart {
       if (var1) {
          this.bleeding = true;
          this.IsBleedingStemmed = false;
-         this.IsCortorised = false;
+         this.IsCauterized = false;
          this.bandaged = false;
          this.stitched = false;
       }
@@ -1531,7 +1529,7 @@ public final class BodyPart {
             this.IsBleedingStemmed = var1.get() == 1;
             break;
          case 6:
-            this.IsCortorised = var1.get() == 1;
+            this.IsCauterized = var1.get() == 1;
             break;
          case 7:
             this.scratched = var1.get() == 1;
@@ -1637,6 +1635,134 @@ public final class BodyPart {
             break;
          case 41:
             this.stiffness = var1.getFloat();
+      }
+
+   }
+
+   public void syncWrite(ByteBufferWriter var1, int var2) {
+      switch (var2) {
+         case 1:
+            var1.putFloat(this.Health);
+            break;
+         case 2:
+            var1.putByte((byte)(this.bandaged ? 1 : 0));
+            break;
+         case 3:
+            var1.putByte((byte)(this.bitten ? 1 : 0));
+            break;
+         case 4:
+            var1.putByte((byte)(this.bleeding ? 1 : 0));
+            break;
+         case 5:
+            var1.putByte((byte)(this.IsBleedingStemmed ? 1 : 0));
+            break;
+         case 6:
+            var1.putByte((byte)(this.IsCauterized ? 1 : 0));
+            break;
+         case 7:
+            var1.putByte((byte)(this.scratched ? 1 : 0));
+            break;
+         case 8:
+            var1.putByte((byte)(this.stitched ? 1 : 0));
+            break;
+         case 9:
+            var1.putByte((byte)(this.deepWounded ? 1 : 0));
+            break;
+         case 10:
+            var1.putByte((byte)(this.IsInfected ? 1 : 0));
+            break;
+         case 11:
+            var1.putByte((byte)(this.IsFakeInfected ? 1 : 0));
+            break;
+         case 12:
+            var1.putFloat(this.bandageLife);
+            break;
+         case 13:
+            var1.putFloat(this.scratchTime);
+            break;
+         case 14:
+            var1.putFloat(this.biteTime);
+            break;
+         case 15:
+            var1.putByte((byte)(this.alcoholicBandage ? 1 : 0));
+            break;
+         case 16:
+            var1.putFloat(this.woundInfectionLevel);
+            break;
+         case 17:
+            var1.putByte((byte)(this.infectedWound ? 1 : 0));
+            break;
+         case 18:
+            var1.putFloat(this.bleedingTime);
+            break;
+         case 19:
+            var1.putFloat(this.deepWoundTime);
+            break;
+         case 20:
+            var1.putByte((byte)(this.haveGlass ? 1 : 0));
+            break;
+         case 21:
+            var1.putFloat(this.stitchTime);
+            break;
+         case 22:
+            var1.putFloat(this.alcoholLevel);
+            break;
+         case 23:
+            var1.putFloat(this.additionalPain);
+            break;
+         case 24:
+            var1.putUTF(this.bandageType);
+            break;
+         case 25:
+            var1.putByte((byte)(this.getBandageXp ? 1 : 0));
+            break;
+         case 26:
+            var1.putByte((byte)(this.getStitchXp ? 1 : 0));
+            break;
+         case 27:
+            var1.putByte((byte)(this.getSplintXp ? 1 : 0));
+            break;
+         case 28:
+            var1.putFloat(this.fractureTime);
+            break;
+         case 29:
+            var1.putByte((byte)(this.splint ? 1 : 0));
+            break;
+         case 30:
+            var1.putFloat(this.splintFactor);
+            break;
+         case 31:
+            var1.putByte((byte)(this.haveBullet ? 1 : 0));
+            break;
+         case 32:
+            var1.putFloat(this.burnTime);
+            break;
+         case 33:
+            var1.putByte((byte)(this.needBurnWash ? 1 : 0));
+            break;
+         case 34:
+            var1.putFloat(this.lastTimeBurnWash);
+            break;
+         case 35:
+            var1.putUTF(this.splintItem);
+            break;
+         case 36:
+            var1.putFloat(this.plantainFactor);
+            break;
+         case 37:
+            var1.putFloat(this.comfreyFactor);
+            break;
+         case 38:
+            var1.putFloat(this.garlicFactor);
+            break;
+         case 39:
+            var1.putByte((byte)(this.cut ? 1 : 0));
+            break;
+         case 40:
+            var1.putFloat(this.cutTime);
+            break;
+         case 41:
+            var1.putFloat(this.stiffness);
       }
 
    }
@@ -1766,5 +1892,17 @@ public final class BodyPart {
 
    public void setStiffness(float var1) {
       this.stiffness = PZMath.clamp(var1, 0.0F, 100.0F);
+   }
+
+   public boolean hasDirtyClothing() {
+      return this.ParentChar.hasDirtyClothing(BodyPartType.ToIndex(this.getType()));
+   }
+
+   public boolean hasBloodyClothing() {
+      return this.ParentChar.hasBloodyClothing(BodyPartType.ToIndex(this.getType()));
+   }
+
+   public void addStiffness(float var1) {
+      this.stiffness = PZMath.clamp(this.getStiffness() + var1, 0.0F, 100.0F);
    }
 }

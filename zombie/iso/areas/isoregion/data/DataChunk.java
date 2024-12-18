@@ -17,15 +17,15 @@ public final class DataChunk {
    private final int chunkY;
    protected int highestZ = 0;
    protected long lastUpdateStamp = 0L;
-   private final boolean[] activeZLayers = new boolean[8];
-   private final boolean[] dirtyZLayers = new boolean[8];
+   private final boolean[] activeZLayers = new boolean[32];
+   private final boolean[] dirtyZLayers = new boolean[32];
    private byte[] squareFlags;
    private byte[] regionIDs;
-   private final ArrayList<ArrayList<IsoChunkRegion>> chunkRegions = new ArrayList(8);
+   private final ArrayList<ArrayList<IsoChunkRegion>> chunkRegions = new ArrayList(32);
    private static byte selectedFlags;
    private static final ArrayDeque<DataSquarePos> tmpSquares = new ArrayDeque();
    private static final HashSet<Integer> tmpLinkedChunks = new HashSet();
-   private static final boolean[] exploredPositions = new boolean[100];
+   private static final boolean[] exploredPositions = new boolean[64];
    private static IsoChunkRegion lastCurRegion;
    private static IsoChunkRegion lastOtherRegionFullConnect;
    private static ArrayList<IsoChunkRegion> oldList = new ArrayList();
@@ -37,7 +37,7 @@ public final class DataChunk {
       this.chunkX = var1;
       this.chunkY = var2;
 
-      for(int var5 = 0; var5 < 8; ++var5) {
+      for(int var5 = 0; var5 < 32; ++var5) {
          this.chunkRegions.add(new ArrayList());
       }
 
@@ -82,7 +82,7 @@ public final class DataChunk {
    public void setDirtyAllActive() {
       boolean var1 = false;
 
-      for(int var2 = 0; var2 < 8; ++var2) {
+      for(int var2 = 0; var2 < 32; ++var2) {
          if (this.activeZLayers[var2]) {
             this.dirtyZLayers[var2] = true;
             if (!var1) {
@@ -95,18 +95,18 @@ public final class DataChunk {
    }
 
    protected void unsetDirtyAll() {
-      for(int var1 = 0; var1 < 8; ++var1) {
+      for(int var1 = 0; var1 < 32; ++var1) {
          this.dirtyZLayers[var1] = false;
       }
 
    }
 
    private boolean validCoords(int var1, int var2, int var3) {
-      return var1 >= 0 && var1 < 10 && var2 >= 0 && var2 < 10 && var3 >= 0 && var3 < this.highestZ + 1;
+      return var1 >= 0 && var1 < 8 && var2 >= 0 && var2 < 8 && var3 >= 0 && var3 < this.highestZ + 1;
    }
 
    private int getCoord1D(int var1, int var2, int var3) {
-      return var3 * 10 * 10 + var2 * 10 + var1;
+      return var3 * 8 * 8 + var2 * 8 + var1;
    }
 
    public byte getSquare(int var1, int var2, int var3) {
@@ -141,7 +141,7 @@ public final class DataChunk {
    }
 
    private void ensureSquares(int var1) {
-      if (var1 >= 0 && var1 < 8) {
+      if (var1 >= 0 && var1 < 32) {
          if (!this.activeZLayers[var1]) {
             this.ensureSquareArray(var1);
             this.activeZLayers[var1] = true;
@@ -149,8 +149,8 @@ public final class DataChunk {
                this.highestZ = var1;
             }
 
-            for(int var3 = 0; var3 < 10; ++var3) {
-               for(int var4 = 0; var4 < 10; ++var4) {
+            for(int var3 = 0; var3 < 8; ++var3) {
+               for(int var4 = 0; var4 < 8; ++var4) {
                   int var2 = this.getCoord1D(var4, var3, var1);
                   this.squareFlags[var2] = (byte)(var1 == 0 ? 16 : 0);
                }
@@ -161,7 +161,7 @@ public final class DataChunk {
    }
 
    private void ensureSquareArray(int var1) {
-      int var2 = (var1 + 1) * 10 * 10;
+      int var2 = (var1 + 1) * 8 * 8;
       if (this.squareFlags == null || this.squareFlags.length < var2) {
          byte[] var3 = this.squareFlags;
          byte[] var4 = this.regionIDs;
@@ -182,7 +182,7 @@ public final class DataChunk {
          int var2 = var1.position();
          var1.putInt(0);
          var1.putInt(this.highestZ);
-         int var3 = (this.highestZ + 1) * 100;
+         int var3 = (this.highestZ + 1) * 64;
          var1.putInt(var3);
 
          int var4;
@@ -351,11 +351,11 @@ public final class DataChunk {
       }
 
       var2.clear();
-      byte var7 = 100;
+      byte var7 = 64;
       Arrays.fill(this.regionIDs, var1 * var7, var1 * var7 + var7, (byte)-1);
 
-      for(int var8 = 0; var8 < 10; ++var8) {
-         for(int var9 = 0; var9 < 10; ++var9) {
+      for(int var8 = 0; var8 < 8; ++var8) {
+         for(int var9 = 0; var9 < 8; ++var9) {
             if (this.regionIDs[this.getCoord1D(var9, var8, var1)] == -1) {
                this.floodFill(var9, var8, var1);
             }
@@ -426,12 +426,12 @@ public final class DataChunk {
    }
 
    private boolean isExploredPosition(int var1, int var2) {
-      int var3 = var1 - var2 * 10 * 10;
+      int var3 = var1 - var2 * 8 * 8;
       return exploredPositions[var3];
    }
 
    private void setExploredPosition(int var1, int var2) {
-      int var3 = var1 - var2 * 10 * 10;
+      int var3 = var1 - var2 * 8 * 8;
       exploredPositions[var3] = true;
    }
 
@@ -454,7 +454,7 @@ public final class DataChunk {
          var4 = var1.y + 1;
       }
 
-      return var3 >= 0 && var3 < 10 && var4 >= 0 && var4 < 10 ? DataSquarePos.alloc(var3, var4, var1.z) : null;
+      return var3 >= 0 && var3 < 8 && var4 >= 0 && var4 < 8 ? DataSquarePos.alloc(var3, var4, var1.z) : null;
    }
 
    protected void link(DataChunk var1, DataChunk var2, DataChunk var3, DataChunk var4) {
@@ -475,14 +475,14 @@ public final class DataChunk {
       int var6;
       int var7;
       if (var3 != 0 && var3 != 2) {
-         var4 = var3 == 1 ? 0 : 9;
+         var4 = var3 == 1 ? 0 : 7;
          var5 = var4 + 1;
          var6 = 0;
-         var7 = 10;
+         var7 = 8;
       } else {
          var4 = 0;
-         var5 = 10;
-         var6 = var3 == 0 ? 0 : 9;
+         var5 = 8;
+         var6 = var3 == 0 ? 0 : 7;
          var7 = var6 + 1;
       }
 
@@ -498,11 +498,11 @@ public final class DataChunk {
             int var8;
             int var9;
             if (var3 != 0 && var3 != 2) {
-               var8 = var3 == 1 ? 9 : 0;
+               var8 = var3 == 1 ? 7 : 0;
                var9 = var14;
             } else {
                var8 = var15;
-               var9 = var3 == 0 ? 9 : 0;
+               var9 = var3 == 0 ? 7 : 0;
             }
 
             int var10 = this.getCoord1D(var15, var14, var1);
@@ -654,8 +654,8 @@ public final class DataChunk {
 
          var1 = this.highestZ;
 
-         for(int var5 = 0; var5 < 10; ++var5) {
-            for(int var6 = 0; var6 < 10; ++var6) {
+         for(int var5 = 0; var5 < 8; ++var5) {
+            for(int var6 = 0; var6 < 8; ++var6) {
                byte var8 = this.getSquare(var6, var5, var1);
                boolean var9 = false;
                if (var8 > 0) {

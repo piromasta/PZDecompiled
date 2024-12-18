@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.Lua.LuaManager;
-import zombie.core.Rand;
 import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.scripting.ScriptManager;
@@ -21,7 +20,11 @@ public class UnderwearDefinition {
    }
 
    public void checkDirty() {
-      this.init();
+      if (this.m_dirty) {
+         this.m_dirty = false;
+         this.init();
+      }
+
    }
 
    private void init() {
@@ -63,67 +66,69 @@ public class UnderwearDefinition {
    }
 
    public static void addRandomUnderwear(IsoZombie var0) {
-      instance.checkDirty();
-      if (Rand.Next(100) <= baseChance) {
-         ArrayList var1 = new ArrayList();
-         int var2 = 0;
+      if (!var0.isSkeleton()) {
+         instance.checkDirty();
+         if (OutfitRNG.Next(100) <= baseChance) {
+            ArrayList var1 = new ArrayList();
+            int var2 = 0;
 
-         int var3;
-         OutfitUnderwearDefinition var4;
-         for(var3 = 0; var3 < m_outfitDefinition.size(); ++var3) {
-            var4 = (OutfitUnderwearDefinition)m_outfitDefinition.get(var3);
-            if (var0.isFemale() && var4.female || !var0.isFemale() && !var4.female) {
-               var1.add(var4);
-               var2 += var4.chanceToSpawn;
-            }
-         }
-
-         var3 = OutfitRNG.Next(var2);
-         var4 = null;
-         int var5 = 0;
-
-         for(int var6 = 0; var6 < var1.size(); ++var6) {
-            OutfitUnderwearDefinition var7 = (OutfitUnderwearDefinition)var1.get(var6);
-            var5 += var7.chanceToSpawn;
-            if (var3 < var5) {
-               var4 = var7;
-               break;
-            }
-         }
-
-         if (var4 != null) {
-            Item var11 = ScriptManager.instance.FindItem(var4.bottom);
-            ItemVisual var12 = null;
-            if (var11 != null) {
-               var12 = var0.getHumanVisual().addClothingItem(var0.getItemVisuals(), var11);
+            int var3;
+            OutfitUnderwearDefinition var4;
+            for(var3 = 0; var3 < m_outfitDefinition.size(); ++var3) {
+               var4 = (OutfitUnderwearDefinition)m_outfitDefinition.get(var3);
+               if (var0.isFemale() && var4.female || !var0.isFemale() && !var4.female) {
+                  var1.add(var4);
+                  var2 += var4.chanceToSpawn;
+               }
             }
 
-            if (var4.top != null) {
-               String var8 = null;
-               var3 = OutfitRNG.Next(var4.topTotalChance);
-               var5 = 0;
+            var3 = OutfitRNG.Next(var2);
+            var4 = null;
+            int var5 = 0;
 
-               for(int var9 = 0; var9 < var4.top.size(); ++var9) {
-                  StringChance var10 = (StringChance)var4.top.get(var9);
-                  var5 = (int)((float)var5 + var10.chance);
-                  if (var3 < var5) {
-                     var8 = var10.str;
-                     break;
-                  }
+            for(int var6 = 0; var6 < var1.size(); ++var6) {
+               OutfitUnderwearDefinition var7 = (OutfitUnderwearDefinition)var1.get(var6);
+               var5 += var7.chanceToSpawn;
+               if (var3 < var5) {
+                  var4 = var7;
+                  break;
+               }
+            }
+
+            if (var4 != null) {
+               Item var11 = ScriptManager.instance.FindItem(var4.bottom);
+               ItemVisual var12 = null;
+               if (var11 != null) {
+                  var12 = var0.getHumanVisual().addClothingItem(var0.getItemVisuals(), var11);
                }
 
-               if (var8 != null) {
-                  var11 = ScriptManager.instance.FindItem(var8);
-                  if (var11 != null) {
-                     ItemVisual var13 = var0.getHumanVisual().addClothingItem(var0.getItemVisuals(), var11);
-                     if (Rand.Next(100) < 60 && var13 != null && var12 != null) {
-                        var13.setTint(var12.getTint());
+               if (var4.top != null) {
+                  String var8 = null;
+                  var3 = OutfitRNG.Next(var4.topTotalChance);
+                  var5 = 0;
+
+                  for(int var9 = 0; var9 < var4.top.size(); ++var9) {
+                     StringChance var10 = (StringChance)var4.top.get(var9);
+                     var5 = (int)((float)var5 + var10.chance);
+                     if (var3 < var5) {
+                        var8 = var10.str;
+                        break;
+                     }
+                  }
+
+                  if (var8 != null) {
+                     var11 = ScriptManager.instance.FindItem(var8);
+                     if (var11 != null) {
+                        ItemVisual var13 = var0.getHumanVisual().addClothingItem(var0.getItemVisuals(), var11);
+                        if (OutfitRNG.Next(100) < 60 && var13 != null && var12 != null) {
+                           var13.setTint(var12.getTint());
+                        }
                      }
                   }
                }
             }
-         }
 
+         }
       }
    }
 

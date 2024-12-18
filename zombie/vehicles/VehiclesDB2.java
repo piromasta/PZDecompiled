@@ -19,6 +19,7 @@ import zombie.ZomboidFileSystem;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
@@ -402,7 +403,7 @@ public final class VehiclesDB2 {
       void vehicleLoaded(IsoChunk var1, VehicleBuffer var2) throws IOException {
          assert var2.m_id >= 1;
 
-         IsoGridSquare var3 = var1.getGridSquare((int)(var2.m_x - (float)(var1.wx * 10)), (int)(var2.m_y - (float)(var1.wy * 10)), 0);
+         IsoGridSquare var3 = var1.getGridSquare((int)(var2.m_x - (float)(var1.wx * 8)), (int)(var2.m_y - (float)(var1.wy * 8)), 0);
          BaseVehicle var4 = new BaseVehicle(IsoWorld.instance.CurrentCell);
          var4.setSquare(var3);
          var4.setCurrent(var3);
@@ -947,7 +948,7 @@ public final class VehiclesDB2 {
 
             for(int var2 = 0; var2 < this.m_vehicles.size(); ++var2) {
                BaseVehicle var3 = (BaseVehicle)this.m_vehicles.get(var2);
-               IsoGridSquare var4 = var1.getGridSquare((int)(var3.x - (float)(var1.wx * 10)), (int)(var3.y - (float)(var1.wy * 10)), 0);
+               IsoGridSquare var4 = var1.getGridSquare(PZMath.fastfloor(var3.getX() - (float)(var1.wx * 8)), PZMath.fastfloor(var3.getY() - (float)(var1.wy * 8)), 0);
                var3.setSquare(var4);
                var3.setCurrent(var4);
                var3.chunk = var1;
@@ -983,8 +984,8 @@ public final class VehiclesDB2 {
       void vehicleLoaded(VehicleBuffer var1) throws IOException {
          assert var1.m_id >= 1;
 
-         int var2 = (int)(var1.m_x - (float)(this.m_wx * 10));
-         int var3 = (int)(var1.m_y - (float)(this.m_wy * 10));
+         int var2 = PZMath.fastfloor(var1.m_x - (float)(this.m_wx * 8));
+         int var3 = PZMath.fastfloor(var1.m_y - (float)(this.m_wy * 8));
          this.m_dummySquare.x = var2;
          this.m_dummySquare.y = var3;
          IsoGridSquare var4 = this.m_dummySquare;

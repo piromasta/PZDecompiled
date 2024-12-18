@@ -14,8 +14,9 @@ import zombie.characters.Stats;
 import zombie.characters.BodyDamage.BodyPart;
 import zombie.characters.BodyDamage.BodyPartType;
 import zombie.characters.Moodles.MoodleType;
-import zombie.core.Rand;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
@@ -29,6 +30,8 @@ import zombie.iso.objects.IsoTelevision;
 import zombie.iso.objects.IsoWindow;
 import zombie.iso.weather.ClimateManager;
 import zombie.network.GameClient;
+import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.ui.UIManager;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
@@ -41,100 +44,114 @@ public final class SleepingEvent {
    }
 
    public void setPlayerFallAsleep(IsoPlayer var1, int var2) {
-      SleepingEventData var3 = var1.getOrCreateSleepingEventData();
-      var3.reset();
-      if (!IsoWorld.getZombiesEnabled()) {
-         if (ClimateManager.getInstance().isRaining() && this.isExposedToPrecipitation(var1)) {
-            var3.bRaining = true;
-            var3.bWasRainingAtStart = true;
-            var3.rainTimeStartHours = GameTime.getInstance().getWorldAgeHours();
-         }
+      this.setPlayerFallAsleep(var1, var2, false, false);
+   }
 
-         var3.sleepingTime = (float)var2;
-         var1.setTimeOfSleep(GameTime.instance.getTimeOfDay());
-         this.doDelayToSleep(var1);
-         this.checkNightmare(var1, var2);
-         if (var3.nightmareWakeUp <= -1) {
-            if (SandboxOptions.instance.SleepingEvent.getValue() != 1 && zombiesInvasion) {
-               if (var1.getCurrentSquare() == null || var1.getCurrentSquare().getZone() == null || !var1.getCurrentSquare().getZone().haveConstruction) {
-                  boolean var4 = false;
-                  if ((GameTime.instance.getHour() >= 0 && GameTime.instance.getHour() < 5 || GameTime.instance.getHour() > 18) && var2 >= 4) {
-                     var4 = true;
-                  }
+   public void setPlayerFallAsleep(IsoPlayer var1, int var2, boolean var3, boolean var4) {
+      SleepingEventData var5 = var1.getOrCreateSleepingEventData();
+      var5.reset();
+      if (ClimateManager.getInstance().isRaining() && this.isExposedToPrecipitation(var1)) {
+         var5.bRaining = true;
+         var5.bWasRainingAtStart = true;
+         var5.rainTimeStartHours = GameTime.getInstance().getWorldAgeHours();
+      }
 
-                  byte var5 = 20;
-                  if (SandboxOptions.instance.SleepingEvent.getValue() == 3) {
-                     var5 = 45;
-                  }
+      var5.sleepingTime = (float)var2;
+      var1.setTimeOfSleep(GameTime.instance.getTimeOfDay());
+      this.doDelayToSleep(var1);
+      this.checkNightmare(var1, var2);
+      if (var4) {
+         Rand.Next(3, var2 - 2);
+      }
 
-                  if (Rand.Next(100) <= var5 && var1.getCell().getZombieList().size() >= 1 && var2 >= 4) {
-                     int var6 = 0;
-                     if (var1.getCurrentBuilding() != null) {
-                        IsoGridSquare var7 = null;
-                        IsoWindow var8 = null;
+      if (var5.nightmareWakeUp <= -1) {
+         if (SandboxOptions.instance.SleepingEvent.getValue() != 1 && zombiesInvasion || var3) {
+            if (var1.getCurrentSquare() == null || var1.getCurrentSquare().getZone() == null || !var1.getCurrentSquare().getZone().haveConstruction) {
+               boolean var6 = false;
+               if ((GameTime.instance.getHour() >= 0 && GameTime.instance.getHour() < 5 || GameTime.instance.getHour() > 18) && var2 >= 4) {
+                  var6 = true;
+               }
 
-                        for(int var9 = 0; var9 < 3; ++var9) {
-                           for(int var10 = var1.getCurrentBuilding().getDef().getX() - 2; var10 < var1.getCurrentBuilding().getDef().getX2() + 2; ++var10) {
-                              for(int var11 = var1.getCurrentBuilding().getDef().getY() - 2; var11 < var1.getCurrentBuilding().getDef().getY2() + 2; ++var11) {
-                                 var7 = IsoWorld.instance.getCell().getGridSquare(var10, var11, var9);
-                                 if (var7 != null) {
-                                    boolean var12 = var7.haveElectricity() || IsoWorld.instance.isHydroPowerOn();
-                                    if (var12) {
-                                       for(int var13 = 0; var13 < var7.getObjects().size(); ++var13) {
-                                          IsoObject var14 = (IsoObject)var7.getObjects().get(var13);
-                                          if (var14.getContainer() != null && (var14.getContainer().getType().equals("fridge") || var14.getContainer().getType().equals("freezer"))) {
-                                             var6 += 3;
+               byte var7 = 20;
+               if (SandboxOptions.instance.SleepingEvent.getValue() == 3) {
+                  var7 = 45;
+               }
+
+               if (var3 || Rand.Next(100) <= var7 && var1.getCell().getZombieList().size() >= 1 && var2 >= 4) {
+                  int var8 = 0;
+                  if (var1.getCurrentBuilding() != null) {
+                     if (!var3) {
+                        IsoGridSquare var9 = null;
+                        IsoWindow var10 = null;
+                        int var11 = 0;
+
+                        while(true) {
+                           if (var11 >= 3) {
+                              if (SandboxOptions.instance.SleepingEvent.getValue() == 3) {
+                                 var8 = (int)((double)var8 * 1.5);
+                              }
+
+                              if (var8 > 70) {
+                                 var8 = 70;
+                              }
+
+                              if (!var6) {
+                                 var8 /= 2;
+                              }
+                              break;
+                           }
+
+                           for(int var12 = var1.getCurrentBuilding().getDef().getX() - 2; var12 < var1.getCurrentBuilding().getDef().getX2() + 2; ++var12) {
+                              for(int var13 = var1.getCurrentBuilding().getDef().getY() - 2; var13 < var1.getCurrentBuilding().getDef().getY2() + 2; ++var13) {
+                                 var9 = IsoWorld.instance.getCell().getGridSquare(var12, var13, var11);
+                                 if (var9 != null) {
+                                    boolean var14 = var9.haveElectricity() || IsoWorld.instance.isHydroPowerOn();
+                                    if (var14) {
+                                       for(int var15 = 0; var15 < var9.getObjects().size(); ++var15) {
+                                          IsoObject var16 = (IsoObject)var9.getObjects().get(var15);
+                                          if (var16.getContainer() != null && (var16.getContainer().getType().equals("fridge") || var16.getContainer().getType().equals("freezer"))) {
+                                             var8 += 3;
                                           }
 
-                                          if (var14 instanceof IsoStove && ((IsoStove)var14).Activated()) {
-                                             var6 += 5;
+                                          if (var16 instanceof IsoStove && ((IsoStove)var16).Activated()) {
+                                             var8 += 5;
                                           }
 
-                                          if (var14 instanceof IsoTelevision && ((IsoTelevision)var14).getDeviceData().getIsTurnedOn()) {
-                                             var6 += 30;
+                                          if (var16 instanceof IsoTelevision && ((IsoTelevision)var16).getDeviceData().getIsTurnedOn()) {
+                                             var8 += 30;
                                           }
 
-                                          if (var14 instanceof IsoRadio && ((IsoRadio)var14).getDeviceData().getIsTurnedOn()) {
-                                             var6 += 30;
+                                          if (var16 instanceof IsoRadio && ((IsoRadio)var16).getDeviceData().getIsTurnedOn()) {
+                                             var8 += 30;
                                           }
                                        }
                                     }
 
-                                    var8 = var7.getWindow();
-                                    if (var8 != null) {
-                                       var6 += this.checkWindowStatus(var8);
+                                    var10 = var9.getWindow();
+                                    if (var10 != null) {
+                                       var8 += this.checkWindowStatus(var10);
                                     }
 
-                                    IsoDoor var15 = var7.getIsoDoor();
-                                    if (var15 != null && var15.isExteriorDoor((IsoGameCharacter)null) && var15.IsOpen()) {
-                                       var6 += 25;
-                                       var3.openDoor = var15;
+                                    IsoDoor var17 = var9.getIsoDoor();
+                                    if (var17 != null && var17.isExterior() && var17.IsOpen()) {
+                                       var8 += 25;
+                                       var5.openDoor = var17;
                                     }
                                  }
                               }
                            }
-                        }
 
-                        if (SandboxOptions.instance.SleepingEvent.getValue() == 3) {
-                           var6 = (int)((double)var6 * 1.5);
-                        }
-
-                        if (var6 > 70) {
-                           var6 = 70;
-                        }
-
-                        if (!var4) {
-                           var6 /= 2;
-                        }
-
-                        if (Rand.Next(100) <= var6) {
-                           var3.forceWakeUpTime = Rand.Next(var2 - 4, var2 - 1);
-                           var3.zombiesIntruders = true;
+                           ++var11;
                         }
                      }
-                  }
 
+                     if (var3 || Rand.Next(100) <= var8) {
+                        var5.forceWakeUpTime = Rand.Next(var2 - 4, var2 - 1);
+                        var5.zombiesIntruders = true;
+                     }
+                  }
                }
+
             }
          }
       }
@@ -155,12 +172,22 @@ public final class SleepingEvent {
          var2 *= 1.2F;
       }
 
+      if ("averageBedPillow".equals(var1.getBedType())) {
+         var2 *= 1.0F;
+      }
+
       if ("badBed".equals(var1.getBedType())) {
          var2 *= 1.3F;
+      } else if ("badBedPillow".equals(var1.getBedType())) {
+         var2 *= 1.25F;
       } else if ("goodBed".equals(var1.getBedType())) {
          var2 *= 0.8F;
+      } else if ("goodBedPillow".equals(var1.getBedType())) {
+         var2 *= 0.6F;
       } else if ("floor".equals(var1.getBedType())) {
          var2 *= 1.6F;
+      } else if ("floorPillow".equals(var1.getBedType())) {
+         var2 *= 1.45F;
       }
 
       if (var1.Traits.NightOwl.isSet()) {
@@ -183,7 +210,12 @@ public final class SleepingEvent {
       if (!GameClient.bClient) {
          SleepingEventData var3 = var1.getOrCreateSleepingEventData();
          if (var2 >= 3) {
-            int var4 = 5 + var1.getMoodles().getMoodleLevel(MoodleType.Stress) * 10;
+            int var4 = 5;
+            if (var1.Traits.Desensitized.isSet()) {
+               var4 += 5;
+            }
+
+            var4 += var1.getMoodles().getMoodleLevel(MoodleType.Stress) * 10;
             if (Rand.Next(100) < var4) {
                var3.nightmareWakeUp = Rand.Next(3, var2 - 2);
             }
@@ -268,20 +300,34 @@ public final class SleepingEvent {
    public void update(IsoPlayer var1) {
       if (var1 != null) {
          SleepingEventData var2 = var1.getOrCreateSleepingEventData();
-         if (var2.nightmareWakeUp == (int)var1.getAsleepTime()) {
-            Stats var10000 = var1.getStats();
+         Stats var10000;
+         if (var1.getStats().getNumVeryCloseZombies() > 0) {
+            var10000 = var1.getStats();
             var10000.Panic += 70.0F;
             var10000 = var1.getStats();
             var10000.stress += 0.5F;
-            WorldSoundManager.instance.addSound(var1, (int)var1.getX(), (int)var1.getY(), (int)var1.getZ(), 6, 1);
+            WorldSoundManager.instance.addSound(var1, PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()), 6, 1);
+            SoundManager.instance.setMusicWakeState(var1, "WakeZombies");
+            var2.bFastWakeup = true;
+            this.wakeUp(var1);
+         }
+
+         if (var2.nightmareWakeUp == (int)var1.getAsleepTime()) {
+            var10000 = var1.getStats();
+            var10000.Panic += 70.0F;
+            var10000 = var1.getStats();
+            var10000.stress += 0.5F;
+            WorldSoundManager.instance.addSound(var1, PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()), 6, 1);
             SoundManager.instance.setMusicWakeState(var1, "WakeNightmare");
+            var2.bFastWakeup = true;
             this.wakeUp(var1);
          }
 
          if (var2.forceWakeUpTime == (int)var1.getAsleepTime() && var2.zombiesIntruders) {
             this.spawnZombieIntruders(var1);
-            WorldSoundManager.instance.addSound(var1, (int)var1.getX(), (int)var1.getY(), (int)var1.getZ(), 6, 1);
+            WorldSoundManager.instance.addSound(var1, PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()), 6, 1);
             SoundManager.instance.setMusicWakeState(var1, "WakeZombies");
+            var2.bFastWakeup = true;
             this.wakeUp(var1);
          }
 
@@ -331,7 +377,7 @@ public final class SleepingEvent {
       if (var1.getCurrentSquare() == null) {
          return false;
       } else if (!var1.getCurrentSquare().isInARoom() && !var1.getCurrentSquare().haveRoof) {
-         if (var1.getBed() != null && "Tent".equals(var1.getBed().getName())) {
+         if (var1.getBed() != null && (var1.getBed().isTent() || "Tent".equals(var1.getBed().getName()))) {
             return false;
          } else {
             BaseVehicle var2 = var1.getVehicle();
@@ -438,14 +484,14 @@ public final class SleepingEvent {
    public void wakeUp(IsoGameCharacter var1, boolean var2) {
       SleepingEventData var3 = var1.getOrCreateSleepingEventData();
       if (GameClient.bClient && !var2) {
-         GameClient.instance.wakeUpPlayer((IsoPlayer)var1);
+         INetworkPacket.send(PacketTypes.PacketType.WakeUpPlayer, (IsoPlayer)var1);
       }
 
       boolean var4 = false;
       IsoPlayer var5 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if (var5 != null && var5.isLocalPlayer()) {
          UIManager.setFadeBeforeUI(var5.getPlayerNum(), true);
-         UIManager.FadeIn((double)var5.getPlayerNum(), 2.0);
+         UIManager.FadeIn((double)var5.getPlayerNum(), var3.bFastWakeup ? 0.5 : 2.0);
          if (!GameClient.bClient && IsoPlayer.allPlayersAsleep()) {
             UIManager.getSpeedControls().SetCurrentGameSpeed(1);
             var4 = true;
@@ -466,26 +512,45 @@ public final class SleepingEvent {
 
       BodyPart var6 = var1.getBodyDamage().getBodyPart(BodyPartType.Neck);
       float var7 = var3.sleepingTime / 8.0F;
-      if ("goodBed".equals(var1.getBedType())) {
+      if (!"goodBed".equals(var1.getBedType()) && !"goodBedPillow".equals(var1.getBedType())) {
+         if ("badBed".equals(var1.getBedType())) {
+            var1.getStats().setFatigue(var1.getStats().getFatigue() + Rand.Next(0.1F, 0.2F) * var7);
+            if (Rand.Next(5) == 0) {
+               var6.AddDamage(Rand.Next(5.0F, 15.0F));
+               var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(30.0F, 50.0F));
+            }
+         } else if ("badBedPillow".equals(var1.getBedType())) {
+            var1.getStats().setFatigue(var1.getStats().getFatigue() + Rand.Next(0.1F, 0.2F) * var7);
+            if (Rand.Next(10) == 0) {
+               var6.AddDamage(Rand.Next(2.5F, 7.5F));
+               var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(15.0F, 25.0F));
+            }
+         } else if ("floor".equals(var1.getBedType())) {
+            var1.getStats().setFatigue(var1.getStats().getFatigue() + Rand.Next(0.15F, 0.25F) * var7);
+            if (Rand.Next(5) == 0) {
+               var6.AddDamage(Rand.Next(10.0F, 20.0F));
+               var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(30.0F, 50.0F));
+            }
+         } else if ("floorPillow".equals(var1.getBedType())) {
+            var1.getStats().setFatigue(var1.getStats().getFatigue() + Rand.Next(0.15F, 0.25F) * var7);
+            if (Rand.Next(10) == 0) {
+               var6.AddDamage(Rand.Next(5.0F, 10.0F));
+               var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(15.0F, 25.0F));
+            }
+         } else if ("averageBedPillow".equals(var1.getBedType())) {
+            if (Rand.Next(20) == 0) {
+               var6.AddDamage(Rand.Next(1.5F, 6.0F));
+               var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(5.0F, 15.0F));
+            }
+         } else if (Rand.Next(10) == 0) {
+            var6.AddDamage(Rand.Next(3.0F, 12.0F));
+            var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(10.0F, 30.0F));
+         }
+      } else {
          var1.getStats().setFatigue(var1.getStats().getFatigue() - Rand.Next(0.05F, 0.12F) * var7);
          if (var1.getStats().getFatigue() < 0.0F) {
             var1.getStats().setFatigue(0.0F);
          }
-      } else if ("badBed".equals(var1.getBedType())) {
-         var1.getStats().setFatigue(var1.getStats().getFatigue() + Rand.Next(0.1F, 0.2F) * var7);
-         if (Rand.Next(5) == 0) {
-            var6.AddDamage(Rand.Next(5.0F, 15.0F));
-            var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(30.0F, 50.0F));
-         }
-      } else if ("floor".equals(var1.getBedType())) {
-         var1.getStats().setFatigue(var1.getStats().getFatigue() + Rand.Next(0.15F, 0.25F) * var7);
-         if (Rand.Next(5) == 0) {
-            var6.AddDamage(Rand.Next(10.0F, 20.0F));
-            var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(30.0F, 50.0F));
-         }
-      } else if (Rand.Next(10) == 0) {
-         var6.AddDamage(Rand.Next(3.0F, 12.0F));
-         var6.setAdditionalPain(var6.getAdditionalPain() + Rand.Next(10.0F, 30.0F));
       }
 
       var3.reset();

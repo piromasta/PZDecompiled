@@ -1,7 +1,9 @@
 package zombie.iso;
 
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.popman.ObjectPool;
 
@@ -23,52 +25,73 @@ public final class IsoPuddlesGeometry {
 
    public IsoPuddlesGeometry init(IsoGridSquare var1) {
       this.interiorCalc = false;
-      this.x[0] = IsoUtils.XToScreen((float)(var1.x - var1.z * 3), (float)(var1.y - var1.z * 3), (float)var1.z, var1.z);
-      this.y[0] = IsoUtils.YToScreen((float)(var1.x - var1.z * 3), (float)(var1.y - var1.z * 3), (float)var1.z, var1.z);
-      this.x[1] = IsoUtils.XToScreen((float)(var1.x - var1.z * 3), (float)(var1.y - var1.z * 3 + 1), 0.0F, 0);
-      this.y[1] = IsoUtils.YToScreen((float)(var1.x - var1.z * 3), (float)(var1.y - var1.z * 3 + 1), 0.0F, 0);
-      this.x[2] = IsoUtils.XToScreen((float)(var1.x - var1.z * 3 + 1), (float)(var1.y - var1.z * 3 + 1), 0.0F, 0);
-      this.y[2] = IsoUtils.YToScreen((float)(var1.x - var1.z * 3 + 1), (float)(var1.y - var1.z * 3 + 1), 0.0F, 0);
-      this.x[3] = IsoUtils.XToScreen((float)(var1.x - var1.z * 3 + 1), (float)(var1.y - var1.z * 3), 0.0F, 0);
-      this.y[3] = IsoUtils.YToScreen((float)(var1.x - var1.z * 3 + 1), (float)(var1.y - var1.z * 3), 0.0F, 0);
+      IsoObject var2 = var1.getFloor();
+      boolean var3 = IsoWater.getInstance().getShaderEnable() && var1.getWater() != null && var1.getWater().isbShore();
+      int var4;
+      if (!PerformanceSettings.FBORenderChunk || PerformanceSettings.PuddlesQuality != 2 || var3 || var2 != null && var2.getProperties() != null && var2.getProperties().Is(IsoFlagType.transparentFloor)) {
+         this.x[0] = IsoUtils.XToScreen((float)(var1.x - var1.z * 3), (float)(var1.y - var1.z * 3), (float)var1.z, var1.z);
+         this.y[0] = IsoUtils.YToScreen((float)(var1.x - var1.z * 3), (float)(var1.y - var1.z * 3), (float)var1.z, var1.z);
+         this.x[1] = IsoUtils.XToScreen((float)(var1.x - var1.z * 3), (float)(var1.y + 1 - var1.z * 3), 0.0F, 0);
+         this.y[1] = IsoUtils.YToScreen((float)(var1.x - var1.z * 3), (float)(var1.y + 1 - var1.z * 3), 0.0F, 0);
+         this.x[2] = IsoUtils.XToScreen((float)(var1.x + 1 - var1.z * 3), (float)(var1.y + 1 - var1.z * 3), 0.0F, 0);
+         this.y[2] = IsoUtils.YToScreen((float)(var1.x + 1 - var1.z * 3), (float)(var1.y + 1 - var1.z * 3), 0.0F, 0);
+         this.x[3] = IsoUtils.XToScreen((float)(var1.x + 1 - var1.z * 3), (float)(var1.y - var1.z * 3), 0.0F, 0);
+         this.y[3] = IsoUtils.YToScreen((float)(var1.x + 1 - var1.z * 3), (float)(var1.y - var1.z * 3), 0.0F, 0);
+         int var10002 = this.x[0]--;
+         var10002 = this.x[1]--;
+         var10002 = this.x[2]--;
+         var10002 = this.x[3]--;
+      } else {
+         var4 = 8;
+         int var5 = PZMath.coordmodulo(var1.x, var4);
+         int var6 = PZMath.coordmodulo(var1.y, var4);
+         this.x[0] = IsoUtils.XToScreen((float)(var5 - var1.z * 3), (float)(var6 - var1.z * 3), (float)var1.z, var1.z);
+         this.y[0] = IsoUtils.YToScreen((float)(var5 - var1.z * 3), (float)(var6 - var1.z * 3), (float)var1.z, var1.z);
+         this.x[1] = IsoUtils.XToScreen((float)(var5 - var1.z * 3), (float)(var6 + 1 - var1.z * 3), 0.0F, 0);
+         this.y[1] = IsoUtils.YToScreen((float)(var5 - var1.z * 3), (float)(var6 + 1 - var1.z * 3), 0.0F, 0);
+         this.x[2] = IsoUtils.XToScreen((float)(var5 + 1 - var1.z * 3), (float)(var6 + 1 - var1.z * 3), 0.0F, 0);
+         this.y[2] = IsoUtils.YToScreen((float)(var5 + 1 - var1.z * 3), (float)(var6 + 1 - var1.z * 3), 0.0F, 0);
+         this.x[3] = IsoUtils.XToScreen((float)(var5 + 1 - var1.z * 3), (float)(var6 - var1.z * 3), 0.0F, 0);
+         this.y[3] = IsoUtils.YToScreen((float)(var5 + 1 - var1.z * 3), (float)(var6 - var1.z * 3), 0.0F, 0);
+      }
+
       this.square = var1;
-      int var2;
-      if (!var1.getProperties().Is(IsoFlagType.water) && var1.getProperties().Is(IsoFlagType.exterior)) {
-         for(var2 = 0; var2 < 4; ++var2) {
-            this.pdne[var2] = 0.0F;
-            this.pdnw[var2] = 0.0F;
-            this.pda[var2] = 1.0F;
-            this.pnon[var2] = 0.0F;
+      if (!var1.getProperties().Is(IsoFlagType.water) && var1.getProperties().Is(IsoFlagType.exterior) && !var1.hasSlopedSurface()) {
+         for(var4 = 0; var4 < 4; ++var4) {
+            this.pdne[var4] = 0.0F;
+            this.pdnw[var4] = 0.0F;
+            this.pda[var4] = 1.0F;
+            this.pnon[var4] = 0.0F;
          }
 
          if (Core.getInstance().getPerfPuddles() > 1) {
             return this;
          } else {
-            IsoCell var11 = var1.getCell();
-            IsoGridSquare var3 = var11.getGridSquare(var1.x - 1, var1.y, var1.z);
-            IsoGridSquare var4 = var11.getGridSquare(var1.x - 1, var1.y - 1, var1.z);
-            IsoGridSquare var5 = var11.getGridSquare(var1.x, var1.y - 1, var1.z);
-            IsoGridSquare var6 = var11.getGridSquare(var1.x - 1, var1.y + 1, var1.z);
-            IsoGridSquare var7 = var11.getGridSquare(var1.x, var1.y + 1, var1.z);
-            IsoGridSquare var8 = var11.getGridSquare(var1.x + 1, var1.y + 1, var1.z);
-            IsoGridSquare var9 = var11.getGridSquare(var1.x + 1, var1.y, var1.z);
-            IsoGridSquare var10 = var11.getGridSquare(var1.x + 1, var1.y - 1, var1.z);
-            if (var5 != null && var4 != null && var3 != null && var6 != null && var7 != null && var8 != null && var9 != null && var10 != null) {
-               this.setFlags(0, var3.getPuddlesDir() | var4.getPuddlesDir() | var5.getPuddlesDir());
-               this.setFlags(1, var3.getPuddlesDir() | var6.getPuddlesDir() | var7.getPuddlesDir());
-               this.setFlags(2, var7.getPuddlesDir() | var8.getPuddlesDir() | var9.getPuddlesDir());
-               this.setFlags(3, var9.getPuddlesDir() | var10.getPuddlesDir() | var5.getPuddlesDir());
+            IsoCell var14 = var1.getCell();
+            IsoGridSquare var13 = var14.getGridSquare(var1.x - 1, var1.y, var1.z);
+            IsoGridSquare var15 = var14.getGridSquare(var1.x - 1, var1.y - 1, var1.z);
+            IsoGridSquare var7 = var14.getGridSquare(var1.x, var1.y - 1, var1.z);
+            IsoGridSquare var8 = var14.getGridSquare(var1.x - 1, var1.y + 1, var1.z);
+            IsoGridSquare var9 = var14.getGridSquare(var1.x, var1.y + 1, var1.z);
+            IsoGridSquare var10 = var14.getGridSquare(var1.x + 1, var1.y + 1, var1.z);
+            IsoGridSquare var11 = var14.getGridSquare(var1.x + 1, var1.y, var1.z);
+            IsoGridSquare var12 = var14.getGridSquare(var1.x + 1, var1.y - 1, var1.z);
+            if (var7 != null && var15 != null && var13 != null && var8 != null && var9 != null && var10 != null && var11 != null && var12 != null) {
+               this.setFlags(0, var13.getPuddlesDir() | var15.getPuddlesDir() | var7.getPuddlesDir());
+               this.setFlags(1, var13.getPuddlesDir() | var8.getPuddlesDir() | var9.getPuddlesDir());
+               this.setFlags(2, var9.getPuddlesDir() | var10.getPuddlesDir() | var11.getPuddlesDir());
+               this.setFlags(3, var11.getPuddlesDir() | var12.getPuddlesDir() | var7.getPuddlesDir());
                return this;
             } else {
                return this;
             }
          }
       } else {
-         for(var2 = 0; var2 < 4; ++var2) {
-            this.pdne[var2] = 0.0F;
-            this.pdnw[var2] = 0.0F;
-            this.pda[var2] = 0.0F;
-            this.pnon[var2] = 0.0F;
+         for(var4 = 0; var4 < 4; ++var4) {
+            this.pdne[var4] = 0.0F;
+            this.pdnw[var4] = 0.0F;
+            this.pda[var4] = 0.0F;
+            this.pnon[var4] = 0.0F;
          }
 
          return this;

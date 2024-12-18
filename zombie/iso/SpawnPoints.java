@@ -1,6 +1,7 @@
 package zombie.iso;
 
 import java.util.ArrayList;
+import java.util.Random;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.Lua.LuaManager;
@@ -31,17 +32,17 @@ public final class SpawnPoints {
       this.initSpawnRegions();
    }
 
-   public void initServer2() {
+   public void initServer2(IsoMetaGrid var1) {
       if (!this.parseServerSpawnPoint()) {
-         this.parseSpawnRegions();
+         this.parseSpawnRegions(var1);
          this.initSpawnBuildings();
       }
    }
 
-   public void initSinglePlayer() {
+   public void initSinglePlayer(IsoMetaGrid var1) {
       this.init();
       this.initSpawnRegions();
-      this.parseSpawnRegions();
+      this.parseSpawnRegions(var1);
       this.initSpawnBuildings();
    }
 
@@ -85,61 +86,94 @@ public final class SpawnPoints {
       }
    }
 
-   private void parseSpawnRegions() {
-      KahluaTableIterator var1 = this.SpawnRegions.iterator();
+   private void parseSpawnRegions(IsoMetaGrid var1) {
+      KahluaTableIterator var2 = this.SpawnRegions.iterator();
 
-      while(var1.advance()) {
-         KahluaTable var2 = (KahluaTable)Type.tryCastTo(var1.getValue(), KahluaTable.class);
-         if (var2 != null) {
-            this.parseRegion(var2);
+      while(var2.advance()) {
+         KahluaTable var3 = (KahluaTable)Type.tryCastTo(var2.getValue(), KahluaTable.class);
+         if (var3 != null) {
+            this.parseRegion(var3, var1);
          }
       }
 
    }
 
-   private void parseRegion(KahluaTable var1) {
-      KahluaTable var2 = (KahluaTable)Type.tryCastTo(var1.rawget("points"), KahluaTable.class);
-      if (var2 != null) {
-         KahluaTableIterator var3 = var2.iterator();
+   private void parseRegion(KahluaTable var1, IsoMetaGrid var2) {
+      KahluaTable var3 = (KahluaTable)Type.tryCastTo(var1.rawget("points"), KahluaTable.class);
+      if (var3 != null) {
+         KahluaTableIterator var4 = var3.iterator();
 
-         while(var3.advance()) {
-            KahluaTable var4 = (KahluaTable)Type.tryCastTo(var3.getValue(), KahluaTable.class);
-            if (var4 != null) {
-               this.parseProfession(var4);
+         while(var4.advance()) {
+            KahluaTable var5 = (KahluaTable)Type.tryCastTo(var4.getValue(), KahluaTable.class);
+            if (var5 != null) {
+               this.parseProfession(var5, var2);
             }
          }
       }
 
    }
 
-   private void parseProfession(KahluaTable var1) {
-      KahluaTableIterator var2 = var1.iterator();
+   private void parseProfession(KahluaTable var1, IsoMetaGrid var2) {
+      KahluaTableIterator var3 = var1.iterator();
 
-      while(var2.advance()) {
-         KahluaTable var3 = (KahluaTable)Type.tryCastTo(var2.getValue(), KahluaTable.class);
-         if (var3 != null) {
-            this.parsePoint(var3);
+      while(var3.advance()) {
+         KahluaTable var4 = (KahluaTable)Type.tryCastTo(var3.getValue(), KahluaTable.class);
+         if (var4 != null) {
+            this.parsePoint(var4, var2);
          }
       }
 
    }
 
-   private void parsePoint(KahluaTable var1) {
-      Double var2 = (Double)Type.tryCastTo(var1.rawget("worldX"), Double.class);
-      Double var3 = (Double)Type.tryCastTo(var1.rawget("worldY"), Double.class);
-      Double var4 = (Double)Type.tryCastTo(var1.rawget("posX"), Double.class);
-      Double var5 = (Double)Type.tryCastTo(var1.rawget("posY"), Double.class);
-      Double var6 = (Double)Type.tryCastTo(var1.rawget("posZ"), Double.class);
-      if (var2 != null && var3 != null && var4 != null && var5 != null) {
-         this.m_tempLocation.x = var2.intValue() * 300 + var4.intValue();
-         this.m_tempLocation.y = var3.intValue() * 300 + var5.intValue();
-         this.m_tempLocation.z = var6 == null ? 0 : var6.intValue();
-         if (!this.SpawnPoints.contains(this.m_tempLocation)) {
-            IsoGameCharacter.Location var7 = new IsoGameCharacter.Location(this.m_tempLocation.x, this.m_tempLocation.y, this.m_tempLocation.z);
-            this.SpawnPoints.add(var7);
+   private void parsePoint(KahluaTable var1, IsoMetaGrid var2) {
+      String var3 = (String)Type.tryCastTo(var1.rawget("position"), String.class);
+      if (var3 != null) {
+         switch (var3.toLowerCase()) {
+            case "center":
+               Random var12 = new Random();
+               this.m_tempLocation.x = ((var2.maxX - var2.minX) / 2 + var2.minX) * IsoCell.CellSizeInSquares + var12.nextInt(32);
+               this.m_tempLocation.y = ((var2.maxY - var2.minY) / 2 + var2.minY) * IsoCell.CellSizeInSquares + var12.nextInt(32);
+               this.m_tempLocation.z = 0;
+               break;
+            default:
+               return;
          }
+      } else {
+         Double var4;
+         Double var5;
+         Double var6;
+         if (var1.rawget("worldX") != null) {
+            var4 = (Double)Type.tryCastTo(var1.rawget("worldX"), Double.class);
+            var5 = (Double)Type.tryCastTo(var1.rawget("worldY"), Double.class);
+            var6 = (Double)Type.tryCastTo(var1.rawget("posX"), Double.class);
+            Double var7 = (Double)Type.tryCastTo(var1.rawget("posY"), Double.class);
+            Double var8 = (Double)Type.tryCastTo(var1.rawget("posZ"), Double.class);
+            if (var4 == null || var5 == null || var6 == null || var7 == null) {
+               return;
+            }
 
+            this.m_tempLocation.x = var4.intValue() * 300 + var6.intValue();
+            this.m_tempLocation.y = var5.intValue() * 300 + var7.intValue();
+            this.m_tempLocation.z = var8 == null ? 0 : var8.intValue();
+         } else {
+            var4 = (Double)Type.tryCastTo(var1.rawget("posX"), Double.class);
+            var5 = (Double)Type.tryCastTo(var1.rawget("posY"), Double.class);
+            var6 = (Double)Type.tryCastTo(var1.rawget("posZ"), Double.class);
+            if (var4 == null || var5 == null) {
+               return;
+            }
+
+            this.m_tempLocation.x = var4.intValue();
+            this.m_tempLocation.y = var5.intValue();
+            this.m_tempLocation.z = var6 == null ? 0 : var6.intValue();
+         }
       }
+
+      if (!this.SpawnPoints.contains(this.m_tempLocation)) {
+         IsoGameCharacter.Location var10 = new IsoGameCharacter.Location(this.m_tempLocation.x, this.m_tempLocation.y, this.m_tempLocation.z);
+         this.SpawnPoints.add(var10);
+      }
+
    }
 
    private void initSpawnBuildings() {
@@ -161,5 +195,9 @@ public final class SpawnPoints {
 
    public KahluaTable getSpawnRegions() {
       return this.SpawnRegions;
+   }
+
+   public ArrayList<IsoGameCharacter.Location> getSpawnPoints() {
+      return this.SpawnPoints;
    }
 }

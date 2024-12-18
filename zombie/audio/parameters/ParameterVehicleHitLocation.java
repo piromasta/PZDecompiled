@@ -57,5 +57,9 @@ public class ParameterVehicleHitLocation extends FMODLocalParameter {
       private HitLocation(int var3) {
          this.label = var3;
       }
+
+      public int getValue() {
+         return this.label;
+      }
    }
 }

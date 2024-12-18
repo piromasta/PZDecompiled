@@ -9,11 +9,13 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import zombie.GameWindow;
+import zombie.iso.IsoCell;
 import zombie.util.SharedStrings;
 
 public final class WorldMapBinary {
    private static final int VERSION1 = 1;
-   private static final int VERSION_LATEST = 1;
+   private static final int VERSION2 = 2;
+   private static final int VERSION_LATEST = 2;
    private final SharedStrings m_sharedStrings = new SharedStrings();
    private final TIntObjectHashMap<String> m_stringTable = new TIntObjectHashMap();
    private final WorldMapProperties m_properties = new WorldMapProperties();
@@ -25,34 +27,43 @@ public final class WorldMapBinary {
    public boolean read(String var1, WorldMapData var2) throws Exception {
       FileInputStream var3 = new FileInputStream(var1);
 
-      boolean var19;
+      boolean var20;
       try {
          BufferedInputStream var4 = new BufferedInputStream(var3);
 
          try {
-            label68: {
+            label76: {
                int var5 = var4.read();
                int var6 = var4.read();
                int var7 = var4.read();
                int var8 = var4.read();
                if (var5 == 73 && var6 == 71 && var7 == 77 && var8 == 66) {
                   int var9 = this.readInt(var4);
-                  if (var9 >= 1 && var9 <= 1) {
+                  if (var9 >= 1 && var9 <= 2) {
+                     if (var9 == 1) {
+                        throw new IOException("version 1 (cell size 300) is not supported");
+                     }
+
                      int var10 = this.readInt(var4);
                      int var11 = this.readInt(var4);
+                     int var12 = this.readInt(var4);
+                     if (var10 != IsoCell.CellSizeInSquares) {
+                        throw new IOException("unsupported cell size %d".formatted(var10));
+                     }
+
                      this.readStringTable(var4);
 
-                     for(int var12 = 0; var12 < var11; ++var12) {
-                        for(int var13 = 0; var13 < var10; ++var13) {
-                           WorldMapCell var14 = this.parseCell(var4);
-                           if (var14 != null) {
-                              var2.m_cells.add(var14);
+                     for(int var13 = 0; var13 < var12; ++var13) {
+                        for(int var14 = 0; var14 < var11; ++var14) {
+                           WorldMapCell var15 = this.parseCell(var4);
+                           if (var15 != null) {
+                              var2.m_cells.add(var15);
                            }
                         }
                      }
 
-                     var19 = true;
-                     break label68;
+                     var20 = true;
+                     break label76;
                   }
 
                   throw new IOException("unrecognized version " + var9);
@@ -60,29 +71,29 @@ public final class WorldMapBinary {
 
                throw new IOException("invalid format (magic doesn't match)");
             }
-         } catch (Throwable var17) {
+         } catch (Throwable var18) {
             try {
                var4.close();
-            } catch (Throwable var16) {
-               var17.addSuppressed(var16);
+            } catch (Throwable var17) {
+               var18.addSuppressed(var17);
             }
 
-            throw var17;
+            throw var18;
          }
 
          var4.close();
-      } catch (Throwable var18) {
+      } catch (Throwable var19) {
          try {
             var3.close();
-         } catch (Throwable var15) {
-            var18.addSuppressed(var15);
+         } catch (Throwable var16) {
+            var19.addSuppressed(var16);
          }
 
-         throw var18;
+         throw var19;
       }
 
       var3.close();
-      return var19;
+      return var20;
    }
 
    private int readByte(InputStream var1) throws IOException {

@@ -76,7 +76,7 @@ public class ZipBackup {
       String var10000 = ZomboidFileSystem.instance.getCacheDir();
       String var2 = var10000 + File.separator + "backups" + File.separator + var1.name();
       long var3 = System.currentTimeMillis();
-      DebugLog.log("Start making backup to: " + var2);
+      DebugLog.DetailedInfo.trace("Start making backup to: " + var2);
       scatterZipCreator = new ParallelScatterZipCreator();
       CoopSlave.status("UI_ServerStatus_CreateBackup");
       FileOutputStream var5 = null;
@@ -181,7 +181,7 @@ public class ZipBackup {
       }
 
       String var10000 = var1.format(var2);
-      return "Backup time: " + var10000 + "\nServerName: " + var0 + "\nCurrent server version:" + Core.getInstance().getGameVersion() + "\nCurrent world version:195\nWorld version in this backup is:" + var4;
+      return "Backup time: " + var10000 + "\nServerName: " + var0 + "\nCurrent server version:" + Core.getInstance().getGameVersion() + "\nCurrent world version:219\nWorld version in this backup is:" + var4;
    }
 
    private static int getWorldVersion(String var0) {

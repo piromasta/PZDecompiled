@@ -12,8 +12,6 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -23,13 +21,10 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.zip.CRC32;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import zombie.characters.NetworkCharacter;
 import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.ThreadGroups;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
@@ -37,6 +32,9 @@ import zombie.core.raknet.RakNetPeerInterface;
 import zombie.core.raknet.RakVoice;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.raknet.VoiceManager;
+import zombie.core.random.Rand;
+import zombie.core.random.RandLua;
+import zombie.core.random.RandStandard;
 import zombie.core.secure.PZcrypt;
 import zombie.core.utils.UpdateLimit;
 import zombie.core.znet.ZNet;
@@ -45,9 +43,9 @@ import zombie.debug.DebugType;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoUtils;
 import zombie.iso.Vector2;
-import zombie.network.packets.PlayerPacket;
 import zombie.network.packets.SyncInjuriesPacket;
-import zombie.network.packets.ZombiePacket;
+import zombie.network.packets.character.PlayerPacket;
+import zombie.network.packets.character.ZombiePacket;
 
 public class FakeClientManager {
    private static final int SERVER_PORT = 16261;
@@ -82,236 +80,7 @@ public class FakeClientManager {
 
    private static HashMap<Integer, Movement> load(String var0) {
       HashMap var1 = new HashMap();
-
-      try {
-         String var2 = new String(Files.readAllBytes(Paths.get(var0)));
-         JSONObject var3 = new JSONObject(var2);
-         FakeClientManager.Movement.version = var3.getString("version");
-         JSONObject var4 = var3.getJSONObject("config");
-         JSONObject var5 = var4.getJSONObject("client");
-         JSONObject var6 = var5.getJSONObject("connection");
-         if (var6.has("serverHost")) {
-            FakeClientManager.Client.connectionServerHost = var6.getString("serverHost");
-         }
-
-         FakeClientManager.Client.connectionInterval = var6.getLong("interval");
-         FakeClientManager.Client.connectionTimeout = var6.getLong("timeout");
-         FakeClientManager.Client.connectionDelay = var6.getLong("delay");
-         JSONObject var7 = var5.getJSONObject("statistics");
-         FakeClientManager.Client.statisticsPeriod = var7.getInt("period");
-         FakeClientManager.Client.statisticsClientID = Math.max(var7.getInt("id"), -1);
-         JSONObject var8;
-         if (var5.has("checksum")) {
-            var8 = var5.getJSONObject("checksum");
-            FakeClientManager.Client.luaChecksum = var8.getString("lua");
-            FakeClientManager.Client.scriptChecksum = var8.getString("script");
-         }
-
-         int var42;
-         if (var4.has("zombies")) {
-            var6 = var4.getJSONObject("zombies");
-            ZombieSimulator.Behaviour var41 = FakeClientManager.ZombieSimulator.Behaviour.Normal;
-            if (var6.has("behaviour")) {
-               var41 = FakeClientManager.ZombieSimulator.Behaviour.valueOf(var6.getString("behaviour"));
-            }
-
-            FakeClientManager.ZombieSimulator.behaviour = var41;
-            if (var6.has("maxZombiesPerUpdate")) {
-               FakeClientManager.ZombieSimulator.maxZombiesPerUpdate = var6.getInt("maxZombiesPerUpdate");
-            }
-
-            if (var6.has("deleteZombieDistance")) {
-               var42 = var6.getInt("deleteZombieDistance");
-               FakeClientManager.ZombieSimulator.deleteZombieDistanceSquared = var42 * var42;
-            }
-
-            if (var6.has("forgotZombieDistance")) {
-               var42 = var6.getInt("forgotZombieDistance");
-               FakeClientManager.ZombieSimulator.forgotZombieDistanceSquared = var42 * var42;
-            }
-
-            if (var6.has("canSeeZombieDistance")) {
-               var42 = var6.getInt("canSeeZombieDistance");
-               FakeClientManager.ZombieSimulator.canSeeZombieDistanceSquared = var42 * var42;
-            }
-
-            if (var6.has("seeZombieDistance")) {
-               var42 = var6.getInt("seeZombieDistance");
-               FakeClientManager.ZombieSimulator.seeZombieDistanceSquared = var42 * var42;
-            }
-
-            if (var6.has("canChangeTarget")) {
-               FakeClientManager.ZombieSimulator.canChangeTarget = var6.getBoolean("canChangeTarget");
-            }
-         }
-
-         var6 = var4.getJSONObject("player");
-         FakeClientManager.Player.fps = var6.getInt("fps");
-         FakeClientManager.Player.predictInterval = var6.getInt("predict");
-         if (var6.has("damage")) {
-            FakeClientManager.Player.damage = (float)var6.getDouble("damage");
-         }
-
-         if (var6.has("voip")) {
-            FakeClientManager.Player.isVOIPEnabled = var6.getBoolean("voip");
-         }
-
-         var7 = var4.getJSONObject("movement");
-         FakeClientManager.Movement.defaultRadius = var7.getInt("radius");
-         var8 = var7.getJSONObject("motion");
-         FakeClientManager.Movement.aimSpeed = var8.getInt("aim");
-         FakeClientManager.Movement.sneakSpeed = var8.getInt("sneak");
-         FakeClientManager.Movement.sneakRunSpeed = var8.getInt("sneakrun");
-         FakeClientManager.Movement.walkSpeed = var8.getInt("walk");
-         FakeClientManager.Movement.runSpeed = var8.getInt("run");
-         FakeClientManager.Movement.sprintSpeed = var8.getInt("sprint");
-         JSONObject var9 = var8.getJSONObject("pedestrian");
-         FakeClientManager.Movement.pedestrianSpeedMin = var9.getInt("min");
-         FakeClientManager.Movement.pedestrianSpeedMax = var9.getInt("max");
-         JSONObject var10 = var8.getJSONObject("vehicle");
-         FakeClientManager.Movement.vehicleSpeedMin = var10.getInt("min");
-         FakeClientManager.Movement.vehicleSpeedMax = var10.getInt("max");
-         JSONArray var39 = var3.getJSONArray("movements");
-
-         for(int var40 = 0; var40 < var39.length(); ++var40) {
-            var7 = var39.getJSONObject(var40);
-            var42 = var7.getInt("id");
-            String var43 = null;
-            if (var7.has("description")) {
-               var43 = var7.getString("description");
-            }
-
-            int var44 = (int)Math.round(Math.random() * 6000.0 + 6000.0);
-            int var11 = (int)Math.round(Math.random() * 6000.0 + 6000.0);
-            if (var7.has("spawn")) {
-               JSONObject var12 = var7.getJSONObject("spawn");
-               var44 = var12.getInt("x");
-               var11 = var12.getInt("y");
-            }
-
-            Movement.Motion var45 = Math.random() > 0.800000011920929 ? FakeClientManager.Movement.Motion.Vehicle : FakeClientManager.Movement.Motion.Pedestrian;
-            if (var7.has("motion")) {
-               var45 = FakeClientManager.Movement.Motion.valueOf(var7.getString("motion"));
-            }
-
-            int var13 = 0;
-            if (var7.has("speed")) {
-               var13 = var7.getInt("speed");
-            } else {
-               switch (var45) {
-                  case Aim:
-                     var13 = FakeClientManager.Movement.aimSpeed;
-                     break;
-                  case Sneak:
-                     var13 = FakeClientManager.Movement.sneakSpeed;
-                     break;
-                  case SneakRun:
-                     var13 = FakeClientManager.Movement.sneakRunSpeed;
-                     break;
-                  case Run:
-                     var13 = FakeClientManager.Movement.runSpeed;
-                     break;
-                  case Sprint:
-                     var13 = FakeClientManager.Movement.sprintSpeed;
-                     break;
-                  case Walk:
-                     var13 = FakeClientManager.Movement.walkSpeed;
-                     break;
-                  case Pedestrian:
-                     var13 = (int)Math.round(Math.random() * (double)(FakeClientManager.Movement.pedestrianSpeedMax - FakeClientManager.Movement.pedestrianSpeedMin) + (double)FakeClientManager.Movement.pedestrianSpeedMin);
-                     break;
-                  case Vehicle:
-                     var13 = (int)Math.round(Math.random() * (double)(FakeClientManager.Movement.vehicleSpeedMax - FakeClientManager.Movement.vehicleSpeedMin) + (double)FakeClientManager.Movement.vehicleSpeedMin);
-               }
-            }
-
-            Movement.Type var14 = FakeClientManager.Movement.Type.Line;
-            if (var7.has("type")) {
-               var14 = FakeClientManager.Movement.Type.valueOf(var7.getString("type"));
-            }
-
-            int var15 = FakeClientManager.Movement.defaultRadius;
-            if (var7.has("radius")) {
-               var15 = var7.getInt("radius");
-            }
-
-            IsoDirections var16 = IsoDirections.fromIndex((int)Math.round(Math.random() * 7.0));
-            if (var7.has("direction")) {
-               var16 = IsoDirections.valueOf(var7.getString("direction"));
-            }
-
-            boolean var17 = false;
-            if (var7.has("ghost")) {
-               var17 = var7.getBoolean("ghost");
-            }
-
-            long var18 = (long)var42 * FakeClientManager.Client.connectionInterval;
-            if (var7.has("connect")) {
-               var18 = var7.getLong("connect");
-            }
-
-            long var20 = 0L;
-            if (var7.has("disconnect")) {
-               var20 = var7.getLong("disconnect");
-            }
-
-            long var22 = 0L;
-            if (var7.has("reconnect")) {
-               var22 = var7.getLong("reconnect");
-            }
-
-            long var24 = 0L;
-            if (var7.has("teleport")) {
-               var24 = var7.getLong("teleport");
-            }
-
-            int var26 = (int)Math.round(Math.random() * 6000.0 + 6000.0);
-            int var27 = (int)Math.round(Math.random() * 6000.0 + 6000.0);
-            if (var7.has("destination")) {
-               JSONObject var28 = var7.getJSONObject("destination");
-               var26 = var28.getInt("x");
-               var27 = var28.getInt("y");
-            }
-
-            HordeCreator var46 = null;
-            int var31;
-            if (var7.has("createHorde")) {
-               JSONObject var29 = var7.getJSONObject("createHorde");
-               int var30 = var29.getInt("count");
-               var31 = var29.getInt("radius");
-               long var32 = var29.getLong("interval");
-               if (var32 != 0L) {
-                  var46 = new HordeCreator(var31, var30, var32);
-               }
-            }
-
-            SoundMaker var47 = null;
-            if (var7.has("makeSound")) {
-               JSONObject var48 = var7.getJSONObject("makeSound");
-               var31 = var48.getInt("interval");
-               int var50 = var48.getInt("radius");
-               String var33 = var48.getString("message");
-               if (var31 != 0) {
-                  var47 = new SoundMaker(var31, var50, var33);
-               }
-            }
-
-            Movement var49 = new Movement(var42, var43, var44, var11, var45, var13, var14, var15, var26, var27, var16, var17, var18, var20, var22, var24, var46, var47);
-            if (var1.containsKey(var42)) {
-               error(var42, String.format("Client %d already exists", var49.id));
-            } else {
-               var1.put(var42, var49);
-            }
-         }
-
-         return var1;
-      } catch (Exception var37) {
-         error(-1, "Scenarios file load failed");
-         var37.printStackTrace();
-         return var1;
-      } finally {
-         ;
-      }
+      return var1;
    }
 
    private static void error(int var0, String var1) {
@@ -368,7 +137,8 @@ public class FakeClientManager {
          System.exit(0);
       }
 
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       System.loadLibrary("RakNet64");
       System.loadLibrary("ZNetNoSteam64");
 
@@ -513,1407 +283,6 @@ public class FakeClientManager {
             var1.limit(var4);
             this.byteBuffer.flip();
             return this.decode(var2);
-         }
-      }
-   }
-
-   private static class Movement {
-      static String version;
-      static int defaultRadius = 150;
-      static int aimSpeed = 4;
-      static int sneakSpeed = 6;
-      static int walkSpeed = 7;
-      static int sneakRunSpeed = 10;
-      static int runSpeed = 13;
-      static int sprintSpeed = 19;
-      static int pedestrianSpeedMin = 5;
-      static int pedestrianSpeedMax = 20;
-      static int vehicleSpeedMin = 40;
-      static int vehicleSpeedMax = 80;
-      static final float zombieLungeDistanceSquared = 100.0F;
-      static final float zombieWalkSpeed = 3.0F;
-      static final float zombieLungeSpeed = 6.0F;
-      final int id;
-      final String description;
-      final Vector2 spawn;
-      Motion motion;
-      float speed;
-      final Type type;
-      final int radius;
-      final IsoDirections direction;
-      final Vector2 destination;
-      final boolean ghost;
-      final long connectDelay;
-      final long disconnectDelay;
-      final long reconnectDelay;
-      final long teleportDelay;
-      final HordeCreator hordeCreator;
-      SoundMaker soundMaker;
-      long timestamp;
-
-      public Movement(int var1, String var2, int var3, int var4, Motion var5, int var6, Type var7, int var8, int var9, int var10, IsoDirections var11, boolean var12, long var13, long var15, long var17, long var19, HordeCreator var21, SoundMaker var22) {
-         this.id = var1;
-         this.description = var2;
-         this.spawn = new Vector2((float)var3, (float)var4);
-         this.motion = var5;
-         this.speed = (float)var6;
-         this.type = var7;
-         this.radius = var8;
-         this.direction = var11;
-         this.destination = new Vector2((float)var9, (float)var10);
-         this.ghost = var12;
-         this.connectDelay = var13;
-         this.disconnectDelay = var15;
-         this.reconnectDelay = var17;
-         this.teleportDelay = var19;
-         this.hordeCreator = var21;
-         this.soundMaker = var22;
-      }
-
-      public void connect(int var1) {
-         long var2 = System.currentTimeMillis();
-         if (this.disconnectDelay != 0L) {
-            FakeClientManager.info(this.id, String.format("Player %3d connect in %.3fs, disconnect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F, (float)this.disconnectDelay / 1000.0F));
-         } else {
-            FakeClientManager.info(this.id, String.format("Player %3d connect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F));
-         }
-
-         this.timestamp = var2;
-      }
-
-      public void disconnect(int var1) {
-         long var2 = System.currentTimeMillis();
-         if (this.reconnectDelay != 0L) {
-            FakeClientManager.info(this.id, String.format("Player %3d disconnect in %.3fs, reconnect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F, (float)this.reconnectDelay / 1000.0F));
-         } else {
-            FakeClientManager.info(this.id, String.format("Player %3d disconnect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F));
-         }
-
-         this.timestamp = var2;
-      }
-
-      public boolean doTeleport() {
-         return this.teleportDelay != 0L;
-      }
-
-      public boolean doDisconnect() {
-         return this.disconnectDelay != 0L;
-      }
-
-      public boolean checkDisconnect() {
-         return System.currentTimeMillis() - this.timestamp > this.disconnectDelay;
-      }
-
-      public boolean doReconnect() {
-         return this.reconnectDelay != 0L;
-      }
-
-      public boolean checkReconnect() {
-         return System.currentTimeMillis() - this.timestamp > this.reconnectDelay;
-      }
-
-      private static enum Motion {
-         Aim,
-         Sneak,
-         Walk,
-         SneakRun,
-         Run,
-         Sprint,
-         Pedestrian,
-         Vehicle;
-
-         private Motion() {
-         }
-      }
-
-      private static enum Type {
-         Stay,
-         Line,
-         Circle,
-         AIAttackZombies,
-         AIRunAwayFromZombies,
-         AIRunToAnotherPlayers,
-         AINormal;
-
-         private Type() {
-         }
-      }
-   }
-
-   private static class Client {
-      private static String connectionServerHost = "127.0.0.1";
-      private static long connectionInterval = 1500L;
-      private static long connectionTimeout = 10000L;
-      private static long connectionDelay = 15000L;
-      private static int statisticsClientID = -1;
-      private static int statisticsPeriod = 1;
-      private static long serverTimeShift = 0L;
-      private static boolean serverTimeShiftIsSet = false;
-      private final HashMap<Integer, Request> requests = new HashMap();
-      private final Player player;
-      private final Network network;
-      private final int connectionIndex;
-      private final int port;
-      private long connectionGUID = -1L;
-      private int requestId = 0;
-      private long stateTime;
-      private State state;
-      private String host;
-      public static String luaChecksum = "";
-      public static String scriptChecksum = "";
-
-      private Client(Player var1, Network var2, int var3, int var4) {
-         this.connectionIndex = var3;
-         this.network = var2;
-         this.player = var1;
-         this.port = var4;
-
-         try {
-            this.host = InetAddress.getByName(connectionServerHost).getHostAddress();
-            this.state = FakeClientManager.Client.State.CONNECT;
-            Thread var5 = new Thread(ThreadGroups.Workers, this::updateThread, this.player.username);
-            var5.setDaemon(true);
-            var5.start();
-         } catch (UnknownHostException var6) {
-            this.state = FakeClientManager.Client.State.QUIT;
-            var6.printStackTrace();
-         }
-
-      }
-
-      private void updateThread() {
-         FakeClientManager.info(this.player.movement.id, String.format("Start client (%d) %s:%d => %s:%d / \"%s\"", this.connectionIndex, "0.0.0.0", this.port, this.host, 16261, this.player.movement.description));
-         FakeClientManager.sleep(this.player.movement.connectDelay);
-         switch (this.player.movement.type) {
-            case Circle:
-               this.player.circleMovement();
-               break;
-            case Line:
-               this.player.lineMovement();
-               break;
-            case AIAttackZombies:
-               this.player.aiAttackZombiesMovement();
-               break;
-            case AIRunAwayFromZombies:
-               this.player.aiRunAwayFromZombiesMovement();
-               break;
-            case AIRunToAnotherPlayers:
-               this.player.aiRunToAnotherPlayersMovement();
-               break;
-            case AINormal:
-               this.player.aiNormalMovement();
-         }
-
-         while(this.state != FakeClientManager.Client.State.QUIT) {
-            this.update();
-            FakeClientManager.sleep(1L);
-         }
-
-         FakeClientManager.info(this.player.movement.id, String.format("Stop client (%d) %s:%d => %s:%d / \"%s\"", this.connectionIndex, "0.0.0.0", this.port, this.host, 16261, this.player.movement.description));
-      }
-
-      private void updateTime() {
-         this.stateTime = System.currentTimeMillis();
-      }
-
-      private long getServerTime() {
-         return serverTimeShiftIsSet ? System.nanoTime() + serverTimeShift : 0L;
-      }
-
-      private boolean checkConnectionTimeout() {
-         return System.currentTimeMillis() - this.stateTime > connectionTimeout;
-      }
-
-      private boolean checkConnectionDelay() {
-         return System.currentTimeMillis() - this.stateTime > connectionDelay;
-      }
-
-      private void changeState(State var1) {
-         this.updateTime();
-         FakeClientManager.log(this.player.movement.id, String.format("%s >> %s", this.state, var1));
-         if (FakeClientManager.Client.State.RUN.equals(var1)) {
-            this.player.movement.connect(this.player.OnlineID);
-            if (this.player.teleportLimiter == null) {
-               this.player.teleportLimiter = new UpdateLimit(this.player.movement.teleportDelay);
-            }
-
-            if (this.player.movement.id == statisticsClientID) {
-               this.sendTimeSync();
-               this.sendInjuries();
-               this.sendStatisticsEnable(statisticsPeriod);
-            }
-         } else if (FakeClientManager.Client.State.DISCONNECT.equals(var1) && !FakeClientManager.Client.State.DISCONNECT.equals(this.state)) {
-            this.player.movement.disconnect(this.player.OnlineID);
-         }
-
-         this.state = var1;
-      }
-
-      private void update() {
-         switch (this.state) {
-            case CONNECT:
-               this.player.movement.timestamp = System.currentTimeMillis();
-               this.network.connect(this.player.movement.id, this.host);
-               this.changeState(FakeClientManager.Client.State.WAIT);
-               break;
-            case LOGIN:
-               this.sendPlayerLogin();
-               this.changeState(FakeClientManager.Client.State.WAIT);
-               break;
-            case PLAYER_CONNECT:
-               this.sendPlayerConnect();
-               this.changeState(FakeClientManager.Client.State.WAIT);
-               break;
-            case CHECKSUM:
-               this.sendChecksum();
-               this.changeState(FakeClientManager.Client.State.WAIT);
-               break;
-            case PLAYER_EXTRA_INFO:
-               this.sendPlayerExtraInfo(this.player.movement.ghost, this.player.movement.hordeCreator != null || FakeClientManager.Player.isVOIPEnabled);
-               this.sendEquip();
-               this.changeState(FakeClientManager.Client.State.WAIT);
-               break;
-            case LOAD:
-               this.requestId = 0;
-               this.requests.clear();
-               this.requestFullUpdate();
-               this.requestLargeAreaZip();
-               this.changeState(FakeClientManager.Client.State.WAIT);
-               break;
-            case RUN:
-               if (this.player.movement.doDisconnect() && this.player.movement.checkDisconnect()) {
-                  this.changeState(FakeClientManager.Client.State.DISCONNECT);
-               } else {
-                  this.player.run();
-               }
-               break;
-            case WAIT:
-               if (this.checkConnectionTimeout()) {
-                  this.changeState(FakeClientManager.Client.State.DISCONNECT);
-               }
-               break;
-            case DISCONNECT:
-               if (this.network.isConnected()) {
-                  this.player.movement.timestamp = System.currentTimeMillis();
-                  this.network.disconnect(this.connectionGUID, this.player.movement.id, this.host);
-               }
-
-               if (this.player.movement.doReconnect() && this.player.movement.checkReconnect() || !this.player.movement.doReconnect() && this.checkConnectionDelay()) {
-                  this.changeState(FakeClientManager.Client.State.CONNECT);
-               }
-            case QUIT:
-         }
-
-      }
-
-      private void receive(short var1, ByteBuffer var2) {
-         PacketTypes.PacketType var3 = (PacketTypes.PacketType)PacketTypes.packetTypes.get(var1);
-         FakeClientManager.Network.logUserPacket(this.player.movement.id, var1);
-         switch (var3) {
-            case PlayerConnect:
-               if (this.receivePlayerConnect(var2)) {
-                  if (luaChecksum.isEmpty()) {
-                     this.changeState(FakeClientManager.Client.State.PLAYER_EXTRA_INFO);
-                  } else {
-                     this.changeState(FakeClientManager.Client.State.CHECKSUM);
-                  }
-               }
-               break;
-            case ExtraInfo:
-               if (this.receivePlayerExtraInfo(var2)) {
-                  this.changeState(FakeClientManager.Client.State.RUN);
-               }
-               break;
-            case SentChunk:
-               if (this.state == FakeClientManager.Client.State.WAIT && this.receiveChunkPart(var2)) {
-                  this.updateTime();
-                  if (this.allChunkPartsReceived()) {
-                     this.changeState(FakeClientManager.Client.State.PLAYER_CONNECT);
-                  }
-               }
-               break;
-            case NotRequiredInZip:
-               if (this.state == FakeClientManager.Client.State.WAIT && this.receiveNotRequired(var2)) {
-                  this.updateTime();
-                  if (this.allChunkPartsReceived()) {
-                     this.changeState(FakeClientManager.Client.State.PLAYER_CONNECT);
-                  }
-               }
-            case HitCharacter:
-            default:
-               break;
-            case StatisticRequest:
-               this.receiveStatistics(var2);
-               break;
-            case TimeSync:
-               this.receiveTimeSync(var2);
-               break;
-            case SyncClock:
-               this.receiveSyncClock(var2);
-               break;
-            case ZombieSimulation:
-            case ZombieSimulationReliable:
-               this.receiveZombieSimulation(var2);
-               break;
-            case PlayerUpdate:
-            case PlayerUpdateReliable:
-               this.player.playerManager.parsePlayer(var2);
-               break;
-            case PlayerTimeout:
-               this.player.playerManager.parsePlayerTimeout(var2);
-               break;
-            case Kicked:
-               this.receiveKicked(var2);
-               break;
-            case Checksum:
-               this.receiveChecksum(var2);
-               break;
-            case KillZombie:
-               this.receiveKillZombie(var2);
-               break;
-            case Teleport:
-               this.receiveTeleport(var2);
-         }
-
-         var2.clear();
-      }
-
-      private void doPacket(short var1, ByteBuffer var2) {
-         var2.put((byte)-122);
-         var2.putShort(var1);
-      }
-
-      private void putUTF(ByteBuffer var1, String var2) {
-         if (var2 == null) {
-            var1.putShort((short)0);
-         } else {
-            byte[] var3 = var2.getBytes();
-            var1.putShort((short)var3.length);
-            var1.put(var3);
-         }
-
-      }
-
-      private void putBoolean(ByteBuffer var1, boolean var2) {
-         var1.put((byte)(var2 ? 1 : 0));
-      }
-
-      private void sendPlayerLogin() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.Login.getId(), var1);
-         this.putUTF(var1, this.player.username);
-         this.putUTF(var1, this.player.username);
-         this.putUTF(var1, FakeClientManager.versionNumber);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendPlayerConnect() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.PlayerConnect.getId(), var1);
-         this.writePlayerConnectData(var1);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void writePlayerConnectData(ByteBuffer var1) {
-         var1.put((byte)0);
-         var1.put((byte)13);
-         var1.putFloat(this.player.x);
-         var1.putFloat(this.player.y);
-         var1.putFloat(this.player.z);
-         var1.putInt(0);
-         this.putUTF(var1, this.player.username);
-         this.putUTF(var1, this.player.username);
-         this.putUTF(var1, this.player.isFemale == 0 ? "Kate" : "Male");
-         var1.putInt(this.player.isFemale);
-         this.putUTF(var1, "fireofficer");
-         var1.putInt(0);
-         var1.putInt(4);
-         this.putUTF(var1, "Sprinting");
-         var1.putInt(1);
-         this.putUTF(var1, "Fitness");
-         var1.putInt(6);
-         this.putUTF(var1, "Strength");
-         var1.putInt(6);
-         this.putUTF(var1, "Axe");
-         var1.putInt(1);
-         var1.put((byte)0);
-         var1.put((byte)0);
-         var1.put((byte)((int)Math.round(Math.random() * 5.0)));
-         var1.put((byte)0);
-         var1.put((byte)0);
-         var1.put((byte)0);
-         var1.put((byte)0);
-         int var2 = this.player.clothes.size();
-         var1.put((byte)var2);
-         Iterator var3 = this.player.clothes.iterator();
-
-         while(var3.hasNext()) {
-            Player.Clothes var4 = (Player.Clothes)var3.next();
-            var1.put(var4.flags);
-            this.putUTF(var1, "Base." + var4.name);
-            this.putUTF(var1, (String)null);
-            this.putUTF(var1, var4.name);
-            var1.put((byte)-1);
-            var1.put((byte)-1);
-            var1.put((byte)-1);
-            var1.put(var4.text);
-            var1.putFloat(0.0F);
-            var1.put((byte)0);
-            var1.put((byte)0);
-            var1.put((byte)0);
-            var1.put((byte)0);
-            var1.put((byte)0);
-            var1.put((byte)0);
-         }
-
-         this.putUTF(var1, "fake_str");
-         var1.putShort((short)0);
-         var1.putInt(2);
-         this.putUTF(var1, "Fit");
-         this.putUTF(var1, "Stout");
-         var1.putFloat(0.0F);
-         var1.putInt(0);
-         var1.putInt(0);
-         var1.putInt(4);
-         this.putUTF(var1, "Sprinting");
-         var1.putFloat(75.0F);
-         this.putUTF(var1, "Fitness");
-         var1.putFloat(67500.0F);
-         this.putUTF(var1, "Strength");
-         var1.putFloat(67500.0F);
-         this.putUTF(var1, "Axe");
-         var1.putFloat(75.0F);
-         var1.putInt(4);
-         this.putUTF(var1, "Sprinting");
-         var1.putInt(1);
-         this.putUTF(var1, "Fitness");
-         var1.putInt(6);
-         this.putUTF(var1, "Strength");
-         var1.putInt(6);
-         this.putUTF(var1, "Axe");
-         var1.putInt(1);
-         var1.putInt(0);
-         this.putBoolean(var1, true);
-         this.putUTF(var1, "fake");
-         var1.putFloat(this.player.tagColor.r);
-         var1.putFloat(this.player.tagColor.g);
-         var1.putFloat(this.player.tagColor.b);
-         var1.putInt(0);
-         var1.putDouble(0.0);
-         var1.putInt(0);
-         this.putUTF(var1, this.player.username);
-         var1.putFloat(this.player.speakColor.r);
-         var1.putFloat(this.player.speakColor.g);
-         var1.putFloat(this.player.speakColor.b);
-         this.putBoolean(var1, true);
-         this.putBoolean(var1, false);
-         var1.put((byte)0);
-         var1.put((byte)0);
-         var1.putInt(0);
-         var1.putInt(0);
-      }
-
-      private void sendPlayerExtraInfo(boolean var1, boolean var2) {
-         ByteBuffer var3 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.ExtraInfo.getId(), var3);
-         var3.putShort(this.player.OnlineID);
-         var3.put((byte)0);
-         var3.put((byte)(var1 ? 1 : 0));
-         var3.put((byte)0);
-         var3.put((byte)0);
-         var3.put((byte)0);
-         var3.put((byte)(FakeClientManager.Player.isVOIPEnabled ? 1 : 0));
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendSyncRadioData() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.SyncRadioData.getId(), var1);
-         var1.put((byte)(FakeClientManager.Player.isVOIPEnabled ? 1 : 0));
-         var1.putInt(4);
-         var1.putInt(0);
-         var1.putInt((int)RakVoice.GetMaxDistance());
-         var1.putInt((int)this.player.x);
-         var1.putInt((int)this.player.y);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendEquip() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.Equip.getId(), var1);
-         var1.put((byte)0);
-         var1.put((byte)0);
-         var1.put((byte)1);
-         var1.putInt(16);
-         var1.putShort(this.player.registry_id);
-         var1.put((byte)1);
-         var1.putInt(this.player.weapon_id);
-         var1.put((byte)0);
-         var1.putInt(0);
-         var1.putInt(0);
-         var1.put((byte)0);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendChatMessage(String var1) {
-         ByteBuffer var2 = this.network.startPacket();
-         var2.putShort(this.player.OnlineID);
-         var2.putInt(2);
-         this.putUTF(var2, this.player.username);
-         this.putUTF(var2, var1);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private int getBooleanVariables() {
-         int var1 = 0;
-         if (this.player.movement.speed > 0.0F) {
-            switch (this.player.movement.motion) {
-               case Aim:
-                  var1 |= 64;
-                  break;
-               case Sneak:
-                  var1 |= 1;
-                  break;
-               case SneakRun:
-                  var1 |= 17;
-                  break;
-               case Run:
-                  var1 |= 16;
-                  break;
-               case Sprint:
-                  var1 |= 32;
-            }
-
-            var1 |= 17408;
-         }
-
-         return var1;
-      }
-
-      private void sendPlayer(NetworkCharacter.Transform var1, int var2, Vector2 var3) {
-         PlayerPacket var4 = new PlayerPacket();
-         var4.id = this.player.OnlineID;
-         var4.x = var1.position.x;
-         var4.y = var1.position.y;
-         var4.z = (byte)((int)this.player.z);
-         var4.direction = var3.getDirection();
-         var4.usePathFinder = false;
-         var4.moveType = NetworkVariables.PredictionTypes.None;
-         var4.VehicleID = -1;
-         var4.VehicleSeat = -1;
-         var4.booleanVariables = this.getBooleanVariables();
-         var4.footstepSoundRadius = 0;
-         var4.bleedingLevel = 0;
-         var4.realx = this.player.x;
-         var4.realy = this.player.y;
-         var4.realz = (byte)((int)this.player.z);
-         var4.realdir = (byte)IsoDirections.fromAngleActual(this.player.direction).index();
-         var4.realt = var2;
-         var4.collidePointX = -1.0F;
-         var4.collidePointY = -1.0F;
-         ByteBuffer var5 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.PlayerUpdateReliable.getId(), var5);
-         ByteBufferWriter var6 = new ByteBufferWriter(var5);
-         var4.write(var6);
-         this.network.endPacket(this.connectionGUID);
-      }
-
-      private boolean receivePlayerConnect(ByteBuffer var1) {
-         short var2 = var1.getShort();
-         if (var2 == -1) {
-            byte var3 = var1.get();
-            var2 = var1.getShort();
-            this.player.OnlineID = var2;
-            return true;
-         } else {
-            return false;
-         }
-      }
-
-      private boolean receivePlayerExtraInfo(ByteBuffer var1) {
-         short var2 = var1.getShort();
-         return var2 == this.player.OnlineID;
-      }
-
-      private boolean receiveChunkPart(ByteBuffer var1) {
-         boolean var2 = false;
-         int var3 = var1.getInt();
-         int var4 = var1.getInt();
-         int var5 = var1.getInt();
-         int var6 = var1.getInt();
-         int var7 = var1.getInt();
-         int var8 = var1.getInt();
-         if (this.requests.remove(var3) != null) {
-            var2 = true;
-         }
-
-         return var2;
-      }
-
-      private boolean receiveNotRequired(ByteBuffer var1) {
-         boolean var2 = false;
-         int var3 = var1.getInt();
-
-         for(int var4 = 0; var4 < var3; ++var4) {
-            int var5 = var1.getInt();
-            boolean var6 = var1.get() == 1;
-            if (this.requests.remove(var5) != null) {
-               var2 = true;
-            }
-         }
-
-         return var2;
-      }
-
-      private boolean allChunkPartsReceived() {
-         return this.requests.size() == 0;
-      }
-
-      private void addChunkRequest(int var1, int var2, int var3, int var4) {
-         Request var5 = new Request(var1, var2, this.requestId);
-         ++this.requestId;
-         this.requests.put(var5.id, var5);
-      }
-
-      private void requestZipList() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.RequestZipList.getId(), var1);
-         var1.putInt(this.requests.size());
-         Iterator var2 = this.requests.values().iterator();
-
-         while(var2.hasNext()) {
-            Request var3 = (Request)var2.next();
-            var1.putInt(var3.id);
-            var1.putInt(var3.wx);
-            var1.putInt(var3.wy);
-            var1.putLong(var3.crc);
-         }
-
-         this.network.endPacket(this.connectionGUID);
-      }
-
-      private void requestLargeAreaZip() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.RequestLargeAreaZip.getId(), var1);
-         var1.putInt(this.player.WorldX);
-         var1.putInt(this.player.WorldY);
-         var1.putInt(13);
-         this.network.endPacketImmediate(this.connectionGUID);
-         int var2 = this.player.WorldX - 6 + 2;
-         int var3 = this.player.WorldY - 6 + 2;
-         int var4 = this.player.WorldX + 6 + 2;
-         int var5 = this.player.WorldY + 6 + 2;
-
-         for(int var6 = var3; var6 <= var5; ++var6) {
-            for(int var7 = var2; var7 <= var4; ++var7) {
-               Request var8 = new Request(var7, var6, this.requestId);
-               ++this.requestId;
-               this.requests.put(var8.id, var8);
-            }
-         }
-
-         this.requestZipList();
-      }
-
-      private void requestFullUpdate() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.IsoRegionClientRequestFullUpdate.getId(), var1);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void requestChunkObjectState() {
-         Iterator var1 = this.requests.values().iterator();
-
-         while(var1.hasNext()) {
-            Request var2 = (Request)var1.next();
-            ByteBuffer var3 = this.network.startPacket();
-            this.doPacket(PacketTypes.PacketType.ChunkObjectState.getId(), var3);
-            var3.putShort((short)var2.wx);
-            var3.putShort((short)var2.wy);
-            this.network.endPacket(this.connectionGUID);
-         }
-
-      }
-
-      private void requestChunks() {
-         if (!this.requests.isEmpty()) {
-            this.requestZipList();
-            this.requestChunkObjectState();
-            this.requests.clear();
-         }
-
-      }
-
-      private void sendStatisticsEnable(int var1) {
-         ByteBuffer var2 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.StatisticRequest.getId(), var2);
-         var2.put((byte)3);
-         var2.putInt(var1);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void receiveStatistics(ByteBuffer var1) {
-         long var2 = var1.getLong();
-         long var4 = var1.getLong();
-         long var6 = var1.getLong();
-         long var8 = var1.getLong();
-         long var10 = var1.getLong();
-         long var12 = var1.getLong();
-         long var14 = var1.getLong();
-         long var16 = var1.getLong();
-         long var18 = var1.getLong();
-         FakeClientManager.info(this.player.movement.id, String.format("ServerStats: con=[%2d] fps=[%2d] tps=[%2d] upt=[%4d-%4d/%4d], c1=[%d] c2=[%d] c3=[%d]", var12, var8, var10, var2, var4, var6, var14, var16, var18));
-      }
-
-      private void sendTimeSync() {
-         ByteBuffer var1 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.TimeSync.getId(), var1);
-         long var2 = System.nanoTime();
-         var1.putLong(var2);
-         var1.putLong(0L);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void receiveTimeSync(ByteBuffer var1) {
-         long var2 = var1.getLong();
-         long var4 = var1.getLong();
-         long var6 = System.nanoTime();
-         long var8 = var6 - var2;
-         long var10 = var4 - var6 + var8 / 2L;
-         long var12 = serverTimeShift;
-         if (!serverTimeShiftIsSet) {
-            serverTimeShift = var10;
-         } else {
-            serverTimeShift = (long)((float)serverTimeShift + (float)(var10 - serverTimeShift) * 0.05F);
-         }
-
-         long var14 = 10000000L;
-         if (Math.abs(serverTimeShift - var12) > var14) {
-            this.sendTimeSync();
-         } else {
-            serverTimeShiftIsSet = true;
-         }
-
-      }
-
-      private void receiveSyncClock(ByteBuffer var1) {
-         FakeClientManager.trace(this.player.movement.id, String.format("Player %3d sync clock", this.player.OnlineID));
-      }
-
-      private void receiveKicked(ByteBuffer var1) {
-         String var2 = FakeClientManager.ReadStringUTF(var1);
-         FakeClientManager.info(this.player.movement.id, String.format("Client kicked. Reason: %s", var2));
-      }
-
-      private void receiveChecksum(ByteBuffer var1) {
-         FakeClientManager.trace(this.player.movement.id, String.format("Player %3d receive Checksum", this.player.OnlineID));
-         short var2 = var1.getShort();
-         boolean var3 = var1.get() == 1;
-         boolean var4 = var1.get() == 1;
-         if (var2 != 1 || !var3 || !var4) {
-            FakeClientManager.info(this.player.movement.id, String.format("checksum lua: %b, script: %b", var3, var4));
-         }
-
-         this.changeState(FakeClientManager.Client.State.PLAYER_EXTRA_INFO);
-      }
-
-      private void receiveKillZombie(ByteBuffer var1) {
-         FakeClientManager.trace(this.player.movement.id, String.format("Player %3d receive KillZombie", this.player.OnlineID));
-         short var2 = var1.getShort();
-         Zombie var3 = (Zombie)this.player.simulator.zombies.get(Integer.valueOf(var2));
-         if (var3 != null) {
-            this.player.simulator.zombies4Delete.add(var3);
-         }
-
-      }
-
-      private void receiveTeleport(ByteBuffer var1) {
-         byte var2 = var1.get();
-         float var3 = var1.getFloat();
-         float var4 = var1.getFloat();
-         float var5 = var1.getFloat();
-         FakeClientManager.info(this.player.movement.id, String.format("Player %3d teleport to (%d, %d)", this.player.OnlineID, (int)var3, (int)var4));
-         this.player.x = var3;
-         this.player.y = var4;
-      }
-
-      private void receiveZombieSimulation(ByteBuffer var1) {
-         this.player.simulator.clear();
-         boolean var2 = var1.get() == 1;
-         short var3 = var1.getShort();
-
-         short var4;
-         short var5;
-         for(var4 = 0; var4 < var3; ++var4) {
-            var5 = var1.getShort();
-            Zombie var6 = (Zombie)this.player.simulator.zombies.get(Integer.valueOf(var5));
-            this.player.simulator.zombies4Delete.add(var6);
-         }
-
-         var4 = var1.getShort();
-
-         for(var5 = 0; var5 < var4; ++var5) {
-            short var7 = var1.getShort();
-            this.player.simulator.add(var7);
-         }
-
-         this.player.simulator.receivePacket(var1);
-         this.player.simulator.process();
-      }
-
-      private void sendInjuries() {
-         SyncInjuriesPacket var1 = new SyncInjuriesPacket();
-         var1.id = this.player.OnlineID;
-         var1.strafeSpeed = 1.0F;
-         var1.walkSpeed = 1.0F;
-         var1.walkInjury = 0.0F;
-         ByteBuffer var2 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.SyncInjuries.getId(), var2);
-         ByteBufferWriter var3 = new ByteBufferWriter(var2);
-         var1.write(var3);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendChecksum() {
-         if (!luaChecksum.isEmpty()) {
-            FakeClientManager.trace(this.player.movement.id, String.format("Player %3d sendChecksum", this.player.OnlineID));
-            ByteBuffer var1 = this.network.startPacket();
-            this.doPacket(PacketTypes.PacketType.Checksum.getId(), var1);
-            var1.putShort((short)1);
-            this.putUTF(var1, luaChecksum);
-            this.putUTF(var1, scriptChecksum);
-            this.network.endPacketImmediate(this.connectionGUID);
-         }
-      }
-
-      public void sendCommand(String var1) {
-         ByteBuffer var2 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.ReceiveCommand.getId(), var2);
-         FakeClientManager.WriteStringUTF(var2, var1);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendEventPacket(short var1, int var2, int var3, int var4, byte var5, String var6) {
-         ByteBuffer var7 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.EventPacket.getId(), var7);
-         var7.putShort(var1);
-         var7.putFloat((float)var2);
-         var7.putFloat((float)var3);
-         var7.putFloat((float)var4);
-         var7.put(var5);
-         FakeClientManager.WriteStringUTF(var7, var6);
-         FakeClientManager.WriteStringUTF(var7, "");
-         FakeClientManager.WriteStringUTF(var7, "");
-         FakeClientManager.WriteStringUTF(var7, "");
-         var7.putFloat(1.0F);
-         var7.putFloat(1.0F);
-         var7.putFloat(0.0F);
-         var7.putInt(0);
-         var7.putShort((short)0);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private void sendWorldSound4Player(int var1, int var2, int var3, int var4, int var5) {
-         ByteBuffer var6 = this.network.startPacket();
-         this.doPacket(PacketTypes.PacketType.WorldSound.getId(), var6);
-         var6.putInt(var1);
-         var6.putInt(var2);
-         var6.putInt(var3);
-         var6.putInt(var4);
-         var6.putInt(var5);
-         var6.put((byte)0);
-         var6.putFloat(0.0F);
-         var6.putFloat(1.0F);
-         var6.put((byte)0);
-         this.network.endPacketImmediate(this.connectionGUID);
-      }
-
-      private static enum State {
-         CONNECT,
-         LOGIN,
-         CHECKSUM,
-         PLAYER_CONNECT,
-         PLAYER_EXTRA_INFO,
-         LOAD,
-         RUN,
-         WAIT,
-         DISCONNECT,
-         QUIT;
-
-         private State() {
-         }
-      }
-
-      private static final class Request {
-         private final int id;
-         private final int wx;
-         private final int wy;
-         private final long crc;
-
-         private Request(int var1, int var2, int var3) {
-            this.id = var3;
-            this.wx = var1;
-            this.wy = var2;
-            CRC32 var4 = new CRC32();
-            var4.reset();
-            var4.update(String.format("map_%d_%d.bin", var1, var2).getBytes());
-            this.crc = var4.getValue();
-         }
-      }
-   }
-
-   private static class ZombieSimulator {
-      public static Behaviour behaviour;
-      public static int deleteZombieDistanceSquared;
-      public static int forgotZombieDistanceSquared;
-      public static int canSeeZombieDistanceSquared;
-      public static int seeZombieDistanceSquared;
-      private static boolean canChangeTarget;
-      private static int updatePeriod;
-      private static int attackPeriod;
-      public static int maxZombiesPerUpdate;
-      private final ByteBuffer bb = ByteBuffer.allocate(1000000);
-      private UpdateLimit updateLimiter;
-      private UpdateLimit attackLimiter;
-      private Player player;
-      private final ZombiePacket zombiePacket;
-      private HashSet<Short> authoriseZombiesCurrent;
-      private HashSet<Short> authoriseZombiesLast;
-      private final ArrayList<Short> unknownZombies;
-      private final HashMap<Integer, Zombie> zombies;
-      private final ArrayDeque<Zombie> zombies4Add;
-      private final ArrayDeque<Zombie> zombies4Delete;
-      private final HashSet<Short> authoriseZombies;
-      private final ArrayDeque<Zombie> SendQueue;
-      private static Vector2 tmpDir;
-
-      public ZombieSimulator(Player var1) {
-         this.updateLimiter = new UpdateLimit((long)updatePeriod);
-         this.attackLimiter = new UpdateLimit((long)attackPeriod);
-         this.player = null;
-         this.zombiePacket = new ZombiePacket();
-         this.authoriseZombiesCurrent = new HashSet();
-         this.authoriseZombiesLast = new HashSet();
-         this.unknownZombies = new ArrayList();
-         this.zombies = new HashMap();
-         this.zombies4Add = new ArrayDeque();
-         this.zombies4Delete = new ArrayDeque();
-         this.authoriseZombies = new HashSet();
-         this.SendQueue = new ArrayDeque();
-         this.player = var1;
-      }
-
-      public void becomeLocal(Zombie var1) {
-         var1.localOwnership = true;
-      }
-
-      public void becomeRemote(Zombie var1) {
-         var1.localOwnership = false;
-      }
-
-      public void clear() {
-         HashSet var1 = this.authoriseZombiesCurrent;
-         this.authoriseZombiesCurrent = this.authoriseZombiesLast;
-         this.authoriseZombiesLast = var1;
-         this.authoriseZombiesLast.removeIf((var1x) -> {
-            return this.zombies.get(Integer.valueOf(var1x)) == null;
-         });
-         this.authoriseZombiesCurrent.clear();
-      }
-
-      public void add(short var1) {
-         this.authoriseZombiesCurrent.add(var1);
-      }
-
-      public void receivePacket(ByteBuffer var1) {
-         short var2 = var1.getShort();
-
-         for(short var3 = 0; var3 < var2; ++var3) {
-            this.parseZombie(var1);
-         }
-
-      }
-
-      private void parseZombie(ByteBuffer var1) {
-         ZombiePacket var2 = this.zombiePacket;
-         var2.parse(var1, (UdpConnection)null);
-         Zombie var3 = (Zombie)this.zombies.get(Integer.valueOf(var2.id));
-         if (!this.authoriseZombies.contains(var2.id) || var3 == null) {
-            if (var3 == null) {
-               var3 = new Zombie(var2.id);
-               this.zombies4Add.add(var3);
-               FakeClientManager.trace(this.player.movement.id, String.format("New zombie %s", var3.OnlineID));
-            }
-
-            var3.lastUpdate = System.currentTimeMillis();
-            var3.zombiePacket.copy(var2);
-            var3.x = var2.realX;
-            var3.y = var2.realY;
-            var3.z = (float)var2.realZ;
-         }
-      }
-
-      public void process() {
-         Sets.SetView var1 = Sets.difference(this.authoriseZombiesCurrent, this.authoriseZombiesLast);
-         UnmodifiableIterator var2 = var1.iterator();
-
-         while(var2.hasNext()) {
-            Short var3 = (Short)var2.next();
-            Zombie var4 = (Zombie)this.zombies.get(Integer.valueOf(var3));
-            if (var4 != null) {
-               this.becomeLocal(var4);
-            } else if (!this.unknownZombies.contains(var3)) {
-               this.unknownZombies.add(var3);
-            }
-         }
-
-         Sets.SetView var8 = Sets.difference(this.authoriseZombiesLast, this.authoriseZombiesCurrent);
-         UnmodifiableIterator var9 = var8.iterator();
-
-         while(var9.hasNext()) {
-            Short var10 = (Short)var9.next();
-            Zombie var5 = (Zombie)this.zombies.get(Integer.valueOf(var10));
-            if (var5 != null) {
-               this.becomeRemote(var5);
-            }
-         }
-
-         synchronized(this.authoriseZombies) {
-            this.authoriseZombies.clear();
-            this.authoriseZombies.addAll(this.authoriseZombiesCurrent);
-         }
-      }
-
-      public void send() {
-         if (this.authoriseZombies.size() != 0 || this.unknownZombies.size() != 0) {
-            Zombie var4;
-            if (this.SendQueue.isEmpty()) {
-               synchronized(this.authoriseZombies) {
-                  Iterator var2 = this.authoriseZombies.iterator();
-
-                  while(var2.hasNext()) {
-                     Short var3 = (Short)var2.next();
-                     var4 = (Zombie)this.zombies.get(Integer.valueOf(var3));
-                     if (var4 != null && var4.OnlineID != -1) {
-                        this.SendQueue.add(var4);
-                     }
-                  }
-               }
-            }
-
-            this.bb.clear();
-            this.bb.putShort((short)0);
-            int var1 = this.unknownZombies.size();
-            this.bb.putShort((short)var1);
-
-            int var7;
-            for(var7 = 0; var7 < this.unknownZombies.size(); ++var7) {
-               if (this.unknownZombies.get(var7) == null) {
-                  return;
-               }
-
-               this.bb.putShort((Short)this.unknownZombies.get(var7));
-            }
-
-            this.unknownZombies.clear();
-            var7 = this.bb.position();
-            this.bb.putShort((short)maxZombiesPerUpdate);
-            int var8 = 0;
-
-            while(!this.SendQueue.isEmpty()) {
-               var4 = (Zombie)this.SendQueue.poll();
-               if (var4.OnlineID != -1) {
-                  var4.zombiePacket.write(this.bb);
-                  ++var8;
-                  if (var8 >= maxZombiesPerUpdate) {
-                     break;
-                  }
-               }
-            }
-
-            if (var8 < maxZombiesPerUpdate) {
-               int var9 = this.bb.position();
-               this.bb.position(var7);
-               this.bb.putShort((short)var8);
-               this.bb.position(var9);
-            }
-
-            if (var8 > 0 || var1 > 0) {
-               ByteBuffer var10 = this.player.client.network.startPacket();
-               this.player.client.doPacket(PacketTypes.PacketType.ZombieSimulation.getId(), var10);
-               var10.put(this.bb.array(), 0, this.bb.position());
-               this.player.client.network.endPacketSuperHighUnreliable(this.player.client.connectionGUID);
-            }
-
-         }
-      }
-
-      private void simulate(Integer var1, Zombie var2) {
-         float var3 = IsoUtils.DistanceToSquared(this.player.x, this.player.y, var2.x, var2.y);
-         if (!(var3 > (float)deleteZombieDistanceSquared) && (var2.localOwnership || var2.lastUpdate + 5000L >= System.currentTimeMillis())) {
-            tmpDir.set(-var2.x + this.player.x, -var2.y + this.player.y);
-            float var4;
-            if (var2.isMoving) {
-               var4 = 0.2F;
-               var2.x = PZMath.lerp(var2.x, var2.zombiePacket.x, var4);
-               var2.y = PZMath.lerp(var2.y, var2.zombiePacket.y, var4);
-               var2.z = 0.0F;
-               var2.dir = IsoDirections.fromAngle(tmpDir);
-            }
-
-            if (canChangeTarget) {
-               synchronized(this.player.playerManager.players) {
-                  Iterator var5 = this.player.playerManager.players.values().iterator();
-
-                  while(var5.hasNext()) {
-                     PlayerManager.RemotePlayer var6 = (PlayerManager.RemotePlayer)var5.next();
-                     float var7 = IsoUtils.DistanceToSquared(var6.x, var6.y, var2.x, var2.y);
-                     if (var7 < (float)seeZombieDistanceSquared) {
-                        var2.zombiePacket.target = var6.OnlineID;
-                        break;
-                     }
-                  }
-               }
-            } else {
-               var2.zombiePacket.target = this.player.OnlineID;
-            }
-
-            if (behaviour == FakeClientManager.ZombieSimulator.Behaviour.Stay) {
-               var2.isMoving = false;
-            } else if (behaviour == FakeClientManager.ZombieSimulator.Behaviour.Normal) {
-               if (var3 > (float)forgotZombieDistanceSquared) {
-                  var2.isMoving = false;
-               }
-
-               if (var3 < (float)canSeeZombieDistanceSquared && (Rand.Next(100) < 1 || var2.dir == IsoDirections.fromAngle(tmpDir))) {
-                  var2.isMoving = true;
-               }
-
-               if (var3 < (float)seeZombieDistanceSquared) {
-                  var2.isMoving = true;
-               }
-            } else {
-               var2.isMoving = true;
-            }
-
-            var4 = 0.0F;
-            if (var2.isMoving) {
-               Vector2 var10 = var2.dir.ToVector();
-               var4 = 3.0F;
-               if (var3 < 100.0F) {
-                  var4 = 6.0F;
-               }
-
-               long var11 = System.currentTimeMillis() - var2.lastUpdate;
-               var2.zombiePacket.x = var2.x + var10.x * (float)var11 * 0.001F * var4;
-               var2.zombiePacket.y = var2.y + var10.y * (float)var11 * 0.001F * var4;
-               var2.zombiePacket.z = (byte)((int)var2.z);
-               var2.zombiePacket.moveType = NetworkVariables.PredictionTypes.Moving;
-            } else {
-               var2.zombiePacket.x = var2.x;
-               var2.zombiePacket.y = var2.y;
-               var2.zombiePacket.z = (byte)((int)var2.z);
-               var2.zombiePacket.moveType = NetworkVariables.PredictionTypes.Static;
-            }
-
-            var2.zombiePacket.booleanVariables = 0;
-            if (var3 < 100.0F) {
-               ZombiePacket var10000 = var2.zombiePacket;
-               var10000.booleanVariables = (short)(var10000.booleanVariables | 2);
-            }
-
-            var2.zombiePacket.timeSinceSeenFlesh = var2.isMoving ? 0 : 100000;
-            var2.zombiePacket.smParamTargetAngle = 0;
-            var2.zombiePacket.speedMod = 1000;
-            var2.zombiePacket.walkType = NetworkVariables.WalkType.values()[var2.walkType];
-            var2.zombiePacket.realX = var2.x;
-            var2.zombiePacket.realY = var2.y;
-            var2.zombiePacket.realZ = (byte)((int)var2.z);
-            var2.zombiePacket.realHealth = (short)((int)(var2.health * 1000.0F));
-            var2.zombiePacket.realState = NetworkVariables.ZombieState.fromString("fakezombie-" + behaviour.toString().toLowerCase());
-            if (var2.isMoving) {
-               var2.zombiePacket.pfbType = 1;
-               var2.zombiePacket.pfbTarget = this.player.OnlineID;
-            } else {
-               var2.zombiePacket.pfbType = 0;
-            }
-
-            if (var3 < 2.0F && this.attackLimiter.Check()) {
-               var2.health -= FakeClientManager.Player.damage;
-               this.sendHitCharacter(var2, FakeClientManager.Player.damage);
-               if (var2.health <= 0.0F) {
-                  this.player.client.sendChatMessage("DIE!!");
-                  this.zombies4Delete.add(var2);
-               }
-            }
-
-            var2.lastUpdate = System.currentTimeMillis();
-         } else {
-            this.zombies4Delete.add(var2);
-         }
-      }
-
-      private void writeHitInfoToZombie(ByteBuffer var1, short var2, float var3, float var4, float var5) {
-         var1.put((byte)2);
-         var1.putShort(var2);
-         var1.put((byte)0);
-         var1.putFloat(var3);
-         var1.putFloat(var4);
-         var1.putFloat(0.0F);
-         var1.putFloat(var5);
-         var1.putFloat(1.0F);
-         var1.putInt(100);
-      }
-
-      private void sendHitCharacter(Zombie var1, float var2) {
-         boolean var3 = false;
-         ByteBuffer var4 = this.player.client.network.startPacket();
-         this.player.client.doPacket(PacketTypes.PacketType.HitCharacter.getId(), var4);
-         var4.put((byte)3);
-         var4.putShort(this.player.OnlineID);
-         var4.putShort((short)0);
-         var4.putFloat(this.player.x);
-         var4.putFloat(this.player.y);
-         var4.putFloat(this.player.z);
-         var4.putFloat(this.player.direction.x);
-         var4.putFloat(this.player.direction.y);
-         FakeClientManager.WriteStringUTF(var4, "");
-         FakeClientManager.WriteStringUTF(var4, "");
-         FakeClientManager.WriteStringUTF(var4, "");
-         var4.putShort((short)((this.player.weapon_isBareHeads ? 2 : 0) + (var3 ? 8 : 0)));
-         var4.putFloat(1.0F);
-         var4.putFloat(1.0F);
-         var4.putFloat(1.0F);
-         FakeClientManager.WriteStringUTF(var4, "default");
-         byte var5 = 0;
-         byte var8 = (byte)(var5 | (byte)(this.player.weapon_isBareHeads ? 9 : 0));
-         var4.put(var8);
-         var4.put((byte)0);
-         var4.putShort((short)0);
-         var4.putFloat(1.0F);
-         var4.putInt(0);
-         byte var6 = 1;
-         var4.put(var6);
-
-         int var7;
-         for(var7 = 0; var7 < var6; ++var7) {
-            this.writeHitInfoToZombie(var4, var1.OnlineID, var1.x, var1.y, var2);
-         }
-
-         var6 = 0;
-         var4.put(var6);
-         var6 = 1;
-         var4.put(var6);
-
-         for(var7 = 0; var7 < var6; ++var7) {
-            this.writeHitInfoToZombie(var4, var1.OnlineID, var1.x, var1.y, var2);
-         }
-
-         if (!this.player.weapon_isBareHeads) {
-            var4.put((byte)0);
-         } else {
-            var4.put((byte)1);
-            var4.putShort(this.player.registry_id);
-            var4.put((byte)1);
-            var4.putInt(this.player.weapon_id);
-            var4.put((byte)0);
-            var4.putInt(0);
-            var4.putInt(0);
-         }
-
-         var4.putShort(var1.OnlineID);
-         var4.putShort((short)(var2 >= var1.health ? 3 : 0));
-         var4.putFloat(var1.x);
-         var4.putFloat(var1.y);
-         var4.putFloat(var1.z);
-         var4.putFloat(var1.dir.ToVector().x);
-         var4.putFloat(var1.dir.ToVector().y);
-         FakeClientManager.WriteStringUTF(var4, "");
-         FakeClientManager.WriteStringUTF(var4, "");
-         FakeClientManager.WriteStringUTF(var4, "");
-         var4.putShort((short)0);
-         FakeClientManager.WriteStringUTF(var4, "");
-         FakeClientManager.WriteStringUTF(var4, "FRONT");
-         var4.put((byte)0);
-         var4.putFloat(var2);
-         var4.putFloat(1.0F);
-         var4.putFloat(this.player.direction.x);
-         var4.putFloat(this.player.direction.y);
-         var4.putFloat(1.0F);
-         var4.put((byte)0);
-         if (tmpDir.getLength() > 0.0F) {
-            var1.dropPositionX = var1.x + tmpDir.x / tmpDir.getLength();
-            var1.dropPositionY = var1.y + tmpDir.y / tmpDir.getLength();
-         } else {
-            var1.dropPositionX = var1.x;
-            var1.dropPositionY = var1.y;
-         }
-
-         var4.putFloat(var1.dropPositionX);
-         var4.putFloat(var1.dropPositionY);
-         var4.put((byte)((int)var1.z));
-         var4.putFloat(var1.dir.toAngle());
-         this.player.client.network.endPacketImmediate(this.player.client.connectionGUID);
-      }
-
-      private void sendSendDeadZombie(Zombie var1) {
-         ByteBuffer var2 = this.player.client.network.startPacket();
-         this.player.client.doPacket(PacketTypes.PacketType.ZombieDeath.getId(), var2);
-         var2.putShort(var1.OnlineID);
-         var2.putFloat(var1.x);
-         var2.putFloat(var1.y);
-         var2.putFloat(var1.z);
-         var2.putFloat(var1.dir.toAngle());
-         var2.put((byte)var1.dir.index());
-         var2.put((byte)0);
-         var2.put((byte)0);
-         var2.put((byte)0);
-         this.player.client.network.endPacketImmediate(this.player.client.connectionGUID);
-      }
-
-      public void simulateAll() {
-         Zombie var1;
-         while(!this.zombies4Add.isEmpty()) {
-            var1 = (Zombie)this.zombies4Add.poll();
-            this.zombies.put(Integer.valueOf(var1.OnlineID), var1);
-         }
-
-         this.zombies.forEach(this::simulate);
-
-         while(!this.zombies4Delete.isEmpty()) {
-            var1 = (Zombie)this.zombies4Delete.poll();
-            this.zombies.remove(Integer.valueOf(var1.OnlineID));
-         }
-
-      }
-
-      public void update() {
-         if (this.updateLimiter.Check()) {
-            this.simulateAll();
-            this.send();
-         }
-
-      }
-
-      static {
-         behaviour = FakeClientManager.ZombieSimulator.Behaviour.Stay;
-         deleteZombieDistanceSquared = 10000;
-         forgotZombieDistanceSquared = 225;
-         canSeeZombieDistanceSquared = 100;
-         seeZombieDistanceSquared = 25;
-         canChangeTarget = true;
-         updatePeriod = 100;
-         attackPeriod = 1000;
-         maxZombiesPerUpdate = 300;
-         tmpDir = new Vector2();
-      }
-
-      private static enum Behaviour {
-         Stay,
-         Normal,
-         Attack;
-
-         private Behaviour() {
          }
       }
    }
@@ -2275,7 +644,7 @@ public class FakeClientManager {
             }
 
             if (this.movement.hordeCreator != null && this.movement.hordeCreator.hordeCreatorLimiter.Check()) {
-               this.client.sendCommand(this.movement.hordeCreator.getCommand((int)this.x, (int)this.y, (int)this.z));
+               this.client.sendCommand(this.movement.hordeCreator.getCommand(PZMath.fastfloor(this.x), PZMath.fastfloor(this.y), PZMath.fastfloor(this.z)));
             }
 
             if (this.movement.soundMaker != null && this.movement.soundMaker.soundMakerLimiter.Check()) {
@@ -2300,35 +669,811 @@ public class FakeClientManager {
       }
    }
 
-   private static class HordeCreator {
-      private final int radius;
-      private final int count;
-      private final long interval;
-      private final UpdateLimit hordeCreatorLimiter;
+   private static class Client {
+      private static String connectionServerHost = "127.0.0.1";
+      private static long connectionInterval = 1500L;
+      private static long connectionTimeout = 10000L;
+      private static long connectionDelay = 15000L;
+      private static int statisticsClientID = -1;
+      private static int statisticsPeriod = 1;
+      private static long serverTimeShift = 0L;
+      private static boolean serverTimeShiftIsSet = false;
+      private final HashMap<Integer, Request> requests = new HashMap();
+      private final Player player;
+      private final Network network;
+      private final int connectionIndex;
+      private final int port;
+      private long connectionGUID = -1L;
+      private int requestId = 0;
+      private long stateTime;
+      private State state;
+      private String host;
+      public static String luaChecksum = "";
+      public static String scriptChecksum = "";
 
-      public HordeCreator(int var1, int var2, long var3) {
-         this.radius = var1;
-         this.count = var2;
-         this.interval = var3;
-         this.hordeCreatorLimiter = new UpdateLimit(var3);
+      private Client(Player var1, Network var2, int var3, int var4) {
+         this.connectionIndex = var3;
+         this.network = var2;
+         this.player = var1;
+         this.port = var4;
+
+         try {
+            this.host = InetAddress.getByName(connectionServerHost).getHostAddress();
+            this.state = FakeClientManager.Client.State.CONNECT;
+            Thread var5 = new Thread(ThreadGroups.Workers, this::updateThread, this.player.username);
+            var5.setDaemon(true);
+            var5.start();
+         } catch (UnknownHostException var6) {
+            this.state = FakeClientManager.Client.State.QUIT;
+            var6.printStackTrace();
+         }
+
       }
 
-      public String getCommand(int var1, int var2, int var3) {
-         return String.format("/createhorde2 -x %d -y %d -z %d -count %d -radius %d -crawler false -isFallOnFront false -isFakeDead false -knockedDown false -health 1 -outfit", var1, var2, var3, this.count, this.radius);
+      private void updateThread() {
+         FakeClientManager.info(this.player.movement.id, String.format("Start client (%d) %s:%d => %s:%d / \"%s\"", this.connectionIndex, "0.0.0.0", this.port, this.host, 16261, this.player.movement.description));
+         FakeClientManager.sleep(this.player.movement.connectDelay);
+         switch (this.player.movement.type) {
+            case Circle:
+               this.player.circleMovement();
+               break;
+            case Line:
+               this.player.lineMovement();
+               break;
+            case AIAttackZombies:
+               this.player.aiAttackZombiesMovement();
+               break;
+            case AIRunAwayFromZombies:
+               this.player.aiRunAwayFromZombiesMovement();
+               break;
+            case AIRunToAnotherPlayers:
+               this.player.aiRunToAnotherPlayersMovement();
+               break;
+            case AINormal:
+               this.player.aiNormalMovement();
+         }
+
+         while(this.state != FakeClientManager.Client.State.QUIT) {
+            this.update();
+            FakeClientManager.sleep(1L);
+         }
+
+         FakeClientManager.info(this.player.movement.id, String.format("Stop client (%d) %s:%d => %s:%d / \"%s\"", this.connectionIndex, "0.0.0.0", this.port, this.host, 16261, this.player.movement.description));
       }
-   }
 
-   private static class SoundMaker {
-      private final int radius;
-      private final int interval;
-      private final String message;
-      private final UpdateLimit soundMakerLimiter;
+      private void updateTime() {
+         this.stateTime = System.currentTimeMillis();
+      }
 
-      public SoundMaker(int var1, int var2, String var3) {
-         this.radius = var2;
-         this.message = var3;
-         this.interval = var1;
-         this.soundMakerLimiter = new UpdateLimit((long)var1);
+      private long getServerTime() {
+         return serverTimeShiftIsSet ? System.nanoTime() + serverTimeShift : 0L;
+      }
+
+      private boolean checkConnectionTimeout() {
+         return System.currentTimeMillis() - this.stateTime > connectionTimeout;
+      }
+
+      private boolean checkConnectionDelay() {
+         return System.currentTimeMillis() - this.stateTime > connectionDelay;
+      }
+
+      private void changeState(State var1) {
+         this.updateTime();
+         FakeClientManager.log(this.player.movement.id, String.format("%s >> %s", this.state, var1));
+         if (FakeClientManager.Client.State.RUN.equals(var1)) {
+            this.player.movement.connect(this.player.OnlineID);
+            if (this.player.teleportLimiter == null) {
+               this.player.teleportLimiter = new UpdateLimit(this.player.movement.teleportDelay);
+            }
+
+            if (this.player.movement.id == statisticsClientID) {
+               this.sendTimeSync();
+               this.sendInjuries();
+               this.sendStatisticsEnable(statisticsPeriod);
+            }
+         } else if (FakeClientManager.Client.State.DISCONNECT.equals(var1) && !FakeClientManager.Client.State.DISCONNECT.equals(this.state)) {
+            this.player.movement.disconnect(this.player.OnlineID);
+         }
+
+         this.state = var1;
+      }
+
+      private void update() {
+         switch (this.state) {
+            case CONNECT:
+               this.player.movement.timestamp = System.currentTimeMillis();
+               this.network.connect(this.player.movement.id, this.host);
+               this.changeState(FakeClientManager.Client.State.WAIT);
+               break;
+            case LOGIN:
+               this.sendPlayerLogin();
+               this.changeState(FakeClientManager.Client.State.WAIT);
+               break;
+            case PLAYER_CONNECT:
+               this.sendPlayerConnect();
+               this.changeState(FakeClientManager.Client.State.WAIT);
+               break;
+            case CHECKSUM:
+               this.sendChecksum();
+               this.changeState(FakeClientManager.Client.State.WAIT);
+               break;
+            case PLAYER_EXTRA_INFO:
+               this.sendPlayerExtraInfo(this.player.movement.ghost, this.player.movement.hordeCreator != null || FakeClientManager.Player.isVOIPEnabled);
+               this.sendEquip();
+               this.changeState(FakeClientManager.Client.State.WAIT);
+               break;
+            case LOAD:
+               this.requestId = 0;
+               this.requests.clear();
+               this.requestFullUpdate();
+               this.requestLargeAreaZip();
+               this.changeState(FakeClientManager.Client.State.WAIT);
+               break;
+            case RUN:
+               if (this.player.movement.doDisconnect() && this.player.movement.checkDisconnect()) {
+                  this.changeState(FakeClientManager.Client.State.DISCONNECT);
+               } else {
+                  this.player.run();
+               }
+               break;
+            case WAIT:
+               if (this.checkConnectionTimeout()) {
+                  this.changeState(FakeClientManager.Client.State.DISCONNECT);
+               }
+               break;
+            case DISCONNECT:
+               if (this.network.isConnected()) {
+                  this.player.movement.timestamp = System.currentTimeMillis();
+                  this.network.disconnect(this.connectionGUID, this.player.movement.id, this.host);
+               }
+
+               if (this.player.movement.doReconnect() && this.player.movement.checkReconnect() || !this.player.movement.doReconnect() && this.checkConnectionDelay()) {
+                  this.changeState(FakeClientManager.Client.State.CONNECT);
+               }
+            case QUIT:
+         }
+
+      }
+
+      private void receive(short var1, ByteBuffer var2) {
+         PacketTypes.PacketType var3 = (PacketTypes.PacketType)PacketTypes.packetTypes.get(var1);
+         FakeClientManager.Network.logUserPacket(this.player.movement.id, var1);
+         switch (var3) {
+            case PlayerConnect:
+               if (this.receivePlayerConnect(var2)) {
+                  if (luaChecksum.isEmpty()) {
+                     this.changeState(FakeClientManager.Client.State.PLAYER_EXTRA_INFO);
+                  } else {
+                     this.changeState(FakeClientManager.Client.State.CHECKSUM);
+                  }
+               }
+               break;
+            case ExtraInfo:
+               if (this.receivePlayerExtraInfo(var2)) {
+                  this.changeState(FakeClientManager.Client.State.RUN);
+               }
+               break;
+            case SentChunk:
+               if (this.state == FakeClientManager.Client.State.WAIT && this.receiveChunkPart(var2)) {
+                  this.updateTime();
+                  if (this.allChunkPartsReceived()) {
+                     this.changeState(FakeClientManager.Client.State.PLAYER_CONNECT);
+                  }
+               }
+               break;
+            case NotRequiredInZip:
+               if (this.state == FakeClientManager.Client.State.WAIT && this.receiveNotRequired(var2)) {
+                  this.updateTime();
+                  if (this.allChunkPartsReceived()) {
+                     this.changeState(FakeClientManager.Client.State.PLAYER_CONNECT);
+                  }
+               }
+            case PlayerHitSquare:
+            case PlayerHitVehicle:
+            case PlayerHitZombie:
+            case PlayerHitPlayer:
+            case PlayerHitAnimal:
+            case ZombieHitPlayer:
+            case AnimalHitPlayer:
+            case AnimalHitAnimal:
+            case AnimalHitThumpable:
+            case VehicleHitZombie:
+            case VehicleHitPlayer:
+            default:
+               break;
+            case StatisticRequest:
+               this.receiveStatistics(var2);
+               break;
+            case TimeSync:
+               this.receiveTimeSync(var2);
+               break;
+            case SyncClock:
+               this.receiveSyncClock(var2);
+               break;
+            case ZombieSimulation:
+            case ZombieSimulationReliable:
+               this.receiveZombieSimulation(var2);
+               break;
+            case PlayerUpdateUnreliable:
+            case PlayerUpdateReliable:
+               this.player.playerManager.parsePlayer(var2);
+               break;
+            case PlayerTimeout:
+               this.player.playerManager.parsePlayerTimeout(var2);
+               break;
+            case Kicked:
+               this.receiveKicked(var2);
+               break;
+            case Checksum:
+               this.receiveChecksum(var2);
+               break;
+            case Teleport:
+               this.receiveTeleport(var2);
+         }
+
+         var2.clear();
+      }
+
+      private void doPacket(short var1, ByteBuffer var2) {
+         var2.put((byte)-122);
+         var2.putShort(var1);
+      }
+
+      private void putUTF(ByteBuffer var1, String var2) {
+         if (var2 == null) {
+            var1.putShort((short)0);
+         } else {
+            byte[] var3 = var2.getBytes();
+            var1.putShort((short)var3.length);
+            var1.put(var3);
+         }
+
+      }
+
+      private void putBoolean(ByteBuffer var1, boolean var2) {
+         var1.put((byte)(var2 ? 1 : 0));
+      }
+
+      private void sendPlayerLogin() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.Login.getId(), var1);
+         this.putUTF(var1, this.player.username);
+         this.putUTF(var1, this.player.username);
+         this.putUTF(var1, FakeClientManager.versionNumber);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void sendPlayerConnect() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.PlayerConnect.getId(), var1);
+         this.writePlayerConnectData(var1);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void writePlayerConnectData(ByteBuffer var1) {
+         var1.put((byte)0);
+         var1.put((byte)13);
+         var1.putFloat(this.player.x);
+         var1.putFloat(this.player.y);
+         var1.putFloat(this.player.z);
+         var1.putInt(0);
+         this.putUTF(var1, this.player.username);
+         this.putUTF(var1, this.player.username);
+         this.putUTF(var1, this.player.isFemale == 0 ? "Kate" : "Male");
+         var1.putInt(this.player.isFemale);
+         this.putUTF(var1, "fireofficer");
+         var1.putInt(0);
+         var1.putInt(4);
+         this.putUTF(var1, "Sprinting");
+         var1.putInt(1);
+         this.putUTF(var1, "Fitness");
+         var1.putInt(6);
+         this.putUTF(var1, "Strength");
+         var1.putInt(6);
+         this.putUTF(var1, "Axe");
+         var1.putInt(1);
+         var1.put((byte)0);
+         var1.put((byte)0);
+         var1.put((byte)((int)Math.round(Math.random() * 5.0)));
+         var1.put((byte)0);
+         var1.put((byte)0);
+         var1.put((byte)0);
+         var1.put((byte)0);
+         int var2 = this.player.clothes.size();
+         var1.put((byte)var2);
+         Iterator var3 = this.player.clothes.iterator();
+
+         while(var3.hasNext()) {
+            Player.Clothes var4 = (Player.Clothes)var3.next();
+            var1.put(var4.flags);
+            this.putUTF(var1, "Base." + var4.name);
+            this.putUTF(var1, (String)null);
+            this.putUTF(var1, var4.name);
+            var1.put((byte)-1);
+            var1.put((byte)-1);
+            var1.put((byte)-1);
+            var1.put(var4.text);
+            var1.putFloat(0.0F);
+            var1.put((byte)0);
+            var1.put((byte)0);
+            var1.put((byte)0);
+            var1.put((byte)0);
+            var1.put((byte)0);
+            var1.put((byte)0);
+         }
+
+         this.putUTF(var1, "fake_str");
+         var1.putShort((short)0);
+         var1.putInt(2);
+         this.putUTF(var1, "Fit");
+         this.putUTF(var1, "Stout");
+         var1.putFloat(0.0F);
+         var1.putInt(0);
+         var1.putInt(0);
+         var1.putInt(4);
+         this.putUTF(var1, "Sprinting");
+         var1.putFloat(75.0F);
+         this.putUTF(var1, "Fitness");
+         var1.putFloat(67500.0F);
+         this.putUTF(var1, "Strength");
+         var1.putFloat(67500.0F);
+         this.putUTF(var1, "Axe");
+         var1.putFloat(75.0F);
+         var1.putInt(4);
+         this.putUTF(var1, "Sprinting");
+         var1.putInt(1);
+         this.putUTF(var1, "Fitness");
+         var1.putInt(6);
+         this.putUTF(var1, "Strength");
+         var1.putInt(6);
+         this.putUTF(var1, "Axe");
+         var1.putInt(1);
+         var1.putInt(0);
+         this.putBoolean(var1, true);
+         this.putUTF(var1, "fake");
+         var1.putFloat(this.player.tagColor.r);
+         var1.putFloat(this.player.tagColor.g);
+         var1.putFloat(this.player.tagColor.b);
+         var1.putInt(0);
+         var1.putDouble(0.0);
+         var1.putInt(0);
+         this.putUTF(var1, this.player.username);
+         var1.putFloat(this.player.speakColor.r);
+         var1.putFloat(this.player.speakColor.g);
+         var1.putFloat(this.player.speakColor.b);
+         this.putBoolean(var1, true);
+         this.putBoolean(var1, false);
+         var1.put((byte)0);
+         var1.put((byte)0);
+         var1.putInt(0);
+         var1.putInt(0);
+      }
+
+      /** @deprecated */
+      @Deprecated
+      private void sendPlayerExtraInfo(boolean var1, boolean var2) {
+      }
+
+      private void sendSyncRadioData() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.SyncRadioData.getId(), var1);
+         var1.put((byte)(FakeClientManager.Player.isVOIPEnabled ? 1 : 0));
+         var1.putInt(4);
+         var1.putInt(0);
+         var1.putInt((int)RakVoice.GetMaxDistance());
+         var1.putInt((int)this.player.x);
+         var1.putInt((int)this.player.y);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void sendEquip() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.Equip.getId(), var1);
+         var1.put((byte)0);
+         var1.put((byte)0);
+         var1.put((byte)1);
+         var1.putInt(16);
+         var1.putShort(this.player.registry_id);
+         var1.put((byte)1);
+         var1.putInt(this.player.weapon_id);
+         var1.put((byte)0);
+         var1.putInt(0);
+         var1.putInt(0);
+         var1.put((byte)0);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void sendChatMessage(String var1) {
+         ByteBuffer var2 = this.network.startPacket();
+         var2.putShort(this.player.OnlineID);
+         var2.putInt(2);
+         this.putUTF(var2, this.player.username);
+         this.putUTF(var2, var1);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private int getBooleanVariables() {
+         int var1 = 0;
+         if (this.player.movement.speed > 0.0F) {
+            switch (this.player.movement.motion) {
+               case Aim:
+                  var1 |= 64;
+                  break;
+               case Sneak:
+                  var1 |= 1;
+                  break;
+               case SneakRun:
+                  var1 |= 17;
+                  break;
+               case Run:
+                  var1 |= 16;
+                  break;
+               case Sprint:
+                  var1 |= 32;
+            }
+
+            var1 |= 17408;
+         }
+
+         return var1;
+      }
+
+      private void sendPlayer(NetworkCharacter.Transform var1, int var2, Vector2 var3) {
+         PlayerPacket var4 = new PlayerPacket();
+         var4.x = var1.position.x;
+         var4.y = var1.position.y;
+         var4.z = (byte)((int)this.player.z);
+         var4.direction = var3.getDirection();
+         var4.usePathFinder = false;
+         var4.moveType = NetworkVariables.PredictionTypes.None;
+         var4.VehicleID = -1;
+         var4.VehicleSeat = -1;
+         var4.booleanVariables = this.getBooleanVariables();
+         var4.roleId = -1;
+         var4.footstepSoundRadius = 0;
+         var4.bleedingLevel = 0;
+         var4.realx = this.player.x;
+         var4.realy = this.player.y;
+         var4.realz = (byte)((int)this.player.z);
+         var4.realdir = (byte)IsoDirections.fromAngleActual(this.player.direction).index();
+         var4.realt = var2;
+         var4.collidePointX = -1.0F;
+         var4.collidePointY = -1.0F;
+         ByteBuffer var5 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.PlayerUpdateReliable.getId(), var5);
+         ByteBufferWriter var6 = new ByteBufferWriter(var5);
+         var4.write(var6);
+         this.network.endPacket(this.connectionGUID);
+      }
+
+      private boolean receivePlayerConnect(ByteBuffer var1) {
+         short var2 = var1.getShort();
+         if (var2 == -1) {
+            byte var3 = var1.get();
+            var2 = var1.getShort();
+            this.player.OnlineID = var2;
+            return true;
+         } else {
+            return false;
+         }
+      }
+
+      private boolean receivePlayerExtraInfo(ByteBuffer var1) {
+         short var2 = var1.getShort();
+         return var2 == this.player.OnlineID;
+      }
+
+      private boolean receiveChunkPart(ByteBuffer var1) {
+         boolean var2 = false;
+         int var3 = var1.getInt();
+         int var4 = var1.getInt();
+         int var5 = var1.getInt();
+         int var6 = var1.getInt();
+         int var7 = var1.getInt();
+         int var8 = var1.getInt();
+         if (this.requests.remove(var3) != null) {
+            var2 = true;
+         }
+
+         return var2;
+      }
+
+      private boolean receiveNotRequired(ByteBuffer var1) {
+         boolean var2 = false;
+         int var3 = var1.getInt();
+
+         for(int var4 = 0; var4 < var3; ++var4) {
+            int var5 = var1.getInt();
+            boolean var6 = var1.get() == 1;
+            if (this.requests.remove(var5) != null) {
+               var2 = true;
+            }
+         }
+
+         return var2;
+      }
+
+      private boolean allChunkPartsReceived() {
+         return this.requests.size() == 0;
+      }
+
+      private void addChunkRequest(int var1, int var2, int var3, int var4) {
+         Request var5 = new Request(var1, var2, this.requestId);
+         ++this.requestId;
+         this.requests.put(var5.id, var5);
+      }
+
+      private void requestZipList() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.RequestZipList.getId(), var1);
+         var1.putInt(this.requests.size());
+         Iterator var2 = this.requests.values().iterator();
+
+         while(var2.hasNext()) {
+            Request var3 = (Request)var2.next();
+            var1.putInt(var3.id);
+            var1.putInt(var3.wx);
+            var1.putInt(var3.wy);
+            var1.putLong(var3.crc);
+         }
+
+         this.network.endPacket(this.connectionGUID);
+      }
+
+      private void requestLargeAreaZip() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.RequestLargeAreaZip.getId(), var1);
+         var1.putInt(this.player.WorldX);
+         var1.putInt(this.player.WorldY);
+         var1.putInt(13);
+         this.network.endPacketImmediate(this.connectionGUID);
+         int var2 = this.player.WorldX - 6 + 2;
+         int var3 = this.player.WorldY - 6 + 2;
+         int var4 = this.player.WorldX + 6 + 2;
+         int var5 = this.player.WorldY + 6 + 2;
+
+         for(int var6 = var3; var6 <= var5; ++var6) {
+            for(int var7 = var2; var7 <= var4; ++var7) {
+               Request var8 = new Request(var7, var6, this.requestId);
+               ++this.requestId;
+               this.requests.put(var8.id, var8);
+            }
+         }
+
+         this.requestZipList();
+      }
+
+      private void requestFullUpdate() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.IsoRegionClientRequestFullUpdate.getId(), var1);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void requestChunkObjectState() {
+         Iterator var1 = this.requests.values().iterator();
+
+         while(var1.hasNext()) {
+            Request var2 = (Request)var1.next();
+            ByteBuffer var3 = this.network.startPacket();
+            this.doPacket(PacketTypes.PacketType.ChunkObjectState.getId(), var3);
+            var3.putShort((short)var2.wx);
+            var3.putShort((short)var2.wy);
+            this.network.endPacket(this.connectionGUID);
+         }
+
+      }
+
+      private void requestChunks() {
+         if (!this.requests.isEmpty()) {
+            this.requestZipList();
+            this.requestChunkObjectState();
+            this.requests.clear();
+         }
+
+      }
+
+      private void sendStatisticsEnable(int var1) {
+         ByteBuffer var2 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.StatisticRequest.getId(), var2);
+         var2.put((byte)3);
+         var2.putInt(var1);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void receiveStatistics(ByteBuffer var1) {
+         long var2 = var1.getLong();
+         long var4 = var1.getLong();
+         long var6 = var1.getLong();
+         long var8 = var1.getLong();
+         long var10 = var1.getLong();
+         long var12 = var1.getLong();
+         long var14 = var1.getLong();
+         long var16 = var1.getLong();
+         long var18 = var1.getLong();
+         FakeClientManager.info(this.player.movement.id, String.format("ServerStats: con=[%2d] fps=[%2d] tps=[%2d] upt=[%4d-%4d/%4d], c1=[%d] c2=[%d] c3=[%d]", var12, var8, var10, var2, var4, var6, var14, var16, var18));
+      }
+
+      private void sendTimeSync() {
+         ByteBuffer var1 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.TimeSync.getId(), var1);
+         long var2 = System.nanoTime();
+         var1.putLong(var2);
+         var1.putLong(0L);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void receiveTimeSync(ByteBuffer var1) {
+         long var2 = var1.getLong();
+         long var4 = var1.getLong();
+         long var6 = System.nanoTime();
+         long var8 = var6 - var2;
+         long var10 = var4 - var6 + var8 / 2L;
+         long var12 = serverTimeShift;
+         if (!serverTimeShiftIsSet) {
+            serverTimeShift = var10;
+         } else {
+            serverTimeShift = (long)((float)serverTimeShift + (float)(var10 - serverTimeShift) * 0.05F);
+         }
+
+         long var14 = 10000000L;
+         if (Math.abs(serverTimeShift - var12) > var14) {
+            this.sendTimeSync();
+         } else {
+            serverTimeShiftIsSet = true;
+         }
+
+      }
+
+      private void receiveSyncClock(ByteBuffer var1) {
+         FakeClientManager.trace(this.player.movement.id, String.format("Player %3d sync clock", this.player.OnlineID));
+      }
+
+      private void receiveKicked(ByteBuffer var1) {
+         String var2 = FakeClientManager.ReadStringUTF(var1);
+         FakeClientManager.info(this.player.movement.id, String.format("Client kicked. Reason: %s", var2));
+      }
+
+      private void receiveChecksum(ByteBuffer var1) {
+         FakeClientManager.trace(this.player.movement.id, String.format("Player %3d receive Checksum", this.player.OnlineID));
+         short var2 = var1.getShort();
+         boolean var3 = var1.get() == 1;
+         boolean var4 = var1.get() == 1;
+         if (var2 != 1 || !var3 || !var4) {
+            FakeClientManager.info(this.player.movement.id, String.format("checksum lua: %b, script: %b", var3, var4));
+         }
+
+         this.changeState(FakeClientManager.Client.State.PLAYER_EXTRA_INFO);
+      }
+
+      private void receiveTeleport(ByteBuffer var1) {
+         byte var2 = var1.get();
+         float var3 = var1.getFloat();
+         float var4 = var1.getFloat();
+         float var5 = var1.getFloat();
+         FakeClientManager.info(this.player.movement.id, String.format("Player %3d teleport to (%d, %d)", this.player.OnlineID, (int)var3, (int)var4));
+         this.player.x = var3;
+         this.player.y = var4;
+      }
+
+      private void receiveZombieSimulation(ByteBuffer var1) {
+         this.player.simulator.clear();
+         boolean var2 = var1.get() == 1;
+         short var3 = var1.getShort();
+
+         short var4;
+         short var5;
+         for(var4 = 0; var4 < var3; ++var4) {
+            var5 = var1.getShort();
+            Zombie var6 = (Zombie)this.player.simulator.zombies.get(Integer.valueOf(var5));
+            this.player.simulator.zombies4Delete.add(var6);
+         }
+
+         var4 = var1.getShort();
+
+         for(var5 = 0; var5 < var4; ++var5) {
+            short var7 = var1.getShort();
+            this.player.simulator.add(var7);
+         }
+
+         this.player.simulator.receivePacket(var1);
+         this.player.simulator.process();
+      }
+
+      private void sendInjuries() {
+         SyncInjuriesPacket var1 = new SyncInjuriesPacket();
+         ByteBuffer var2 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.SyncInjuries.getId(), var2);
+         ByteBufferWriter var3 = new ByteBufferWriter(var2);
+         var1.write(var3);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void sendChecksum() {
+         if (!luaChecksum.isEmpty()) {
+            FakeClientManager.trace(this.player.movement.id, String.format("Player %3d sendChecksum", this.player.OnlineID));
+            ByteBuffer var1 = this.network.startPacket();
+            this.doPacket(PacketTypes.PacketType.Checksum.getId(), var1);
+            var1.putShort((short)1);
+            this.putUTF(var1, luaChecksum);
+            this.putUTF(var1, scriptChecksum);
+            this.network.endPacketImmediate(this.connectionGUID);
+         }
+      }
+
+      public void sendCommand(String var1) {
+         ByteBuffer var2 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.ReceiveCommand.getId(), var2);
+         FakeClientManager.WriteStringUTF(var2, var1);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void sendEventPacket(short var1, int var2, int var3, int var4, byte var5, String var6) {
+         ByteBuffer var7 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.EventPacket.getId(), var7);
+         var7.putShort(var1);
+         var7.putFloat((float)var2);
+         var7.putFloat((float)var3);
+         var7.putFloat((float)var4);
+         var7.put(var5);
+         FakeClientManager.WriteStringUTF(var7, var6);
+         FakeClientManager.WriteStringUTF(var7, "");
+         FakeClientManager.WriteStringUTF(var7, "");
+         FakeClientManager.WriteStringUTF(var7, "");
+         var7.putFloat(1.0F);
+         var7.putFloat(1.0F);
+         var7.putFloat(0.0F);
+         var7.putInt(0);
+         var7.putShort((short)0);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private void sendWorldSound4Player(int var1, int var2, int var3, int var4, int var5) {
+         ByteBuffer var6 = this.network.startPacket();
+         this.doPacket(PacketTypes.PacketType.WorldSoundPacket.getId(), var6);
+         var6.putInt(var1);
+         var6.putInt(var2);
+         var6.putInt(var3);
+         var6.putInt(var4);
+         var6.putInt(var5);
+         var6.put((byte)0);
+         var6.putFloat(0.0F);
+         var6.putFloat(1.0F);
+         var6.put((byte)0);
+         var6.put((byte)0);
+         this.network.endPacketImmediate(this.connectionGUID);
+      }
+
+      private static enum State {
+         CONNECT,
+         LOGIN,
+         CHECKSUM,
+         PLAYER_CONNECT,
+         PLAYER_EXTRA_INFO,
+         LOAD,
+         RUN,
+         WAIT,
+         DISCONNECT,
+         QUIT;
+
+         private State() {
+         }
+      }
+
+      private static final class Request {
+         private final int id;
+         private final int wx;
+         private final int wy;
+         private final long crc;
+
+         private Request(int var1, int var2, int var3) {
+            this.id = var3;
+            this.wx = var1;
+            this.wy = var2;
+            CRC32 var4 = new CRC32();
+            var4.reset();
+            var4.update(String.format("map_%d_%d.bin", var1, var2).getBytes());
+            this.crc = var4.getValue();
+         }
       }
    }
 
@@ -2529,6 +1674,129 @@ public class FakeClientManager {
       }
    }
 
+   private static class Movement {
+      static String version;
+      static int defaultRadius = 150;
+      static int aimSpeed = 4;
+      static int sneakSpeed = 6;
+      static int walkSpeed = 7;
+      static int sneakRunSpeed = 10;
+      static int runSpeed = 13;
+      static int sprintSpeed = 19;
+      static int pedestrianSpeedMin = 5;
+      static int pedestrianSpeedMax = 20;
+      static int vehicleSpeedMin = 40;
+      static int vehicleSpeedMax = 80;
+      static final float zombieLungeDistanceSquared = 100.0F;
+      static final float zombieWalkSpeed = 3.0F;
+      static final float zombieLungeSpeed = 6.0F;
+      final int id;
+      final String description;
+      final Vector2 spawn;
+      Motion motion;
+      float speed;
+      final Type type;
+      final int radius;
+      final IsoDirections direction;
+      final Vector2 destination;
+      final boolean ghost;
+      final long connectDelay;
+      final long disconnectDelay;
+      final long reconnectDelay;
+      final long teleportDelay;
+      final HordeCreator hordeCreator;
+      SoundMaker soundMaker;
+      long timestamp;
+
+      public Movement(int var1, String var2, int var3, int var4, Motion var5, int var6, Type var7, int var8, int var9, int var10, IsoDirections var11, boolean var12, long var13, long var15, long var17, long var19, HordeCreator var21, SoundMaker var22) {
+         this.id = var1;
+         this.description = var2;
+         this.spawn = new Vector2((float)var3, (float)var4);
+         this.motion = var5;
+         this.speed = (float)var6;
+         this.type = var7;
+         this.radius = var8;
+         this.direction = var11;
+         this.destination = new Vector2((float)var9, (float)var10);
+         this.ghost = var12;
+         this.connectDelay = var13;
+         this.disconnectDelay = var15;
+         this.reconnectDelay = var17;
+         this.teleportDelay = var19;
+         this.hordeCreator = var21;
+         this.soundMaker = var22;
+      }
+
+      public void connect(int var1) {
+         long var2 = System.currentTimeMillis();
+         if (this.disconnectDelay != 0L) {
+            FakeClientManager.info(this.id, String.format("Player %3d connect in %.3fs, disconnect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F, (float)this.disconnectDelay / 1000.0F));
+         } else {
+            FakeClientManager.info(this.id, String.format("Player %3d connect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F));
+         }
+
+         this.timestamp = var2;
+      }
+
+      public void disconnect(int var1) {
+         long var2 = System.currentTimeMillis();
+         if (this.reconnectDelay != 0L) {
+            FakeClientManager.info(this.id, String.format("Player %3d disconnect in %.3fs, reconnect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F, (float)this.reconnectDelay / 1000.0F));
+         } else {
+            FakeClientManager.info(this.id, String.format("Player %3d disconnect in %.3fs", var1, (float)(var2 - this.timestamp) / 1000.0F));
+         }
+
+         this.timestamp = var2;
+      }
+
+      public boolean doTeleport() {
+         return this.teleportDelay != 0L;
+      }
+
+      public boolean doDisconnect() {
+         return this.disconnectDelay != 0L;
+      }
+
+      public boolean checkDisconnect() {
+         return System.currentTimeMillis() - this.timestamp > this.disconnectDelay;
+      }
+
+      public boolean doReconnect() {
+         return this.reconnectDelay != 0L;
+      }
+
+      public boolean checkReconnect() {
+         return System.currentTimeMillis() - this.timestamp > this.reconnectDelay;
+      }
+
+      private static enum Motion {
+         Aim,
+         Sneak,
+         Walk,
+         SneakRun,
+         Run,
+         Sprint,
+         Pedestrian,
+         Vehicle;
+
+         private Motion() {
+         }
+      }
+
+      private static enum Type {
+         Stay,
+         Line,
+         Circle,
+         AIAttackZombies,
+         AIRunAwayFromZombies,
+         AIRunToAnotherPlayers,
+         AINormal;
+
+         private Type() {
+         }
+      }
+   }
+
    private static class PlayerManager {
       private Player player = null;
       private final PlayerPacket playerPacket = new PlayerPacket();
@@ -2544,8 +1812,6 @@ public class FakeClientManager {
          synchronized(this.players) {
             RemotePlayer var4 = (RemotePlayer)this.players.get(var2.id);
             if (var4 == null) {
-               var4 = new RemotePlayer(var2.id);
-               this.players.put(Integer.valueOf(var2.id), var4);
                FakeClientManager.trace(this.player.movement.id, String.format("New player %s", var4.OnlineID));
             }
 
@@ -2574,8 +1840,495 @@ public class FakeClientManager {
 
          public RemotePlayer(short var2) {
             this.playerPacket = new PlayerPacket();
-            this.playerPacket.id = var2;
             this.OnlineID = var2;
+         }
+      }
+   }
+
+   private static class HordeCreator {
+      private final int radius;
+      private final int count;
+      private final long interval;
+      private final UpdateLimit hordeCreatorLimiter;
+
+      public HordeCreator(int var1, int var2, long var3) {
+         this.radius = var1;
+         this.count = var2;
+         this.interval = var3;
+         this.hordeCreatorLimiter = new UpdateLimit(var3);
+      }
+
+      public String getCommand(int var1, int var2, int var3) {
+         return String.format("/createhorde2 -x %d -y %d -z %d -count %d -radius %d -crawler false -isFallOnFront false -isFakeDead false -knockedDown false -health 1 -outfit", var1, var2, var3, this.count, this.radius);
+      }
+   }
+
+   private static class SoundMaker {
+      private final int radius;
+      private final int interval;
+      private final String message;
+      private final UpdateLimit soundMakerLimiter;
+
+      public SoundMaker(int var1, int var2, String var3) {
+         this.radius = var2;
+         this.message = var3;
+         this.interval = var1;
+         this.soundMakerLimiter = new UpdateLimit((long)var1);
+      }
+   }
+
+   private static class ZombieSimulator {
+      public static Behaviour behaviour;
+      public static int deleteZombieDistanceSquared;
+      public static int forgotZombieDistanceSquared;
+      public static int canSeeZombieDistanceSquared;
+      public static int seeZombieDistanceSquared;
+      private static boolean canChangeTarget;
+      private static int updatePeriod;
+      private static int attackPeriod;
+      public static int maxZombiesPerUpdate;
+      private final ByteBuffer bb = ByteBuffer.allocate(1000000);
+      private UpdateLimit updateLimiter;
+      private UpdateLimit attackLimiter;
+      private Player player;
+      private final ZombiePacket zombiePacket;
+      private HashSet<Short> authoriseZombiesCurrent;
+      private HashSet<Short> authoriseZombiesLast;
+      private final ArrayList<Short> unknownZombies;
+      private final HashMap<Integer, Zombie> zombies;
+      private final ArrayDeque<Zombie> zombies4Add;
+      private final ArrayDeque<Zombie> zombies4Delete;
+      private final HashSet<Short> authoriseZombies;
+      private final ArrayDeque<Zombie> SendQueue;
+      private static Vector2 tmpDir;
+
+      public ZombieSimulator(Player var1) {
+         this.updateLimiter = new UpdateLimit((long)updatePeriod);
+         this.attackLimiter = new UpdateLimit((long)attackPeriod);
+         this.player = null;
+         this.zombiePacket = new ZombiePacket();
+         this.authoriseZombiesCurrent = new HashSet();
+         this.authoriseZombiesLast = new HashSet();
+         this.unknownZombies = new ArrayList();
+         this.zombies = new HashMap();
+         this.zombies4Add = new ArrayDeque();
+         this.zombies4Delete = new ArrayDeque();
+         this.authoriseZombies = new HashSet();
+         this.SendQueue = new ArrayDeque();
+         this.player = var1;
+      }
+
+      public void becomeLocal(Zombie var1) {
+         var1.localOwnership = true;
+      }
+
+      public void becomeRemote(Zombie var1) {
+         var1.localOwnership = false;
+      }
+
+      public void clear() {
+         HashSet var1 = this.authoriseZombiesCurrent;
+         this.authoriseZombiesCurrent = this.authoriseZombiesLast;
+         this.authoriseZombiesLast = var1;
+         this.authoriseZombiesLast.removeIf((var1x) -> {
+            return this.zombies.get(Integer.valueOf(var1x)) == null;
+         });
+         this.authoriseZombiesCurrent.clear();
+      }
+
+      public void add(short var1) {
+         this.authoriseZombiesCurrent.add(var1);
+      }
+
+      public void receivePacket(ByteBuffer var1) {
+         short var2 = var1.getShort();
+
+         for(short var3 = 0; var3 < var2; ++var3) {
+            this.parseZombie(var1);
+         }
+
+      }
+
+      private void parseZombie(ByteBuffer var1) {
+         ZombiePacket var2 = this.zombiePacket;
+         var2.parse(var1, (UdpConnection)null);
+         Zombie var3 = (Zombie)this.zombies.get(Integer.valueOf(var2.id));
+         if (!this.authoriseZombies.contains(var2.id) || var3 == null) {
+            if (var3 == null) {
+               var3 = new Zombie(var2.id);
+               this.zombies4Add.add(var3);
+               FakeClientManager.trace(this.player.movement.id, String.format("New zombie %s", var3.OnlineID));
+            }
+
+            var3.lastUpdate = System.currentTimeMillis();
+            var3.zombiePacket.copy(var2);
+            var3.x = var2.realX;
+            var3.y = var2.realY;
+            var3.z = (float)var2.realZ;
+         }
+      }
+
+      public void process() {
+         Sets.SetView var1 = Sets.difference(this.authoriseZombiesCurrent, this.authoriseZombiesLast);
+         UnmodifiableIterator var2 = var1.iterator();
+
+         while(var2.hasNext()) {
+            Short var3 = (Short)var2.next();
+            Zombie var4 = (Zombie)this.zombies.get(Integer.valueOf(var3));
+            if (var4 != null) {
+               this.becomeLocal(var4);
+            } else if (!this.unknownZombies.contains(var3)) {
+               this.unknownZombies.add(var3);
+            }
+         }
+
+         Sets.SetView var8 = Sets.difference(this.authoriseZombiesLast, this.authoriseZombiesCurrent);
+         UnmodifiableIterator var9 = var8.iterator();
+
+         while(var9.hasNext()) {
+            Short var10 = (Short)var9.next();
+            Zombie var5 = (Zombie)this.zombies.get(Integer.valueOf(var10));
+            if (var5 != null) {
+               this.becomeRemote(var5);
+            }
+         }
+
+         synchronized(this.authoriseZombies) {
+            this.authoriseZombies.clear();
+            this.authoriseZombies.addAll(this.authoriseZombiesCurrent);
+         }
+      }
+
+      public void send() {
+         if (this.authoriseZombies.size() != 0 || this.unknownZombies.size() != 0) {
+            Zombie var4;
+            if (this.SendQueue.isEmpty()) {
+               synchronized(this.authoriseZombies) {
+                  Iterator var2 = this.authoriseZombies.iterator();
+
+                  while(var2.hasNext()) {
+                     Short var3 = (Short)var2.next();
+                     var4 = (Zombie)this.zombies.get(Integer.valueOf(var3));
+                     if (var4 != null && var4.OnlineID != -1) {
+                        this.SendQueue.add(var4);
+                     }
+                  }
+               }
+            }
+
+            this.bb.clear();
+            this.bb.putShort((short)0);
+            int var1 = this.unknownZombies.size();
+            this.bb.putShort((short)var1);
+
+            int var7;
+            for(var7 = 0; var7 < this.unknownZombies.size(); ++var7) {
+               if (this.unknownZombies.get(var7) == null) {
+                  return;
+               }
+
+               this.bb.putShort((Short)this.unknownZombies.get(var7));
+            }
+
+            this.unknownZombies.clear();
+            var7 = this.bb.position();
+            this.bb.putShort((short)maxZombiesPerUpdate);
+            int var8 = 0;
+
+            while(!this.SendQueue.isEmpty()) {
+               var4 = (Zombie)this.SendQueue.poll();
+               if (var4.OnlineID != -1) {
+                  var4.zombiePacket.write(this.bb);
+                  ++var8;
+                  if (var8 >= maxZombiesPerUpdate) {
+                     break;
+                  }
+               }
+            }
+
+            if (var8 < maxZombiesPerUpdate) {
+               int var9 = this.bb.position();
+               this.bb.position(var7);
+               this.bb.putShort((short)var8);
+               this.bb.position(var9);
+            }
+
+            if (var8 > 0 || var1 > 0) {
+               ByteBuffer var10 = this.player.client.network.startPacket();
+               this.player.client.doPacket(PacketTypes.PacketType.ZombieSimulation.getId(), var10);
+               var10.put(this.bb.array(), 0, this.bb.position());
+               this.player.client.network.endPacketSuperHighUnreliable(this.player.client.connectionGUID);
+            }
+
+         }
+      }
+
+      private void simulate(Integer var1, Zombie var2) {
+         float var3 = IsoUtils.DistanceToSquared(this.player.x, this.player.y, var2.x, var2.y);
+         if (!(var3 > (float)deleteZombieDistanceSquared) && (var2.localOwnership || var2.lastUpdate + 5000L >= System.currentTimeMillis())) {
+            tmpDir.set(-var2.x + this.player.x, -var2.y + this.player.y);
+            float var4;
+            if (var2.isMoving) {
+               var4 = 0.2F;
+               var2.x = PZMath.lerp(var2.x, var2.zombiePacket.x, var4);
+               var2.y = PZMath.lerp(var2.y, var2.zombiePacket.y, var4);
+               var2.z = 0.0F;
+               var2.dir = IsoDirections.fromAngle(tmpDir);
+            }
+
+            if (canChangeTarget) {
+               synchronized(this.player.playerManager.players) {
+                  Iterator var5 = this.player.playerManager.players.values().iterator();
+
+                  while(var5.hasNext()) {
+                     PlayerManager.RemotePlayer var6 = (PlayerManager.RemotePlayer)var5.next();
+                     float var7 = IsoUtils.DistanceToSquared(var6.x, var6.y, var2.x, var2.y);
+                     if (var7 < (float)seeZombieDistanceSquared) {
+                        var2.zombiePacket.target = var6.OnlineID;
+                        break;
+                     }
+                  }
+               }
+            } else {
+               var2.zombiePacket.target = this.player.OnlineID;
+            }
+
+            if (behaviour == FakeClientManager.ZombieSimulator.Behaviour.Stay) {
+               var2.isMoving = false;
+            } else if (behaviour == FakeClientManager.ZombieSimulator.Behaviour.Normal) {
+               if (var3 > (float)forgotZombieDistanceSquared) {
+                  var2.isMoving = false;
+               }
+
+               if (var3 < (float)canSeeZombieDistanceSquared && (Rand.Next(100) < 1 || var2.dir == IsoDirections.fromAngle(tmpDir))) {
+                  var2.isMoving = true;
+               }
+
+               if (var3 < (float)seeZombieDistanceSquared) {
+                  var2.isMoving = true;
+               }
+            } else {
+               var2.isMoving = true;
+            }
+
+            var4 = 0.0F;
+            if (var2.isMoving) {
+               Vector2 var10 = var2.dir.ToVector();
+               var4 = 3.0F;
+               if (var3 < 100.0F) {
+                  var4 = 6.0F;
+               }
+
+               long var11 = System.currentTimeMillis() - var2.lastUpdate;
+               var2.zombiePacket.x = var2.x + var10.x * (float)var11 * 0.001F * var4;
+               var2.zombiePacket.y = var2.y + var10.y * (float)var11 * 0.001F * var4;
+               var2.zombiePacket.z = (byte)((int)var2.z);
+               var2.zombiePacket.moveType = NetworkVariables.PredictionTypes.Moving;
+            } else {
+               var2.zombiePacket.x = var2.x;
+               var2.zombiePacket.y = var2.y;
+               var2.zombiePacket.z = (byte)((int)var2.z);
+               var2.zombiePacket.moveType = NetworkVariables.PredictionTypes.Static;
+            }
+
+            var2.zombiePacket.booleanVariables = 0;
+            if (var3 < 100.0F) {
+               ZombiePacket var10000 = var2.zombiePacket;
+               var10000.booleanVariables = (short)(var10000.booleanVariables | 2);
+            }
+
+            var2.zombiePacket.timeSinceSeenFlesh = var2.isMoving ? 0 : 100000;
+            var2.zombiePacket.smParamTargetAngle = 0;
+            var2.zombiePacket.speedMod = 1000;
+            var2.zombiePacket.walkType = NetworkVariables.WalkType.values()[var2.walkType];
+            var2.zombiePacket.realX = var2.x;
+            var2.zombiePacket.realY = var2.y;
+            var2.zombiePacket.realZ = (byte)((int)var2.z);
+            var2.zombiePacket.realHealth = (short)((int)(var2.health * 1000.0F));
+            var2.zombiePacket.realState = NetworkVariables.ZombieState.fromString("fakezombie-" + behaviour.toString().toLowerCase());
+            if (var2.isMoving) {
+               var2.zombiePacket.pfbType = 1;
+               var2.zombiePacket.pfbTarget = this.player.OnlineID;
+            } else {
+               var2.zombiePacket.pfbType = 0;
+            }
+
+            if (var3 < 2.0F && this.attackLimiter.Check()) {
+               var2.health -= FakeClientManager.Player.damage;
+               this.sendHitCharacter(var2, FakeClientManager.Player.damage);
+               if (var2.health <= 0.0F) {
+                  this.player.client.sendChatMessage("DIE!!");
+                  this.zombies4Delete.add(var2);
+               }
+            }
+
+            var2.lastUpdate = System.currentTimeMillis();
+         } else {
+            this.zombies4Delete.add(var2);
+         }
+      }
+
+      private void writeHitInfoToZombie(ByteBuffer var1, short var2, float var3, float var4, float var5) {
+         var1.put((byte)2);
+         var1.putShort(var2);
+         var1.put((byte)0);
+         var1.putFloat(var3);
+         var1.putFloat(var4);
+         var1.putFloat(0.0F);
+         var1.putFloat(var5);
+         var1.putFloat(1.0F);
+         var1.putInt(100);
+      }
+
+      private void sendHitCharacter(Zombie var1, float var2) {
+         boolean var3 = false;
+         ByteBuffer var4 = this.player.client.network.startPacket();
+         this.player.client.doPacket(PacketTypes.PacketType.PlayerHitZombie.getId(), var4);
+         var4.put((byte)3);
+         var4.putShort(this.player.OnlineID);
+         var4.putShort((short)0);
+         var4.putFloat(this.player.x);
+         var4.putFloat(this.player.y);
+         var4.putFloat(this.player.z);
+         var4.putFloat(this.player.direction.x);
+         var4.putFloat(this.player.direction.y);
+         FakeClientManager.WriteStringUTF(var4, "");
+         FakeClientManager.WriteStringUTF(var4, "");
+         FakeClientManager.WriteStringUTF(var4, "");
+         var4.putShort((short)((this.player.weapon_isBareHeads ? 2 : 0) + (var3 ? 8 : 0)));
+         var4.putFloat(1.0F);
+         var4.putFloat(1.0F);
+         var4.putFloat(1.0F);
+         FakeClientManager.WriteStringUTF(var4, "default");
+         byte var5 = 0;
+         byte var8 = (byte)(var5 | (byte)(this.player.weapon_isBareHeads ? 9 : 0));
+         var4.put(var8);
+         var4.put((byte)0);
+         var4.putShort((short)0);
+         var4.putFloat(1.0F);
+         var4.putInt(0);
+         byte var6 = 1;
+         var4.put(var6);
+
+         int var7;
+         for(var7 = 0; var7 < var6; ++var7) {
+            this.writeHitInfoToZombie(var4, var1.OnlineID, var1.x, var1.y, var2);
+         }
+
+         var6 = 0;
+         var4.put(var6);
+         var6 = 1;
+         var4.put(var6);
+
+         for(var7 = 0; var7 < var6; ++var7) {
+            this.writeHitInfoToZombie(var4, var1.OnlineID, var1.x, var1.y, var2);
+         }
+
+         if (!this.player.weapon_isBareHeads) {
+            var4.put((byte)0);
+         } else {
+            var4.put((byte)1);
+            var4.putShort(this.player.registry_id);
+            var4.put((byte)1);
+            var4.putInt(this.player.weapon_id);
+            var4.put((byte)0);
+            var4.putInt(0);
+            var4.putInt(0);
+         }
+
+         var4.putShort(var1.OnlineID);
+         var4.putShort((short)(var2 >= var1.health ? 3 : 0));
+         var4.putFloat(var1.x);
+         var4.putFloat(var1.y);
+         var4.putFloat(var1.z);
+         var4.putFloat(var1.dir.ToVector().x);
+         var4.putFloat(var1.dir.ToVector().y);
+         FakeClientManager.WriteStringUTF(var4, "");
+         FakeClientManager.WriteStringUTF(var4, "");
+         FakeClientManager.WriteStringUTF(var4, "");
+         var4.putShort((short)0);
+         FakeClientManager.WriteStringUTF(var4, "");
+         FakeClientManager.WriteStringUTF(var4, "FRONT");
+         var4.put((byte)0);
+         var4.putFloat(var2);
+         var4.putFloat(1.0F);
+         var4.putFloat(this.player.direction.x);
+         var4.putFloat(this.player.direction.y);
+         var4.putFloat(1.0F);
+         var4.put((byte)0);
+         if (tmpDir.getLength() > 0.0F) {
+            var1.dropPositionX = var1.x + tmpDir.x / tmpDir.getLength();
+            var1.dropPositionY = var1.y + tmpDir.y / tmpDir.getLength();
+         } else {
+            var1.dropPositionX = var1.x;
+            var1.dropPositionY = var1.y;
+         }
+
+         var4.putFloat(var1.dropPositionX);
+         var4.putFloat(var1.dropPositionY);
+         var4.put((byte)((int)var1.z));
+         var4.putFloat(var1.dir.toAngle());
+         this.player.client.network.endPacketImmediate(this.player.client.connectionGUID);
+      }
+
+      private void sendSendDeadZombie(Zombie var1) {
+         ByteBuffer var2 = this.player.client.network.startPacket();
+         this.player.client.doPacket(PacketTypes.PacketType.ZombieDeath.getId(), var2);
+         var2.putShort(var1.OnlineID);
+         var2.putFloat(var1.x);
+         var2.putFloat(var1.y);
+         var2.putFloat(var1.z);
+         var2.putFloat(var1.dir.toAngle());
+         var2.put((byte)var1.dir.index());
+         var2.put((byte)0);
+         var2.put((byte)0);
+         var2.put((byte)0);
+         this.player.client.network.endPacketImmediate(this.player.client.connectionGUID);
+      }
+
+      public void simulateAll() {
+         Zombie var1;
+         while(!this.zombies4Add.isEmpty()) {
+            var1 = (Zombie)this.zombies4Add.poll();
+            this.zombies.put(Integer.valueOf(var1.OnlineID), var1);
+         }
+
+         this.zombies.forEach(this::simulate);
+
+         while(!this.zombies4Delete.isEmpty()) {
+            var1 = (Zombie)this.zombies4Delete.poll();
+            this.zombies.remove(Integer.valueOf(var1.OnlineID));
+         }
+
+      }
+
+      public void update() {
+         if (this.updateLimiter.Check()) {
+            this.simulateAll();
+            this.send();
+         }
+
+      }
+
+      static {
+         behaviour = FakeClientManager.ZombieSimulator.Behaviour.Stay;
+         deleteZombieDistanceSquared = 10000;
+         forgotZombieDistanceSquared = 225;
+         canSeeZombieDistanceSquared = 100;
+         seeZombieDistanceSquared = 25;
+         canChangeTarget = true;
+         updatePeriod = 100;
+         attackPeriod = 1000;
+         maxZombiesPerUpdate = 300;
+         tmpDir = new Vector2();
+      }
+
+      private static enum Behaviour {
+         Stay,
+         Normal,
+         Attack;
+
+         private Behaviour() {
          }
       }
    }

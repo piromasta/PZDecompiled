@@ -1,20 +1,27 @@
 package zombie.iso.objects;
 
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.Lua.LuaEventManager;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
+import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
+import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.model.ItemModelRenderer;
 import zombie.core.skinnedmodel.model.WorldItemModelDrawer;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
+import zombie.entity.ComponentType;
 import zombie.input.Mouse;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
@@ -24,15 +31,18 @@ import zombie.inventory.types.DrainableComboItem;
 import zombie.inventory.types.InventoryContainer;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.PlayerCamera;
-import zombie.iso.sprite.IsoDirectionFrame;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.PacketTypes;
 import zombie.network.ServerGUI;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
@@ -50,14 +60,18 @@ public class IsoWorldInventoryObject extends IsoObject {
    public boolean removeProcess = false;
    public double dropTime = -1.0;
    public boolean ignoreRemoveSandbox = false;
+   public boolean bHighlighted = false;
 
    public IsoWorldInventoryObject(InventoryItem var1, IsoGridSquare var2, float var3, float var4, float var5) {
       this.OutlineOnMouseover = true;
-      if (var1.worldZRotation < 0) {
-         var1.worldZRotation = Rand.Next(0, 360);
+      if (var1 != null) {
+         if (var1.worldZRotation < 0) {
+            var1.worldZRotation = Rand.Next(0, 360);
+         }
+
+         var1.setContainer((ItemContainer)null);
       }
 
-      var1.setContainer((ItemContainer)null);
       this.xoff = var3;
       this.yoff = var4;
       this.zoff = var5;
@@ -71,7 +85,10 @@ public class IsoWorldInventoryObject extends IsoObject {
 
       this.item = var1;
       this.sprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-      this.updateSprite();
+      if (var1 != null) {
+         this.updateSprite();
+      }
+
       this.square = var2;
       this.offsetY = 0.0F;
       this.offsetX = 0.0F;
@@ -137,7 +154,7 @@ public class IsoWorldInventoryObject extends IsoObject {
    public void loadChange(String var1, ByteBuffer var2) {
       if ("swapItem".equals(var1)) {
          try {
-            InventoryItem var3 = InventoryItem.loadItem(var2, 195);
+            InventoryItem var3 = InventoryItem.loadItem(var2, 219);
             if (var3 != null) {
                this.swapItem(var3);
             }
@@ -157,18 +174,9 @@ public class IsoWorldInventoryObject extends IsoObject {
          if (this.item.isBroken()) {
          }
 
-         if (!this.item.canStoreWater()) {
-            return false;
-         } else if (this.item.isWaterSource() && this.item instanceof DrainableComboItem) {
-            return ((DrainableComboItem)this.item).getRainFactor() > 0.0F;
+         if (this.item.hasComponent(ComponentType.FluidContainer)) {
+            return this.item.getFluidContainer().getRainCatcher() > 0.0F;
          } else {
-            if (this.item.hasReplaceType("WaterSource")) {
-               Item var1 = ScriptManager.instance.getItem(this.item.getReplaceType("WaterSource"));
-               if (var1 != null && var1.getType() == Item.Type.Drainable) {
-                  return var1.getCanStoreWater() && var1.getRainFactor() > 0.0F;
-               }
-            }
-
             return false;
          }
       }
@@ -176,7 +184,11 @@ public class IsoWorldInventoryObject extends IsoObject {
 
    public int getWaterAmount() {
       if (this.isWaterSource()) {
-         return this.item instanceof DrainableComboItem ? ((DrainableComboItem)this.item).getRemainingUses() : 0;
+         if (this.item.hasComponent(ComponentType.FluidContainer)) {
+            this.item.getFluidContainer().getAmount();
+         }
+
+         return 0;
       } else {
          return 0;
       }
@@ -187,11 +199,11 @@ public class IsoWorldInventoryObject extends IsoObject {
          DrainableComboItem var2 = (DrainableComboItem)Type.tryCastTo(this.item, DrainableComboItem.class);
          InventoryItem var3;
          if (var2 != null) {
-            var2.setUsedDelta((float)var1 * var2.getUseDelta());
+            var2.setCurrentUses(var1);
             if (var1 == 0 && var2.getReplaceOnDeplete() != null) {
                var3 = InventoryItemFactory.CreateItem(var2.getReplaceOnDepleteFullType());
                if (var3 != null) {
-                  var3.setCondition(this.getItem().getCondition());
+                  var3.setConditionNoSound(this.getItem().getCondition());
                   var3.setFavorite(this.getItem().isFavorite());
                   this.swapItem(var3);
                }
@@ -199,12 +211,11 @@ public class IsoWorldInventoryObject extends IsoObject {
          } else if (var1 > 0 && this.getItem().hasReplaceType("WaterSource")) {
             var3 = InventoryItemFactory.CreateItem(this.getItem().getReplaceType("WaterSource"));
             if (var3 != null) {
-               var3.setCondition(this.getItem().getCondition());
+               var3.setConditionNoSound(this.getItem().getCondition());
                var3.setFavorite(this.getItem().isFavorite());
-               var3.setTaintedWater(this.getItem().isTaintedWater());
                var2 = (DrainableComboItem)Type.tryCastTo(var3, DrainableComboItem.class);
                if (var2 != null) {
-                  var2.setUsedDelta((float)var1 * var2.getUseDelta());
+                  var2.setCurrentUses(var1);
                }
 
                this.swapItem(var3);
@@ -218,7 +229,7 @@ public class IsoWorldInventoryObject extends IsoObject {
       if (this.isWaterSource()) {
          float var1;
          if (this.item instanceof DrainableComboItem) {
-            var1 = 1.0F / ((DrainableComboItem)this.item).getUseDelta();
+            var1 = (float)this.item.getCurrentUses();
          } else {
             if (!this.getItem().hasReplaceType("WaterSource")) {
                return 0;
@@ -239,14 +250,10 @@ public class IsoWorldInventoryObject extends IsoObject {
    }
 
    public boolean isTaintedWater() {
-      return this.isWaterSource() ? this.getItem().isTaintedWater() : false;
+      return false;
    }
 
    public void setTaintedWater(boolean var1) {
-      if (this.isWaterSource()) {
-         this.getItem().setTaintedWater(var1);
-      }
-
    }
 
    public void update() {
@@ -275,7 +282,7 @@ public class IsoWorldInventoryObject extends IsoObject {
             var1 = "media/inventory/world/WItem_Sack.png";
          }
 
-         var2 = this.sprite.LoadFrameExplicit(var1);
+         var2 = this.sprite.LoadSingleTexture(var1);
          if (this.item.getScriptItem() == null) {
             this.sprite.def.scaleAspect((float)var2.getWidthOrig(), (float)var2.getHeightOrig(), (float)(16 * Core.TileScale), (float)(16 * Core.TileScale));
          } else {
@@ -302,57 +309,41 @@ public class IsoWorldInventoryObject extends IsoObject {
       BitHeaderRead var6;
       if (this.item == null) {
          var1.getDouble();
-         if (var2 >= 193) {
-            var6 = BitHeader.allocRead(BitHeader.HeaderSize.Byte, var1);
-            var6.release();
-         }
-
+         var6 = BitHeader.allocRead(BitHeader.HeaderSize.Byte, var1);
+         var6.release();
       } else {
          this.item.setWorldItem(this);
          this.sprite.getTintMod().r = this.item.getR();
          this.sprite.getTintMod().g = this.item.getG();
          this.sprite.getTintMod().b = this.item.getB();
-         if (var2 >= 108) {
-            this.dropTime = var1.getDouble();
-         } else {
-            this.dropTime = GameTime.getInstance().getWorldAgeHours();
-         }
-
-         if (var2 >= 193) {
-            var6 = BitHeader.allocRead(BitHeader.HeaderSize.Byte, var1);
-            this.ignoreRemoveSandbox = var6.hasFlags(1);
-            var6.release();
-         }
-
+         this.dropTime = var1.getDouble();
+         var6 = BitHeader.allocRead(BitHeader.HeaderSize.Byte, var1);
+         this.ignoreRemoveSandbox = var6.hasFlags(1);
+         var6.release();
          if (!GameServer.bServer || ServerGUI.isCreated()) {
-            String var10 = this.item.getTex().getName();
+            String var7 = this.item.getTex().getName();
             if (this.item.isUseWorldItem()) {
-               var10 = this.item.getWorldTexture();
+               var7 = this.item.getWorldTexture();
             }
 
-            Texture var7;
+            Texture var8;
             try {
-               var7 = Texture.getSharedTexture(var10);
-               if (var7 == null) {
-                  var10 = this.item.getTex().getName();
+               var8 = Texture.getSharedTexture(var7);
+               if (var8 == null) {
+                  var7 = this.item.getTex().getName();
                }
-            } catch (Exception var9) {
-               var10 = "media/inventory/world/WItem_Sack.png";
+            } catch (Exception var10) {
+               var7 = "media/inventory/world/WItem_Sack.png";
             }
 
-            var7 = this.sprite.LoadFrameExplicit(var10);
-            if (var7 != null) {
-               if (var2 < 33) {
-                  float var10000 = var4 - (float)(var7.getWidthOrig() / 2);
-                  var10000 = var5 - (float)var7.getHeightOrig();
-               }
-
+            var8 = this.sprite.LoadSingleTexture(var7);
+            if (var8 != null) {
                if (this.item.getScriptItem() == null) {
-                  this.sprite.def.scaleAspect((float)var7.getWidthOrig(), (float)var7.getHeightOrig(), (float)(16 * Core.TileScale), (float)(16 * Core.TileScale));
+                  this.sprite.def.scaleAspect((float)var8.getWidthOrig(), (float)var8.getHeightOrig(), (float)(16 * Core.TileScale), (float)(16 * Core.TileScale));
                } else {
                   float var10001 = (float)Core.TileScale;
-                  float var8 = this.item.getScriptItem().ScaleWorldIcon * (var10001 / 2.0F);
-                  this.sprite.def.setScale(var8, var8);
+                  float var9 = this.item.getScriptItem().ScaleWorldIcon * (var10001 / 2.0F);
+                  this.sprite.def.setScale(var9, var9);
                }
 
             }
@@ -406,14 +397,16 @@ public class IsoWorldInventoryObject extends IsoObject {
    }
 
    private void debugDrawLocation(float var1, float var2, float var3) {
-      if (Core.bDebug && DebugOptions.instance.ModelRenderAxis.getValue()) {
-         var1 += this.xoff;
-         var2 += this.yoff;
-         var3 += this.zoff;
-         LineDrawer.DrawIsoLine(var1 - 0.25F, var2, var3, var1 + 0.25F, var2, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
-         LineDrawer.DrawIsoLine(var1, var2 - 0.25F, var3, var1, var2 + 0.25F, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
-      }
+      if (!PerformanceSettings.FBORenderChunk) {
+         if (Core.bDebug && DebugOptions.instance.Model.Render.Axis.getValue()) {
+            var1 += this.xoff;
+            var2 += this.yoff;
+            var3 += this.zoff;
+            LineDrawer.DrawIsoLine(var1 - 0.25F, var2, var3, var1 + 0.25F, var2, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+            LineDrawer.DrawIsoLine(var1, var2 - 0.25F, var3, var1, var2 + 0.25F, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+         }
 
+      }
    }
 
    private void debugHitTest() {
@@ -440,31 +433,34 @@ public class IsoWorldInventoryObject extends IsoObject {
       }
 
       if (this.getItem().getScriptItem().isWorldRender()) {
-         if (WorldItemModelDrawer.renderMain(this.getItem(), this.getSquare(), this.getX() + this.xoff, this.getY() + this.yoff, this.getZ() + this.zoff, 0.0F)) {
-            this.debugDrawLocation(var1, var2, var3);
-         } else if (this.sprite.CurrentAnim != null && !this.sprite.CurrentAnim.Frames.isEmpty()) {
-            Texture var8 = ((IsoDirectionFrame)this.sprite.CurrentAnim.Frames.get(0)).getTexture(this.dir);
-            if (var8 != null) {
-               float var9 = (float)var8.getWidthOrig() * this.sprite.def.getScaleX() / 2.0F;
-               float var10 = (float)var8.getHeightOrig() * this.sprite.def.getScaleY() * 3.0F / 4.0F;
-               int var11 = IsoCamera.frameState.playerIndex;
-               float var12 = this.getAlpha(var11);
-               float var13 = this.getTargetAlpha(var11);
-               float var14 = PZMath.min(getSurfaceAlpha(this.square, this.zoff), var12);
-               this.setAlphaAndTarget(var11, var14);
-               this.sprite.render(this, var1 + this.xoff, var2 + this.yoff, var3 + this.zoff, this.dir, this.offsetX + var9, this.offsetY + var10, var4, true);
-               this.setAlpha(var11, var12);
-               this.setTargetAlpha(var11, var13);
-               this.debugDrawLocation(var1, var2, var3);
+         ItemModelRenderer.RenderStatus var8 = WorldItemModelDrawer.renderMain(this.getItem(), this.getSquare(), this.getRenderSquare(), this.getX() + this.xoff, this.getY() + this.yoff, this.getZ() + this.zoff, 0.0F);
+         if (var8 != ItemModelRenderer.RenderStatus.Loading && var8 != ItemModelRenderer.RenderStatus.Ready) {
+            if (!this.sprite.hasNoTextures()) {
+               Texture var9 = this.sprite.getTextureForCurrentFrame(this.dir);
+               if (var9 != null) {
+                  float var10 = (float)var9.getWidthOrig() * this.sprite.def.getScaleX() / 2.0F;
+                  float var11 = (float)var9.getHeightOrig() * this.sprite.def.getScaleY() * 3.0F / 4.0F;
+                  int var12 = IsoCamera.frameState.playerIndex;
+                  float var13 = this.getAlpha(var12);
+                  float var14 = this.getTargetAlpha(var12);
+                  float var15 = PZMath.min(getSurfaceAlpha(this.square, this.zoff), var13);
+                  this.setAlphaAndTarget(var12, var15);
+                  this.sprite.render(this, var1 + this.xoff, var2 + this.yoff, var3 + this.zoff, this.dir, this.offsetX + var10, this.offsetY + var11, var4, true);
+                  this.setAlpha(var12, var13);
+                  this.setTargetAlpha(var12, var14);
+                  this.debugDrawLocation(var1, var2, var3);
+               }
             }
+         } else {
+            this.debugDrawLocation(var1, var2, var3);
          }
       }
    }
 
    public void renderObjectPicker(float var1, float var2, float var3, ColorInfo var4) {
       if (this.sprite != null) {
-         if (this.sprite.CurrentAnim != null && !this.sprite.CurrentAnim.Frames.isEmpty()) {
-            Texture var5 = ((IsoDirectionFrame)this.sprite.CurrentAnim.Frames.get(0)).getTexture(this.dir);
+         if (!this.sprite.hasNoTextures()) {
+            Texture var5 = this.sprite.getTextureForCurrentFrame(this.dir);
             if (var5 != null) {
                float var6 = (float)(var5.getWidthOrig() / 2);
                float var7 = (float)var5.getHeightOrig();
@@ -556,28 +552,134 @@ public class IsoWorldInventoryObject extends IsoObject {
    }
 
    public static float getSurfaceAlpha(IsoGridSquare var0, float var1) {
+      return getSurfaceAlpha(var0, var1, false);
+   }
+
+   public static float getSurfaceAlpha(IsoGridSquare var0, float var1, boolean var2) {
       if (var0 == null) {
          return 1.0F;
       } else {
-         int var2 = IsoCamera.frameState.playerIndex;
-         float var3 = 1.0F;
+         int var3 = IsoCamera.frameState.playerIndex;
+         float var4 = 1.0F;
          if (var1 > 0.01F) {
-            boolean var4 = false;
+            boolean var5 = false;
 
-            for(int var5 = 0; var5 < var0.getObjects().size(); ++var5) {
-               IsoObject var6 = (IsoObject)var0.getObjects().get(var5);
-               if (var6.getSurfaceOffsetNoTable() > 0.0F) {
-                  if (!var4) {
-                     var4 = true;
-                     var3 = 0.0F;
+            for(int var6 = 0; var6 < var0.getObjects().size(); ++var6) {
+               IsoObject var7 = (IsoObject)var0.getObjects().get(var6);
+               if (var7.getSurfaceOffsetNoTable() > 0.0F && !var7.getProperties().isSurfaceOffset()) {
+                  if (!var5) {
+                     var5 = true;
+                     var4 = 0.0F;
                   }
 
-                  var3 = PZMath.max(var3, var6.getAlpha(var2));
+                  if (var2) {
+                     var4 = PZMath.max(var4, var7.getRenderInfo(var3).m_targetAlpha);
+                  } else {
+                     var4 = PZMath.max(var4, var7.getAlpha(var3));
+                  }
                }
             }
          }
 
-         return var3;
+         return var4;
       }
+   }
+
+   public void setOffset(float var1, float var2, float var3) {
+      if (var1 != this.xoff || var2 != this.yoff || var3 != this.zoff) {
+         this.xoff = var1;
+         this.yoff = var2;
+         this.zoff = var3;
+         this.syncIsoObject(false, (byte)1, (UdpConnection)null, (ByteBuffer)null);
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+      }
+   }
+
+   public void syncIsoObjectSend(ByteBufferWriter var1) {
+      var1.putInt(this.square.getX());
+      var1.putInt(this.square.getY());
+      var1.putInt(this.square.getZ());
+      byte var2 = (byte)this.square.getObjects().indexOf(this);
+      var1.putByte(var2);
+      var1.putByte((byte)1);
+      var1.putByte((byte)1);
+      var1.putFloat(this.xoff);
+      var1.putFloat(this.yoff);
+      var1.putFloat(this.zoff);
+   }
+
+   public void syncIsoObject(boolean var1, byte var2, UdpConnection var3, ByteBuffer var4) {
+      if (this.square == null) {
+         System.out.println("ERROR: " + this.getClass().getSimpleName() + " square is null");
+      } else if (this.getObjectIndex() == -1) {
+         PrintStream var10000 = System.out;
+         String var10001 = this.getClass().getSimpleName();
+         var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
+      } else {
+         if (GameClient.bClient && !var1) {
+            ByteBufferWriter var8 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.SyncIsoObject.doPacket(var8);
+            this.syncIsoObjectSend(var8);
+            PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
+         } else {
+            Iterator var5;
+            UdpConnection var6;
+            ByteBufferWriter var7;
+            if (GameServer.bServer && !var1) {
+               var5 = GameServer.udpEngine.connections.iterator();
+
+               while(var5.hasNext()) {
+                  var6 = (UdpConnection)var5.next();
+                  var7 = var6.startPacket();
+                  PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
+                  this.syncIsoObjectSend(var7);
+                  PacketTypes.PacketType.SyncIsoObject.send(var6);
+               }
+            } else if (var1) {
+               this.xoff = var4.getFloat();
+               this.yoff = var4.getFloat();
+               this.zoff = var4.getFloat();
+               if (GameServer.bServer) {
+                  var5 = GameServer.udpEngine.connections.iterator();
+
+                  while(var5.hasNext()) {
+                     var6 = (UdpConnection)var5.next();
+                     if (var3 != null && var6.getConnectedGUID() != var3.getConnectedGUID()) {
+                        var7 = var6.startPacket();
+                        PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
+                        this.syncIsoObjectSend(var7);
+                        PacketTypes.PacketType.SyncIsoObject.send(var6);
+                     }
+                  }
+               }
+
+               this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+               this.square.RecalcProperties();
+            }
+         }
+
+      }
+   }
+
+   public IsoGridSquare getRenderSquare() {
+      if (this.getSquare() == null) {
+         return null;
+      } else {
+         byte var1 = 8;
+         if (PZMath.coordmodulo(this.square.x, var1) == 0 && PZMath.coordmodulo(this.square.y, var1) == var1 - 1) {
+            return this.square.getAdjacentSquare(IsoDirections.S);
+         } else {
+            return PZMath.coordmodulo(this.square.x, var1) == var1 - 1 && PZMath.coordmodulo(this.square.y, var1) == 0 ? this.square.getAdjacentSquare(IsoDirections.E) : this.getSquare();
+         }
+      }
+   }
+
+   public void setHighlighted(boolean var1) {
+      this.bHighlighted = var1;
+      this.getChunk().invalidateRenderChunks(FBORenderChunk.DIRTY_ITEM_MODIFY);
+   }
+
+   public boolean isHighlighted() {
+      return this.bHighlighted;
    }
 }

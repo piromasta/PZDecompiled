@@ -1,23 +1,50 @@
 package zombie.core.textures;
 
+import imgui.ImDrawData;
+import java.util.Iterator;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
-import org.lwjgl.opengl.ARBShaderObjects;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL20;
+import org.lwjgl.opengl.GL30;
+import org.lwjglx.opengl.Display;
+import zombie.GameProfiler;
 import zombie.IndieGL;
 import zombie.core.Color;
 import zombie.core.Core;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
+import zombie.core.logger.ExceptionLogger;
+import zombie.core.opengl.GLStateRenderThread;
 import zombie.core.opengl.Shader;
+import zombie.core.profiling.PerformanceProfileProbe;
+import zombie.core.rendering.RenderList;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.model.ModelInstanceRenderData;
+import zombie.core.skinnedmodel.model.ModelInstanceRenderDataList;
 import zombie.core.skinnedmodel.model.ModelSlotRenderData;
+import zombie.debug.DebugContext;
+import zombie.debug.DebugOptions;
 import zombie.iso.IsoWorld;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
 import zombie.iso.weather.fx.WeatherFxMask;
 import zombie.ui.UIManager;
 import zombie.util.list.PZArrayUtil;
+import zombie.viewCone.ViewConeTextureFBO;
 
 public final class TextureDraw {
+   public static float nextZ;
+   public static float nextChunkDepth;
+   public ImDrawData imDrawData;
+   public PerformanceProfileProbe probe;
+   private static final ExecutorService slotInitExec = Executors.newFixedThreadPool(8);
+   static int doingGLBuffer = 0;
+   static boolean doingRenderChunk = false;
    public Type type;
    public int a;
    public int b;
@@ -45,8 +72,11 @@ public final class TextureDraw {
    public float v1;
    public float v2;
    public float v3;
+   public float z;
+   public float chunkDepth;
    public Texture tex;
    public Texture tex1;
+   public Texture tex2;
    public byte useAttribArray;
    public float tex1_u0;
    public float tex1_u1;
@@ -60,9 +90,18 @@ public final class TextureDraw {
    public int tex1_col1;
    public int tex1_col2;
    public int tex1_col3;
+   public float tex2_u0;
+   public float tex2_u1;
+   public float tex2_u2;
+   public float tex2_u3;
+   public float tex2_v0;
+   public float tex2_v1;
+   public float tex2_v2;
+   public float tex2_v3;
    public boolean bSingleCol;
    public boolean flipped;
    public GenericDrawer drawer;
+   public Future<?> future;
 
    public TextureDraw() {
       this.type = TextureDraw.Type.glDraw;
@@ -105,12 +144,32 @@ public final class TextureDraw {
       var0.a = var1;
    }
 
+   public static void glBindFramebuffer(TextureDraw var0, int var1, int var2) {
+      var0.type = TextureDraw.Type.glBindFramebuffer;
+      var0.a = var1;
+      var0.b = var2;
+   }
+
+   public static void glClearDepth(TextureDraw var0, float var1) {
+      var0.type = TextureDraw.Type.glClearDepth;
+      var0.u0 = var1;
+   }
+
    public static void glClearColor(TextureDraw var0, int var1, int var2, int var3, int var4) {
       var0.type = TextureDraw.Type.glClearColor;
       var0.col0 = var1;
       var0.col1 = var2;
       var0.col2 = var3;
       var0.col3 = var4;
+   }
+
+   public static void NewFrame(TextureDraw var0) {
+      var0.type = TextureDraw.Type.NewFrame;
+   }
+
+   public static void glDepthFunc(TextureDraw var0, int var1) {
+      var0.type = TextureDraw.Type.glDepthFunc;
+      var0.a = var1;
    }
 
    public static void glEnable(TextureDraw var0, int var1) {
@@ -156,6 +215,19 @@ public final class TextureDraw {
       var0.a = var1;
    }
 
+   public static void pushIsoView(TextureDraw var0, float var1, float var2, float var3, float var4, boolean var5) {
+      var0.type = TextureDraw.Type.pushIsoView;
+      var0.u0 = var1;
+      var0.u1 = var2;
+      var0.u2 = var3;
+      var0.u3 = var4;
+      var0.a = var5 ? 1 : 0;
+   }
+
+   public static void popIsoView(TextureDraw var0) {
+      var0.type = TextureDraw.Type.popIsoView;
+   }
+
    public static void glDoEndFrame(TextureDraw var0) {
       var0.type = TextureDraw.Type.glDoEndFrame;
    }
@@ -172,6 +244,22 @@ public final class TextureDraw {
 
    public static void glDoStartFrame(TextureDraw var0, int var1, int var2, float var3, int var4) {
       glDoStartFrame(var0, var1, var2, var3, var4, false);
+   }
+
+   public static void glDoStartFrameNoZoom(TextureDraw var0, int var1, int var2, float var3, int var4) {
+      var0.type = TextureDraw.Type.glDoStartFrameNoZoom;
+      var0.a = var1;
+      var0.b = var2;
+      var0.f1 = var3;
+      var0.c = var4;
+   }
+
+   public static void glDoStartFrameFlipY(TextureDraw var0, int var1, int var2, float var3, int var4) {
+      var0.type = TextureDraw.Type.glDoStartFrameFlipY;
+      var0.a = var1;
+      var0.b = var2;
+      var0.f1 = var3;
+      var0.c = var4;
    }
 
    public static void glDoStartFrame(TextureDraw var0, int var1, int var2, float var3, int var4, boolean var5) {
@@ -204,7 +292,19 @@ public final class TextureDraw {
    public static void drawModel(TextureDraw var0, ModelManager.ModelSlot var1) {
       var0.type = TextureDraw.Type.DrawModel;
       var0.a = var1.ID;
-      var0.drawer = ModelSlotRenderData.alloc().init(var1);
+      ModelSlotRenderData var2 = ModelSlotRenderData.alloc();
+      var2.initModel(var1);
+      var0.drawer = var2;
+      if (DebugOptions.instance.ThreadModelSlotInit.getValue()) {
+         var0.future = slotInitExec.submit(() -> {
+            synchronized(var2) {
+               var2.init(var1);
+            }
+         });
+      } else {
+         var2.init(var1);
+      }
+
    }
 
    public static void drawSkyBox(TextureDraw var0, Shader var1, int var2, int var3, int var4) {
@@ -225,9 +325,9 @@ public final class TextureDraw {
       var0.drawer = null;
    }
 
-   public static void drawPuddles(TextureDraw var0, Shader var1, int var2, int var3, int var4) {
+   public static void drawPuddles(TextureDraw var0, int var1, int var2, int var3, int var4) {
       var0.type = TextureDraw.Type.DrawPuddles;
-      var0.a = var1.getID();
+      var0.a = var1;
       var0.b = var2;
       var0.c = var3;
       var0.d = var4;
@@ -293,10 +393,44 @@ public final class TextureDraw {
       var0.u3 = var6;
    }
 
+   public static void FBORenderChunkStart(TextureDraw var0, int var1, boolean var2) {
+      var0.type = TextureDraw.Type.FBORenderChunkStart;
+      var0.a = var1;
+      var0.b = var2 ? 1 : 0;
+   }
+
+   public static void FBORenderChunkEnd(TextureDraw var0) {
+      var0.type = TextureDraw.Type.FBORenderChunkEnd;
+   }
+
+   public static void releaseFBORenderChunkLock(TextureDraw var0) {
+      var0.type = TextureDraw.Type.releaseFBORenderChunkLock;
+   }
+
    public void run() {
+      boolean var1;
       switch (this.type) {
+         case releaseFBORenderChunkLock:
+            FBORenderChunk var2;
+            for(Iterator var9 = SpriteRenderer.instance.getRenderingState().cachedRenderChunkIndexMap.values().iterator(); var9.hasNext(); var2.submitted = false) {
+               var2 = (FBORenderChunk)var9.next();
+            }
+
+            return;
+         case FBORenderChunkStart:
+            if (doingGLBuffer > 0) {
+               var1 = false;
+            }
+
+            FBORenderChunkManager.instance.renderThreadChunkStart(this.a, this.b == 1);
+            doingRenderChunk = true;
+            break;
+         case FBORenderChunkEnd:
+            FBORenderChunkManager.instance.renderThreadChunkEnd();
+            doingRenderChunk = false;
+            break;
          case StartShader:
-            ARBShaderObjects.glUseProgramObjectARB(this.a);
+            ShaderHelper.glUseProgramObjectARB(this.a);
             if (Shader.ShaderMap.containsKey(this.a)) {
                ((Shader)Shader.ShaderMap.get(this.a)).startRenderThread(this);
             }
@@ -306,24 +440,25 @@ public final class TextureDraw {
             }
             break;
          case ShaderUpdate:
+            GL20.glUseProgram(this.a);
             if (this.c == 1) {
-               ARBShaderObjects.glUniform1fARB(this.b, this.u0);
+               GL20.glUniform1f(this.b, this.u0);
             }
 
             if (this.c == 2) {
-               ARBShaderObjects.glUniform2fARB(this.b, this.u0, this.u1);
+               GL20.glUniform2f(this.b, this.u0, this.u1);
             }
 
             if (this.c == 3) {
-               ARBShaderObjects.glUniform3fARB(this.b, this.u0, this.u1, this.u2);
+               GL20.glUniform3f(this.b, this.u0, this.u1, this.u2);
             }
 
             if (this.c == 4) {
-               ARBShaderObjects.glUniform4fARB(this.b, this.u0, this.u1, this.u2, this.u3);
+               GL20.glUniform4f(this.b, this.u0, this.u1, this.u2, this.u3);
             }
 
             if (this.c == -1) {
-               ARBShaderObjects.glUniform1iARB(this.b, this.d);
+               GL20.glUniform1i(this.b, this.d);
             }
             break;
          case BindActiveTexture:
@@ -334,59 +469,74 @@ public final class TextureDraw {
 
             GL13.glActiveTexture(33984);
             break;
+         case DrawImGui:
+            Display.drawImGuiDrawData(this.imDrawData);
+            break;
          case DrawModel:
             if (this.drawer != null) {
-               this.drawer.render();
+               if (this.future != null) {
+                  GameProfiler.getInstance().invokeAndMeasure("Wait", this, TextureDraw::GetFutureResultThrow);
+               }
+
+               synchronized(this.drawer) {
+                  this.drawer.render();
+               }
             }
             break;
          case DrawSkyBox:
             try {
                ModelManager.instance.RenderSkyBox(this, this.a, this.b, this.c, this.d);
-            } catch (Exception var5) {
-               var5.printStackTrace();
+            } catch (Exception var7) {
+               var7.printStackTrace();
             }
             break;
          case DrawWater:
             try {
                ModelManager.instance.RenderWater(this, this.a, this.b, this.d == 1);
-            } catch (Exception var4) {
-               var4.printStackTrace();
+            } catch (Exception var6) {
+               var6.printStackTrace();
             }
             break;
          case DrawPuddles:
             try {
-               ModelManager.instance.RenderPuddles(this.a, this.b, this.d);
-            } catch (Exception var3) {
-               var3.printStackTrace();
+               ModelManager.instance.RenderPuddles(this.a, this.b, this.c, this.d);
+            } catch (Exception var5) {
+               var5.printStackTrace();
             }
             break;
          case DrawParticles:
             try {
                ModelManager.instance.RenderParticles(this, this.b, this.c);
-            } catch (Exception var2) {
-               var2.printStackTrace();
+            } catch (Exception var4) {
+               var4.printStackTrace();
             }
             break;
          case glClear:
             IndieGL.glClearA(this.a);
             break;
+         case glBindFramebuffer:
+            GL30.glBindFramebuffer(this.a, this.b);
+            break;
+         case glClearDepth:
+            GL11.glClearDepth((double)this.u0);
+            break;
          case glClearColor:
             GL11.glClearColor((float)this.col0 / 255.0F, (float)this.col1 / 255.0F, (float)this.col2 / 255.0F, (float)this.col3 / 255.0F);
             break;
          case glBlendFunc:
-            IndieGL.glBlendFuncA(this.a, this.b);
+            GLStateRenderThread.BlendFuncSeparate.set(this.a, this.b, this.a, this.b);
             break;
          case glBlendFuncSeparate:
-            GL14.glBlendFuncSeparate(this.a, this.b, this.c, this.d);
+            GLStateRenderThread.BlendFuncSeparate.set(this.a, this.b, this.c, this.d);
             break;
          case glColorMask:
-            IndieGL.glColorMaskA(this.a == 1, this.b == 1, this.c == 1, this.x0 == 1.0F);
+            GLStateRenderThread.ColorMask.set(this.a == 1, this.b == 1, this.c == 1, this.x0 == 1.0F);
             break;
          case glTexParameteri:
             IndieGL.glTexParameteriActual(this.a, this.b, this.c);
             break;
          case glStencilMask:
-            IndieGL.glStencilMaskA(this.a);
+            GLStateRenderThread.StencilMask.set(this.a);
             break;
          case glDoEndFrame:
             Core.getInstance().DoEndFrameStuff(this.a, this.b);
@@ -397,6 +547,12 @@ public final class TextureDraw {
          case glDoStartFrame:
             Core.getInstance().DoStartFrameStuff(this.a, this.b, this.f1, this.c);
             break;
+         case glDoStartFrameNoZoom:
+            Core.getInstance().DoStartFrameNoZoom(this.a, this.b, this.f1, this.c, false, false, false);
+            break;
+         case glDoStartFrameFlipY:
+            Core.getInstance().StartFrameFlipY(this.a, this.b, this.f1, this.c);
+            break;
          case glDoStartFrameText:
             Core.getInstance().DoStartFrameStuff(this.a, this.b, this.f1, this.c, true);
             break;
@@ -404,9 +560,10 @@ public final class TextureDraw {
             Core.getInstance().DoStartFrameStuffSmartTextureFx(this.a, this.b, this.c);
             break;
          case glStencilFunc:
-            IndieGL.glStencilFuncA(this.a, this.b, this.c);
+            GLStateRenderThread.StencilFunc.set(this.a, this.b, this.c);
             break;
          case glBuffer:
+            doingGLBuffer = this.a;
             if (Core.getInstance().supportsFBO()) {
                if (this.a == 1) {
                   SpriteRenderer.instance.getRenderingState().fbo.startDrawing(false, false);
@@ -422,13 +579,33 @@ public final class TextureDraw {
                   WeatherFxMask.getFboParticles().startDrawing(true, true);
                } else if (this.a == 7) {
                   WeatherFxMask.getFboParticles().endDrawing();
+               } else if (this.a == 8) {
+                  ViewConeTextureFBO.instance.startDrawing();
+               } else if (this.a == 9) {
+                  ViewConeTextureFBO.instance.stopDrawing();
+               } else if (this.a == 10) {
+                  FBORenderChunkManager.instance.startDrawingCombined();
+               } else if (this.a == 11) {
+                  FBORenderChunkManager.instance.endDrawingCombined();
+               } else if (this.a == 12) {
+                  if (Core.isUseGameViewport()) {
+                     DebugContext.instance.endDrawing();
+                  }
                } else {
                   SpriteRenderer.instance.getRenderingState().fbo.endDrawing();
+                  if (Core.isUseGameViewport()) {
+                     DebugContext.instance.startDrawing();
+                  }
+               }
+
+               doingGLBuffer = this.a;
+               if (doingGLBuffer > 0 && doingRenderChunk) {
+                  var1 = false;
                }
             }
             break;
          case glStencilOp:
-            IndieGL.glStencilOpA(this.a, this.b, this.c);
+            GLStateRenderThread.StencilOp.set(this.a, this.b, this.c);
             break;
          case glLoadIdentity:
             GL11.glLoadIdentity();
@@ -448,26 +625,91 @@ public final class TextureDraw {
             Core.getInstance().FloatParamMap.put(this.a, this.f1);
             break;
          case glDepthMask:
-            GL11.glDepthMask(this.a == 1);
+            GLStateRenderThread.DepthMask.set(this.a == 1);
          case glGenerateMipMaps:
          default:
             break;
          case glAlphaFunc:
-            IndieGL.glAlphaFuncA(this.a, this.f1);
+            GLStateRenderThread.AlphaFunc.set(this.a, this.f1);
             break;
          case glEnable:
-            IndieGL.glEnableA(this.a);
+            if (this.a == 3008) {
+               GLStateRenderThread.AlphaTest.set(true);
+            } else if (this.a == 3042) {
+               GLStateRenderThread.Blend.set(true);
+            } else if (this.a == 2929) {
+               GLStateRenderThread.DepthTest.set(true);
+            } else if (this.a == 3089) {
+               GLStateRenderThread.ScissorTest.set(true);
+            } else if (this.a == 2960) {
+               GLStateRenderThread.StencilTest.set(true);
+            } else {
+               IndieGL.glEnableA(this.a);
+            }
+            break;
+         case NewFrame:
+            Core.getInstance().projectionMatrixStack.clear();
+            Core.getInstance().modelViewMatrixStack.clear();
+            break;
+         case glDepthFunc:
+            GLStateRenderThread.DepthFunc.set(this.a);
             break;
          case glDisable:
-            IndieGL.glDisableA(this.a);
+            if (this.a == 3008) {
+               GLStateRenderThread.AlphaTest.set(false);
+            } else if (this.a == 3042) {
+               GLStateRenderThread.Blend.set(false);
+            } else if (this.a == 2929) {
+               GLStateRenderThread.DepthTest.set(false);
+            } else if (this.a == 3089) {
+               GLStateRenderThread.ScissorTest.set(false);
+            } else if (this.a == 2960) {
+               GLStateRenderThread.StencilTest.set(false);
+            } else {
+               IndieGL.glDisableA(this.a);
+            }
             break;
          case glBlendEquation:
             GL14.glBlendEquation(this.a);
             break;
+         case pushIsoView:
+            Core.getInstance().DoPushIsoStuff2D(this.u0, this.u1, this.u2, this.u3, this.a == 1);
+            break;
+         case popIsoView:
+            Core.getInstance().DoPopIsoStuff();
+            break;
          case glIgnoreStyles:
             SpriteRenderer.RingBuffer.IGNORE_STYLES = this.a == 1;
+            break;
+         case DrawQueued:
+            if (this.drawer != null && this.drawer instanceof ModelSlotRenderData) {
+               DrawQueued((ModelSlotRenderData)this.drawer);
+            }
+            break;
+         case RenderQueued:
+            RenderList.RenderOpaque();
+            RenderList.Reset();
+            break;
+         case BeginProfile:
+            this.probe.start();
+            break;
+         case EndProfile:
+            this.probe.end();
       }
 
+   }
+
+   private static void DrawQueued(ModelSlotRenderData var0) {
+      var0.checkReady();
+      if (var0.canRender()) {
+         ModelInstanceRenderDataList var1 = var0.getModelData();
+
+         for(int var2 = 0; var2 < var1.size(); ++var2) {
+            ModelInstanceRenderData var3 = (ModelInstanceRenderData)var1.get(var2);
+            RenderList.DrawQueued(var0, var3);
+         }
+
+      }
    }
 
    public static void glDepthMask(TextureDraw var0, boolean var1) {
@@ -483,7 +725,7 @@ public final class TextureDraw {
 
    public String toString() {
       String var10000 = this.getClass().getSimpleName();
-      return var10000 + "{ " + this.type + ", a:" + this.a + ", b:" + this.b + ", f1:" + this.f1 + ", vars:" + (this.vars != null ? PZArrayUtil.arrayToString(this.vars, "{", "}", ", ") : "null") + ", c:" + this.c + ", d:" + this.d + ", col0:" + this.col0 + ", col1:" + this.col1 + ", col2:" + this.col2 + ", col3:" + this.col3 + ", x0:" + this.x0 + ", x1:" + this.x1 + ", x2:" + this.x2 + ", x3:" + this.x3 + ", x0:" + this.x0 + ", x1:" + this.x1 + ", x2:" + this.x2 + ", x3:" + this.x3 + ", y0:" + this.y0 + ", y1:" + this.y1 + ", y2:" + this.y2 + ", y3:" + this.y3 + ", u0:" + this.u0 + ", u1:" + this.u1 + ", u2:" + this.u2 + ", u3:" + this.u3 + ", v0:" + this.v0 + ", v1:" + this.v1 + ", v2:" + this.v2 + ", v3:" + this.v3 + ", tex:" + this.tex + ", tex1:" + this.tex1 + ", useAttribArray:" + this.useAttribArray + ", tex1_u0:" + this.tex1_u0 + ", tex1_u1:" + this.tex1_u1 + ", tex1_u2:" + this.tex1_u2 + ", tex1_u3:" + this.tex1_u3 + ", tex1_u0:" + this.tex1_u0 + ", tex1_u1:" + this.tex1_u1 + ", tex1_u2:" + this.tex1_u2 + ", tex1_u3:" + this.tex1_u3 + ", tex1_col0:" + this.tex1_col0 + ", tex1_col1:" + this.tex1_col1 + ", tex1_col2:" + this.tex1_col2 + ", tex1_col3:" + this.tex1_col3 + ", bSingleCol:" + this.bSingleCol + " }";
+      return var10000 + "{ " + this.type + ", a:" + this.a + ", b:" + this.b + ", f1:" + this.f1 + ", vars:" + (this.vars != null ? PZArrayUtil.arrayToString(this.vars, "{", "}", ", ") : "null") + ", c:" + this.c + ", d:" + this.d + ", col0:" + this.col0 + ", col1:" + this.col1 + ", col2:" + this.col2 + ", col3:" + this.col3 + ", x0:" + this.x0 + ", x1:" + this.x1 + ", x2:" + this.x2 + ", x3:" + this.x3 + ", x0:" + this.x0 + ", x1:" + this.x1 + ", x2:" + this.x2 + ", x3:" + this.x3 + ", y0:" + this.y0 + ", y1:" + this.y1 + ", y2:" + this.y2 + ", y3:" + this.y3 + ", u0:" + this.u0 + ", u1:" + this.u1 + ", u2:" + this.u2 + ", u3:" + this.u3 + ", v0:" + this.v0 + ", v1:" + this.v1 + ", v2:" + this.v2 + ", v3:" + this.v3 + ", tex:" + this.tex + ", tex1:" + this.tex1 + ", useAttribArray:" + this.useAttribArray + ", tex1_u0:" + this.tex1_u0 + ", tex1_u1:" + this.tex1_u1 + ", tex1_u2:" + this.tex1_u2 + ", tex1_u3:" + this.tex1_u3 + ", tex1_v0:" + this.tex1_v0 + ", tex1_v1:" + this.tex1_v1 + ", tex1_v2:" + this.tex1_v2 + ", tex1_v3:" + this.tex1_v3 + ", tex1_col0:" + this.tex1_col0 + ", tex1_col1:" + this.tex1_col1 + ", tex1_col2:" + this.tex1_col2 + ", tex1_col3:" + this.tex1_col3 + ", tex2_u0:" + this.tex2_u0 + ", tex2_u1:" + this.tex2_u1 + ", tex2_u2:" + this.tex2_u2 + ", tex2_u3:" + this.tex2_u3 + ", tex2_v0:" + this.tex2_v0 + ", tex2_v1:" + this.tex2_v1 + ", tex2_v2:" + this.tex2_v2 + ", tex2_v3:" + this.tex2_v3 + ", bSingleCol:" + this.bSingleCol + " }";
    }
 
    public static TextureDraw Create(TextureDraw var0, Texture var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, Consumer<TextureDraw> var10) {
@@ -586,6 +828,10 @@ public final class TextureDraw {
       }
 
       Create(var0, var1, var13, var14, var15, var16, var17, var18, var19, var20, var12, var12, var12, var12, var21, var22, var23, var24, var25, var26, var27, var28, var11);
+      var0.z = nextZ;
+      var0.chunkDepth = nextChunkDepth;
+      nextZ = 0.0F;
+      nextChunkDepth = 0.0F;
       return var0;
    }
 
@@ -671,6 +917,10 @@ public final class TextureDraw {
          var0.bSingleCol = var0.col0 == var0.col1 && var0.col0 == var0.col2 && var0.col0 == var0.col3;
       }
 
+      var0.z = nextZ;
+      var0.chunkDepth = nextChunkDepth;
+      nextZ = 0.0F;
+      nextChunkDepth = 0.0F;
       return var0;
    }
 
@@ -693,6 +943,7 @@ public final class TextureDraw {
       this.flipped = false;
       this.tex = null;
       this.tex1 = null;
+      this.tex2 = null;
       this.useAttribArray = -1;
       this.col0 = -1;
       this.col1 = -1;
@@ -700,7 +951,11 @@ public final class TextureDraw {
       this.col3 = -1;
       this.bSingleCol = true;
       this.x0 = this.x1 = this.x2 = this.x3 = this.y0 = this.y1 = this.y2 = this.y3 = -1.0F;
+      this.z = 0.0F;
+      this.chunkDepth = 0.0F;
       this.drawer = null;
+      this.future = null;
+      this.probe = null;
    }
 
    public static void glLoadIdentity(TextureDraw var0) {
@@ -725,6 +980,38 @@ public final class TextureDraw {
       var0.d = var4;
    }
 
+   public static void DrawQueued(TextureDraw var0, ModelManager.ModelSlot var1) {
+      var0.type = TextureDraw.Type.DrawQueued;
+      var0.a = var1.ID;
+      ModelSlotRenderData var2 = ModelSlotRenderData.alloc();
+      var2.initModel(var1);
+      var0.drawer = var2;
+      if (DebugOptions.instance.ThreadModelSlotInit.getValue()) {
+         var0.future = slotInitExec.submit(() -> {
+            synchronized(var2) {
+               var2.init(var1);
+            }
+         });
+      } else {
+         var2.init(var1);
+      }
+
+   }
+
+   public static void RenderQueued(TextureDraw var0) {
+      var0.type = TextureDraw.Type.RenderQueued;
+   }
+
+   public static void BeginProfile(TextureDraw var0, PerformanceProfileProbe var1) {
+      var0.type = TextureDraw.Type.BeginProfile;
+      var0.probe = var1;
+   }
+
+   public static void EndProfile(TextureDraw var0, PerformanceProfileProbe var1) {
+      var0.type = TextureDraw.Type.EndProfile;
+      var0.probe = var1;
+   }
+
    public void postRender() {
       if (this.type == TextureDraw.Type.StartShader) {
          Shader var1 = (Shader)Shader.ShaderMap.get(this.a);
@@ -734,8 +1021,34 @@ public final class TextureDraw {
       }
 
       if (this.drawer != null) {
+         if (this.future != null) {
+            GameProfiler.getInstance().invokeAndMeasure("Wait", this, TextureDraw::GetFutureResultNoThrow);
+         }
+
          this.drawer.postRender();
          this.drawer = null;
+      }
+
+   }
+
+   private void GetFutureResultThrow() {
+      try {
+         this.future.get();
+      } catch (Throwable var5) {
+         throw new RuntimeException(var5);
+      } finally {
+         this.future = null;
+      }
+
+   }
+
+   private void GetFutureResultNoThrow() {
+      try {
+         this.future.get();
+      } catch (Throwable var5) {
+         ExceptionLogger.logException(var5);
+      } finally {
+         this.future = null;
       }
 
    }
@@ -751,6 +1064,7 @@ public final class TextureDraw {
       glColorMask,
       glStencilMask,
       glClear,
+      glBindFramebuffer,
       glBlendFunc,
       glDoStartFrame,
       glDoStartFrameText,
@@ -776,7 +1090,22 @@ public final class TextureDraw {
       glBlendFuncSeparate,
       glDepthMask,
       doCoreIntParam,
-      drawTerrain;
+      drawTerrain,
+      pushIsoView,
+      popIsoView,
+      FBORenderChunkEnd,
+      FBORenderChunkStart,
+      glDoStartFrameNoZoom,
+      glDoStartFrameFlipY,
+      releaseFBORenderChunkLock,
+      glDepthFunc,
+      glClearDepth,
+      NewFrame,
+      DrawQueued,
+      RenderQueued,
+      DrawImGui,
+      BeginProfile,
+      EndProfile;
 
       private Type() {
       }
@@ -789,6 +1118,14 @@ public final class TextureDraw {
       public abstract void render();
 
       public void postRender() {
+      }
+   }
+
+   public static class RenderData {
+      public ModelSlotRenderData slotData;
+      public ModelInstanceRenderData instData;
+
+      public RenderData() {
       }
    }
 }

@@ -6,8 +6,10 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import zombie.VirtualZombieManager;
+import zombie.characters.Capability;
 import zombie.characters.IsoZombie;
 import zombie.characters.NetworkZombieVariables;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.utils.UpdateLimit;
@@ -18,7 +20,7 @@ import zombie.network.GameServer;
 import zombie.network.MPStatistics;
 import zombie.network.PacketTypes;
 import zombie.network.ServerMap;
-import zombie.network.packets.ZombiePacket;
+import zombie.network.packets.character.ZombiePacket;
 
 public class NetworkZombiePacker {
    private static final NetworkZombiePacker instance = new NetworkZombiePacker();
@@ -51,7 +53,7 @@ public class NetworkZombiePacker {
 
    public void deleteZombie(IsoZombie var1) {
       synchronized(this.zombiesDeleted) {
-         this.zombiesDeleted.add(new DeletedZombie(var1.OnlineID, var1.x, var1.y));
+         this.zombiesDeleted.add(new DeletedZombie(var1.OnlineID, var1.getX(), var1.getY()));
       }
    }
 
@@ -62,9 +64,9 @@ public class NetworkZombiePacker {
       for(int var4 = 0; var4 < var3; ++var4) {
          var5 = var1.getShort();
          IsoZombie var6 = (IsoZombie)ServerMap.instance.ZombieMap.get((short)var5);
-         if (var6 != null && (var2.accessLevel == 32 || var6.authOwner == var2)) {
+         if (var6 != null && (var2.role.haveCapability(Capability.ManipulateZombie) || var6.authOwner == var2)) {
             this.deleteZombie(var6);
-            DebugLog.Multiplayer.noise("Zombie was deleted id=%d (%f, %f)", var6.OnlineID, var6.x, var6.y);
+            DebugLog.Multiplayer.noise("Zombie was deleted id=%d (%f, %f)", var6.OnlineID, var6.getX(), var6.getY());
             VirtualZombieManager.instance.removeZombieFromWorld(var6);
             MPStatistics.serverZombieCulled();
          }
@@ -187,7 +189,7 @@ public class NetworkZombiePacker {
          int var9;
          for(var9 = 0; var9 < this.zombiesProcessing.size(); ++var9) {
             IsoZombie var7 = (IsoZombie)this.zombiesProcessing.get(var9);
-            if (var7.authOwner != null && var7.authOwner != var1 && var1.RelevantTo(var7.x, var7.y, (float)((var1.ReleventRange - 2) * 10)) && var7.OnlineID != -1) {
+            if (var7.authOwner != null && var7.authOwner != var1 && var1.RelevantTo(var7.getX(), var7.getY(), (float)((var1.ReleventRange - 2) * 10)) && var7.OnlineID != -1) {
                var7.zombiePacket.write(var2);
                var7.zombiePacketUpdated = false;
                ++var4;
@@ -245,10 +247,10 @@ public class NetworkZombiePacker {
    }
 
    private void applyZombie(IsoZombie var1) {
-      IsoGridSquare var2 = IsoWorld.instance.CurrentCell.getGridSquare((int)this.packet.x, (int)this.packet.y, this.packet.z);
-      var1.lx = var1.nx = var1.x = this.packet.realX;
-      var1.ly = var1.ny = var1.y = this.packet.realY;
-      var1.lz = var1.z = (float)this.packet.realZ;
+      IsoGridSquare var2 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(this.packet.x), PZMath.fastfloor(this.packet.y), PZMath.fastfloor((float)this.packet.z));
+      var1.setLastX(var1.setNextX(var1.setX(this.packet.realX)));
+      var1.setLastY(var1.setNextY(var1.setY(this.packet.realY)));
+      var1.setLastZ(var1.setZ((float)this.packet.realZ));
       var1.setForwardDirection(var1.dir.ToVector());
       var1.setCurrent(var2);
       var1.networkAI.targetX = this.packet.x;

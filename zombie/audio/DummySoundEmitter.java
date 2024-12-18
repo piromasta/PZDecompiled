@@ -22,6 +22,9 @@ public class DummySoundEmitter extends BaseSoundEmitter {
    public void stopSoundLocal(long var1) {
    }
 
+   public void stopOrTriggerSoundLocal(long var1) {
+   }
+
    public int stopSoundByName(String var1) {
       return 0;
    }
@@ -43,6 +46,13 @@ public class DummySoundEmitter extends BaseSoundEmitter {
    }
 
    public void setParameterValue(long var1, FMOD_STUDIO_PARAMETER_DESCRIPTION var3, float var4) {
+   }
+
+   public void setParameterValueByName(long var1, String var3, float var4) {
+   }
+
+   public boolean isUsingParameter(long var1, String var3) {
+      return false;
    }
 
    public void setTimelinePosition(long var1, String var3) {

@@ -5,6 +5,7 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class ErosionWorld {
    public ErosionWorld() {
@@ -23,28 +24,29 @@ public final class ErosionWorld {
       if (var7 == null) {
          var2.doNothing = true;
       } else {
-         boolean var8 = false;
+         IBiome var8 = var1.getBiome();
+         boolean var9 = false;
 
-         for(int var9 = 0; var9 < ErosionRegions.regions.size(); ++var9) {
-            ErosionRegions.Region var10 = (ErosionRegions.Region)ErosionRegions.regions.get(var9);
-            String var11 = var10.tileNameMatch;
-            if ((var11 == null || var7.startsWith(var11)) && (!var10.checkExterior || var10.isExterior == var4) && (!var10.hasWall || var10.hasWall == var5)) {
-               for(int var12 = 0; var12 < var10.categories.size(); ++var12) {
-                  ErosionCategory var13 = (ErosionCategory)var10.categories.get(var12);
-                  boolean var14 = var13.replaceExistingObject(var1, var2, var3, var4, var5);
-                  if (!var14) {
-                     var14 = var13.validateSpawn(var1, var2, var3, var4, var5, false);
+         for(int var10 = 0; var10 < ErosionRegions.regions.size(); ++var10) {
+            ErosionRegions.Region var11 = (ErosionRegions.Region)ErosionRegions.regions.get(var10);
+            String var12 = var11.tileNameMatch;
+            if ((var12 == null || var7.startsWith(var12)) && (!var11.checkExterior || var11.isExterior == var4) && (!var11.hasWall || var11.hasWall == var5)) {
+               for(int var13 = 0; var13 < var11.categories.size(); ++var13) {
+                  ErosionCategory var14 = (ErosionCategory)var11.categories.get(var13);
+                  boolean var15 = var14.replaceExistingObject(var1, var2, var3, var8, var4, var5);
+                  if (!var15) {
+                     var15 = var14.validateSpawn(var1, var2, var3, var8, var4, var5, false);
                   }
 
-                  if (var14) {
-                     var8 = true;
+                  if (var15) {
+                     var9 = true;
                      break;
                   }
                }
             }
          }
 
-         if (!var8) {
+         if (!var9) {
             var2.doNothing = true;
          }
 

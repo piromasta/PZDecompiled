@@ -1,16 +1,20 @@
 package zombie.core.opengl;
 
 import java.nio.ByteBuffer;
+import org.joml.Vector3f;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import zombie.core.SpriteRenderer;
 import zombie.core.VBO.GLVertexBufferObject;
 import zombie.core.VBO.IGLBufferObject;
 import zombie.core.math.PZMath;
+import zombie.core.skinnedmodel.model.VertexBufferObject;
 
 public final class VBOLines {
+   private static VBOLines instance;
    private final int VERTEX_SIZE = 12;
    private final int COLOR_SIZE = 16;
    private final int ELEMENT_SIZE = 28;
@@ -18,6 +22,7 @@ public final class VBOLines {
    private final int NUM_LINES = 128;
    private final int NUM_ELEMENTS = 256;
    private final int INDEX_SIZE = 2;
+   private VBOLinesShader m_shader = null;
    private GLVertexBufferObject m_vbo;
    private GLVertexBufferObject m_ibo;
    private ByteBuffer m_elements;
@@ -30,6 +35,14 @@ public final class VBOLines {
    private boolean m_depth_test = false;
 
    public VBOLines() {
+   }
+
+   public static VBOLines getInstance() {
+      if (instance == null) {
+         instance = new VBOLines();
+      }
+
+      return instance;
    }
 
    private void create() {
@@ -93,6 +106,51 @@ public final class VBOLines {
       this.addTriangle(var3, var2, var5, var3, var4, var5, var1, var4, var5, var6, var7, var8, var9);
    }
 
+   public void addAABB(float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9) {
+      float var10 = var4 / 2.0F;
+      float var11 = var5 / 2.0F;
+      float var12 = var6 / 2.0F;
+      this.setOffset(var1, var2, var3);
+      this.setLineWidth(1.0F);
+      float var13 = 1.0F;
+      this.addLine(var10, var11, var12, -var10, var11, var12, var7, var8, var9, var13);
+      this.addLine(var10, var11, var12, var10, -var11, var12, var7, var8, var9, var13);
+      this.addLine(var10, var11, var12, var10, var11, -var12, var7, var8, var9, var13);
+      this.addLine(-var10, var11, var12, -var10, -var11, var12, var7, var8, var9, var13);
+      this.addLine(-var10, var11, var12, -var10, var11, -var12, var7, var8, var9, var13);
+      this.addLine(var10, var11, -var12, var10, -var11, -var12, var7, var8, var9, var13);
+      this.addLine(var10, var11, -var12, -var10, var11, -var12, var7, var8, var9, var13);
+      this.addLine(-var10, var11, -var12, -var10, -var11, -var12, var7, var8, var9, var13);
+      this.addLine(var10, -var11, -var12, -var10, -var11, -var12, var7, var8, var9, var13);
+      this.addLine(var10, -var11, var12, var10, -var11, -var12, var7, var8, var9, var13);
+      this.addLine(-var10, -var11, var12, -var10, -var11, -var12, var7, var8, var9, var13);
+      this.addLine(var10, -var11, var12, -var10, -var11, var12, var7, var8, var9, var13);
+      this.setOffset(0.0F, 0.0F, 0.0F);
+   }
+
+   public void addAABB(float var1, float var2, float var3, Vector3f var4, Vector3f var5, float var6, float var7, float var8) {
+      this.addAABB(var1, var2, var3, var4.x, var4.y, var4.z, var5.x, var5.y, var5.z, var6, var7, var8);
+   }
+
+   public void addAABB(float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, float var9, float var10, float var11, float var12) {
+      this.setOffset(var1, var2, var3);
+      this.setLineWidth(1.0F);
+      float var13 = 1.0F;
+      this.addLine(var7, var8, var9, var4, var8, var9, var10, var11, var12, var13);
+      this.addLine(var7, var8, var9, var7, var5, var9, var10, var11, var12, var13);
+      this.addLine(var7, var8, var9, var7, var8, var6, var10, var11, var12, var13);
+      this.addLine(var4, var8, var9, var4, var5, var9, var10, var11, var12, var13);
+      this.addLine(var4, var8, var9, var4, var8, var6, var10, var11, var12, var13);
+      this.addLine(var7, var8, var6, var7, var5, var6, var10, var11, var12, var13);
+      this.addLine(var7, var8, var6, var4, var8, var6, var10, var11, var12, var13);
+      this.addLine(var4, var8, var6, var4, var5, var6, var10, var11, var12, var13);
+      this.addLine(var7, var5, var6, var4, var5, var6, var10, var11, var12, var13);
+      this.addLine(var7, var5, var9, var7, var5, var6, var10, var11, var12, var13);
+      this.addLine(var4, var5, var9, var4, var5, var6, var10, var11, var12, var13);
+      this.addLine(var7, var5, var9, var4, var5, var9, var10, var11, var12, var13);
+      this.setOffset(0.0F, 0.0F, 0.0F);
+   }
+
    boolean isFull() {
       if (this.m_elements == null) {
          return false;
@@ -118,16 +176,27 @@ public final class VBOLines {
       if (this.m_elements != null && this.m_elements.position() != 0) {
          this.m_elements.flip();
          this.m_indices.flip();
-         GL13.glClientActiveTexture(33984);
+         GL13.glActiveTexture(33984);
          GL11.glDisableClientState(32888);
          this.m_vbo.bind();
          this.m_vbo.bufferData(this.m_elements);
          this.m_ibo.bind();
          this.m_ibo.bufferData(this.m_indices);
-         GL11.glEnableClientState(32884);
-         GL11.glEnableClientState(32886);
-         GL11.glVertexPointer(3, 5126, 28, 0L);
-         GL11.glColorPointer(4, 5126, 28, 12L);
+         if (this.m_shader == null) {
+            this.m_shader = new VBOLinesShader("vbo_lines");
+         }
+
+         this.m_shader.Start();
+         VertexBufferObject.setModelViewProjection(this.m_shader.getProgram());
+         GL20.glEnableVertexAttribArray(0);
+         GL20.glEnableVertexAttribArray(1);
+         GL20.glEnableVertexAttribArray(2);
+         GL20.glDisableVertexAttribArray(3);
+         GL20.glDisableVertexAttribArray(4);
+         GL11.glDisableClientState(32884);
+         GL11.glDisableClientState(32886);
+         GL20.glVertexAttribPointer(0, 3, 5126, false, 28, 0L);
+         GL20.glVertexAttribPointer(1, 4, 5126, true, 28, 12L);
 
          for(int var1 = 7; var1 >= 0; --var1) {
             GL13.glActiveTexture('蓀' + var1);
@@ -141,7 +210,7 @@ public final class VBOLines {
          }
 
          GL11.glEnable(2848);
-         GL11.glLineWidth(this.m_lineWidth);
+         GL11.glLineWidth(Math.min(this.m_lineWidth, 1.0F));
          byte var5 = 0;
          int var2 = this.m_elements.limit() / 28;
          byte var3 = 0;
@@ -151,11 +220,16 @@ public final class VBOLines {
          this.m_ibo.bindNone();
          this.m_elements.clear();
          this.m_indices.clear();
+         this.m_shader.End();
          GL11.glEnable(2929);
          GL11.glEnable(3553);
          GL11.glDisable(2848);
-         GL13.glClientActiveTexture(33984);
-         GL11.glEnableClientState(32888);
+         GL20.glEnableVertexAttribArray(0);
+         GL20.glEnableVertexAttribArray(1);
+         GL20.glEnableVertexAttribArray(2);
+         GL20.glEnableVertexAttribArray(3);
+         GL20.glEnableVertexAttribArray(4);
+         GL13.glActiveTexture(33984);
          SpriteRenderer.ringBuffer.restoreVBOs = true;
       }
    }

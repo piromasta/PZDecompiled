@@ -12,7 +12,7 @@ import javax.xml.bind.Unmarshaller;
 import javax.xml.bind.annotation.XmlRootElement;
 import javax.xml.bind.annotation.XmlTransient;
 import zombie.ZomboidFileSystem;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 
 @XmlRootElement
 public class ItemManager {

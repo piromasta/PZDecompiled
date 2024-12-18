@@ -7,11 +7,14 @@ import zombie.ai.states.PlayerActionsState;
 import zombie.characters.CharacterActionAnims;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.MoveDeltaModifiers;
 import zombie.core.Core;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.types.HandWeapon;
-import zombie.network.packets.EventPacket;
+import zombie.inventory.types.WeaponType;
+import zombie.network.GameClient;
+import zombie.network.packets.actions.EventPacket;
 import zombie.ui.UIManager;
 import zombie.util.StringUtils;
 import zombie.util.Type;
@@ -37,6 +40,7 @@ public class BaseAction {
    public boolean bStarted = false;
    public boolean forceStop = false;
    public boolean forceComplete = false;
+   public boolean waitForFinished = false;
    private static final ArrayList<String> specificNetworkAnim = new ArrayList(Arrays.asList("Reload", "Bandage", "Loot", "AttachItem", "Drink", "Eat", "Pour", "Read", "fill_container_tap", "drink_tap", "WearClothing"));
    private InventoryItem primaryHandItem = null;
    private InventoryItem secondaryHandItem = null;
@@ -70,6 +74,10 @@ public class BaseAction {
 
    public float getJobDelta() {
       return this.delta;
+   }
+
+   public void setWaitForFinished(boolean var1) {
+      this.waitForFinished = var1;
    }
 
    public void resetJobDelta() {
@@ -147,8 +155,12 @@ public class BaseAction {
       return true;
    }
 
+   public boolean isStarted() {
+      return this.bStarted;
+   }
+
    public boolean finished() {
-      return this.CurrentTime >= (float)this.MaxTime && this.MaxTime != -1;
+      return !this.waitForFinished && this.CurrentTime >= (float)this.MaxTime && this.MaxTime != -1;
    }
 
    public void perform() {
@@ -157,6 +169,9 @@ public class BaseAction {
          this.stopTimedActionAnim();
       }
 
+   }
+
+   public void complete() {
    }
 
    public void setUseProgressBar(boolean var1) {
@@ -181,6 +196,16 @@ public class BaseAction {
       if (this.overrideHandModels) {
          this.overrideHandModels = false;
          this.chr.resetEquippedHandsModels();
+      }
+
+      if (GameClient.bClient) {
+         IsoGameCharacter var4 = this.chr;
+         if (var4 instanceof IsoPlayer) {
+            IsoPlayer var3 = (IsoPlayer)var4;
+            if (var3.isLocalPlayer() && var3.isSeatedInVehicle()) {
+               GameClient.sendAction(this, false);
+            }
+         }
       }
 
    }
@@ -228,6 +253,16 @@ public class BaseAction {
          this.chr.advancedAnimator.printDebugCharacterActions(var1);
       }
 
+      if (GameClient.bClient) {
+         IsoGameCharacter var3 = this.chr;
+         if (var3 instanceof IsoPlayer) {
+            IsoPlayer var2 = (IsoPlayer)var3;
+            if (var2.isLocalPlayer()) {
+               GameClient.sendAction(this, true);
+            }
+         }
+      }
+
    }
 
    public void setOverrideHandModels(InventoryItem var1, InventoryItem var2) {
@@ -262,10 +297,23 @@ public class BaseAction {
 
    }
 
+   public void overrideWeaponType() {
+      WeaponType var1 = WeaponType.getWeaponType(this.chr, this.primaryHandItem, this.secondaryHandItem);
+      this.chr.setVariable("Weapon", var1.type);
+   }
+
+   public void restoreWeaponType() {
+      WeaponType var1 = WeaponType.getWeaponType(this.chr);
+      this.chr.setVariable("Weapon", var1.type);
+   }
+
    public void OnAnimEvent(AnimEvent var1) {
    }
 
    public void setLoopedAction(boolean var1) {
       this.loopAction = var1;
+   }
+
+   public void getDeltaModifiers(MoveDeltaModifiers var1) {
    }
 }

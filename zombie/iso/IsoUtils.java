@@ -120,9 +120,9 @@ public final class IsoUtils {
    }
 
    public static boolean isSimilarDirection(IsoGameCharacter var0, float var1, float var2, float var3, float var4, float var5) {
-      Vector2f var6 = new Vector2f(var1 - var0.x, var2 - var0.y);
+      Vector2f var6 = new Vector2f(var1 - var0.getX(), var2 - var0.getY());
       var6.normalize();
-      Vector2f var7 = new Vector2f(var0.x - var3, var0.y - var4);
+      Vector2f var7 = new Vector2f(var0.getX() - var3, var0.getY() - var4);
       var7.normalize();
       var6.add(var7);
       return var6.length() < var5;

@@ -1,5 +1,6 @@
 package zombie.iso.objects;
 
+import fmod.fmod.FMODManager;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import se.krka.kahlua.vm.KahluaTable;
@@ -10,8 +11,10 @@ import zombie.characterTextures.BloodBodyPartType;
 import zombie.characterTextures.BloodClothingType;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.inventory.InventoryItem;
+import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.Clothing;
+import zombie.inventory.types.InventoryContainer;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.interfaces.IClothingWasherDryerLogic;
@@ -92,6 +95,26 @@ public final class ClothingWasherLogic implements IClothingWasherDryerLogic {
                      }
 
                      var6.setWetness(100.0F);
+                  } else {
+                     if (var5.getModData().rawget("ItemAfterCleaning") != null) {
+                        String var9 = (String)var5.getModData().rawget("ItemAfterCleaning");
+                        Double var11 = (Double)var5.getModData().rawget("CleaningProgress");
+                        if (var11 == null) {
+                           var5.getModData().rawset("CleaningProgress", (double)var3 * 3.0);
+                        } else if (var11 >= 100.0) {
+                           this.getContainer().getItems().remove(var5);
+                           this.getContainer().addItem(InventoryItemFactory.CreateItem(var9));
+                        } else {
+                           var5.getModData().rawset("CleaningProgress", var11 + (double)(var3 * 2));
+                        }
+                     }
+
+                     if (var5 instanceof InventoryContainer) {
+                        InventoryContainer var10 = (InventoryContainer)var5;
+                        if (var10.getBloodLevel() > 0.0F) {
+                           var10.setBloodLevel(var10.getBloodLevel() - (float)(var3 * 2) / 100.0F);
+                        }
+                     }
                   }
                }
 
@@ -159,6 +182,9 @@ public final class ClothingWasherLogic implements IClothingWasherDryerLogic {
                this.getObject().emitter = IsoWorld.instance.getFreeEmitter(this.getObject().getX() + 0.5F, this.getObject().getY() + 0.5F, (float)((int)this.getObject().getZ()));
                IsoWorld.instance.setEmitterOwner(this.getObject().emitter, this.getObject());
                this.soundInstance = this.getObject().emitter.playSoundLoopedImpl("ClothingWasherRunning");
+               ItemContainer var1 = this.getContainer();
+               boolean var2 = var1 != null && var1.getItems() != null && !var1.getItems().isEmpty();
+               this.getObject().emitter.setParameterValue(this.soundInstance, FMODManager.instance.getParameterDescription("ClothingWasherLoaded"), var2 ? 1.0F : 0.0F);
             }
          }
 

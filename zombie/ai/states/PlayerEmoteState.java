@@ -30,6 +30,7 @@ public final class PlayerEmoteState extends State {
 
    public void exit(IsoGameCharacter var1) {
       var1.clearVariable("EmotePlaying");
+      var1.clearVariable("emote");
       var1.resetModelNextFrame();
    }
 

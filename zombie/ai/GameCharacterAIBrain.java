@@ -11,6 +11,7 @@ import zombie.characters.Stance;
 import zombie.characters.Stats;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.SurvivorGroup;
+import zombie.core.math.PZMath;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.LosUtil;
 import zombie.iso.Vector2;
@@ -81,7 +82,7 @@ public final class GameCharacterAIBrain {
             var6 += 2.0F;
          }
 
-         if (!LosUtil.lineClearCollide((int)var5.x, (int)var5.y, (int)var5.z, (int)this.character.x, (int)this.character.y, (int)this.character.z, false) && var5.getStateMachine().getCurrent() != ThumpState.instance() && var6 < var3 && var5.target == this.character) {
+         if (!LosUtil.lineClearCollide(PZMath.fastfloor(var5.getX()), PZMath.fastfloor(var5.getY()), PZMath.fastfloor(var5.getZ()), PZMath.fastfloor(this.character.getX()), PZMath.fastfloor(this.character.getY()), PZMath.fastfloor(this.character.getZ()), false) && var5.getStateMachine().getCurrent() != ThumpState.instance() && var6 < var3 && var5.target == this.character) {
             var3 = var6;
             var2 = (IsoZombie)this.chasingZombies.get(var4);
          }
@@ -134,7 +135,7 @@ public final class GameCharacterAIBrain {
       for(var4 = 0; var4 < this.chasingZombies.size(); ++var4) {
          IsoZombie var5 = (IsoZombie)this.chasingZombies.get(var4);
          var5.DistTo(this.character);
-         if (!LosUtil.lineClearCollide((int)var5.x, (int)var5.y, (int)var5.z, (int)this.character.x, (int)this.character.y, (int)this.character.z, false)) {
+         if (!LosUtil.lineClearCollide(PZMath.fastfloor(var5.getX()), PZMath.fastfloor(var5.getY()), PZMath.fastfloor(var5.getZ()), PZMath.fastfloor(this.character.getX()), PZMath.fastfloor(this.character.getY()), PZMath.fastfloor(this.character.getZ()), false)) {
             tempZombies.add(var5);
          }
       }
@@ -163,7 +164,7 @@ public final class GameCharacterAIBrain {
 
    public void AddBlockedMemory(int var1, int var2, int var3) {
       synchronized(this.BlockedMemories) {
-         Vector3 var5 = new Vector3((float)((int)this.character.x), (float)((int)this.character.y), (float)((int)this.character.z));
+         Vector3 var5 = new Vector3((float)PZMath.fastfloor(this.character.getX()), (float)PZMath.fastfloor(this.character.getY()), (float)PZMath.fastfloor(this.character.getZ()));
          if (!this.BlockedMemories.containsKey(var5)) {
             this.BlockedMemories.put(var5, new ArrayList());
          }

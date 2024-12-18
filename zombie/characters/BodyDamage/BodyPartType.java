@@ -270,7 +270,7 @@ public enum BodyPartType {
       } else if (var0 == Foot_L) {
          return "Foot_L";
       } else {
-         return var0 == Foot_R ? "Foot_R" : "Unkown Body Part";
+         return var0 == Foot_R ? "Foot_R" : "Unknown Body Part";
       }
    }
 

@@ -1,10 +1,12 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Role;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.GameServer;
 
@@ -14,11 +16,11 @@ import zombie.network.GameServer;
 @CommandArgs(
    required = {"(.+)"}
 )
-@RequiredRight(
-   requiredRights = 32
+@RequiredCapability(
+   requiredCapability = Capability.ConnectWithDebug
 )
 public class DebugPlayerCommand extends CommandBase {
-   public DebugPlayerCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public DebugPlayerCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 

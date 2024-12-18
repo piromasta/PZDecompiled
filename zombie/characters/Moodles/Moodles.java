@@ -35,6 +35,8 @@ public final class Moodles {
       this.MoodleList.add(new Moodle(MoodleType.Hypothermia, this.Parent, 3));
       this.MoodleList.add(new Moodle(MoodleType.Windchill, this.Parent));
       this.MoodleList.add(new Moodle(MoodleType.CantSprint, this.Parent));
+      this.MoodleList.add(new Moodle(MoodleType.Uncomfortable, this.Parent));
+      this.MoodleList.add(new Moodle(MoodleType.NoxiousSmell, this.Parent));
    }
 
    public int getGoodBadNeutral(int var1) {

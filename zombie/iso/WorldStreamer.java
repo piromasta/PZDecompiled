@@ -20,6 +20,7 @@ import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.ThreadGroups;
 import zombie.core.Translator;
+import zombie.core.logger.ExceptionLogger;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.debug.DebugLog;
@@ -32,13 +33,16 @@ import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.MPStatistics;
 import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
+import zombie.network.packets.NotRequiredInZipPacket;
+import zombie.network.packets.RequestZipListPacket;
 import zombie.savefile.PlayerDB;
 import zombie.vehicles.VehiclesDB2;
 
 public final class WorldStreamer {
    static final ChunkComparator comp = new ChunkComparator();
    private static final int CRF_CANCEL = 1;
-   private static final int CRF_CANCEL_SENT = 2;
+   public static final int CRF_CANCEL_SENT = 2;
    private static final int CRF_DELETE = 4;
    private static final int CRF_TIMEOUT = 8;
    private static final int CRF_RECEIVED = 16;
@@ -158,31 +162,15 @@ public final class WorldStreamer {
          }
       }
 
-      ChunkRequest var4;
-      ByteBufferWriter var6;
-      int var7;
+      ByteBufferWriter var5;
       if (!this.tempRequests.isEmpty()) {
-         var6 = var1.startPacket();
-         PacketTypes.PacketType.RequestZipList.doPacket(var6);
-         var6.putInt(this.tempRequests.size());
-
-         for(var7 = 0; var7 < this.tempRequests.size(); ++var7) {
-            var4 = (ChunkRequest)this.tempRequests.get(var7);
-            var6.putInt(var4.requestNumber);
-            var6.putInt(var4.chunk.wx);
-            var6.putInt(var4.chunk.wy);
-            var6.putLong(var4.crc);
-            if (this.NetworkFileDebug) {
-               DebugLog.log(DebugType.NetworkFileDebug, "requested " + var4.chunk.wx + "," + var4.chunk.wy + " crc=" + var4.crc);
-            }
-         }
-
+         RequestZipListPacket var4 = new RequestZipListPacket();
+         var4.set(this.tempRequests);
+         var5 = var1.startPacket();
+         PacketTypes.PacketType.RequestZipList.doPacket(var5);
+         var4.write(var5);
          PacketTypes.PacketType.RequestZipList.send(var1);
-
-         for(var7 = 0; var7 < this.tempRequests.size(); ++var7) {
-            var4 = (ChunkRequest)this.tempRequests.get(var7);
-            this.sentRequests.add(var4);
-         }
+         this.sentRequests.addAll(this.tempRequests);
       }
 
       this.tempRequests.clear();
@@ -192,27 +180,12 @@ public final class WorldStreamer {
       }
 
       if (!this.tempRequests.isEmpty()) {
-         var6 = var1.startPacket();
-         PacketTypes.PacketType.NotRequiredInZip.doPacket(var6);
-
-         try {
-            var6.putInt(this.tempRequests.size());
-
-            for(var7 = 0; var7 < this.tempRequests.size(); ++var7) {
-               var4 = (ChunkRequest)this.tempRequests.get(var7);
-               if (this.NetworkFileDebug) {
-                  DebugLog.log(DebugType.NetworkFileDebug, "cancelled " + var4.chunk.wx + "," + var4.chunk.wy);
-               }
-
-               var6.putInt(var4.requestNumber);
-               var4.flagsMain |= 2;
-            }
-
-            PacketTypes.PacketType.NotRequiredInZip.send(var1);
-         } catch (Exception var5) {
-            var5.printStackTrace();
-            var1.cancelPacket();
-         }
+         NotRequiredInZipPacket var6 = new NotRequiredInZipPacket();
+         var6.set(this.tempRequests);
+         var5 = var1.startPacket();
+         PacketTypes.PacketType.NotRequiredInZip.doPacket(var5);
+         var6.write(var5);
+         PacketTypes.PacketType.NotRequiredInZip.send(var1);
       }
 
    }
@@ -243,7 +216,7 @@ public final class WorldStreamer {
                   File var6 = ChunkMapFilenames.instance.getFilename(var5.chunk.wx, var5.chunk.wy);
                   if (var6.exists()) {
                      if (this.NetworkFileDebug) {
-                        DebugLog.log(DebugType.NetworkFileDebug, "deleting map_" + var5.chunk.wx + "_" + var5.chunk.wy + ".bin because it doesn't exist on the server");
+                        DebugLog.NetworkFileDebug.debugln("deleting map_" + var5.chunk.wx + "_" + var5.chunk.wy + ".bin because it doesn't exist on the server");
                      }
 
                      var6.delete();
@@ -278,7 +251,7 @@ public final class WorldStreamer {
                      this.DoChunk(var5.chunk, var10);
                   } else {
                      if (this.NetworkFileDebug) {
-                        DebugLog.log(DebugType.NetworkFileDebug, var5.chunk.wx + "_" + var5.chunk.wy + " refs.isEmpty() SafeWrite=" + (var10 != null));
+                        DebugLog.NetworkFileDebug.debugln(var5.chunk.wx + "_" + var5.chunk.wy + " refs.isEmpty() SafeWrite=" + (var10 != null));
                      }
 
                      if (var10 != null) {
@@ -341,7 +314,7 @@ public final class WorldStreamer {
       IsoChunk var1;
       IsoChunk var2;
       if (GameClient.bClient && !SystemDisabler.doWorldSyncEnable) {
-         this.NetworkFileDebug = DebugType.Do(DebugType.NetworkFileDebug);
+         this.NetworkFileDebug = DebugType.NetworkFileDebug.isEnabled();
 
          for(var1 = (IsoChunk)this.chunkRequests0.poll(); var1 != null; var1 = (IsoChunk)this.chunkRequests0.poll()) {
             while(var1 != null) {
@@ -449,8 +422,8 @@ public final class WorldStreamer {
                while(!this.bFinished) {
                   try {
                      this.threadLoop();
-                  } catch (Exception var2) {
-                     var2.printStackTrace();
+                  } catch (Throwable var2) {
+                     ExceptionLogger.logException(var2);
                   }
                }
 
@@ -513,7 +486,7 @@ public final class WorldStreamer {
             }
          } catch (Exception var6) {
             DebugLog.General.error("Exception thrown while trying to load chunk: " + var1.wx + ", " + var1.wy);
-            var6.printStackTrace();
+            ExceptionLogger.logException(var6);
             if (GameClient.bClient) {
                ChunkChecksum.setChecksum(var1.wx, var1.wy, 0L);
             }
@@ -530,7 +503,7 @@ public final class WorldStreamer {
                   var1.loadInWorldStreamerThread();
                }
             } catch (Exception var4) {
-               var4.printStackTrace();
+               ExceptionLogger.logException(var4);
             }
 
             IsoChunk.loadGridSquare.add(var1);
@@ -593,22 +566,22 @@ public final class WorldStreamer {
    }
 
    public void stop() {
-      DebugLog.log("EXITDEBUG: WorldStreamer.stop 1");
+      DebugType.ExitDebug.debugln("WorldStreamer.stop 1");
       if (this.worldStreamer != null) {
          this.bFinished = true;
-         DebugLog.log("EXITDEBUG: WorldStreamer.stop 2");
+         DebugType.ExitDebug.debugln("WorldStreamer.stop 2");
 
          while(this.worldStreamer.isAlive()) {
          }
 
-         DebugLog.log("EXITDEBUG: WorldStreamer.stop 3");
+         DebugType.ExitDebug.debugln("WorldStreamer.stop 3");
          this.worldStreamer = null;
          this.jobList.clear();
          this.jobQueue.clear();
-         DebugLog.log("EXITDEBUG: WorldStreamer.stop 4");
+         DebugType.ExitDebug.debugln("WorldStreamer.stop 4");
          ChunkSaveWorker.instance.SaveNow();
          ChunkChecksum.Reset();
-         DebugLog.log("EXITDEBUG: WorldStreamer.stop 5");
+         DebugType.ExitDebug.debugln("WorldStreamer.stop 5");
       }
    }
 
@@ -617,70 +590,65 @@ public final class WorldStreamer {
    }
 
    public void requestLargeAreaZip(int var1, int var2, int var3) throws IOException {
-      ByteBufferWriter var4 = GameClient.connection.startPacket();
-      PacketTypes.PacketType.RequestLargeAreaZip.doPacket(var4);
-      var4.putInt(var1);
-      var4.putInt(var2);
-      var4.putInt(IsoChunkMap.ChunkGridWidth);
-      PacketTypes.PacketType.RequestLargeAreaZip.send(GameClient.connection);
+      INetworkPacket.send(PacketTypes.PacketType.RequestLargeAreaZip, var1, var2);
       this.requestingLargeArea = true;
       this.largeAreaDownloads = 0;
       GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_RequestMapData");
-      int var5 = 0;
-      int var6 = var1 - var3;
-      int var7 = var2 - var3;
-      int var8 = var1 + var3;
-      int var9 = var2 + var3;
+      int var4 = 0;
+      int var5 = var1 - var3;
+      int var6 = var2 - var3;
+      int var7 = var1 + var3;
+      int var8 = var2 + var3;
 
-      for(int var10 = var7; var10 <= var9; ++var10) {
-         for(int var11 = var6; var11 <= var8; ++var11) {
-            if (IsoWorld.instance.MetaGrid.isValidChunk(var11, var10)) {
-               IsoChunk var12 = (IsoChunk)IsoChunkMap.chunkStore.poll();
-               if (var12 == null) {
-                  var12 = new IsoChunk(IsoWorld.instance.CurrentCell);
+      for(int var9 = var6; var9 <= var8; ++var9) {
+         for(int var10 = var5; var10 <= var7; ++var10) {
+            if (IsoWorld.instance.MetaGrid.isValidChunk(var10, var9)) {
+               IsoChunk var11 = (IsoChunk)IsoChunkMap.chunkStore.poll();
+               if (var11 == null) {
+                  var11 = new IsoChunk(IsoWorld.instance.CurrentCell);
                } else {
                   MPStatistics.decreaseStoredChunk();
                }
 
-               this.addJob(var12, var11, var10, true);
-               ++var5;
+               this.addJob(var11, var10, var9, true);
+               ++var4;
             }
          }
       }
 
-      DebugLog.log("Requested " + var5 + " chunks from the server");
-      long var23 = System.currentTimeMillis();
-      long var24 = var23;
+      DebugLog.log("Requested " + var4 + " chunks from the server");
+      long var22 = System.currentTimeMillis();
+      long var23 = var22;
+      int var13 = 0;
       int var14 = 0;
-      int var15 = 0;
 
       while(this.isBusy()) {
-         long var16 = System.currentTimeMillis();
-         if (var16 - var24 > 60000L) {
+         long var15 = System.currentTimeMillis();
+         if (var15 - var23 > 60000L) {
             GameLoadingState.mapDownloadFailed = true;
             throw new IOException("map download from server timed out");
          }
 
-         int var18 = this.largeAreaDownloads;
-         GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_DownloadedMapData", var18, var5);
-         long var19 = var16 - var23;
-         if (var19 / 1000L > (long)var14) {
-            DebugLog.log("Received " + var18 + " / " + var5 + " chunks");
-            var14 = (int)(var19 / 1000L);
+         int var17 = this.largeAreaDownloads;
+         GameLoadingState.GameLoadingString = Translator.getText("IGUI_MP_DownloadedMapData", var17, var4);
+         long var18 = var15 - var22;
+         if (var18 / 1000L > (long)var13) {
+            DebugLog.log("Received " + var17 + " / " + var4 + " chunks");
+            var13 = (int)(var18 / 1000L);
          }
 
-         if (var15 < var18) {
-            var24 = var16;
-            var15 = var18;
+         if (var14 < var17) {
+            var23 = var15;
+            var14 = var17;
          }
 
          try {
             Thread.sleep(100L);
-         } catch (InterruptedException var22) {
+         } catch (InterruptedException var21) {
          }
       }
 
-      DebugLog.log("Received " + this.largeAreaDownloads + " / " + var5 + " chunks");
+      DebugLog.log("Received " + this.largeAreaDownloads + " / " + var4 + " chunks");
       this.requestingLargeArea = false;
    }
 
@@ -704,7 +672,7 @@ public final class WorldStreamer {
          ChunkRequest var4 = (ChunkRequest)this.pendingRequests1.get(var3);
          if ((var4.flagsWS & 1) == 0 && var4.time + 8000L < var1) {
             if (this.NetworkFileDebug) {
-               DebugLog.log(DebugType.NetworkFileDebug, "chunk request timed out " + var4.chunk.wx + "," + var4.chunk.wy);
+               DebugLog.NetworkFileDebug.debugln("chunk request timed out " + var4.chunk.wx + "," + var4.chunk.wy);
             }
 
             this.chunkRequests1.add(var4.chunk);
@@ -745,7 +713,7 @@ public final class WorldStreamer {
             var9.partsReceived[var4] = true;
             if (var9.isReceived()) {
                if (this.NetworkFileDebug) {
-                  DebugLog.log(DebugType.NetworkFileDebug, "received all parts for " + var9.chunk.wx + "," + var9.chunk.wy);
+                  DebugLog.NetworkFileDebug.debugln("received all parts for " + var9.chunk.wx + "," + var9.chunk.wy);
                }
 
                var9.bb.position(var5);
@@ -779,7 +747,7 @@ public final class WorldStreamer {
                var7.flagsUDP |= 16;
             } else if (var7.requestNumber == var4) {
                if (this.NetworkFileDebug) {
-                  DebugLog.log(DebugType.NetworkFileDebug, "NotRequiredInZip " + var7.chunk.wx + "," + var7.chunk.wy + " delete=" + !var5);
+                  DebugLog.NetworkFileDebug.debugln("NotRequiredInZip " + var7.chunk.wx + "," + var7.chunk.wy + " delete=" + !var5);
                }
 
                if (!var5) {
@@ -849,8 +817,8 @@ public final class WorldStreamer {
             DebugLog.log("lootRespawnHour " + var1.lootRespawnHour + " != " + var2.lootRespawnHour);
          }
 
-         for(int var3 = 0; var3 < 10; ++var3) {
-            for(int var4 = 0; var4 < 10; ++var4) {
+         for(int var3 = 0; var3 < 8; ++var3) {
+            for(int var4 = 0; var4 < 8; ++var4) {
                IsoGridSquare var5 = var1.getGridSquare(var4, var3, 0);
                IsoGridSquare var6 = var2.getGridSquare(var4, var3, 0);
                this.compareSquares(var5, var6);
@@ -967,20 +935,20 @@ public final class WorldStreamer {
       }
    }
 
-   private static final class ChunkRequest {
+   public static final class ChunkRequest {
       static final ArrayDeque<ChunkRequest> pool = new ArrayDeque();
-      IsoChunk chunk;
-      int requestNumber;
+      public IsoChunk chunk;
+      public int requestNumber;
       boolean[] partsReceived = null;
-      long crc;
+      public long crc;
       ByteBuffer bb;
-      transient int flagsMain;
+      public transient int flagsMain;
       transient int flagsUDP;
       transient int flagsWS;
       long time;
       ChunkRequest next;
 
-      private ChunkRequest() {
+      public ChunkRequest() {
       }
 
       boolean isReceived() {
@@ -1013,7 +981,7 @@ public final class WorldStreamer {
    }
 
    private static class ChunkComparator implements Comparator<IsoChunk> {
-      private Vector2[] pos = new Vector2[4];
+      private final Vector2[] pos = new Vector2[4];
 
       public ChunkComparator() {
          for(int var1 = 0; var1 < 4; ++var1) {
@@ -1028,16 +996,16 @@ public final class WorldStreamer {
             var2.x = var2.y = -1.0F;
             IsoPlayer var3 = IsoPlayer.players[var1];
             if (var3 != null) {
-               if (var3.lx == var3.x && var3.ly == var3.y) {
-                  var2.x = var3.x;
-                  var2.y = var3.y;
+               if (var3.getLastX() == var3.getX() && var3.getLastY() == var3.getY()) {
+                  var2.x = var3.getX();
+                  var2.y = var3.getY();
                } else {
-                  var2.x = var3.x - var3.lx;
-                  var2.y = var3.y - var3.ly;
+                  var2.x = var3.getX() - var3.getLastX();
+                  var2.y = var3.getY() - var3.getLastY();
                   var2.normalize();
                   var2.setLength(10.0F);
-                  var2.x += var3.x;
-                  var2.y += var3.y;
+                  var2.x += var3.getX();
+                  var2.y += var3.getY();
                }
             }
          }
@@ -1052,8 +1020,8 @@ public final class WorldStreamer {
             if (this.pos[var5].x != -1.0F || this.pos[var5].y != -1.0F) {
                float var6 = this.pos[var5].x;
                float var7 = this.pos[var5].y;
-               var3 = Math.min(var3, IsoUtils.DistanceTo(var6, var7, (float)(var1.wx * 10 + 5), (float)(var1.wy * 10 + 5)));
-               var4 = Math.min(var4, IsoUtils.DistanceTo(var6, var7, (float)(var2.wx * 10 + 5), (float)(var2.wy * 10 + 5)));
+               var3 = Math.min(var3, IsoUtils.DistanceToSquared(var6, var7, (float)(var1.wx * 8) + 4.0F, (float)(var1.wy * 8) + 4.0F));
+               var4 = Math.min(var4, IsoUtils.DistanceToSquared(var6, var7, (float)(var2.wx * 8) + 4.0F, (float)(var2.wy * 8) + 4.0F));
             }
          }
 

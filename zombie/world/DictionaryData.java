@@ -27,19 +27,21 @@ import zombie.world.logger.WorldDictionaryLogger;
 public class DictionaryData {
    protected final Map<Short, ItemInfo> itemIdToInfoMap = new HashMap();
    protected final Map<String, ItemInfo> itemTypeToInfoMap = new HashMap();
+   protected final Map<Short, EntityInfo> entityIdToInfoMap = new HashMap();
+   protected final Map<String, EntityInfo> entityTypeToInfoMap = new HashMap();
    protected final Map<String, Integer> spriteNameToIdMap = new HashMap();
    protected final Map<Integer, String> spriteIdToNameMap = new HashMap();
    protected final Map<String, Byte> objectNameToIdMap = new HashMap();
    protected final Map<Byte, String> objectIdToNameMap = new HashMap();
    protected final ArrayList<String> unsetObject = new ArrayList();
    protected final ArrayList<String> unsetSprites = new ArrayList();
-   protected short NextItemID = 0;
+   protected short NextInfoID = -32768;
    protected int NextSpriteNameID = 0;
    protected byte NextObjectNameID = 0;
    protected byte[] serverDataCache;
    private File dataBackupPath;
 
-   public DictionaryData() {
+   protected DictionaryData() {
    }
 
    protected boolean isClient() {
@@ -47,11 +49,13 @@ public class DictionaryData {
    }
 
    protected void reset() {
-      this.NextItemID = 0;
+      this.NextInfoID = 0;
       this.NextSpriteNameID = 0;
       this.NextObjectNameID = 0;
       this.itemIdToInfoMap.clear();
       this.itemTypeToInfoMap.clear();
+      this.entityIdToInfoMap.clear();
+      this.entityTypeToInfoMap.clear();
       this.objectIdToNameMap.clear();
       this.objectNameToIdMap.clear();
       this.spriteIdToNameMap.clear();
@@ -86,6 +90,41 @@ public class DictionaryData {
 
    protected final String getItemTypeDebugString(short var1) {
       String var2 = this.getItemTypeFromID(var1);
+      if (var2 == null) {
+         var2 = "Unknown";
+      }
+
+      return var2;
+   }
+
+   protected final EntityInfo getEntityInfoFromType(String var1) {
+      return (EntityInfo)this.entityTypeToInfoMap.get(var1);
+   }
+
+   protected final EntityInfo getEntityInfoFromID(short var1) {
+      return (EntityInfo)this.entityIdToInfoMap.get(var1);
+   }
+
+   protected final short getEntityRegistryID(String var1) {
+      EntityInfo var2 = (EntityInfo)this.entityTypeToInfoMap.get(var1);
+      if (var2 != null) {
+         return var2.registryID;
+      } else {
+         if (Core.bDebug) {
+            DebugLog.log("WARNING: Cannot get registry id for entity: " + var1);
+         }
+
+         return -1;
+      }
+   }
+
+   protected final String getEntityTypeFromID(short var1) {
+      EntityInfo var2 = (EntityInfo)this.entityIdToInfoMap.get(var1);
+      return var2 != null ? var2.fullType : null;
+   }
+
+   protected final String getEntityTypeDebugString(short var1) {
+      String var2 = this.getEntityTypeFromID(var1);
       if (var2 == null) {
          var2 = "Unknown";
       }
@@ -151,26 +190,47 @@ public class DictionaryData {
       return -1;
    }
 
-   protected final void getItemMods(List<String> var1) {
+   protected final void getDictionaryMods(List<String> var1) {
       var1.clear();
       Iterator var2 = this.itemIdToInfoMap.entrySet().iterator();
 
+      Map.Entry var3;
+      List var4;
+      int var5;
+      while(var2.hasNext()) {
+         var3 = (Map.Entry)var2.next();
+         if (!var1.contains(((ItemInfo)var3.getValue()).modID)) {
+            var1.add(((ItemInfo)var3.getValue()).modID);
+         }
+
+         if (((ItemInfo)var3.getValue()).modOverrides != null) {
+            var4 = ((ItemInfo)var3.getValue()).modOverrides;
+
+            for(var5 = 0; var5 < var4.size(); ++var5) {
+               if (!var1.contains(var4.get(var5))) {
+                  var1.add((String)var4.get(var5));
+               }
+            }
+         }
+      }
+
+      var2 = this.entityIdToInfoMap.entrySet().iterator();
+
       while(true) {
-         Map.Entry var3;
          do {
             if (!var2.hasNext()) {
                return;
             }
 
             var3 = (Map.Entry)var2.next();
-            if (!var1.contains(((ItemInfo)var3.getValue()).modID)) {
-               var1.add(((ItemInfo)var3.getValue()).modID);
+            if (!var1.contains(((EntityInfo)var3.getValue()).modID)) {
+               var1.add(((EntityInfo)var3.getValue()).modID);
             }
-         } while(((ItemInfo)var3.getValue()).modOverrides == null);
+         } while(((EntityInfo)var3.getValue()).modOverrides == null);
 
-         List var4 = ((ItemInfo)var3.getValue()).modOverrides;
+         var4 = ((EntityInfo)var3.getValue()).modOverrides;
 
-         for(int var5 = 0; var5 < var4.size(); ++var5) {
+         for(var5 = 0; var5 < var4.size(); ++var5) {
             if (!var1.contains(var4.get(var5))) {
                var1.add((String)var4.get(var5));
             }
@@ -179,37 +239,54 @@ public class DictionaryData {
    }
 
    protected final void getModuleList(List<String> var1) {
-      Iterator var2 = this.itemIdToInfoMap.entrySet().iterator();
+      this.getModuleList(var1, this.itemIdToInfoMap);
+      this.getModuleList(var1, this.entityIdToInfoMap);
+   }
 
-      while(var2.hasNext()) {
-         Map.Entry var3 = (Map.Entry)var2.next();
-         if (!var1.contains(((ItemInfo)var3.getValue()).moduleName)) {
-            var1.add(((ItemInfo)var3.getValue()).moduleName);
+   private final <T extends DictionaryInfo<?>> void getModuleList(List<String> var1, Map<Short, T> var2) {
+      Iterator var3 = var2.entrySet().iterator();
+
+      while(var3.hasNext()) {
+         Map.Entry var4 = (Map.Entry)var3.next();
+         if (!var1.contains(((DictionaryInfo)var4.getValue()).moduleName)) {
+            var1.add(((DictionaryInfo)var4.getValue()).moduleName);
          }
       }
 
    }
 
-   protected void parseItemLoadList(Map<String, ItemInfo> var1) throws WorldDictionaryException {
+   protected <T extends DictionaryInfo<?>> void parseInfoLoadList(Map<String, T> var1) throws WorldDictionaryException {
       Iterator var2 = var1.entrySet().iterator();
 
       while(true) {
          while(var2.hasNext()) {
             Map.Entry var3 = (Map.Entry)var2.next();
-            ItemInfo var4 = (ItemInfo)var3.getValue();
-            ItemInfo var5 = (ItemInfo)this.itemTypeToInfoMap.get(var4.fullType);
+            DictionaryInfo var4 = (DictionaryInfo)var3.getValue();
+            DictionaryInfo var5 = null;
+            if (var4 instanceof ItemInfo) {
+               var5 = (DictionaryInfo)this.itemTypeToInfoMap.get(var4.fullType);
+            } else {
+               var5 = (DictionaryInfo)this.entityTypeToInfoMap.get(var4.fullType);
+            }
+
             if (var5 == null) {
                if (!var4.obsolete) {
-                  if (this.NextItemID >= 32767) {
+                  if (this.NextInfoID >= 32767) {
                      throw new WorldDictionaryException("Max item ID value reached for WorldDictionary!");
                   }
 
-                  short var10003 = this.NextItemID;
-                  this.NextItemID = (short)(var10003 + 1);
+                  short var10003 = this.NextInfoID;
+                  this.NextInfoID = (short)(var10003 + 1);
                   var4.registryID = var10003;
                   var4.isLoaded = true;
-                  this.itemTypeToInfoMap.put(var4.fullType, var4);
-                  this.itemIdToInfoMap.put(var4.registryID, var4);
+                  if (var4 instanceof ItemInfo) {
+                     this.itemTypeToInfoMap.put(var4.fullType, (ItemInfo)var4);
+                     this.itemIdToInfoMap.put(var4.registryID, (ItemInfo)var4);
+                  } else {
+                     this.entityTypeToInfoMap.put(var4.fullType, (EntityInfo)var4);
+                     this.entityIdToInfoMap.put(var4.registryID, (EntityInfo)var4);
+                  }
+
                   WorldDictionaryLogger.log((Log.BaseLog)(new Log.RegisterItem(var4.copy())));
                }
             } else {
@@ -239,26 +316,52 @@ public class DictionaryData {
       }
    }
 
-   protected void parseCurrentItemSet() throws WorldDictionaryException {
-      Iterator var1 = this.itemTypeToInfoMap.entrySet().iterator();
+   protected void parseCurrentInfoSet() throws WorldDictionaryException {
+      this.parseCurrentInfoSet(this.itemTypeToInfoMap);
+      this.parseCurrentInfoSet(this.entityTypeToInfoMap);
+   }
 
-      while(var1.hasNext()) {
-         Map.Entry var2 = (Map.Entry)var1.next();
-         ItemInfo var3 = (ItemInfo)var2.getValue();
-         if (!var3.isLoaded) {
-            var3.removed = true;
-            WorldDictionaryLogger.log((Log.BaseLog)(new Log.RemovedItem(var3.copy(), false)));
+   protected <T extends DictionaryInfo<?>> void parseCurrentInfoSet(Map<String, T> var1) throws WorldDictionaryException {
+      Iterator var2 = var1.entrySet().iterator();
+
+      while(var2.hasNext()) {
+         Map.Entry var3 = (Map.Entry)var2.next();
+         DictionaryInfo var4 = (DictionaryInfo)var3.getValue();
+         boolean var5 = false;
+         if (!var4.isLoaded) {
+            var4.removed = true;
+            WorldDictionaryLogger.log((Log.BaseLog)(new Log.RemovedItem(var4.copy(), false)));
+            var5 = true;
          }
 
-         if (var3.scriptItem == null) {
-            var3.scriptItem = ScriptManager.instance.getSpecificItem(var3.fullType);
-         }
+         boolean var6 = false;
+         if (var4 instanceof ItemInfo var7) {
+            if (var7.scriptItem == null) {
+               var7.scriptItem = ScriptManager.instance.getSpecificItem(var4.fullType);
+               var7.entityScript = var7.scriptItem;
+            }
 
-         if (var3.scriptItem != null) {
-            var3.scriptItem.setRegistry_id(var3.registryID);
+            if (var7.scriptItem != null) {
+               var7.scriptItem.setRegistry_id(var4.registryID);
+               var6 = true;
+            }
          } else {
-            var3.removed = true;
-            WorldDictionaryLogger.log((Log.BaseLog)(new Log.RemovedItem(var3.copy(), true)));
+            EntityInfo var8 = (EntityInfo)var4;
+            if (var8.entityScript == null) {
+               var8.entityScript = ScriptManager.instance.getSpecificEntity(var4.fullType);
+            }
+
+            if (var8.entityScript != null) {
+               var8.entityScript.setRegistry_id(var4.registryID);
+               var6 = true;
+            }
+         }
+
+         if (!var6) {
+            var4.removed = true;
+            if (!var5) {
+               WorldDictionaryLogger.log((Log.BaseLog)(new Log.RemovedItem(var4.copy(), true)));
+            }
          }
       }
 
@@ -401,54 +504,67 @@ public class DictionaryData {
    }
 
    protected void loadFromByteBuffer(ByteBuffer var1) throws IOException {
-      this.NextItemID = var1.getShort();
+      int var2 = var1.getInt();
+      this.NextInfoID = var1.getShort();
       this.NextObjectNameID = var1.get();
       this.NextSpriteNameID = var1.getInt();
-      ArrayList var2 = new ArrayList();
-      int var3 = var1.getInt();
+      ArrayList var3 = new ArrayList();
+      int var4 = var1.getInt();
 
-      for(int var4 = 0; var4 < var3; ++var4) {
-         var2.add(GameWindow.ReadString(var1));
+      for(int var5 = 0; var5 < var4; ++var5) {
+         var3.add(GameWindow.ReadString(var1));
       }
 
-      ArrayList var12 = new ArrayList();
-      int var5 = var1.getInt();
-
-      int var6;
-      for(var6 = 0; var6 < var5; ++var6) {
-         var12.add(GameWindow.ReadString(var1));
-      }
-
-      var6 = var1.getInt();
+      ArrayList var14 = new ArrayList();
+      int var6 = var1.getInt();
 
       int var7;
       for(var7 = 0; var7 < var6; ++var7) {
-         ItemInfo var8 = new ItemInfo();
-         var8.load(var1, 195, var2, var12);
-         this.itemIdToInfoMap.put(var8.registryID, var8);
-         this.itemTypeToInfoMap.put(var8.fullType, var8);
+         var14.add(GameWindow.ReadString(var1));
       }
 
       var7 = var1.getInt();
 
-      int var9;
-      int var13;
-      for(var13 = 0; var13 < var7; ++var13) {
-         var9 = var1.get();
-         String var10 = GameWindow.ReadString(var1);
-         this.objectIdToNameMap.put(Byte.valueOf((byte)var9), var10);
-         this.objectNameToIdMap.put(var10, Byte.valueOf((byte)var9));
+      int var8;
+      for(var8 = 0; var8 < var7; ++var8) {
+         ItemInfo var9 = new ItemInfo();
+         var9.load(var1, var2, var3, var14);
+         this.itemIdToInfoMap.put(var9.registryID, var9);
+         this.itemTypeToInfoMap.put(var9.fullType, var9);
       }
 
-      var13 = var1.getInt();
+      var8 = var1.getInt();
 
-      for(var9 = 0; var9 < var13; ++var9) {
-         int var14 = var1.getInt();
-         String var11 = GameWindow.ReadString(var1);
-         this.spriteIdToNameMap.put(var14, var11);
-         this.spriteNameToIdMap.put(var11, var14);
+      int var15;
+      for(var15 = 0; var15 < var8; ++var15) {
+         EntityInfo var10 = new EntityInfo();
+         var10.load(var1, var2, var3, var14);
+         this.entityIdToInfoMap.put(var10.registryID, var10);
+         this.entityTypeToInfoMap.put(var10.fullType, var10);
       }
 
+      var15 = var1.getInt();
+
+      int var11;
+      int var16;
+      for(var16 = 0; var16 < var15; ++var16) {
+         var11 = var1.get();
+         String var12 = GameWindow.ReadString(var1);
+         this.objectIdToNameMap.put(Byte.valueOf((byte)var11), var12);
+         this.objectNameToIdMap.put(var12, Byte.valueOf((byte)var11));
+      }
+
+      var16 = var1.getInt();
+
+      for(var11 = 0; var11 < var16; ++var11) {
+         int var17 = var1.getInt();
+         String var13 = GameWindow.ReadString(var1);
+         this.spriteIdToNameMap.put(var17, var13);
+         this.spriteNameToIdMap.put(var13, var17);
+      }
+
+      StringDictionary.loadFromByteBuffer(var1, var2);
+      ScriptsDictionary.loadFromByteBuffer(var1, var2);
    }
 
    protected void save() throws IOException, WorldDictionaryException {
@@ -481,11 +597,12 @@ public class DictionaryData {
    }
 
    protected void saveToByteBuffer(ByteBuffer var1) throws IOException {
-      var1.putShort(this.NextItemID);
+      var1.putInt(1);
+      var1.putShort(this.NextInfoID);
       var1.put(this.NextObjectNameID);
       var1.putInt(this.NextSpriteNameID);
       ArrayList var2 = new ArrayList();
-      this.getItemMods(var2);
+      this.getDictionaryMods(var2);
       var1.putInt(var2.size());
       Iterator var3 = var2.iterator();
 
@@ -514,6 +631,15 @@ public class DictionaryData {
          var6.save(var1, var2, var7);
       }
 
+      var1.putInt(this.entityIdToInfoMap.size());
+      var8 = this.entityIdToInfoMap.entrySet().iterator();
+
+      while(var8.hasNext()) {
+         var9 = (Map.Entry)var8.next();
+         EntityInfo var10 = (EntityInfo)var9.getValue();
+         var10.save(var1, var2, var7);
+      }
+
       var1.putInt(this.objectIdToNameMap.size());
       var8 = this.objectIdToNameMap.entrySet().iterator();
 
@@ -532,6 +658,8 @@ public class DictionaryData {
          GameWindow.WriteString(var1, (String)var9.getValue());
       }
 
+      StringDictionary.saveToByteBuffer(var1);
+      ScriptsDictionary.saveToByteBuffer(var1);
    }
 
    protected void saveAsText(String var1) throws IOException, WorldDictionaryException {
@@ -560,6 +688,19 @@ public class DictionaryData {
 
                   var5.write("}" + System.lineSeparator());
                   var5.write("" + System.lineSeparator());
+                  var5.write("--[[ ---- ENTITIES ---- --]]" + System.lineSeparator());
+                  var5.write("entities = {" + System.lineSeparator());
+                  var6 = this.entityIdToInfoMap.entrySet().iterator();
+
+                  while(var6.hasNext()) {
+                     var7 = (Map.Entry)var6.next();
+                     var5.write("\t{" + System.lineSeparator());
+                     ((EntityInfo)var7.getValue()).saveAsText(var5, "\t\t");
+                     var5.write("\t}," + System.lineSeparator());
+                  }
+
+                  var5.write("}" + System.lineSeparator());
+                  var5.write("" + System.lineSeparator());
                   var5.write("--[[ ---- OBJECTS ---- --]]" + System.lineSeparator());
                   var5.write("objects = {" + System.lineSeparator());
                   var6 = this.objectIdToNameMap.entrySet().iterator();
@@ -577,13 +718,27 @@ public class DictionaryData {
                   var5.write("sprites = {" + System.lineSeparator());
                   var6 = this.spriteIdToNameMap.entrySet().iterator();
 
-                  while(var6.hasNext()) {
+                  while(true) {
+                     if (!var6.hasNext()) {
+                        var5.write("}" + System.lineSeparator());
+                        var5.write("" + System.lineSeparator());
+                        var5.write("--[[ ---- STRINGS ---- --]]" + System.lineSeparator());
+                        var5.write("strings = {" + System.lineSeparator());
+                        StringDictionary.saveAsText(var5, "\t");
+                        var5.write("}" + System.lineSeparator());
+                        var5.write("" + System.lineSeparator());
+                        var5.write("}" + System.lineSeparator());
+                        var5.write("--[[ ---- SCRIPTS ---- --]]" + System.lineSeparator());
+                        var5.write("scripts = {" + System.lineSeparator());
+                        ScriptsDictionary.saveAsText(var5, "\t");
+                        var5.write("}" + System.lineSeparator());
+                        break;
+                     }
+
                      var7 = (Map.Entry)var6.next();
                      var10001 = var7.getKey();
                      var5.write("\t" + var10001 + " = \"" + (String)var7.getValue() + "\"," + System.lineSeparator());
                   }
-
-                  var5.write("}" + System.lineSeparator());
                } catch (Throwable var9) {
                   try {
                      var5.close();

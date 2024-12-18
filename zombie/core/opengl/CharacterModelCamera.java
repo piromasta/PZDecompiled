@@ -1,6 +1,7 @@
 package zombie.core.opengl;
 
 import org.joml.Math;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import zombie.core.Core;
 import zombie.core.skinnedmodel.ModelCamera;
@@ -22,25 +23,23 @@ public final class CharacterModelCamera extends ModelCamera {
          float var4 = 0.0F;
          float var5 = -0.45F;
          float var6 = 0.0F;
-         GL11.glMatrixMode(5889);
-         GL11.glPushMatrix();
-         GL11.glLoadIdentity();
-         float var7 = (float)var1 / (float)var2;
-         boolean var8 = false;
-         if (var8) {
-            GL11.glOrtho((double)(-var3 * var7), (double)(var3 * var7), (double)var3, (double)(-var3), -100.0, 100.0);
+         Matrix4f var7 = Core.getInstance().projectionMatrixStack.alloc();
+         float var8 = (float)var1 / (float)var2;
+         boolean var9 = false;
+         if (var9) {
+            var7.setOrtho(-var3 * var8, var3 * var8, var3, -var3, -100.0F, 100.0F);
          } else {
-            GL11.glOrtho((double)(-var3 * var7), (double)(var3 * var7), (double)(-var3), (double)var3, -100.0, 100.0);
+            var7.setOrtho(-var3 * var8, var3 * var8, -var3, var3, -100.0F, 100.0F);
          }
 
-         float var9 = Math.sqrt(2048.0F);
-         GL11.glScalef(-var9, var9, var9);
-         GL11.glMatrixMode(5888);
-         GL11.glPushMatrix();
-         GL11.glLoadIdentity();
-         GL11.glTranslatef(var4, var5, var6);
-         GL11.glRotatef(30.0F, 1.0F, 0.0F, 0.0F);
-         GL11.glRotated(Math.toDegrees((double)this.m_useAngle) + 45.0, 0.0, 1.0, 0.0);
+         float var10 = Math.sqrt(2048.0F);
+         var7.scale(-var10, var10, var10);
+         Core.getInstance().projectionMatrixStack.push(var7);
+         Matrix4f var11 = Core.getInstance().modelViewMatrixStack.alloc();
+         var11.translation(var4, var5, var6);
+         var11.rotate(0.5235988F, 1.0F, 0.0F, 0.0F);
+         var11.rotate(this.m_useAngle + 0.7853982F, 0.0F, 1.0F, 0.0F);
+         Core.getInstance().modelViewMatrixStack.push(var11);
          GL11.glDepthRange(0.0, 1.0);
          GL11.glDepthMask(this.bDepthMask);
       }
@@ -51,10 +50,8 @@ public final class CharacterModelCamera extends ModelCamera {
          Core.getInstance().DoPopIsoStuff();
       } else {
          GL11.glDepthFunc(519);
-         GL11.glMatrixMode(5889);
-         GL11.glPopMatrix();
-         GL11.glMatrixMode(5888);
-         GL11.glPopMatrix();
+         Core.getInstance().projectionMatrixStack.pop();
+         Core.getInstance().modelViewMatrixStack.pop();
       }
    }
 }

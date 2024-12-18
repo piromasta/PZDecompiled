@@ -180,41 +180,66 @@ public final class ChooseGameInfo {
                BufferedReader var4 = new BufferedReader(var3);
                String var5 = null;
 
-               try {
-                  while((var5 = var4.readLine()) != null) {
-                     var5 = var5.trim();
-                     if (var5.startsWith("title=")) {
-                        var2.title = var5.replace("title=", "");
-                     } else if (var5.startsWith("lots=")) {
-                        var2.lotsDir.add(var5.replace("lots=", "").trim());
-                     } else if (var5.startsWith("description=")) {
-                        if (var2.desc == null) {
-                           var2.desc = "";
+               label65:
+               while(true) {
+                  try {
+                     if ((var5 = var4.readLine()) != null) {
+                        var5 = var5.trim();
+                        if (var5.startsWith("title=")) {
+                           var2.title = var5.replace("title=", "");
+                        } else if (var5.startsWith("lots=")) {
+                           var2.lotsDir.add(var5.replace("lots=", "").trim());
+                        } else if (var5.startsWith("description=")) {
+                           if (var2.desc == null) {
+                              var2.desc = "";
+                           }
+
+                           String var10001 = var2.desc;
+                           var2.desc = var10001 + var5.replace("description=", "");
+                        } else if (var5.startsWith("fixed2x=")) {
+                           var2.bFixed2x = Boolean.parseBoolean(var5.replace("fixed2x=", "").trim());
+                        } else if (var5.startsWith("zoomX=")) {
+                           var2.zoomX = Float.parseFloat(var5.replace("zoomX=", "").trim());
+                        } else if (var5.startsWith("zoomY=")) {
+                           var2.zoomY = Float.parseFloat(var5.replace("zoomY=", "").trim());
+                        } else if (var5.startsWith("zoomS=")) {
+                           var2.zoomS = Float.parseFloat(var5.replace("zoomS=", "").trim());
+                        } else if (var5.startsWith("demoVideo=")) {
+                           var2.demoVideo = var5.replace("demoVideo=", "");
                         }
-
-                        String var10001 = var2.desc;
-                        var2.desc = var10001 + var5.replace("description=", "");
-                     } else if (var5.startsWith("fixed2x=")) {
-                        var2.bFixed2x = Boolean.parseBoolean(var5.replace("fixed2x=", "").trim());
+                        continue;
                      }
+                  } catch (IOException var10) {
+                     Logger.getLogger(ChooseGameInfo.class.getName()).log(Level.SEVERE, (String)null, var10);
                   }
-               } catch (IOException var9) {
-                  Logger.getLogger(ChooseGameInfo.class.getName()).log(Level.SEVERE, (String)null, var9);
-               }
 
-               var4.close();
-               var2.thumb = Texture.getSharedTexture(var2.dir + "/thumb.png");
-               ArrayList var6 = new ArrayList();
-               Translator.addLanguageToList(Translator.getLanguage(), var6);
-               Translator.addLanguageToList(Translator.getDefaultLanguage(), var6);
+                  var4.close();
+                  var2.thumb = Texture.getSharedTexture(var2.dir + "/thumb.png");
+                  String var6 = ZomboidFileSystem.instance.getString(var2.dir + "/spawnSelectImagePyramid.zip");
+                  if ((new File(var6)).exists()) {
+                     var2.spawnSelectImagePyramid = var6;
+                  } else {
+                     var2.worldmap = Texture.getSharedTexture(var2.dir + "/worldmap.png");
+                  }
 
-               for(int var7 = var6.size() - 1; var7 >= 0; --var7) {
-                  Language var8 = (Language)var6.get(var7);
-                  readTitleDotTxt(var2, var0, var8);
-                  readDescriptionDotTxt(var2, var0, var8);
+                  ArrayList var7 = new ArrayList();
+                  Translator.addLanguageToList(Translator.getLanguage(), var7);
+                  Translator.addLanguageToList(Translator.getDefaultLanguage(), var7);
+                  int var8 = var7.size() - 1;
+
+                  while(true) {
+                     if (var8 < 0) {
+                        break label65;
+                     }
+
+                     Language var9 = (Language)var7.get(var8);
+                     readTitleDotTxt(var2, var0, var9);
+                     readDescriptionDotTxt(var2, var0, var9);
+                     --var8;
+                  }
                }
-            } catch (Exception var10) {
-               ExceptionLogger.logException(var10);
+            } catch (Exception var11) {
+               ExceptionLogger.logException(var11);
                return null;
             }
 
@@ -234,30 +259,23 @@ public final class ChooseGameInfo {
          if (var1 == null) {
             ArrayList var2 = tempStrings;
             ZomboidFileSystem.instance.getAllModFolders(var2);
-            ArrayList var3 = new ArrayList();
 
-            for(int var4 = 0; var4 < var2.size(); ++var4) {
-               File var5 = new File((String)var2.get(var4), "mod.info");
-               var3.clear();
-               Mod var6 = ZomboidFileSystem.instance.searchForModInfo(var5, var0, var3);
-
-               for(int var7 = 0; var7 < var3.size(); ++var7) {
-                  Mod var8 = (Mod)var3.get(var7);
-                  Mods.putIfAbsent(var8.getId(), var8);
-               }
-
-               if (var6 != null) {
-                  return var6;
+            for(int var3 = 0; var3 < var2.size(); ++var3) {
+               Mod var4 = readModInfo((String)var2.get(var3));
+               Mods.putIfAbsent(var4.getId(), var4);
+               ZomboidFileSystem.instance.setModIdToDir(var4.getId(), (String)var2.get(var3));
+               if (var4.getId().equals(var0)) {
+                  return var4;
                }
             }
          }
 
-         Mod var9 = readModInfo(var1);
-         if (var9 == null) {
+         Mod var5 = readModInfo(var1);
+         if (var5 == null) {
             MissingMods.add(var0);
          }
 
-         return var9;
+         return var5;
       }
    }
 
@@ -293,287 +311,306 @@ public final class ChooseGameInfo {
          }
 
          var1.bRead = true;
-         String var2 = var0 + File.separator + "mod.info";
-         File var3 = new File(var2);
-         if (!var3.exists()) {
-            DebugLog.Mod.warn("can't find \"" + var2 + "\"");
-            return null;
+         String var2 = var1.getVersionDir();
+         String var3 = var1.getCommonDir();
+         String var4 = var2 + File.separator + "mod.info";
+         File var5 = new File(var4);
+         if (!var5.exists()) {
+            var4 = var3 + File.separator + "mod.info";
+            var5 = new File(var4);
+            if (!var5.exists()) {
+               DebugLog.Mod.warn("can't find \"" + var4 + "\"");
+               return null;
+            }
          }
 
-         var1.setId(var3.getParentFile().getName());
+         var1.setId(var5.getParentFile().getName());
 
          try {
-            InputStreamReader var4 = IndieFileLoader.getStreamReader(var2);
+            InputStreamReader var6 = IndieFileLoader.getStreamReader(var4);
 
-            Mod var25;
-            label295: {
-               Object var24;
-               label296: {
-                  label297: {
-                     Object var12;
-                     label298: {
-                        String var11;
-                        label299: {
-                           String var8;
-                           label300: {
+            Mod var28;
+            label321: {
+               Object var11;
+               label322: {
+                  label323: {
+                     Object var14;
+                     label324: {
+                        String var13;
+                        label325: {
+                           String var10;
+                           label326: {
                               try {
-                                 label301: {
-                                    BufferedReader var5 = new BufferedReader(var4);
+                                 BufferedReader var7 = new BufferedReader(var6);
 
-                                    label273: {
-                                       label272: {
-                                          label271: {
-                                             label270: {
-                                                label269: {
-                                                   label268:
-                                                   while(true) {
-                                                      try {
-                                                         label264:
-                                                         while(true) {
-                                                            String var6;
-                                                            while((var6 = var5.readLine()) != null) {
-                                                               if (var6.contains("name=")) {
-                                                                  var1.name = var6.replace("name=", "");
-                                                               } else {
-                                                                  String var22;
-                                                                  if (var6.contains("poster=")) {
-                                                                     var22 = var6.replace("poster=", "");
-                                                                     if (!StringUtils.isNullOrWhitespace(var22)) {
-                                                                        var1.posters.add(var0 + File.separator + var22);
+                                 label297: {
+                                    label296: {
+                                       label295: {
+                                          label294: {
+                                             label293: {
+                                                label292: {
+                                                   try {
+                                                      String var8;
+                                                      while((var8 = var7.readLine()) != null) {
+                                                         if (var8.contains("name=")) {
+                                                            var1.name = var8.replace("name=", "");
+                                                         } else {
+                                                            String var9;
+                                                            if (var8.contains("poster=")) {
+                                                               var9 = var8.replace("poster=", "");
+                                                               if (!StringUtils.isNullOrWhitespace(var9)) {
+                                                                  var1.posters.add(var2 + File.separator + var9);
+                                                               }
+                                                            } else if (var8.contains("description=")) {
+                                                               String var10001 = var1.desc;
+                                                               var1.desc = var10001 + var8.replace("description=", "");
+                                                            } else if (var8.contains("require=")) {
+                                                               var1.setRequire(new ArrayList(Arrays.asList(var8.replace("require=", "").split(","))));
+                                                            } else if (var8.contains("incompatible=")) {
+                                                               var1.setIncompatible(new ArrayList(Arrays.asList(var8.replace("incompatible=", "").split(","))));
+                                                            } else if (var8.contains("loadModAfter=")) {
+                                                               var1.setLoadAfter(new ArrayList(Arrays.asList(var8.replace("loadModAfter=", "").split(","))));
+                                                            } else if (var8.contains("loadModBefore=")) {
+                                                               var1.setLoadBefore(new ArrayList(Arrays.asList(var8.replace("loadModBefore=", "").split(","))));
+                                                            } else if (var8.contains("id=")) {
+                                                               var1.setId(var8.replace("id=", ""));
+                                                            } else if (var8.contains("author=")) {
+                                                               var1.setAuthor(var8.replace("author=", ""));
+                                                            } else if (var8.contains("modversion=")) {
+                                                               var1.setModVersion(var8.replace("modversion=", ""));
+                                                            } else if (var8.contains("icon=")) {
+                                                               var1.setIcon(var2 + File.separator + var8.replace("icon=", ""));
+                                                            } else if (var8.contains("category=")) {
+                                                               var1.setCategory(var8.replace("category=", ""));
+                                                            } else if (var8.contains("url=")) {
+                                                               var1.setUrl(var8.replace("url=", ""));
+                                                            } else {
+                                                               int var26;
+                                                               int var30;
+                                                               if (var8.contains("pack=")) {
+                                                                  var9 = var8.replace("pack=", "").trim();
+                                                                  if (var9.isEmpty()) {
+                                                                     DebugLog.Mod.error("pack= line requires a file name");
+                                                                     var10 = null;
+                                                                     break label297;
+                                                                  }
+
+                                                                  int var25 = TextureID.bUseCompressionOption ? 4 : 0;
+                                                                  var25 |= 64;
+                                                                  var26 = var9.indexOf("type=");
+                                                                  byte var31;
+                                                                  if (var26 != -1) {
+                                                                     switch (var9.substring(var26 + "type=".length())) {
+                                                                        case "ui":
+                                                                           var25 = 2;
+                                                                           break;
+                                                                        default:
+                                                                           DebugLog.Mod.error("unknown pack type=" + var27);
                                                                      }
-                                                                  } else if (!var6.contains("description=")) {
-                                                                     if (var6.contains("require=")) {
-                                                                        var1.setRequire(new ArrayList(Arrays.asList(var6.replace("require=", "").split(","))));
-                                                                     } else if (var6.contains("id=")) {
-                                                                        var1.setId(var6.replace("id=", ""));
-                                                                     } else if (var6.contains("url=")) {
-                                                                        var1.setUrl(var6.replace("url=", ""));
+
+                                                                     var30 = var9.indexOf(32);
+                                                                     var9 = var9.substring(0, var30).trim();
+                                                                  }
+
+                                                                  var27 = var9;
+                                                                  var13 = "";
+                                                                  if (var9.endsWith(".floor")) {
+                                                                     var27 = var9.substring(0, var9.lastIndexOf(46));
+                                                                     var13 = ".floor";
+                                                                     var25 &= -5;
+                                                                  }
+
+                                                                  var31 = 1;
+                                                                  if (Core.SafeModeForced) {
+                                                                     var31 = 1;
+                                                                  }
+
+                                                                  if (var31 == 2) {
+                                                                     File var15 = new File(var2 + File.separator + "media" + File.separator + "texturepacks" + File.separator + var27 + "2x" + var13 + ".pack");
+                                                                     if (var15.isFile()) {
+                                                                        DebugLog.Mod.printf("2x version of %s.pack found.\n", var9);
+                                                                        var9 = var27 + "2x" + var13;
                                                                      } else {
-                                                                        int var9;
-                                                                        int var28;
-                                                                        if (var6.contains("pack=")) {
-                                                                           var22 = var6.replace("pack=", "").trim();
-                                                                           if (var22.isEmpty()) {
-                                                                              DebugLog.Mod.error("pack= line requires a file name");
-                                                                              var8 = null;
-                                                                              break label270;
-                                                                           }
-
-                                                                           int var23 = TextureID.bUseCompressionOption ? 4 : 0;
-                                                                           var23 |= 64;
-                                                                           var9 = var22.indexOf("type=");
-                                                                           int var29;
-                                                                           if (var9 != -1) {
-                                                                              switch (var22.substring(var9 + "type=".length())) {
-                                                                                 case "ui":
-                                                                                    var23 = 2;
-                                                                                    break;
-                                                                                 default:
-                                                                                    DebugLog.Mod.error("unknown pack type=" + var26);
-                                                                              }
-
-                                                                              var28 = var22.indexOf(32);
-                                                                              var22 = var22.substring(0, var28).trim();
-                                                                           }
-
-                                                                           var26 = var22;
-                                                                           var11 = "";
-                                                                           if (var22.endsWith(".floor")) {
-                                                                              var26 = var22.substring(0, var22.lastIndexOf(46));
-                                                                              var11 = ".floor";
-                                                                              var23 &= -5;
-                                                                           }
-
-                                                                           var29 = Core.getInstance().getOptionTexture2x() ? 2 : 1;
-                                                                           if (Core.SafeModeForced) {
-                                                                              var29 = 1;
-                                                                           }
-
-                                                                           if (var29 == 2) {
-                                                                              File var13 = new File(var0 + File.separator + "media" + File.separator + "texturepacks" + File.separator + var26 + "2x" + var11 + ".pack");
-                                                                              if (var13.isFile()) {
-                                                                                 DebugLog.Mod.printf("2x version of %s.pack found.\n", var22);
-                                                                                 var22 = var26 + "2x" + var11;
-                                                                              } else {
-                                                                                 var13 = new File(var0 + File.separator + "media" + File.separator + "texturepacks" + File.separator + var22 + "2x.pack");
-                                                                                 if (var13.isFile()) {
-                                                                                    DebugLog.Mod.printf("2x version of %s.pack found.\n", var22);
-                                                                                    var22 = var22 + "2x";
-                                                                                 } else {
-                                                                                    DebugLog.Mod.printf("2x version of %s.pack not found.\n", var22);
-                                                                                 }
-                                                                              }
-                                                                           }
-
-                                                                           var1.addPack(var22, var23);
-                                                                        } else if (!var6.contains("tiledef=")) {
-                                                                           if (var6.startsWith("versionMax=")) {
-                                                                              var22 = var6.replace("versionMax=", "").trim();
-                                                                              if (!var22.isEmpty()) {
-                                                                                 try {
-                                                                                    var1.versionMax = GameVersion.parse(var22);
-                                                                                 } catch (Exception var16) {
-                                                                                    DebugLog.Mod.error("invalid versionMax: " + var16.getMessage());
-                                                                                    var24 = null;
-                                                                                    break label271;
-                                                                                 }
-                                                                              }
-                                                                           } else if (var6.startsWith("versionMin=")) {
-                                                                              var22 = var6.replace("versionMin=", "").trim();
-                                                                              if (!var22.isEmpty()) {
-                                                                                 try {
-                                                                                    var1.versionMin = GameVersion.parse(var22);
-                                                                                 } catch (Exception var17) {
-                                                                                    DebugLog.Mod.error("invalid versionMin: " + var17.getMessage());
-                                                                                    var24 = null;
-                                                                                    break label269;
-                                                                                 }
-                                                                              }
-                                                                           }
+                                                                        var15 = new File(var2 + File.separator + "media" + File.separator + "texturepacks" + File.separator + var9 + "2x.pack");
+                                                                        if (var15.isFile()) {
+                                                                           DebugLog.Mod.printf("2x version of %s.pack found.\n", var9);
+                                                                           var9 = var9 + "2x";
                                                                         } else {
-                                                                           String[] var7 = var6.replace("tiledef=", "").trim().split("\\s+");
-                                                                           if (var7.length == 2) {
-                                                                              var8 = var7[0];
-
-                                                                              try {
-                                                                                 var9 = Integer.parseInt(var7[1]);
-                                                                              } catch (NumberFormatException var18) {
-                                                                                 DebugLog.Mod.error("tiledef= line requires file name and file number");
-                                                                                 var11 = null;
-                                                                                 break label273;
+                                                                           var15 = new File(var3 + File.separator + "media" + File.separator + "texturepacks" + File.separator + var27 + "2x" + var13 + ".pack");
+                                                                           if (var15.isFile()) {
+                                                                              DebugLog.Mod.printf("2x version of %s.pack found.\n", var9);
+                                                                              var9 = var27 + "2x" + var13;
+                                                                           } else {
+                                                                              var15 = new File(var3 + File.separator + "media" + File.separator + "texturepacks" + File.separator + var9 + "2x.pack");
+                                                                              if (var15.isFile()) {
+                                                                                 DebugLog.Mod.printf("2x version of %s.pack found.\n", var9);
+                                                                                 var9 = var9 + "2x";
+                                                                              } else {
+                                                                                 DebugLog.Mod.printf("2x version of %s.pack not found.\n", var9);
                                                                               }
-
-                                                                              byte var10 = 100;
-                                                                              boolean var27 = true;
-                                                                              var28 = 16382;
-                                                                              if (var9 >= var10 && var9 <= var28) {
-                                                                                 var1.addTileDef(var8, var9);
-                                                                                 continue;
-                                                                              }
-
-                                                                              DebugLog.Mod.error("tiledef=%s %d file number must be from %d to %d", var8, var9, Integer.valueOf(var10), var28);
-                                                                              var12 = null;
-                                                                              break label272;
                                                                            }
-
-                                                                           DebugLog.Mod.error("tiledef= line requires file name and file number");
-                                                                           var8 = null;
-                                                                           break label264;
                                                                         }
                                                                      }
-                                                                  } else {
-                                                                     String var10001 = var1.desc;
-                                                                     var1.desc = var10001 + var6.replace("description=", "");
+                                                                  }
+
+                                                                  var1.addPack(var9, var25);
+                                                               } else if (var8.contains("tiledef=")) {
+                                                                  String[] var24 = var8.replace("tiledef=", "").trim().split("\\s+");
+                                                                  if (var24.length != 2) {
+                                                                     DebugLog.Mod.error("tiledef= line requires file name and file number");
+                                                                     var10 = null;
+                                                                     break label296;
+                                                                  }
+
+                                                                  var10 = var24[0];
+
+                                                                  try {
+                                                                     var26 = Integer.parseInt(var24[1]);
+                                                                  } catch (NumberFormatException var20) {
+                                                                     DebugLog.Mod.error("tiledef= line requires file name and file number");
+                                                                     var13 = null;
+                                                                     break label295;
+                                                                  }
+
+                                                                  byte var12 = 100;
+                                                                  boolean var29 = true;
+                                                                  var30 = 16382;
+                                                                  if (var26 < var12 || var26 > var30) {
+                                                                     DebugLog.Mod.error("tiledef=%s %d file number must be from %d to %d", var10, var26, Integer.valueOf(var12), var30);
+                                                                     var14 = null;
+                                                                     break label294;
+                                                                  }
+
+                                                                  var1.addTileDef(var10, var26);
+                                                               } else if (var8.startsWith("versionMax=")) {
+                                                                  var9 = var8.replace("versionMax=", "").trim();
+                                                                  if (!var9.isEmpty()) {
+                                                                     try {
+                                                                        var1.versionMax = GameVersion.parse(var9);
+                                                                     } catch (Exception var18) {
+                                                                        DebugLog.Mod.error("invalid versionMax: " + var18.getMessage());
+                                                                        var11 = null;
+                                                                        break label293;
+                                                                     }
+                                                                  }
+                                                               } else if (var8.startsWith("versionMin=")) {
+                                                                  var9 = var8.replace("versionMin=", "").trim();
+                                                                  if (!var9.isEmpty()) {
+                                                                     try {
+                                                                        var1.versionMin = GameVersion.parse(var9);
+                                                                     } catch (Exception var19) {
+                                                                        DebugLog.Mod.error("invalid versionMin: " + var19.getMessage());
+                                                                        var11 = null;
+                                                                        break label292;
+                                                                     }
                                                                   }
                                                                }
                                                             }
-
-                                                            if (var1.getUrl() == null) {
-                                                               var1.setUrl("");
-                                                            }
-
-                                                            var1.bValid = true;
-                                                            var25 = var1;
-                                                            break label268;
                                                          }
-                                                      } catch (Throwable var19) {
-                                                         try {
-                                                            var5.close();
-                                                         } catch (Throwable var15) {
-                                                            var19.addSuppressed(var15);
-                                                         }
-
-                                                         throw var19;
                                                       }
 
-                                                      var5.close();
-                                                      break label300;
+                                                      if (var1.getUrl() == null) {
+                                                         var1.setUrl("");
+                                                      }
+
+                                                      var1.bValid = true;
+                                                      var28 = var1;
+                                                   } catch (Throwable var21) {
+                                                      try {
+                                                         var7.close();
+                                                      } catch (Throwable var17) {
+                                                         var21.addSuppressed(var17);
+                                                      }
+
+                                                      throw var21;
                                                    }
 
-                                                   var5.close();
-                                                   break label295;
+                                                   var7.close();
+                                                   break label321;
                                                 }
 
-                                                var5.close();
-                                                break label296;
+                                                var7.close();
+                                                break label322;
                                              }
 
-                                             var5.close();
-                                             break label301;
+                                             var7.close();
+                                             break label323;
                                           }
 
-                                          var5.close();
-                                          break label297;
+                                          var7.close();
+                                          break label324;
                                        }
 
-                                       var5.close();
-                                       break label298;
+                                       var7.close();
+                                       break label325;
                                     }
 
-                                    var5.close();
-                                    break label299;
+                                    var7.close();
+                                    break label326;
                                  }
-                              } catch (Throwable var20) {
-                                 if (var4 != null) {
+
+                                 var7.close();
+                              } catch (Throwable var22) {
+                                 if (var6 != null) {
                                     try {
-                                       var4.close();
-                                    } catch (Throwable var14) {
-                                       var20.addSuppressed(var14);
+                                       var6.close();
+                                    } catch (Throwable var16) {
+                                       var22.addSuppressed(var16);
                                     }
                                  }
 
-                                 throw var20;
+                                 throw var22;
                               }
 
-                              if (var4 != null) {
-                                 var4.close();
+                              if (var6 != null) {
+                                 var6.close();
                               }
 
-                              return var8;
+                              return var10;
                            }
 
-                           if (var4 != null) {
-                              var4.close();
+                           if (var6 != null) {
+                              var6.close();
                            }
 
-                           return var8;
+                           return var10;
                         }
 
-                        if (var4 != null) {
-                           var4.close();
+                        if (var6 != null) {
+                           var6.close();
                         }
 
-                        return var11;
+                        return var13;
                      }
 
-                     if (var4 != null) {
-                        var4.close();
+                     if (var6 != null) {
+                        var6.close();
                      }
 
-                     return (Mod)var12;
+                     return (Mod)var14;
                   }
 
-                  if (var4 != null) {
-                     var4.close();
+                  if (var6 != null) {
+                     var6.close();
                   }
 
-                  return (Mod)var24;
+                  return (Mod)var11;
                }
 
-               if (var4 != null) {
-                  var4.close();
+               if (var6 != null) {
+                  var6.close();
                }
 
-               return (Mod)var24;
+               return (Mod)var11;
             }
 
-            if (var4 != null) {
-               var4.close();
+            if (var6 != null) {
+               var6.close();
             }
 
-            return var25;
-         } catch (Exception var21) {
-            ExceptionLogger.logException(var21);
+            return var28;
+         } catch (Exception var23) {
+            ExceptionLogger.logException(var23);
          }
       }
 
@@ -583,8 +620,14 @@ public final class ChooseGameInfo {
    public static final class Map {
       private String dir;
       private Texture thumb;
+      private Texture worldmap;
+      private String spawnSelectImagePyramid;
       private String title;
       private ArrayList<String> lotsDir;
+      private float zoomX;
+      private float zoomY;
+      private float zoomS;
+      private String demoVideo;
       private String desc;
       private boolean bFixed2x;
 
@@ -607,6 +650,18 @@ public final class ChooseGameInfo {
          this.thumb = var1;
       }
 
+      public Texture getWorldmap() {
+         return this.worldmap;
+      }
+
+      public void setWorldmap(Texture var1) {
+         this.worldmap = var1;
+      }
+
+      public String getSpawnSelectImagePyramid() {
+         return this.spawnSelectImagePyramid;
+      }
+
       public String getTitle() {
          return this.title;
       }
@@ -617,6 +672,38 @@ public final class ChooseGameInfo {
 
       public ArrayList<String> getLotDirectories() {
          return this.lotsDir;
+      }
+
+      public float getZoomX() {
+         return this.zoomX;
+      }
+
+      public void setZoomX(float var1) {
+         this.zoomX = var1;
+      }
+
+      public float getZoomY() {
+         return this.zoomY;
+      }
+
+      public void setZoomY(float var1) {
+         this.zoomY = var1;
+      }
+
+      public float getZoomS() {
+         return this.zoomS;
+      }
+
+      public void setZoomS(float var1) {
+         this.zoomS = var1;
+      }
+
+      public String getDemoVideo() {
+         return this.demoVideo;
+      }
+
+      public void setDemoVideo(String var1) {
+         this.demoVideo = var1;
       }
 
       public String getDescription() {
@@ -638,19 +725,28 @@ public final class ChooseGameInfo {
 
    public static final class Mod {
       public String dir;
-      public final File baseFile;
-      public final File mediaFile;
-      public final File actionGroupsFile;
-      public final File animSetsFile;
-      public final File animsXFile;
+      public String commonDir;
+      public String versionDir;
+      public final ZomboidFileSystem.PZModFolder baseFile = new ZomboidFileSystem.PZModFolder();
+      public final ZomboidFileSystem.PZModFolder mediaFile = new ZomboidFileSystem.PZModFolder();
+      public final ZomboidFileSystem.PZModFolder actionGroupsFile = new ZomboidFileSystem.PZModFolder();
+      public final ZomboidFileSystem.PZModFolder animSetsFile = new ZomboidFileSystem.PZModFolder();
+      public final ZomboidFileSystem.PZModFolder animsXFile = new ZomboidFileSystem.PZModFolder();
       private final ArrayList<String> posters = new ArrayList();
       public Texture tex;
       private ArrayList<String> require;
+      private ArrayList<String> incompatible;
+      private ArrayList<String> loadAfter;
+      private ArrayList<String> loadBefore;
       private String name = "Unnamed Mod";
       private String desc = "";
-      private String id;
+      private String id = "";
       private String url;
-      private String workshopID;
+      private String author;
+      private String modVersion;
+      private String icon;
+      private String category;
+      private String workshopID = "";
       private boolean bAvailableDone = false;
       private boolean available = true;
       private GameVersion versionMin;
@@ -662,24 +758,23 @@ public final class ChooseGameInfo {
 
       public Mod(String var1) {
          this.dir = var1;
-         File var2 = (new File(var1)).getAbsoluteFile();
-
-         try {
-            var2 = var2.getCanonicalFile();
-         } catch (Exception var4) {
-            ExceptionLogger.logException(var4);
-         }
-
-         this.baseFile = var2;
-         this.mediaFile = new File(var2, "media");
-         this.actionGroupsFile = new File(this.mediaFile, "actiongroups");
-         this.animSetsFile = new File(this.mediaFile, "AnimSets");
-         this.animsXFile = new File(this.mediaFile, "anims_X");
-         File var3 = var2.getParentFile();
-         if (var3 != null) {
-            var3 = var3.getParentFile();
-            if (var3 != null) {
-               this.workshopID = SteamWorkshop.instance.getIDFromItemInstallFolder(var3.getAbsolutePath());
+         File var2 = new File(var1, "common");
+         File var3 = ZomboidFileSystem.instance.getModVersionFile(var1);
+         this.commonDir = var2.getAbsolutePath();
+         this.versionDir = var3 == null ? "" : var3.getAbsolutePath();
+         this.baseFile.setWithCatch(var2, var3);
+         this.mediaFile.setWithCatch(new File(this.baseFile.common.canonicalFile, "media"), new File(this.baseFile.version.canonicalFile, "media"));
+         this.actionGroupsFile.setWithCatch(new File(this.mediaFile.common.canonicalFile, "actiongroups"), new File(this.mediaFile.version.canonicalFile, "actiongroups"));
+         this.animSetsFile.setWithCatch(new File(this.mediaFile.common.canonicalFile, "AnimSets"), new File(this.mediaFile.version.canonicalFile, "AnimSets"));
+         this.animsXFile.setWithCatch(new File(this.mediaFile.common.canonicalFile, "anims_X"), new File(this.mediaFile.version.canonicalFile, "anims_X"));
+         File var4 = this.baseFile.common.canonicalFile.getParentFile();
+         if (var4 != null) {
+            var4 = var4.getParentFile();
+            if (var4 != null) {
+               this.workshopID = SteamWorkshop.instance.getIDFromItemInstallFolder(var4.getAbsolutePath());
+               if (this.workshopID == null) {
+                  this.workshopID = "";
+               }
             }
          }
 
@@ -729,6 +824,14 @@ public final class ChooseGameInfo {
          return this.dir;
       }
 
+      public String getCommonDir() {
+         return this.commonDir;
+      }
+
+      public String getVersionDir() {
+         return this.versionDir;
+      }
+
       public String getDescription() {
          return this.desc;
       }
@@ -741,8 +844,32 @@ public final class ChooseGameInfo {
          this.require = var1;
       }
 
+      public ArrayList<String> getIncompatible() {
+         return this.incompatible;
+      }
+
+      public void setIncompatible(ArrayList<String> var1) {
+         this.incompatible = var1;
+      }
+
+      public ArrayList<String> getLoadAfter() {
+         return this.loadAfter;
+      }
+
+      public void setLoadAfter(ArrayList<String> var1) {
+         this.loadAfter = var1;
+      }
+
+      public ArrayList<String> getLoadBefore() {
+         return this.loadBefore;
+      }
+
+      public void setLoadBefore(ArrayList<String> var1) {
+         this.loadBefore = var1;
+      }
+
       public String getId() {
-         return this.id;
+         return this.workshopID + "\\" + this.id;
       }
 
       public void setId(String var1) {
@@ -771,7 +898,7 @@ public final class ChooseGameInfo {
          }
       }
 
-      private boolean isAvailableSelf() {
+      public boolean isAvailableSelf() {
          GameVersion var1 = Core.getInstance().getGameVersion();
          if (this.versionMin != null && this.versionMin.isGreaterThan(var1)) {
             return false;
@@ -817,10 +944,42 @@ public final class ChooseGameInfo {
       }
 
       public void setUrl(String var1) {
-         if (var1.startsWith("http://theindiestone.com") || var1.startsWith("http://www.theindiestone.com") || var1.startsWith("http://pz-mods.net") || var1.startsWith("http://www.pz-mods.net")) {
+         if (var1.startsWith("http://theindiestone.com") || var1.startsWith("http://www.theindiestone.com") || var1.startsWith("http://pz-mods.net") || var1.startsWith("http://www.pz-mods.net") || var1.startsWith("https://discord.gg")) {
             this.url = var1;
          }
 
+      }
+
+      public String getAuthor() {
+         return this.author == null ? "" : this.author;
+      }
+
+      public void setAuthor(String var1) {
+         this.author = var1;
+      }
+
+      public String getModVersion() {
+         return this.modVersion == null ? "" : this.modVersion;
+      }
+
+      public void setModVersion(String var1) {
+         this.modVersion = var1;
+      }
+
+      public String getIcon() {
+         return this.icon == null ? "" : this.icon;
+      }
+
+      public void setIcon(String var1) {
+         this.icon = var1;
+      }
+
+      public String getCategory() {
+         return this.category == null ? "" : this.category;
+      }
+
+      public void setCategory(String var1) {
+         this.category = var1;
       }
 
       public GameVersion getVersionMin() {

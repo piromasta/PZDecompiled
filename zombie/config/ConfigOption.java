@@ -36,4 +36,6 @@ public abstract class ConfigOption {
    public abstract boolean isValidString(String var1);
 
    public abstract String getTooltip();
+
+   public abstract ConfigOption makeCopy();
 }

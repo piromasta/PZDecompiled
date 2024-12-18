@@ -56,7 +56,7 @@ public final class ZombieVocalsManager {
                for(var3 = 0; var3 < this.m_objects.size(); ++var3) {
                   ObjectWithDistance var4 = (ObjectWithDistance)this.m_objects.get(var3);
                   var5 = var4.character;
-                  var4.distSq = this.getClosestListener(var5.x, var5.y, var5.z);
+                  var4.distSq = this.getClosestListener(var5.getX(), var5.getY(), var5.getZ());
                }
 
                this.m_objects.sort(this.comp);
@@ -88,6 +88,12 @@ public final class ZombieVocalsManager {
                this.stopNotPlaying();
                this.postUpdate();
                this.m_added.clear();
+
+               for(var7 = 0; var7 < this.m_objects.size(); ++var7) {
+                  ObjectWithDistance var8 = (ObjectWithDistance)this.m_objects.get(var7);
+                  var8.character = null;
+               }
+
                this.m_objectPool.release((List)this.m_objects);
                this.m_objects.clear();
             }
@@ -143,10 +149,7 @@ public final class ZombieVocalsManager {
             float var8 = var6.getY();
             float var9 = var6.getZ();
             float var10 = IsoUtils.DistanceToSquared(var7, var8, var9 * 3.0F, var1, var2, var3 * 3.0F);
-            if (var6.Traits.HardOfHearing.isSet()) {
-               var10 *= 4.5F;
-            }
-
+            var10 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
             if (var10 < var4) {
                var4 = var10;
             }
@@ -163,12 +166,20 @@ public final class ZombieVocalsManager {
    }
 
    public static void Reset() {
-      for(int var0 = 0; var0 < instance.m_slots.length; ++var0) {
+      int var0;
+      for(var0 = 0; var0 < instance.m_slots.length; ++var0) {
          instance.m_slots[var0].stopPlaying();
          instance.m_slots[var0].character = null;
          instance.m_slots[var0].playing = false;
       }
 
+      for(var0 = 0; var0 < instance.m_objects.size(); ++var0) {
+         ((ObjectWithDistance)instance.m_objects.get(var0)).character = null;
+      }
+
+      instance.m_objectPool.releaseAll(instance.m_objects);
+      instance.m_objects.clear();
+      instance.m_added.clear();
    }
 
    static final class Slot {
@@ -187,14 +198,16 @@ public final class ZombieVocalsManager {
          this.character = var1;
          this.playing = true;
          if (this.character.vocalEvent == 0L) {
-            String var2 = var1.isFemale() ? "FemaleZombieCombined" : "MaleZombieCombined";
+            String var2 = var1.getVoiceSoundName();
             if (!var1.getFMODParameters().parameterList.contains(var1.parameterZombieState)) {
-               var1.parameterZombieState.update();
+               var1.getFMODParameters().add(var1.parameterCharacterInside);
+               var1.getFMODParameters().add(var1.parameterCharacterOnFire);
+               var1.getFMODParameters().add(var1.parameterPlayerDistance);
                var1.getFMODParameters().add(var1.parameterZombieState);
                var1.parameterCharacterInside.update();
-               var1.getFMODParameters().add(var1.parameterCharacterInside);
+               var1.parameterCharacterOnFire.update();
                var1.parameterPlayerDistance.update();
-               var1.getFMODParameters().add(var1.parameterPlayerDistance);
+               var1.parameterZombieState.update();
             }
 
             var1.vocalEvent = var1.getEmitter().playVocals(var2);

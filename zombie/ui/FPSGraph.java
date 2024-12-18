@@ -1,10 +1,14 @@
 package zombie.ui;
 
 import java.util.ArrayList;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Consumer;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
+import zombie.core.utils.BoundedQueue;
 import zombie.input.Mouse;
 
 public final class FPSGraph extends UIElement {
@@ -22,9 +26,11 @@ public final class FPSGraph extends UIElement {
    }
 
    public void addRender(long var1) {
-      synchronized(this.fpsGraph) {
-         this.fpsGraph.add(var1);
+      while(this.fpsGraph.queue.size() >= 64) {
+         this.fpsGraph.queue.poll();
       }
+
+      this.fpsGraph.queue.add(var1);
    }
 
    public void addUpdate(long var1) {
@@ -32,9 +38,11 @@ public final class FPSGraph extends UIElement {
    }
 
    public void addLighting(long var1) {
-      synchronized(this.lpsGraph) {
-         this.lpsGraph.add(var1);
+      while(this.lpsGraph.queue.size() >= 64) {
+         this.lpsGraph.queue.poll();
       }
+
+      this.lpsGraph.queue.add(var1);
    }
 
    public void addUI(long var1) {
@@ -62,18 +70,16 @@ public final class FPSGraph extends UIElement {
                var2 = var3 / 8;
             }
 
-            synchronized(this.fpsGraph) {
-               this.fpsGraph.render(0.0F, 1.0F, 0.0F);
-               if (var2 >= 0 && var2 < this.fpsGraph.bars.size()) {
-                  this.DrawText("FPS: " + this.fpsGraph.bars.get(var2), 20.0, (double)(var1 / 2 - 10), 0.0, 1.0, 0.0, 1.0);
-               }
+            this.fpsGraph.flushQueue();
+            this.fpsGraph.render(0.0F, 1.0F, 0.0F);
+            if (var2 >= 0 && var2 < this.fpsGraph.bars.size()) {
+               this.DrawText("FPS: " + this.fpsGraph.bars.get(var2), 20.0, (double)(var1 / 2 - 10), 0.0, 1.0, 0.0, 1.0);
             }
 
-            synchronized(this.lpsGraph) {
-               this.lpsGraph.render(1.0F, 1.0F, 0.0F);
-               if (var2 >= 0 && var2 < this.lpsGraph.bars.size()) {
-                  this.DrawText("LPS: " + this.lpsGraph.bars.get(var2), 20.0, (double)(var1 / 2 + 20), 1.0, 1.0, 0.0, 1.0);
-               }
+            this.lpsGraph.flushQueue();
+            this.lpsGraph.render(1.0F, 1.0F, 0.0F);
+            if (var2 >= 0 && var2 < this.lpsGraph.bars.size()) {
+               this.DrawText("LPS: " + this.lpsGraph.bars.get(var2), 20.0, (double)(var1 / 2 + 20), 1.0, 1.0, 0.0, 1.0);
             }
 
             this.upsGraph.render(0.0F, 1.0F, 1.0F);
@@ -93,9 +99,18 @@ public final class FPSGraph extends UIElement {
 
    private final class Graph {
       private final ArrayList<Long> times = new ArrayList();
+      private final BoundedQueue<Long> times2 = new BoundedQueue(300);
       private final ArrayList<Integer> bars = new ArrayList();
+      private final ConcurrentLinkedQueue<Long> queue = new ConcurrentLinkedQueue();
 
       private Graph() {
+      }
+
+      void flushQueue() {
+         for(Long var1 = (Long)this.queue.poll(); var1 != null; var1 = (Long)this.queue.poll()) {
+            this.add(var1);
+         }
+
       }
 
       public void add(long var1) {
@@ -131,6 +146,7 @@ public final class FPSGraph extends UIElement {
             this.bars.remove(0);
          }
 
+         this.times2.add(var1);
       }
 
       public void render(float var1, float var2, float var3) {
@@ -143,11 +159,29 @@ public final class FPSGraph extends UIElement {
 
             for(int var9 = 1; var9 < this.bars.size() - 1; ++var9) {
                float var10 = var4 * ((float)Math.min(var6, (Integer)this.bars.get(var9)) / (float)var6);
-               SpriteRenderer.instance.renderline((Texture)null, FPSGraph.this.getAbsoluteX().intValue() + var7 - 8 + 4, FPSGraph.this.getAbsoluteY().intValue() + (int)(var5 - var8), FPSGraph.this.getAbsoluteX().intValue() + var7 + 4, FPSGraph.this.getAbsoluteY().intValue() + (int)(var5 - var10), var1, var2, var3, 0.35F, 1);
+               SpriteRenderer.instance.renderline((Texture)null, FPSGraph.this.getAbsoluteX().intValue() + var7 - 8 + 4, FPSGraph.this.getAbsoluteY().intValue() + (int)(var5 - var8), FPSGraph.this.getAbsoluteX().intValue() + var7 + 4, FPSGraph.this.getAbsoluteY().intValue() + (int)(var5 - var10), var1, var2, var3, 0.35F, 1.0F);
                var7 += 8;
                var8 = var10;
             }
 
+         }
+      }
+
+      public void renderFrameTimes(float var1, float var2, float var3) {
+         if (!this.times2.isEmpty()) {
+            int var4 = 0;
+            int var5 = (int)((double)Core.getInstance().getScreenWidth() - FPSGraph.this.getAbsoluteX() * 2.0) / 8;
+            var5 = PZMath.min(var5, this.times2.size());
+
+            for(int var6 = 0; var6 < var5 - 1; ++var6) {
+               long var7 = (Long)this.times2.get(this.times2.size() - var5 + var6 + 1) - (Long)this.times2.get(this.times2.size() - var5 + var6);
+               float var9 = (float)(var7 * 10L);
+               SpriteRenderer.instance.renderi((Texture)null, FPSGraph.this.getAbsoluteX().intValue() + var4, FPSGraph.this.getAbsoluteY().intValue() + FPSGraph.this.getHeight().intValue() - (int)var9, 8, (int)var9, var1, var2, var3, 0.35F, (Consumer)null);
+               var4 += 8;
+            }
+
+            float var10 = 1000.0F / (float)PerformanceSettings.getLockFPS() * 10.0F;
+            SpriteRenderer.instance.render((Texture)null, (float)FPSGraph.this.getAbsoluteX().intValue(), (float)((int)(FPSGraph.this.getAbsoluteY() + FPSGraph.this.getHeight() - (double)var10)), (float)Core.getInstance().getScreenWidth(), 2.0F, 1.0F, 1.0F, 1.0F, 1.0F, (Consumer)null);
          }
       }
    }

@@ -5,12 +5,12 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import zombie.SystemDisabler;
 import zombie.characters.IsoPlayer;
-import zombie.commands.PlayerType;
-import zombie.core.Core;
+import zombie.characters.Role;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.utils.UpdateTimer;
 import zombie.core.znet.ZNetStatistics;
@@ -21,8 +21,9 @@ import zombie.network.ConnectionManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.MPStatistic;
-import zombie.network.PacketValidator;
 import zombie.network.PlayerDownloadServer;
+import zombie.network.anticheats.PacketValidator;
+import zombie.util.StringUtils;
 
 public class UdpConnection {
    Lock bufferLock = new ReentrantLock();
@@ -38,10 +39,11 @@ public class UdpConnection {
    public String username;
    public String[] usernames;
    public byte ReleventRange;
-   public byte accessLevel;
+   public Role role;
+   public static HashMap<String, Long> lastConnections = new HashMap();
+   public long lastConnection;
    public long lastUnauthorizedPacket;
    public String ip;
-   public boolean preferredInQueue;
    public boolean wasInLoadingQueue;
    public String password;
    public boolean ping;
@@ -66,9 +68,15 @@ public class UdpConnection {
    public final Deque<Long> pingHistory;
    public final PacketValidator validator;
    private static final long CONNECTION_ATTEMPT_TIMEOUT = 5000L;
+   private static final long CONNECTION_GOOGLE_AUTH_TIMEOUT = 60000L;
    public static final long CONNECTION_GRACE_INTERVAL = 60000L;
+   public static final long CONNECTION_READY_INTERVAL = 5000L;
    public long connectionTimestamp;
+   public boolean googleAuth;
+   private boolean ready;
    public UpdateTimer timerSendZombie;
+   public UpdateTimer timerUpdateAnimal;
+   public UpdateTimer timerOwnershipAnimal;
    private boolean bFullyConnected;
    public boolean isNeighborPlayer;
 
@@ -80,7 +88,8 @@ public class UdpConnection {
       this.connectedGUID = 0L;
       this.allChatMuted = false;
       this.usernames = new String[4];
-      this.accessLevel = 1;
+      this.role = null;
+      this.lastConnection = 0L;
       this.lastUnauthorizedPacket = 0L;
       this.ping = false;
       this.ReleventPos = new Vector3[4];
@@ -94,7 +103,10 @@ public class UdpConnection {
       this.statistic = new MPClientStatistic();
       this.pingHistory = new ArrayDeque();
       this.validator = new PacketValidator(this);
+      this.googleAuth = false;
       this.timerSendZombie = new UpdateTimer();
+      this.timerUpdateAnimal = new UpdateTimer();
+      this.timerOwnershipAnimal = new UpdateTimer();
       this.bFullyConnected = false;
       this.isNeighborPlayer = false;
       this.engine = var1;
@@ -106,7 +118,7 @@ public class UdpConnection {
          this.playerIDs[var5] = -1;
       }
 
-      this.connectionTimestamp = System.currentTimeMillis();
+      this.setConnectionTimestamp(5000L);
       this.wasInLoadingQueue = false;
    }
 
@@ -138,16 +150,16 @@ public class UdpConnection {
       for(int var3 = 0; var3 < 4; ++var3) {
          if (this.connectArea[var3] != null) {
             int var4 = (int)this.connectArea[var3].z;
-            int var5 = (int)(this.connectArea[var3].x - (float)(var4 / 2)) * 10;
-            int var6 = (int)(this.connectArea[var3].y - (float)(var4 / 2)) * 10;
-            int var7 = var5 + var4 * 10;
-            int var8 = var6 + var4 * 10;
+            int var5 = (int)(this.connectArea[var3].x - (float)(var4 / 2)) * 8;
+            int var6 = (int)(this.connectArea[var3].y - (float)(var4 / 2)) * 8;
+            int var7 = var5 + var4 * 8;
+            int var8 = var6 + var4 * 8;
             if (var1 >= (float)var5 && var1 < (float)var7 && var2 >= (float)var6 && var2 < (float)var8) {
                return true;
             }
          }
 
-         if (this.ReleventPos[var3] != null && Math.abs(this.ReleventPos[var3].x - var1) <= (float)(this.ReleventRange * 10) && Math.abs(this.ReleventPos[var3].y - var2) <= (float)(this.ReleventRange * 10)) {
+         if (this.ReleventPos[var3] != null && Math.abs(this.ReleventPos[var3].x - var1) <= (float)(this.ReleventRange * 8) && Math.abs(this.ReleventPos[var3].y - var2) <= (float)(this.ReleventRange * 8)) {
             return true;
          }
       }
@@ -157,7 +169,7 @@ public class UdpConnection {
 
    public float getRelevantAndDistance(float var1, float var2, float var3) {
       for(int var4 = 0; var4 < 4; ++var4) {
-         if (this.ReleventPos[var4] != null && Math.abs(this.ReleventPos[var4].x - var1) <= (float)(this.ReleventRange * 10) && Math.abs(this.ReleventPos[var4].y - var2) <= (float)(this.ReleventRange * 10)) {
+         if (this.ReleventPos[var4] != null && Math.abs(this.ReleventPos[var4].x - var1) <= (float)(this.ReleventRange * 8) && Math.abs(this.ReleventPos[var4].y - var2) <= (float)(this.ReleventRange * 8)) {
             return IsoUtils.DistanceTo(this.ReleventPos[var4].x, this.ReleventPos[var4].y, var1, var2);
          }
       }
@@ -168,26 +180,26 @@ public class UdpConnection {
    public boolean RelevantToPlayerIndex(int var1, float var2, float var3) {
       if (this.connectArea[var1] != null) {
          int var4 = (int)this.connectArea[var1].z;
-         int var5 = (int)(this.connectArea[var1].x - (float)(var4 / 2)) * 10;
-         int var6 = (int)(this.connectArea[var1].y - (float)(var4 / 2)) * 10;
-         int var7 = var5 + var4 * 10;
-         int var8 = var6 + var4 * 10;
+         int var5 = (int)(this.connectArea[var1].x - (float)(var4 / 2)) * 8;
+         int var6 = (int)(this.connectArea[var1].y - (float)(var4 / 2)) * 8;
+         int var7 = var5 + var4 * 8;
+         int var8 = var6 + var4 * 8;
          if (var2 >= (float)var5 && var2 < (float)var7 && var3 >= (float)var6 && var3 < (float)var8) {
             return true;
          }
       }
 
-      return this.ReleventPos[var1] != null && Math.abs(this.ReleventPos[var1].x - var2) <= (float)(this.ReleventRange * 10) && Math.abs(this.ReleventPos[var1].y - var3) <= (float)(this.ReleventRange * 10);
+      return this.ReleventPos[var1] != null && Math.abs(this.ReleventPos[var1].x - var2) <= (float)(this.ReleventRange * 8) && Math.abs(this.ReleventPos[var1].y - var3) <= (float)(this.ReleventRange * 8);
    }
 
    public boolean RelevantTo(float var1, float var2, float var3) {
       for(int var4 = 0; var4 < 4; ++var4) {
          if (this.connectArea[var4] != null) {
             int var5 = (int)this.connectArea[var4].z;
-            int var6 = (int)(this.connectArea[var4].x - (float)(var5 / 2)) * 10;
-            int var7 = (int)(this.connectArea[var4].y - (float)(var5 / 2)) * 10;
-            int var8 = var6 + var5 * 10;
-            int var9 = var7 + var5 * 10;
+            int var6 = (int)(this.connectArea[var4].x - (float)(var5 / 2)) * 8;
+            int var7 = (int)(this.connectArea[var4].y - (float)(var5 / 2)) * 8;
+            int var8 = var6 + var5 * 8;
+            int var9 = var7 + var5 * 8;
             if (var1 >= (float)var6 && var1 < (float)var8 && var2 >= (float)var7 && var2 < (float)var9) {
                return true;
             }
@@ -311,7 +323,7 @@ public class UdpConnection {
 
    public void forceDisconnect(String var1) {
       if (!GameServer.bServer) {
-         GameClient.instance.disconnect();
+         GameClient.instance.disconnect(!"receive-CustomizationData".equals(var1) && !"lua-connect".equals(var1));
       }
 
       this.engine.forceDisconnect(this.getConnectedGUID(), var1);
@@ -321,12 +333,39 @@ public class UdpConnection {
    public void setFullyConnected() {
       this.validator.reset();
       this.bFullyConnected = true;
-      this.setConnectionTimestamp();
+      this.setConnectionTimestamp(5000L);
       ConnectionManager.log("fully-connected", "", this);
    }
 
-   public void setConnectionTimestamp() {
-      this.connectionTimestamp = System.currentTimeMillis();
+   public void setConnectionTimestamp(long var1) {
+      this.connectionTimestamp = System.currentTimeMillis() + var1;
+      this.setReady(false);
+   }
+
+   public void checkReady() {
+      if (!this.ready) {
+         boolean var1 = System.currentTimeMillis() > this.connectionTimestamp;
+         if (this.ready != var1) {
+            this.setReady(var1);
+         }
+
+         if (!var1) {
+            IsoPlayer.getInstance().setAlpha(0, 0.6F);
+         }
+      }
+
+   }
+
+   public boolean isReady() {
+      return this.ready;
+   }
+
+   public void setReady(boolean var1) {
+      this.ready = var1;
+   }
+
+   public boolean isGoogleAuthTimeout() {
+      return System.currentTimeMillis() > this.connectionTimestamp + 60000L;
    }
 
    public boolean isConnectionAttemptTimeout() {
@@ -334,7 +373,7 @@ public class UdpConnection {
    }
 
    public boolean isConnectionGraceIntervalTimeout() {
-      return System.currentTimeMillis() > this.connectionTimestamp + 60000L || Core.bDebug && SystemDisabler.doKickInDebug;
+      return System.currentTimeMillis() > this.connectionTimestamp + 60000L;
    }
 
    public boolean isFullyConnected() {
@@ -350,7 +389,7 @@ public class UdpConnection {
             if (var3.isFullyConnected() && var3 != this) {
                for(int var4 = 0; var4 < var3.players.length; ++var4) {
                   IsoPlayer var5 = var3.players[var4];
-                  if (var5 != null && this.RelevantTo(var5.x, var5.y, 120.0F)) {
+                  if (var5 != null && this.RelevantTo(var5.getX(), var5.getY(), 120.0F)) {
                      var1 = true;
                   }
                }
@@ -396,7 +435,25 @@ public class UdpConnection {
    }
 
    public String toString() {
-      return GameClient.bClient ? String.format("guid=%s ip=%s steam-id=%s access=\"%s\" username=\"%s\" connection-type=\"%s\"", this.connectedGUID, this.ip == null ? GameClient.ip : this.ip, this.steamID == 0L ? GameClient.steamID : this.steamID, PlayerType.toString(this.accessLevel), this.username == null ? GameClient.username : this.username, this.getConnectionType().name()) : String.format("guid=%s ip=%s steam-id=%s access=%s username=\"%s\" connection-type=\"%s\"", this.connectedGUID, this.ip, this.steamID, PlayerType.toString(this.accessLevel), this.username, this.getConnectionType().name());
+      if (GameClient.bClient) {
+         return SystemDisabler.printDetailedInfo() ? String.format("guid=%s ip=%s steam-id=%s role=\"%s\" username=\"%s\" connection-type=\"%s\"", this.connectedGUID, this.ip == null ? GameClient.ip : this.ip, this.steamID == 0L ? GameClient.steamID : this.steamID, this.role.getName(), this.username == null ? GameClient.username : this.username, this.getConnectionType().name()) : String.format("guid=%s", this.connectedGUID);
+      } else {
+         return SystemDisabler.printDetailedInfo() ? String.format("guid=%s ip=%s steam-id=%s role=%s username=\"%s\" connection-type=\"%s\"", this.connectedGUID, this.ip, this.steamID, this.role.getName(), this.username, this.getConnectionType().name()) : String.format("guid=%s", this.connectedGUID);
+      }
+   }
+
+   public boolean havePlayer(String var1) {
+      if (StringUtils.isNullOrEmpty(var1)) {
+         return false;
+      } else {
+         for(int var2 = 0; var2 < this.players.length; ++var2) {
+            if (this.players[var2] != null && var1.equals(this.players[var2].getUsername())) {
+               return true;
+            }
+         }
+
+         return false;
+      }
    }
 
    public boolean havePlayer(IsoPlayer var1) {
@@ -411,6 +468,16 @@ public class UdpConnection {
 
          return false;
       }
+   }
+
+   public byte getPlayerIndex(IsoPlayer var1) {
+      for(byte var2 = 0; var2 < this.playerIDs.length; ++var2) {
+         if (this.playerIDs[var2] == var1.OnlineID) {
+            return var2;
+         }
+      }
+
+      return -1;
    }
 
    public static enum ChecksumState {

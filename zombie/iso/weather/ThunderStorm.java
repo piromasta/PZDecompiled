@@ -14,10 +14,11 @@ import zombie.audio.GameSound;
 import zombie.audio.GameSoundClip;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderSettings;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
@@ -92,8 +93,7 @@ public class ThunderStorm {
    }
 
    private ThunderCloud getCloud(int var1) {
-      byte var2 = 0;
-      return var2 < this.clouds.length ? this.clouds[var2] : null;
+      return var1 >= 0 && var1 < this.clouds.length ? this.clouds[var1] : null;
    }
 
    public boolean HasActiveThunderClouds() {
@@ -241,7 +241,7 @@ public class ThunderStorm {
 
                      if (Rand.Next(0.0F, 1.0F) < var4.thunderRatio) {
                         this.noise("trigger thunder event");
-                        this.triggerThunderEvent(Rand.Next(var4.currentX - this.strikeRadius, var4.currentX + this.strikeRadius), Rand.Next(var4.currentY - this.strikeRadius, var4.currentY + this.strikeRadius), true, true, Rand.Next(0.0F, 1.0F) > 0.4F);
+                        this.triggerThunderEvent(Rand.Next(var4.currentX - this.strikeRadius, var4.currentX + this.strikeRadius), Rand.Next(var4.currentY - this.strikeRadius, var4.currentY + this.strikeRadius), true, !Core.getInstance().getOptionLightSensitivity(), Rand.Next(0.0F, 1.0F) > 0.4F);
                      } else {
                         this.triggerThunderEvent(Rand.Next(var4.currentX - this.strikeRadius, var4.currentX + this.strikeRadius), Rand.Next(var4.currentY - this.strikeRadius, var4.currentY + this.strikeRadius), false, false, true);
                         this.noise("trigger rumble event");
@@ -354,7 +354,7 @@ public class ThunderStorm {
          var1.CM_Ambient = ClimateManager.lerp(var4.lightningMod, 1.0F, var1.CM_Ambient);
          var1.CM_DayLightStrength = ClimateManager.lerp(var4.lightningMod, 1.0F, var1.CM_DayLightStrength);
          var1.CM_Desaturation = ClimateManager.lerp(var4.lightningMod, 0.0F, var1.CM_Desaturation);
-         if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+         if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
             var1.CM_GlobalLightIntensity = ClimateManager.lerp(var4.lightningMod, 1.0F, var1.CM_GlobalLightIntensity);
          } else {
             var1.CM_GlobalLightIntensity = ClimateManager.lerp(var4.lightningMod, 0.0F, var1.CM_GlobalLightIntensity);

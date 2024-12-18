@@ -90,16 +90,33 @@ public class SmartTexture extends Texture {
       this.addSeparate((String)var1, dirtMask, (String)var2, var5, 774, 771, 772, 771);
    }
 
-   public void addOverlay(String var1) {
+   public void addOverlay(String var1, SmartShader var2) {
       if (tint == null) {
          this.create();
       }
 
-      this.addSeparate((String)var1, 774, 771, 772, 771);
+      this.addSeparate((String)var1, var2, 774, 771, 772, 771);
+   }
+
+   public void addTintedOverlay(String var1, String var2, float var3, int var4, float var5, float var6, float var7) {
+      if (masked == null) {
+         this.create();
+      }
+
+      this.addToCat(var4);
+      ArrayList var8 = new ArrayList();
+      var8.add(new TextureCombinerShaderParam("intensity", var3));
+      var8.add(new TextureCombinerShaderParam("bloodDark", 0.5F, 0.5F));
+      this.addSeparate((String)var1, masked, (String)var2, var8, 774, 771, 772, 771);
+      this.addTint(getTextureWithFlags(var1), var4, var5, var6, var7);
    }
 
    public void addRect(String var1, int var2, int var3, int var4, int var5) {
-      this.commands.add(TextureCombinerCommand.get().init(getTextureWithFlags(var1), var2, var3, var4, var5));
+      if (blit == null) {
+         this.create();
+      }
+
+      this.commands.add(TextureCombinerCommand.get().init(getTextureWithFlags(var1), blit, var2, var3, var4, var5));
       this.dirty = true;
    }
 
@@ -408,20 +425,20 @@ public class SmartTexture extends Texture {
       this.dirty = true;
    }
 
-   public void add(String var1, int var2, int var3) {
-      this.add(getTextureWithFlags(var1), var2, var3);
+   public void add(String var1, SmartShader var2, int var3, int var4) {
+      this.add(getTextureWithFlags(var1), var2, var3, var4);
    }
 
-   public void add(Texture var1, int var2, int var3) {
-      this.addSeparate((Texture)var1, var2, var3, 1, 771);
+   public void add(Texture var1, SmartShader var2, int var3, int var4) {
+      this.addSeparate((Texture)var1, var2, var3, var4, 1, 771);
    }
 
-   public void addSeparate(String var1, int var2, int var3, int var4, int var5) {
-      this.addSeparate(getTextureWithFlags(var1), var2, var3, var4, var5);
+   public void addSeparate(String var1, SmartShader var2, int var3, int var4, int var5, int var6) {
+      this.addSeparate(getTextureWithFlags(var1), var2, var3, var4, var5, var6);
    }
 
-   public void addSeparate(Texture var1, int var2, int var3, int var4, int var5) {
-      this.commands.add(TextureCombinerCommand.get().initSeparate(var1, var2, var3, var4, var5));
+   public void addSeparate(Texture var1, SmartShader var2, int var3, int var4, int var5, int var6) {
+      this.commands.add(TextureCombinerCommand.get().initSeparate(var1, var2, var3, var4, var5, var6));
       this.dirty = true;
    }
 

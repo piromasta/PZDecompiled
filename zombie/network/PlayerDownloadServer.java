@@ -7,26 +7,27 @@ import java.util.ArrayList;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.zip.CRC32;
-import java.util.zip.Deflater;
 import org.lwjglx.BufferUtils;
 import zombie.ChunkMapFilenames;
-import zombie.core.Rand;
 import zombie.core.logger.LoggerManager;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
+import zombie.debug.LogSeverity;
 import zombie.iso.IsoChunk;
+import zombie.network.packets.SentChunkPacket;
 
 public final class PlayerDownloadServer {
-   private WorkerThread workerThread;
+   public WorkerThread workerThread;
    private final UdpConnection connection;
    private boolean NetworkFileDebug;
    private final CRC32 crc32 = new CRC32();
    private final ByteBuffer bb = ByteBuffer.allocate(1000000);
    private final ByteBuffer sb = BufferUtils.createByteBuffer(1000000);
    private final ByteBufferWriter bbw;
-   private final ArrayList<ClientChunkRequest> ccrWaiting;
+   public final ArrayList<ClientChunkRequest> ccrWaiting;
 
    public PlayerDownloadServer(UdpConnection var1) {
       this.bbw = new ByteBufferWriter(this.bb);
@@ -51,71 +52,13 @@ public final class PlayerDownloadServer {
       this.workerThread = null;
    }
 
-   public void startConnectionTest() {
-   }
-
-   public void receiveRequestArray(ByteBuffer var1) throws Exception {
-      ClientChunkRequest var2 = (ClientChunkRequest)this.workerThread.freeRequests.poll();
-      if (var2 == null) {
-         var2 = new ClientChunkRequest();
+   public ClientChunkRequest getClientChunkRequest() {
+      ClientChunkRequest var1 = (ClientChunkRequest)this.workerThread.freeRequests.poll();
+      if (var1 == null) {
+         var1 = new ClientChunkRequest();
       }
 
-      var2.largeArea = false;
-      this.ccrWaiting.add(var2);
-      int var3 = var1.getInt();
-
-      for(int var4 = 0; var4 < var3; ++var4) {
-         if (var2.chunks.size() >= 20) {
-            var2 = (ClientChunkRequest)this.workerThread.freeRequests.poll();
-            if (var2 == null) {
-               var2 = new ClientChunkRequest();
-            }
-
-            var2.largeArea = false;
-            this.ccrWaiting.add(var2);
-         }
-
-         ClientChunkRequest.Chunk var5 = var2.getChunk();
-         var5.requestNumber = var1.getInt();
-         var5.wx = var1.getInt();
-         var5.wy = var1.getInt();
-         var5.crc = var1.getLong();
-         var2.chunks.add(var5);
-      }
-
-   }
-
-   public void receiveRequestLargeArea(ByteBuffer var1) {
-      ClientChunkRequest var2 = new ClientChunkRequest();
-      var2.unpackLargeArea(var1, this.connection);
-
-      for(int var3 = 0; var3 < var2.chunks.size(); ++var3) {
-         ClientChunkRequest.Chunk var4 = (ClientChunkRequest.Chunk)var2.chunks.get(var3);
-         IsoChunk var5 = ServerMap.instance.getChunk(var4.wx, var4.wy);
-         if (var5 != null) {
-            var2.getByteBuffer(var4);
-
-            try {
-               var5.SaveLoadedChunk(var4, this.crc32);
-            } catch (Exception var7) {
-               var7.printStackTrace();
-               LoggerManager.getLogger("map").write(var7);
-               var2.releaseBuffer(var4);
-            }
-         }
-      }
-
-      this.workerThread.putCommand(PlayerDownloadServer.EThreadCommand.RequestLargeArea, var2);
-   }
-
-   public void receiveCancelRequest(ByteBuffer var1) {
-      int var2 = var1.getInt();
-
-      for(int var3 = 0; var3 < var2; ++var3) {
-         int var4 = var1.getInt();
-         this.workerThread.cancelQ.add(var4);
-      }
-
+      return var1;
    }
 
    public final int getWaitingRequests() {
@@ -123,7 +66,7 @@ public final class PlayerDownloadServer {
    }
 
    public void update() {
-      this.NetworkFileDebug = DebugType.Do(DebugType.NetworkFileDebug);
+      this.NetworkFileDebug = DebugType.NetworkFileDebug.isEnabled();
       if (this.workerThread.bReady) {
          this.removeOlderDuplicateRequests();
          if (this.ccrWaiting.isEmpty()) {
@@ -222,19 +165,16 @@ public final class PlayerDownloadServer {
       return this.bbw;
    }
 
-   private final class WorkerThread extends Thread {
+   public final class WorkerThread extends Thread {
       boolean bQuit;
       volatile boolean bReady = true;
       final LinkedBlockingQueue<WorkerThreadCommand> commandQ = new LinkedBlockingQueue();
       final ConcurrentLinkedQueue<ClientChunkRequest> freeRequests = new ConcurrentLinkedQueue();
-      final ConcurrentLinkedQueue<Integer> cancelQ = new ConcurrentLinkedQueue();
+      public final ConcurrentLinkedQueue<Integer> cancelQ = new ConcurrentLinkedQueue();
       final ArrayList<Integer> cancelled = new ArrayList();
       final CRC32 crcMaker = new CRC32();
-      static final int chunkSize = 1000;
-      private byte[] inMemoryZip = new byte[20480];
-      private final Deflater compressor = new Deflater();
 
-      private WorkerThread() {
+      public WorkerThread() {
       }
 
       public void run() {
@@ -287,43 +227,19 @@ public final class PlayerDownloadServer {
          }
       }
 
-      private int compressChunk(ClientChunkRequest.Chunk var1) {
-         this.compressor.reset();
-         this.compressor.setInput(var1.bb.array(), 0, var1.bb.limit());
-         this.compressor.finish();
-         if ((double)this.inMemoryZip.length < (double)var1.bb.limit() * 1.5) {
-            this.inMemoryZip = new byte[(int)((double)var1.bb.limit() * 1.5)];
-         }
-
-         return this.compressor.deflate(this.inMemoryZip, 0, this.inMemoryZip.length, 3);
-      }
-
       private void sendChunk(ClientChunkRequest.Chunk var1) {
          try {
-            long var2 = (long)this.compressChunk(var1);
-            long var4 = var2 / 1000L;
-            if (var2 % 1000L != 0L) {
-               ++var4;
-            }
+            SentChunkPacket var2 = new SentChunkPacket();
+            var2.setChunk(var1);
 
-            long var6 = 0L;
-
-            for(int var8 = 0; (long)var8 < var4; ++var8) {
-               long var9 = var2 - var6 > 1000L ? 1000L : var2 - var6;
-               ByteBufferWriter var11 = PlayerDownloadServer.this.startPacket();
-               PacketTypes.PacketType.SentChunk.doPacket(var11);
-               var11.putInt(var1.requestNumber);
-               var11.putInt((int)var4);
-               var11.putInt(var8);
-               var11.putInt((int)var2);
-               var11.putInt((int)var6);
-               var11.putInt((int)var9);
-               var11.bb.put(this.inMemoryZip, (int)var6, (int)var9);
+            while(var2.hasData()) {
+               ByteBufferWriter var3 = PlayerDownloadServer.this.startPacket();
+               PacketTypes.PacketType.SentChunk.doPacket(var3);
+               var2.write(var3);
                PlayerDownloadServer.this.sendPacket(PacketTypes.PacketType.SentChunk);
-               var6 += var9;
             }
-         } catch (Exception var12) {
-            var12.printStackTrace();
+         } catch (Exception var4) {
+            DebugLog.Multiplayer.printException(var4, "sendChunk error", LogSeverity.Error);
             this.sendNotRequired(var1, false);
          }
 
@@ -378,13 +294,13 @@ public final class PlayerDownloadServer {
                      this.crcMaker.update(var3.bb.array(), 0, var3.bb.position());
                      var12 = var3.crc != this.crcMaker.getValue();
                      if (var12 && PlayerDownloadServer.this.NetworkFileDebug) {
-                        DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": crc server=" + this.crcMaker.getValue() + " client=" + var3.crc);
+                        DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": crc server=" + this.crcMaker.getValue() + " client=" + var3.crc);
                      }
                   }
 
                   if (var12) {
                      if (PlayerDownloadServer.this.NetworkFileDebug) {
-                        DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": send=true loaded=true");
+                        DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": send=true loaded=true");
                      }
 
                      var3.bb.limit(var3.bb.position());
@@ -392,7 +308,7 @@ public final class PlayerDownloadServer {
                      this.sendChunk(var3);
                   } else {
                      if (PlayerDownloadServer.this.NetworkFileDebug) {
-                        DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": send=false loaded=true");
+                        DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": send=false loaded=true");
                      }
 
                      this.sendNotRequired(var3, true);
@@ -405,7 +321,7 @@ public final class PlayerDownloadServer {
                      long var9 = ChunkChecksum.getChecksum(var4, var5);
                      if (var9 != 0L && var9 == var3.crc) {
                         if (PlayerDownloadServer.this.NetworkFileDebug) {
-                           DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": send=false loaded=false file=true");
+                           DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": send=false loaded=false file=true");
                         }
 
                         this.sendNotRequired(var3, true);
@@ -421,13 +337,13 @@ public final class PlayerDownloadServer {
 
                         if (var11) {
                            if (PlayerDownloadServer.this.NetworkFileDebug) {
-                              DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": send=true loaded=false file=true");
+                              DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": send=true loaded=false file=true");
                            }
 
                            this.sendChunk(var3);
                         } else {
                            if (PlayerDownloadServer.this.NetworkFileDebug) {
-                              DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": send=false loaded=false file=true");
+                              DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": send=false loaded=false file=true");
                            }
 
                            this.sendNotRequired(var3, true);
@@ -437,7 +353,7 @@ public final class PlayerDownloadServer {
                      }
                   } else {
                      if (PlayerDownloadServer.this.NetworkFileDebug) {
-                        DebugLog.log(DebugType.NetworkFileDebug, "" + var4 + "," + var5 + ": send=false loaded=false file=false");
+                        DebugLog.NetworkFileDebug.debugln("" + var4 + "," + var5 + ": send=false loaded=false file=false");
                      }
 
                      this.sendNotRequired(var3, var6 == 0L);
@@ -463,7 +379,7 @@ public final class PlayerDownloadServer {
             Integer var3 = (Integer)this.cancelled.get(var4);
             if (var3 == var1.requestNumber) {
                if (PlayerDownloadServer.this.NetworkFileDebug) {
-                  DebugLog.log(DebugType.NetworkFileDebug, "cancelled request #" + var3);
+                  DebugLog.NetworkFileDebug.debugln("cancelled request #" + var3);
                }
 
                this.cancelled.remove(var4);

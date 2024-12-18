@@ -1,7 +1,8 @@
 package zombie.iso;
 
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.lwjgl.opengl.GL20;
 import zombie.IndieGL;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
 import zombie.core.opengl.RenderThread;
 import zombie.core.opengl.ShaderProgram;
@@ -17,14 +18,14 @@ public final class TallFenceShader {
    }
 
    public void initShader() {
-      this.shaderProgram = ShaderProgram.createShaderProgram("tallFence", false, true);
+      this.shaderProgram = ShaderProgram.createShaderProgram("tallFence", false, false, true);
       if (this.shaderProgram.isCompiled()) {
-         this.u_alpha = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "u_alpha");
-         this.u_stepSize = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "u_stepSize");
-         this.u_outlineColor = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "u_outlineColor");
-         ARBShaderObjects.glUseProgramObjectARB(this.shaderProgram.getShaderID());
-         ARBShaderObjects.glUniform2fARB(this.u_stepSize, 0.001F, 0.001F);
-         ARBShaderObjects.glUseProgramObjectARB(0);
+         this.u_alpha = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "u_alpha");
+         this.u_stepSize = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "u_stepSize");
+         this.u_outlineColor = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "u_outlineColor");
+         ShaderHelper.glUseProgramObjectARB(this.shaderProgram.getShaderID());
+         GL20.glUniform2f(this.u_stepSize, 0.001F, 0.001F);
+         ShaderHelper.glUseProgramObjectARB(0);
       }
 
    }

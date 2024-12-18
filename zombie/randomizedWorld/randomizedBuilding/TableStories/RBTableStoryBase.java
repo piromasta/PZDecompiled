@@ -3,7 +3,7 @@ package zombie.randomizedWorld.randomizedBuilding.TableStories;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
@@ -50,6 +50,10 @@ public class RBTableStoryBase extends RandomizedBuildingBase {
          }
       }
 
+   }
+
+   public static ArrayList getAllTableStories() {
+      return allStories;
    }
 
    public static RBTableStoryBase getRandomStory(IsoGridSquare var0, IsoObject var1) {

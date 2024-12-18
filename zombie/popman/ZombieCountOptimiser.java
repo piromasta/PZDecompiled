@@ -1,8 +1,9 @@
 package zombie.popman;
 
 import java.util.ArrayList;
+import zombie.SandboxOptions;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.network.GameClient;
 import zombie.network.MPStatistics;
 
@@ -15,12 +16,16 @@ public class ZombieCountOptimiser {
    public ZombieCountOptimiser() {
    }
 
+   private static boolean isOutside(IsoZombie var0) {
+      return var0.getCurrentSquare() == null || !var0.getCurrentSquare().isInARoom() && !var0.getCurrentSquare().haveRoof;
+   }
+
    public static void startCount() {
-      zombieCountForDelete = (int)(1.0F * (float)Math.max(0, GameClient.IDToZombieMap.values().length - 500));
+      zombieCountForDelete = (int)(1.0F * (float)Math.max(0, GameClient.IDToZombieMap.values().length - SandboxOptions.instance.zombieConfig.ZombiesCountBeforeDeletion.getValue()));
    }
 
    public static void incrementZombie(IsoZombie var0) {
-      if (zombieCountForDelete > 0 && Rand.Next(10) == 0 && var0.canBeDeletedUnnoticed(20.0F) && !var0.isReanimatedPlayer()) {
+      if (zombieCountForDelete > 0 && Rand.Next(10) == 0 && var0.getTarget() == null && isOutside(var0) && var0.canBeDeletedUnnoticed(20.0F) && !var0.isReanimatedPlayer()) {
          synchronized(zombiesForDelete) {
             zombiesForDelete.add(var0);
          }

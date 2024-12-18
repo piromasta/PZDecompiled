@@ -1,8 +1,8 @@
 package zombie.iso;
 
-import org.lwjgl.opengl.ARBShaderObjects;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import zombie.core.opengl.Shader;
 import zombie.core.opengl.ShaderProgram;
 import zombie.core.textures.TextureDraw;
@@ -19,13 +19,13 @@ public class FireShader extends Shader {
 
    protected void onCompileSuccess(ShaderProgram var1) {
       int var2 = var1.getShaderID();
-      this.FireTexture = ARBShaderObjects.glGetUniformLocationARB(var2, "FireTexture");
-      this.mvpMatrix = ARBShaderObjects.glGetUniformLocationARB(var2, "mvpMatrix");
-      this.FireTime = ARBShaderObjects.glGetUniformLocationARB(var2, "FireTime");
-      this.FireParam = ARBShaderObjects.glGetUniformLocationARB(var2, "FireParam");
+      this.FireTexture = GL20.glGetUniformLocation(var2, "FireTexture");
+      this.mvpMatrix = GL20.glGetUniformLocation(var2, "mvpMatrix");
+      this.FireTime = GL20.glGetUniformLocation(var2, "FireTime");
+      this.FireParam = GL20.glGetUniformLocation(var2, "FireParam");
       this.Start();
       if (this.FireTexture != -1) {
-         ARBShaderObjects.glUniform1iARB(this.FireTexture, 0);
+         GL20.glUniform1i(this.FireTexture, 0);
       }
 
       this.End();
@@ -36,11 +36,11 @@ public class FireShader extends Shader {
       GL13.glActiveTexture(33984);
       var4.getFireFlameTexture().bind();
       GL11.glTexEnvi(8960, 8704, 7681);
-      ARBShaderObjects.glUniformMatrix4fvARB(this.mvpMatrix, true, var4.getMVPMatrix());
-      ARBShaderObjects.glUniform1fARB(this.FireTime, var3);
-      ARBShaderObjects.glUniformMatrix3fvARB(this.FireParam, true, var4.getParametersFire());
+      GL20.glUniformMatrix4fv(this.mvpMatrix, true, var4.getMVPMatrix());
+      GL20.glUniform1f(this.FireTime, var3);
+      GL20.glUniformMatrix3fv(this.FireParam, true, var4.getParametersFire());
       if (this.FireTexture != -1) {
-         ARBShaderObjects.glUniform1iARB(this.FireTexture, 0);
+         GL20.glUniform1i(this.FireTexture, 0);
       }
 
    }

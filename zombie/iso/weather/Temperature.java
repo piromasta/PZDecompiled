@@ -4,6 +4,7 @@ import zombie.SandboxOptions;
 import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
+import zombie.core.math.PZMath;
 
 public class Temperature {
    public static boolean DO_DEFAULT_BASE = false;
@@ -52,11 +53,11 @@ public class Temperature {
    }
 
    public static String getTemperaturePostfix() {
-      return Core.OptionTemperatureDisplayCelsius ? CELSIUS_POSTFIX : FAHRENHEIT_POSTFIX;
+      return Core.getInstance().getOptionTemperatureDisplayCelsius() ? CELSIUS_POSTFIX : FAHRENHEIT_POSTFIX;
    }
 
    public static String getTemperatureString(float var0) {
-      float var1 = Core.OptionTemperatureDisplayCelsius ? var0 : CelsiusToFahrenheit(var0);
+      float var1 = Core.getInstance().getOptionTemperatureDisplayCelsius() ? var0 : CelsiusToFahrenheit(var0);
       var1 = (float)Math.round(var1 * 10.0F) / 10.0F;
       if (cacheTemp != var1) {
          cacheTemp = var1;
@@ -64,6 +65,10 @@ public class Temperature {
       }
 
       return cacheTempString;
+   }
+
+   public static int getRoundedDisplayTemperature(float var0) {
+      return Core.getInstance().getOptionTemperatureDisplayCelsius() ? PZMath.roundToInt(var0) : PZMath.roundToInt(CelsiusToFahrenheit(var0));
    }
 
    public static float CelsiusToFahrenheit(float var0) {

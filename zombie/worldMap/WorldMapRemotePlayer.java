@@ -1,6 +1,7 @@
 package zombie.worldMap;
 
 import zombie.characters.IsoPlayer;
+import zombie.core.Translator;
 import zombie.network.GameClient;
 import zombie.network.ServerOptions;
 
@@ -14,6 +15,7 @@ public final class WorldMapRemotePlayer {
    private float x;
    private float y;
    private boolean invisible = false;
+   private boolean disguised = false;
    private boolean bHasFullData = false;
 
    public WorldMapRemotePlayer(short var1) {
@@ -37,15 +39,20 @@ public final class WorldMapRemotePlayer {
          var2 = true;
       }
 
-      if (!this.accessLevel.equals(var1.accessLevel)) {
-         this.accessLevel = var1.accessLevel;
+      if (!this.accessLevel.equals(var1.getRole().getName())) {
+         this.accessLevel = var1.getRole().getName();
          var2 = true;
       }
 
-      this.x = var1.x;
-      this.y = var1.y;
+      this.x = var1.getX();
+      this.y = var1.getY();
       if (this.invisible != var1.isInvisible()) {
          this.invisible = var1.isInvisible();
+         var2 = true;
+      }
+
+      if (this.disguised != var1.usernameDisguised) {
+         this.disguised = var1.usernameDisguised;
          var2 = true;
       }
 
@@ -55,7 +62,7 @@ public final class WorldMapRemotePlayer {
 
    }
 
-   public void setFullData(short var1, String var2, String var3, String var4, String var5, float var6, float var7, boolean var8) {
+   public void setFullData(short var1, String var2, String var3, String var4, String var5, float var6, float var7, boolean var8, boolean var9) {
       this.changeCount = var1;
       this.username = var2;
       this.forename = var3;
@@ -64,6 +71,7 @@ public final class WorldMapRemotePlayer {
       this.x = var6;
       this.y = var7;
       this.invisible = var8;
+      this.disguised = var9;
       this.bHasFullData = true;
    }
 
@@ -100,13 +108,19 @@ public final class WorldMapRemotePlayer {
       return this.invisible;
    }
 
+   public boolean isDisguised() {
+      return this.disguised;
+   }
+
    public boolean hasFullData() {
       return this.bHasFullData;
    }
 
    public String getUsername(Boolean var1) {
       String var2 = this.username;
-      if (var1 && GameClient.bClient && ServerOptions.instance.ShowFirstAndLastName.getValue() && this.isAccessLevel("None")) {
+      if (this.disguised) {
+         var2 = Translator.getText("IGUI_Disguised_Player_Name");
+      } else if (var1 && GameClient.bClient && ServerOptions.instance.ShowFirstAndLastName.getValue() && this.isAccessLevel("None")) {
          var2 = this.forename + " " + this.surname;
          if (ServerOptions.instance.DisplayUserName.getValue()) {
             var2 = var2 + " (" + this.username + ")";

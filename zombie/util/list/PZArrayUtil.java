@@ -13,11 +13,13 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
+import zombie.core.random.RandInterface;
+import zombie.core.random.RandStandard;
 import zombie.util.ICloner;
 import zombie.util.Pool;
 import zombie.util.StringUtils;
+import zombie.util.lambda.Invokers;
 
 public class PZArrayUtil {
    public static final int[] emptyIntArray = new int[0];
@@ -26,41 +28,57 @@ public class PZArrayUtil {
    public PZArrayUtil() {
    }
 
-   public static <E> E pickRandom(E[] var0) {
+   public static <E> E pickRandom(E[] var0, RandInterface var1) {
       if (var0.length == 0) {
          return null;
       } else {
-         int var1 = Rand.Next(var0.length);
-         return var0[var1];
+         int var2 = var1.Next(var0.length);
+         return var0[var2];
       }
+   }
+
+   public static <E> E pickRandom(List<E> var0, RandInterface var1) {
+      if (var0.isEmpty()) {
+         return null;
+      } else {
+         int var2 = var1.Next(var0.size());
+         return var0.get(var2);
+      }
+   }
+
+   public static <E> E pickRandom(Collection<E> var0, RandInterface var1) {
+      if (var0.isEmpty()) {
+         return null;
+      } else {
+         int var2 = var1.Next(var0.size());
+         return getElementAt(var0, var2);
+      }
+   }
+
+   public static <E> E pickRandom(Iterable<E> var0, RandInterface var1) {
+      int var2 = getSize(var0);
+      if (var2 == 0) {
+         return null;
+      } else {
+         int var3 = var1.Next(var2);
+         return getElementAt(var0, var3);
+      }
+   }
+
+   public static <E> E pickRandom(E[] var0) {
+      return pickRandom((Object[])var0, RandStandard.INSTANCE);
    }
 
    public static <E> E pickRandom(List<E> var0) {
-      if (var0.isEmpty()) {
-         return null;
-      } else {
-         int var1 = Rand.Next(var0.size());
-         return var0.get(var1);
-      }
+      return pickRandom((List)var0, RandStandard.INSTANCE);
    }
 
    public static <E> E pickRandom(Collection<E> var0) {
-      if (var0.isEmpty()) {
-         return null;
-      } else {
-         int var1 = Rand.Next(var0.size());
-         return getElementAt(var0, var1);
-      }
+      return pickRandom((Collection)var0, RandStandard.INSTANCE);
    }
 
    public static <E> E pickRandom(Iterable<E> var0) {
-      int var1 = getSize(var0);
-      if (var1 == 0) {
-         return null;
-      } else {
-         int var2 = Rand.Next(var1);
-         return getElementAt(var0, var2);
-      }
+      return pickRandom((Iterable)var0, RandStandard.INSTANCE);
    }
 
    public static <E> int getSize(Iterable<E> var0) {
@@ -113,16 +131,18 @@ public class PZArrayUtil {
 
    public static <E> int indexOf(E[] var0, Predicate<E> var1) {
       try {
-         for(int var2 = 0; var2 < var0.length; ++var2) {
-            Object var3 = var0[var2];
-            if (var1.test(var3)) {
-               int var4 = var2;
-               return var4;
+         int var2 = 0;
+
+         for(int var3 = lengthOf(var0); var2 < var3; ++var2) {
+            Object var4 = var0[var2];
+            if (var1.test(var4)) {
+               int var5 = var2;
+               return var5;
             }
          }
 
-         byte var8 = -1;
-         return var8;
+         byte var9 = -1;
+         return var9;
       } finally {
          Pool.tryRelease((Object)var1);
       }
@@ -214,6 +234,11 @@ public class PZArrayUtil {
       }
    }
 
+   public static <E> E find(E[] var0, Predicate<E> var1) {
+      int var2 = indexOf(var0, var1);
+      return var2 > -1 ? var0[var2] : null;
+   }
+
    public static <E> E find(List<E> var0, Predicate<E> var1) {
       int var2 = indexOf(var0, var1);
       return var2 > -1 ? var0.get(var2) : null;
@@ -264,6 +289,10 @@ public class PZArrayUtil {
       return var1;
    }
 
+   public static <E> int lengthOf(E[] var0) {
+      return var0 != null ? var0.length : 0;
+   }
+
    public static <E, S, T1> List<E> listConvert(List<S> var0, List<E> var1, T1 var2, IListConverter1Param<S, E, T1> var3) {
       var1.clear();
 
@@ -304,6 +333,10 @@ public class PZArrayUtil {
 
    public static <E> String arrayToString(E[] var0, String var1, String var2, String var3) {
       return arrayToString(asSafeIterable(var0), var1, var2, var3);
+   }
+
+   public static <E> String arrayToString(E[] var0, Function<E, String> var1, String var2, String var3, String var4) {
+      return arrayToString(asSafeIterable(var0), var1, var2, var3, var4);
    }
 
    public static <E> String arrayToString(Iterable<E> var0, Function<E, String> var1) {
@@ -420,7 +453,7 @@ public class PZArrayUtil {
       if (var2 && var3) {
          return null;
       } else if (var2) {
-         return clone(var1);
+         return shallowClone(var1);
       } else if (var3) {
          return var0;
       } else {
@@ -432,8 +465,23 @@ public class PZArrayUtil {
    }
 
    public static <E, S extends E> E[] arrayCopy(E[] var0, S[] var1, int var2, int var3) {
-      for(int var4 = var2; var4 < var3; ++var4) {
-         var0[var4] = var1[var4];
+      return arrayCopy(var0, var1, var2, var3, (Supplier)null, (Invokers.Params2.ICallback)null);
+   }
+
+   public static <E, S extends E> E[] arrayCopy(E[] var0, S[] var1, int var2, int var3, Supplier<E> var4, Invokers.Params2.ICallback<E, S> var5) {
+      int var6;
+      if (var5 != null) {
+         for(var6 = var2; var6 < var3; ++var6) {
+            if (var0[var6] == null && var4 != null) {
+               var0[var6] = var4.get();
+            }
+
+            var5.accept(var0[var6], var1[var6]);
+         }
+      } else {
+         for(var6 = var2; var6 < var3; ++var6) {
+            var0[var6] = var1[var6];
+         }
       }
 
       return var0;
@@ -496,14 +544,18 @@ public class PZArrayUtil {
       }
    }
 
-   public static <E> E[] clone(E[] var0) {
+   public static <E> E[] clone(E[] var0, Supplier<E> var1, Invokers.Params2.ICallback<E, E> var2) {
       if (isNullOrEmpty(var0)) {
          return var0;
       } else {
-         Object[] var1 = newInstance(var0.getClass().getComponentType(), var0.length);
-         arrayCopy((Object[])var1, (Object[])var0, 0, var0.length);
-         return var1;
+         Object[] var3 = newInstance(var0.getClass().getComponentType(), var0.length);
+         arrayCopy(var3, var0, 0, var0.length, var1, var2);
+         return var3;
       }
+   }
+
+   public static <E> E[] shallowClone(E[] var0) {
+      return clone(var0, (Supplier)null, (Invokers.Params2.ICallback)null);
    }
 
    public static <E> boolean isNullOrEmpty(E[] var0) {
@@ -596,13 +648,15 @@ public class PZArrayUtil {
    }
 
    public static <E> E[] arrayPopulate(E[] var0, Supplier<E> var1) {
+      return arrayPopulate(var0, var1, 0, lengthOf(var0));
+   }
+
+   public static <E> E[] arrayPopulate(E[] var0, Supplier<E> var1, int var2, int var3) {
       if (isNullOrEmpty(var0)) {
          return var0;
       } else {
-         int var2 = 0;
-
-         for(int var3 = var0.length; var2 < var3; ++var2) {
-            var0[var2] = var1.get();
+         for(int var4 = var2; var4 < var3; ++var4) {
+            var0[var4] = var1.get();
          }
 
          return var0;
@@ -720,6 +774,25 @@ public class PZArrayUtil {
          }
 
       }
+   }
+
+   public static <E> void forEachReplace(List<E> var0, Function<? super E, ? super E> var1) {
+      try {
+         if (var0 == null) {
+            return;
+         }
+
+         int var2 = 0;
+
+         for(int var3 = var0.size(); var2 < var3; ++var2) {
+            Object var4 = var0.get(var2);
+            Object var5 = var1.apply(var4);
+            var0.set(var2, var5);
+         }
+      } finally {
+         Pool.tryRelease((Object)var1);
+      }
+
    }
 
    public static <K, V> V getOrCreate(HashMap<K, V> var0, K var1, Supplier<V> var2) {

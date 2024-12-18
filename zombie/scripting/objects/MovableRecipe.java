@@ -17,7 +17,6 @@ public class MovableRecipe extends Recipe {
       this.removeResultItem = true;
       this.AllowDestroyedItem = false;
       this.name = "Disassemble Movable";
-      this.setCanBeDoneFromFloor(false);
    }
 
    public void setResult(String var1, int var2) {
@@ -81,14 +80,6 @@ public class MovableRecipe extends Recipe {
 
    public boolean hasXpPerk() {
       return this.xpPerk != PerkFactory.Perks.MAX;
-   }
-
-   public void setOnCreate(String var1) {
-      this.LuaCreate = var1;
-   }
-
-   public void setOnXP(String var1) {
-      this.LuaGiveXP = var1;
    }
 
    public void setTime(float var1) {

@@ -14,6 +14,65 @@ public final class Stacks {
    public Stacks() {
    }
 
+   public static final class Params7 {
+      public Params7() {
+      }
+
+      public static final class CallbackStackItem<T1, T2, T3, T4, T5, T6, T7> extends StackItem<T1, T2, T3, T4, T5, T6, T7> {
+         private ICallback<T1, T2, T3, T4, T5, T6, T7> callback;
+         private static final Pool<CallbackStackItem<Object, Object, Object, Object, Object, Object, Object>> s_pool = new Pool(CallbackStackItem::new);
+
+         public CallbackStackItem() {
+         }
+
+         public void invoke() {
+            this.callback.accept(this, this.val1, this.val2, this.val3, this.val4, this.val5, this.val6, this.val7);
+         }
+
+         public static <T1, T2, T3, T4, T5, T6, T7> CallbackStackItem<T1, T2, T3, T4, T5, T6, T7> alloc(T1 var0, T2 var1, T3 var2, T4 var3, T5 var4, T6 var5, T7 var6, ICallback<T1, T2, T3, T4, T5, T6, T7> var7) {
+            CallbackStackItem var8 = (CallbackStackItem)s_pool.alloc();
+            var8.val1 = var0;
+            var8.val2 = var1;
+            var8.val3 = var2;
+            var8.val4 = var3;
+            var8.val5 = var4;
+            var8.val6 = var5;
+            var8.val7 = var6;
+            var8.callback = var7;
+            return var8;
+         }
+
+         public void onReleased() {
+            this.val1 = null;
+            this.val2 = null;
+            this.val3 = null;
+            this.val4 = null;
+            this.val5 = null;
+            this.val6 = null;
+            this.val7 = null;
+            this.callback = null;
+            super.onReleased();
+         }
+      }
+
+      private abstract static class StackItem<T1, T2, T3, T4, T5, T6, T7> extends GenericStack {
+         T1 val1;
+         T2 val2;
+         T3 val3;
+         T4 val4;
+         T5 val5;
+         T6 val6;
+         T7 val7;
+
+         private StackItem() {
+         }
+      }
+
+      public interface ICallback<T1, T2, T3, T4, T5, T6, T7> {
+         void accept(GenericStack var1, T1 var2, T2 var3, T3 var4, T4 var5, T5 var6, T6 var7, T7 var8);
+      }
+   }
+
    public static final class Params6 {
       public Params6() {
       }
@@ -374,6 +433,10 @@ public final class Stacks {
 
       public <T1, T2, T3, T4> Runnable invoker(T1 var1, T2 var2, T3 var3, T4 var4, Invokers.Params4.ICallback<T1, T2, T3, T4> var5) {
          return (Runnable)this.push(Lambda.invoker(var1, var2, var3, var4, var5));
+      }
+
+      public <T1, T2, T3, T4, T5> Runnable invoker(T1 var1, T2 var2, T3 var3, T4 var4, T5 var5, Invokers.Params5.ICallback<T1, T2, T3, T4, T5> var6) {
+         return (Runnable)this.push(Lambda.invoker(var1, var2, var3, var4, var5, var6));
       }
    }
 }

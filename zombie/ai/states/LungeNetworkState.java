@@ -42,7 +42,7 @@ public class LungeNetworkState extends State {
          var2.walkVariantUse = "ZombieWalk3";
       }
 
-      var2.LungeTimer -= GameTime.getInstance().getMultiplier() / 1.6F;
+      var2.LungeTimer -= GameTime.getInstance().getThirtyFPSMultiplier();
       IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var2.getTarget(), IsoPlayer.class);
       if (var3 != null && var3.isGhostMode()) {
          var2.LungeTimer = 0.0F;

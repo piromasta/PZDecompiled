@@ -18,7 +18,7 @@ public final class StorySound {
    }
 
    public long playSound(float var1) {
-      return SLSoundManager.Emitter.playSound(this.name, var1, IsoPlayer.getInstance().x, IsoPlayer.getInstance().y, IsoPlayer.getInstance().z, 10.0F, 50.0F);
+      return SLSoundManager.Emitter.playSound(this.name, var1, IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY(), IsoPlayer.getInstance().getZ(), 10.0F, 50.0F);
    }
 
    public long playSound(float var1, float var2, float var3, float var4, float var5) {

@@ -72,7 +72,7 @@ public final class JoypadManager {
             BufferedReader var4 = new BufferedReader(var3);
 
             try {
-               System.out.println("reloading " + var2.getAbsolutePath());
+               DebugLog.DetailedInfo.trace("reloading " + var2.getAbsolutePath());
                int var5 = -1;
 
                try {
@@ -102,12 +102,12 @@ public final class JoypadManager {
                      if (var7[0].equals("Version")) {
                         var5 = Integer.parseInt(var7[1]);
                         if (var5 < 1 || var5 > 2) {
-                           DebugLog.General.warn("Unknown version %d in %s", var5, var2.getAbsolutePath());
+                           DebugLog.DetailedInfo.warn("Unknown version %d in %s", var5, var2.getAbsolutePath());
                            break;
                         }
 
                         if (var5 == 1) {
-                           DebugLog.General.warn("Obsolete version %d in %s.  Using default values.", var5, var2.getAbsolutePath());
+                           DebugLog.DetailedInfo.warn("Obsolete version %d in %s.  Using default values.", var5, var2.getAbsolutePath());
                            break;
                         }
                      }

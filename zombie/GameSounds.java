@@ -22,9 +22,9 @@ import zombie.config.ConfigFile;
 import zombie.config.ConfigOption;
 import zombie.config.DoubleConfigOption;
 import zombie.core.Core;
-import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugType;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
@@ -39,6 +39,8 @@ public final class GameSounds {
    private static final FilePreviewSound previewFile = new FilePreviewSound();
    public static boolean soundIsPaused = false;
    private static IPreviewSound previewSound;
+   public static final boolean VCA_VOLUME = true;
+   private static int missing_event_count = 0;
 
    public GameSounds() {
    }
@@ -69,7 +71,8 @@ public final class GameSounds {
             if (var2.event != null && var2.eventDescription == null) {
                var2.eventDescription = FMODManager.instance.getEventDescription("event:/" + var2.event);
                if (var2.eventDescription == null) {
-                  DebugLog.Sound.warn("No such FMOD event \"%s\" for GameSound \"%s\"", var2.event, var0.getName());
+                  DebugLog.Sound.println("No such FMOD event \"%s\" for GameSound \"%s\"", var2.event, var0.getName());
+                  ++missing_event_count;
                }
 
                var2.eventDescriptionMP = FMODManager.instance.getEventDescription("event:/Remote/" + var2.event);
@@ -96,7 +99,7 @@ public final class GameSounds {
       } else {
          GameSound var1 = (GameSound)soundByName.get(var0);
          if (var1 == null) {
-            DebugLog.General.warn("no GameSound called \"" + var0 + "\", adding a new one");
+            DebugLog.Sound.warn("no GameSound called \"" + var0 + "\", adding a new one");
             var1 = new GameSound();
             var1.name = var0;
             var1.category = "AUTO";
@@ -127,7 +130,7 @@ public final class GameSounds {
                }
 
                if (var2.event == null && var2.file == null) {
-                  DebugLog.General.warn("couldn't find an FMOD event or .ogg or .wav file for sound \"" + var0 + "\"");
+                  DebugLog.Sound.warn("couldn't find an FMOD event or .ogg or .wav file for sound \"" + var0 + "\"");
                }
             }
          }
@@ -218,39 +221,34 @@ public final class GameSounds {
                      var16.add(var10);
                   }
                } catch (Exception var11) {
-                  DebugLog.General.warn("FMOD cannot get path for " + var20[var9] + " event");
+                  DebugLog.Sound.warn("FMOD cannot get path for " + var20[var9] + " event");
                }
             }
          }
 
          var16.sort(String::compareTo);
-         Iterator var21 = var16.iterator();
+         if (DebugLog.isEnabled(DebugType.Sound)) {
+            Iterator var21 = var16.iterator();
 
-         while(var21.hasNext()) {
-            String var22 = (String)var21.next();
-            DebugLog.General.warn("FMOD event \"%s\" not used by any GameSound", var22);
+            while(var21.hasNext()) {
+               String var22 = (String)var21.next();
+               DebugLog.Sound.warn("FMOD event \"%s\" not used by any GameSound", var22);
+            }
+         } else {
+            DebugLog.Sound.warn("FMOD %s missing events", missing_event_count);
+            DebugLog.Sound.warn("FMOD %s events not used by any GameSound", var16.size());
+            DebugLog.Sound.warn("FMOD [Turn on DebugType.Sound for detailed lists of missing and unused events]", var16.size());
          }
       }
 
    }
 
-   public static void ReloadFile(String var0) {
-      try {
-         ScriptManager.instance.LoadFile(var0, true);
-         ArrayList var1 = ScriptManager.instance.getAllGameSounds();
-
-         for(int var2 = 0; var2 < var1.size(); ++var2) {
-            GameSoundScript var3 = (GameSoundScript)var1.get(var2);
-            if (sounds.contains(var3.gameSound)) {
-               initClipEvents(var3.gameSound);
-            } else if (!var3.gameSound.clips.isEmpty()) {
-               addSound(var3.gameSound);
-            }
-         }
-      } catch (Throwable var4) {
-         ExceptionLogger.logException(var4);
+   public static void OnReloadSound(GameSoundScript var0) {
+      if (sounds.contains(var0.gameSound)) {
+         initClipEvents(var0.gameSound);
+      } else if (!var0.gameSound.clips.isEmpty()) {
+         addSound(var0.gameSound);
       }
-
    }
 
    public static ArrayList<String> getCategories() {
@@ -321,38 +319,40 @@ public final class GameSounds {
    }
 
    public static void previewSound(String var0) {
-      if (!Core.SoundDisabled) {
-         if (isKnownSound(var0)) {
-            GameSound var1 = getSound(var0);
-            if (var1 == null) {
-               DebugLog.log("no such GameSound " + var0);
+      if (Core.SoundDisabled) {
+         DebugLog.Sound.printf("sound is disabled, not playing " + var0);
+      } else if (!isKnownSound(var0)) {
+         DebugLog.Sound.warn("sound is not known, not playing " + var0);
+      } else {
+         GameSound var1 = getSound(var0);
+         if (var1 == null) {
+            DebugLog.Sound.warn("no such GameSound " + var0);
+         } else {
+            GameSoundClip var2 = var1.getRandomClip();
+            if (var2 == null) {
+               DebugLog.Sound.warn("GameSound.clips is empty");
             } else {
-               GameSoundClip var2 = var1.getRandomClip();
-               if (var2 == null) {
-                  DebugLog.log("GameSound.clips is empty");
-               } else {
-                  if (soundIsPaused) {
-                     if (!GameClient.bClient) {
-                        long var3 = javafmod.FMOD_System_GetMasterChannelGroup();
-                        javafmod.FMOD_ChannelGroup_SetVolume(var3, 1.0F);
-                     }
-
-                     soundIsPaused = false;
+               if (soundIsPaused) {
+                  if (!GameClient.bClient) {
+                     long var3 = javafmod.FMOD_System_GetMasterChannelGroup();
+                     javafmod.FMOD_ChannelGroup_SetVolume(var3, 1.0F);
                   }
 
-                  if (previewSound != null) {
-                     previewSound.stop();
-                  }
-
-                  if (var2.getEvent() != null) {
-                     if (previewBank.play(var2)) {
-                        previewSound = previewBank;
-                     }
-                  } else if (var2.getFile() != null && previewFile.play(var2)) {
-                     previewSound = previewFile;
-                  }
-
+                  soundIsPaused = false;
                }
+
+               if (previewSound != null) {
+                  previewSound.stop();
+               }
+
+               if (var2.getEvent() != null) {
+                  if (previewBank.play(var2)) {
+                     previewSound = previewBank;
+                  }
+               } else if (var2.getFile() != null && previewFile.play(var2)) {
+                  previewSound = previewFile;
+               }
+
             }
          }
       }
@@ -384,7 +384,7 @@ public final class GameSounds {
             for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
                IsoPlayer var2 = IsoPlayer.players[var1];
                if (var2 != null && !var2.Traits.Deaf.isSet()) {
-                  javafmod.FMOD_Studio_Listener3D(var1, var2.x, var2.y, var2.z * 3.0F, 0.0F, 0.0F, 0.0F, -1.0F / (float)Math.sqrt(2.0), -1.0F / (float)Math.sqrt(2.0), 0.0F, 0.0F, 0.0F, 1.0F);
+                  javafmod.FMOD_Studio_Listener3D(var1, var2.getX(), var2.getY(), var2.getZ() * 3.0F, 0.0F, 0.0F, 0.0F, -1.0F / (float)Math.sqrt(2.0), -1.0F / (float)Math.sqrt(2.0), 0.0F, 0.0F, 0.0F, 1.0F);
                }
             }
          }
@@ -422,12 +422,12 @@ public final class GameSounds {
 
       public boolean play(GameSoundClip var1) {
          if (var1.eventDescription == null) {
-            DebugLog.log("failed to get event " + var1.getEvent());
+            DebugLog.Sound.error("failed to get event " + var1.getEvent());
             return false;
          } else {
             this.instance = javafmod.FMOD_Studio_System_CreateEventInstance(var1.eventDescription.address);
             if (this.instance < 0L) {
-               DebugLog.log("failed to create EventInstance: error=" + this.instance);
+               DebugLog.Sound.error("failed to create EventInstance: error=" + this.instance);
                this.instance = 0L;
                return false;
             } else {

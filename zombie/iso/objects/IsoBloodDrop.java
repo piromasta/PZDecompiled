@@ -1,8 +1,9 @@
 package zombie.iso.objects;
 
 import zombie.GameTime;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -36,9 +37,9 @@ public class IsoBloodDrop extends IsoPhysicsObject {
    }
 
    public void collideGround() {
-      float var10000 = this.x - (float)((int)this.x);
-      var10000 = this.y - (float)((int)this.y);
-      IsoGridSquare var3 = IsoWorld.instance.CurrentCell.getGridSquare((int)this.x, (int)this.y, (int)this.z);
+      float var1 = this.getX() - (float)PZMath.fastfloor(this.getX());
+      float var2 = this.getY() - (float)PZMath.fastfloor(this.getY());
+      IsoGridSquare var3 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
       if (var3 != null) {
          IsoObject var4 = var3.getFloor();
          var4.addChild(this);
@@ -49,20 +50,20 @@ public class IsoBloodDrop extends IsoPhysicsObject {
    }
 
    public void collideWall() {
-      IsoGridSquare var1 = IsoWorld.instance.CurrentCell.getGridSquare((int)this.x, (int)this.y, (int)this.z);
+      IsoGridSquare var1 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
       if (var1 != null) {
          IsoObject var2 = null;
          if (this.isCollidedN()) {
             var2 = var1.getWall(true);
          } else if (this.isCollidedS()) {
-            var1 = IsoWorld.instance.CurrentCell.getGridSquare((int)this.x, (int)this.y + 1, (int)this.z);
+            var1 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()) + 1, PZMath.fastfloor(this.getZ()));
             if (var1 != null) {
                var2 = var1.getWall(true);
             }
          } else if (this.isCollidedW()) {
             var2 = var1.getWall(false);
          } else if (this.isCollidedE()) {
-            var1 = IsoWorld.instance.CurrentCell.getGridSquare((int)this.x + 1, (int)this.y, (int)this.z);
+            var1 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(this.getX()) + 1, PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
             if (var1 != null) {
                var2 = var1.getWall(false);
             }
@@ -80,7 +81,7 @@ public class IsoBloodDrop extends IsoPhysicsObject {
    public void update() {
       super.update();
       this.time += GameTime.instance.getMultipliedSecondsSinceLastUpdate();
-      if (this.velX == 0.0F && this.velY == 0.0F && this.getZ() == (float)((int)this.getZ())) {
+      if (this.velX == 0.0F && this.velY == 0.0F && this.getZ() == (float)PZMath.fastfloor(this.getZ())) {
          this.setCollidable(false);
          IsoWorld.instance.CurrentCell.getRemoveList().add(this);
       }
@@ -131,11 +132,11 @@ public class IsoBloodDrop extends IsoPhysicsObject {
 
       this.velX = temp.x;
       this.velY = temp.y;
-      this.x = var2;
-      this.y = var3;
-      this.z = var4;
-      this.nx = var2;
-      this.ny = var3;
+      this.setX(var2);
+      this.setY(var3);
+      this.setZ(var4);
+      this.setNextX(var2);
+      this.setNextY(var3);
       this.setAlpha(0.5F);
       this.def = IsoSpriteInstance.get(this.sprite);
       this.def.alpha = 0.4F;

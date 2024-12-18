@@ -2,7 +2,6 @@ package zombie.iso.objects;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.SoundManager;
@@ -30,12 +29,15 @@ import zombie.iso.IsoWorld;
 import zombie.iso.LosUtil;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.objects.interfaces.Thumpable;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.util.Type;
+import zombie.util.list.PZArrayList;
 
 public class IsoBarricade extends IsoObject implements Thumpable {
    public static final int MAX_PLANKS = 4;
@@ -85,7 +87,8 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                LosUtil.cachecleared[var4] = true;
             }
 
-            IsoGridSquare.setRecalcLightTime(-1);
+            IsoGridSquare.setRecalcLightTime(-1.0F);
+            ++Core.dirtyGlobalLightsCount;
             GameTime.instance.lightSourceUpdate = 100.0F;
          }
 
@@ -93,6 +96,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
             this.square.RecalcProperties();
          }
 
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
       }
    }
 
@@ -128,13 +132,16 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                   LosUtil.cachecleared[var3] = true;
                }
 
-               IsoGridSquare.setRecalcLightTime(-1);
+               IsoGridSquare.setRecalcLightTime(-1.0F);
+               ++Core.dirtyGlobalLightsCount;
                GameTime.instance.lightSourceUpdate = 100.0F;
             }
 
             if (this.square != null) {
                this.square.RecalcProperties();
             }
+
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          }
 
          return var2;
@@ -176,7 +183,8 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                      LosUtil.cachecleared[var3] = true;
                   }
 
-                  IsoGridSquare.setRecalcLightTime(-1);
+                  IsoGridSquare.setRecalcLightTime(-1.0F);
+                  ++Core.dirtyGlobalLightsCount;
                   GameTime.instance.lightSourceUpdate = 100.0F;
                }
 
@@ -184,6 +192,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                   this.square.RecalcProperties();
                }
 
+               this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
             }
          }
       }
@@ -227,7 +236,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                   LosUtil.cachecleared[var3] = true;
                }
 
-               IsoGridSquare.setRecalcLightTime(-1);
+               IsoGridSquare.setRecalcLightTime(-1.0F);
                GameTime.instance.lightSourceUpdate = 100.0F;
             }
 
@@ -235,6 +244,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                this.square.RecalcProperties();
             }
 
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          }
       }
    }
@@ -461,7 +471,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
             WorldSoundManager.instance.addSound(var1, this.square.getX(), this.square.getY(), this.square.getZ(), 20, 20, false, 0.0F, 15.0F);
             if (this.isDestroyed()) {
                if (var1 != null) {
-                  String var5 = var4 == "HitBarricadeMetal" ? "BreakBarricadeMetal" : "BreakBarricadePlank";
+                  String var5 = var4.equals("HitBarricadeMetal") ? "BreakBarricadeMetal" : "BreakBarricadePlank";
                   var1.getEmitter().playSound(var5);
                   if (GameServer.bServer) {
                      GameServer.PlayWorldSoundServer(var5, false, var1.getCurrentSquare(), 0.2F, 20.0F, 1.1F, true);
@@ -535,6 +545,74 @@ public class IsoBarricade extends IsoObject implements Thumpable {
       }
    }
 
+   public void setHealth(int var1) {
+      if (this.metalHealth > 0) {
+         this.metalHealth = PZMath.clamp(var1, 0, 5000);
+      }
+
+      if (this.metalBarHealth > 0) {
+         this.metalBarHealth = PZMath.clamp(var1, 0, 3000);
+      }
+
+      for(int var2 = 3; var2 >= 0; --var2) {
+         if (this.plankHealth[var2] > 0) {
+            this.plankHealth[var2] = PZMath.clamp(var1, 0, 1000);
+         }
+      }
+
+   }
+
+   public int getHealth() {
+      if (this.metalHealth > 0) {
+         return this.metalHealth;
+      } else if (this.metalBarHealth > 0) {
+         return this.metalBarHealth;
+      } else {
+         int var1 = 0;
+         int var2 = 0;
+
+         for(int var3 = 3; var3 >= 0; --var3) {
+            if (this.plankHealth[var3] > 0) {
+               ++var2;
+               var1 += this.plankHealth[var3];
+            }
+         }
+
+         if (var1 > 0 && var2 > 0) {
+            return var1 / var2;
+         } else {
+            return 0;
+         }
+      }
+   }
+
+   public void setMaxHealth(int var1) {
+   }
+
+   public int getMaxHealth() {
+      if (this.metalHealth > 0) {
+         return 5000;
+      } else if (this.metalBarHealth > 0) {
+         return 3000;
+      } else {
+         int var1 = 0;
+         int var2 = 0;
+
+         for(int var3 = 3; var3 >= 0; --var3) {
+            if (this.plankHealth[var3] > 0) {
+               ++var2;
+               var1 += 1000;
+            }
+         }
+
+         if (var1 > 0 && var2 > 0) {
+            return var1 / var2;
+         } else {
+            return 5000;
+         }
+      }
+   }
+
    public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
       byte var4 = var1.get();
       this.dir = IsoDirections.fromIndex(var4);
@@ -548,10 +626,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
       }
 
       this.metalHealth = var1.getShort();
-      if (var2 >= 90) {
-         this.metalBarHealth = var1.getShort();
-      }
-
+      this.metalBarHealth = var1.getShort();
       this.chooseSprite();
    }
 
@@ -599,18 +674,18 @@ public class IsoBarricade extends IsoObject implements Thumpable {
             LosUtil.cachecleared[var3] = true;
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          GameTime.instance.lightSourceUpdate = 100.0F;
       }
 
    }
 
    public BarricadeAble getBarricadedObject() {
-      int var1 = this.getSpecialObjectIndex();
+      int var1 = this.getObjectIndex();
       if (var1 == -1) {
          return null;
       } else {
-         ArrayList var2 = this.getSquare().getSpecialObjects();
+         PZArrayList var2 = this.getSquare().getObjects();
          boolean var3;
          int var4;
          if (this.getDir() != IsoDirections.W && this.getDir() != IsoDirections.N) {
@@ -620,7 +695,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                int var9 = this.getSquare().getY() + (this.getDir() == IsoDirections.S ? 1 : 0);
                IsoGridSquare var6 = this.getCell().getGridSquare((double)var4, (double)var9, (double)this.getZ());
                if (var6 != null) {
-                  var2 = var6.getSpecialObjects();
+                  var2 = var6.getObjects();
 
                   for(int var7 = var2.size() - 1; var7 >= 0; --var7) {
                      IsoObject var8 = (IsoObject)var2.get(var7);
@@ -650,7 +725,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
       BarricadeAble var9 = this.getBarricadedObject();
       if (var9 != null && this.square.lighting[var8].targetDarkMulti() <= var9.getSquare().lighting[var8].targetDarkMulti()) {
          var4 = var9.getSquare().lighting[var8].lightInfo();
-         this.setTargetAlpha(var8, ((IsoObject)var9).getTargetAlpha(var8));
+         this.setTargetAlpha(var8, FBORenderCell.instance.calculateWindowTargetAlpha(var8, (IsoObject)var9, var9.getOppositeSquare(), var9.getNorth()));
       }
 
       super.render(var1, var2, var3, var4, var5, var6, var7);
@@ -754,7 +829,7 @@ public class IsoBarricade extends IsoObject implements Thumpable {
                LosUtil.cachecleared[var6] = true;
             }
 
-            IsoGridSquare.setRecalcLightTime(-1);
+            IsoGridSquare.setRecalcLightTime(-1.0F);
             GameTime.instance.lightSourceUpdate = 100.0F;
             return var4;
          }

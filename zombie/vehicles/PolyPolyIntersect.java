@@ -1,6 +1,7 @@
 package zombie.vehicles;
 
 import org.joml.Vector2f;
+import zombie.pathfind.VehiclePoly;
 
 public final class PolyPolyIntersect {
    private static Vector2f tempVector2f_1 = new Vector2f();
@@ -10,9 +11,9 @@ public final class PolyPolyIntersect {
    public PolyPolyIntersect() {
    }
 
-   public static boolean intersects(PolygonalMap2.VehiclePoly var0, PolygonalMap2.VehiclePoly var1) {
+   public static boolean intersects(VehiclePoly var0, VehiclePoly var1) {
       for(int var2 = 0; var2 < 2; ++var2) {
-         PolygonalMap2.VehiclePoly var3 = var2 == 0 ? var0 : var1;
+         VehiclePoly var3 = var2 == 0 ? var0 : var1;
 
          for(int var4 = 0; var4 < 4; ++var4) {
             int var5 = (var4 + 1) % 4;
@@ -59,7 +60,7 @@ public final class PolyPolyIntersect {
       return true;
    }
 
-   private static Vector2f getPoint(PolygonalMap2.VehiclePoly var0, int var1, Vector2f var2) {
+   private static Vector2f getPoint(VehiclePoly var0, int var1, Vector2f var2) {
       if (var1 == 0) {
          return var2.set(var0.x1, var0.y1);
       } else if (var1 == 1) {

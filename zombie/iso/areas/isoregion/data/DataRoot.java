@@ -6,6 +6,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import zombie.core.Colors;
+import zombie.core.math.PZMath;
 import zombie.iso.areas.isoregion.IsoRegions;
 import zombie.iso.areas.isoregion.regions.IsoChunkRegion;
 import zombie.iso.areas.isoregion.regions.IsoRegionManager;
@@ -49,7 +50,7 @@ public final class DataRoot {
    }
 
    public DataChunk getDataChunk(int var1, int var2) {
-      int var3 = IsoRegions.hash(var1 / 30, var2 / 30);
+      int var3 = IsoRegions.hash(var1 / IsoRegions.CELL_CHUNK_DIM, var2 / IsoRegions.CELL_CHUNK_DIM);
       DataCell var4 = (DataCell)this.cellMap.get(var3);
       if (var4 != null) {
          int var5 = IsoRegions.hash(var1, var2);
@@ -60,10 +61,10 @@ public final class DataRoot {
    }
 
    private void setDataChunk(DataChunk var1) {
-      int var2 = IsoRegions.hash(var1.getChunkX() / 30, var1.getChunkY() / 30);
+      int var2 = IsoRegions.hash(var1.getChunkX() / IsoRegions.CELL_CHUNK_DIM, var1.getChunkY() / IsoRegions.CELL_CHUNK_DIM);
       DataCell var3 = (DataCell)this.cellMap.get(var2);
       if (var3 == null) {
-         var3 = this.addCell(var1.getChunkX() / 30, var1.getChunkY() / 30, var2);
+         var3 = this.addCell(var1.getChunkX() / IsoRegions.CELL_CHUNK_DIM, var1.getChunkY() / IsoRegions.CELL_CHUNK_DIM, var2);
       }
 
       var3.setChunk(var1);
@@ -104,7 +105,7 @@ public final class DataRoot {
             Map.Entry var6 = (Map.Entry)var5.next();
             DataChunk var7 = (DataChunk)var6.getValue();
 
-            for(int var8 = 0; var8 < 8; ++var8) {
+            for(int var8 = 0; var8 < 32; ++var8) {
                Iterator var9 = var7.getChunkRegions(var8).iterator();
 
                while(var9.hasNext()) {
@@ -278,12 +279,12 @@ public final class DataRoot {
          this.x = var1;
          this.y = var2;
          this.z = var3;
-         this.chunkSquareX = var1 % 10;
-         this.chunkSquareY = var2 % 10;
-         this.chunkx = var1 / 10;
-         this.chunky = var2 / 10;
-         this.cellx = var1 / 300;
-         this.celly = var2 / 300;
+         this.chunkSquareX = PZMath.coordmodulo(var1, 8);
+         this.chunkSquareY = PZMath.coordmodulo(var2, 8);
+         this.chunkx = var1 / 8;
+         this.chunky = var2 / 8;
+         this.cellx = var1 / IsoRegions.CELL_DIM;
+         this.celly = var2 / IsoRegions.CELL_DIM;
          this.chunkID = IsoRegions.hash(this.chunkx, this.chunky);
          this.cellID = IsoRegions.hash(this.cellx, this.celly);
          this.cell = null;

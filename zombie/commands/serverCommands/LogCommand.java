@@ -1,11 +1,13 @@
 package zombie.commands.serverCommands;
 
 import java.util.ArrayList;
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.Translator;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.znet.ZNet;
@@ -22,11 +24,11 @@ import zombie.debug.LogSeverity;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_SetLogLevel"
 )
-@RequiredRight(
-   requiredRights = 32
+@RequiredCapability(
+   requiredCapability = Capability.DebugConsole
 )
 public class LogCommand extends CommandBase {
-   public LogCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public LogCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -37,6 +39,10 @@ public class LogCommand extends CommandBase {
 
       for(int var4 = 0; var4 < var3; ++var4) {
          DebugType var5 = var2[var4];
+         if (var5.name().equalsIgnoreCase(var0)) {
+            return var5;
+         }
+
          if (var5.name().toLowerCase().startsWith(var0.toLowerCase())) {
             var1.add(var5);
          }

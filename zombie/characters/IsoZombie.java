@@ -7,9 +7,13 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Stack;
+import zombie.CombatManager;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.PersistentOutfits;
 import zombie.SandboxOptions;
 import zombie.SharedDescriptors;
@@ -28,10 +32,12 @@ import zombie.ai.states.BumpedState;
 import zombie.ai.states.BurntToDeath;
 import zombie.ai.states.ClimbOverFenceState;
 import zombie.ai.states.ClimbOverWallState;
+import zombie.ai.states.ClimbThroughWindowPositioningParams;
 import zombie.ai.states.ClimbThroughWindowState;
 import zombie.ai.states.CrawlingZombieTurnState;
 import zombie.ai.states.FakeDeadAttackState;
 import zombie.ai.states.FakeDeadZombieState;
+import zombie.ai.states.GrappledThrownOutWindowState;
 import zombie.ai.states.IdleState;
 import zombie.ai.states.LungeNetworkState;
 import zombie.ai.states.LungeState;
@@ -56,6 +62,7 @@ import zombie.ai.states.ZombieSittingState;
 import zombie.ai.states.ZombieTurnAlerted;
 import zombie.audio.parameters.ParameterCharacterInside;
 import zombie.audio.parameters.ParameterCharacterMovementSpeed;
+import zombie.audio.parameters.ParameterCharacterOnFire;
 import zombie.audio.parameters.ParameterFootstepMaterial;
 import zombie.audio.parameters.ParameterFootstepMaterial2;
 import zombie.audio.parameters.ParameterPlayerDistance;
@@ -71,16 +78,19 @@ import zombie.characters.WornItems.WornItems;
 import zombie.characters.action.ActionContext;
 import zombie.characters.action.ActionGroup;
 import zombie.characters.skills.PerkFactory;
+import zombie.core.BoxedStaticValues;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderSettings;
 import zombie.core.opengl.Shader;
+import zombie.core.physics.RagdollSettingsManager;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.DeadBodyAtlas;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.Vector3;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.animation.sharedskele.SharedSkeleAnimationRepository;
 import zombie.core.skinnedmodel.population.Outfit;
@@ -89,20 +99,24 @@ import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.visual.HumanVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
+import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.core.textures.TextureDraw;
 import zombie.core.utils.BooleanGrid;
 import zombie.core.utils.OnceEvery;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
+import zombie.debug.LineDrawer;
 import zombie.debug.LogSeverity;
 import zombie.inventory.InventoryItem;
+import zombie.inventory.ItemSpawner;
 import zombie.inventory.types.HandWeapon;
-import zombie.inventory.types.InventoryContainer;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
@@ -123,28 +137,33 @@ import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
 import zombie.iso.objects.IsoZombieGiblets;
 import zombie.iso.objects.interfaces.Thumpable;
-import zombie.iso.sprite.IsoAnim;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
+import zombie.iso.weather.ClimateManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.MPStatistics;
 import zombie.network.NetworkVariables;
 import zombie.network.ServerLOS;
 import zombie.network.ServerMap;
-import zombie.network.packets.ZombiePacket;
+import zombie.network.packets.character.ZombiePacket;
+import zombie.pathfind.Path;
+import zombie.pathfind.PolygonalMap2;
+import zombie.pathfind.nativeCode.PathfindNative;
 import zombie.popman.NetworkZombieManager;
 import zombie.popman.NetworkZombieSimulator;
 import zombie.popman.ZombieCountOptimiser;
+import zombie.popman.ZombieStateFlags;
 import zombie.scripting.ScriptManager;
+import zombie.scripting.objects.Item;
 import zombie.ui.TextManager;
 import zombie.ui.UIFont;
 import zombie.util.StringUtils;
 import zombie.util.Type;
+import zombie.util.list.PZArrayList;
 import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.AttackVehicleState;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.VehiclePart;
 
 public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
@@ -156,11 +175,14 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    public static final byte HEARING_NORMAL = 2;
    public static final byte HEARING_POOR = 3;
    public static final byte HEARING_RANDOM = 4;
+   public static final byte HEARING_NORMAL_OR_POOR = 5;
    public static final byte THUMP_FLAG_GENERIC = 1;
    public static final byte THUMP_FLAG_WINDOW_EXTRA = 2;
    public static final byte THUMP_FLAG_WINDOW = 3;
    public static final byte THUMP_FLAG_METAL = 4;
    public static final byte THUMP_FLAG_GARAGE_DOOR = 5;
+   public static final byte THUMP_FLAG_WIRE_FENCE = 6;
+   public static final byte THUMP_FLAG_METAL_POLE_GATE = 7;
    private boolean alwaysKnockedDown;
    private boolean onlyJawStab;
    private boolean forceEatingAnimation;
@@ -208,6 +230,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    public int sight;
    public int hearing;
    private ArrayList<InventoryItem> itemsToSpawnAtDeath;
+   private int voiceChoice;
    private float soundReactDelay;
    private final IsoGameCharacter.Location delayedSound;
    private boolean bSoundSourceRepeating;
@@ -237,8 +260,21 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    private float m_characterTextureAnimTime;
    private float m_characterTextureAnimDuration;
    public int lastPlayerHit;
+   public final float VISION_RADIUS_MAX;
+   public final float VISION_RADIUS_MIN;
+   public float VISION_RADIUS_RESULT;
+   public final float VISION_FOG_PENALTY_MAX;
+   public final float VISION_RAIN_PENALTY_MAX;
+   public final float VISION_DARKNESS_PENALTY_MAX;
+   public final int HEARING_UNSEEN_OFFSET_MIN;
+   public final int HEARING_UNSEEN_OFFSET_HEAVY_RAIN;
+   public final int HEARING_UNSEEN_OFFSET_MAX;
    protected final ItemVisuals itemVisuals;
    private int hitHeadWhileOnFloor;
+   private boolean m_bAttackDidDamage;
+   private String m_attackOutcome;
+   private boolean m_reanimatedForGrappleOnly;
+   public Imposter imposter;
    private BaseVehicle vehicle4testCollision;
    public String SpriteName;
    public static final int PALETTE_COUNT = 3;
@@ -248,6 +284,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    private boolean isSkeleton;
    public final ParameterCharacterInside parameterCharacterInside;
    private final ParameterCharacterMovementSpeed parameterCharacterMovementSpeed;
+   public final ParameterCharacterOnFire parameterCharacterOnFire;
    private final ParameterFootstepMaterial parameterFootstepMaterial;
    private final ParameterFootstepMaterial2 parameterFootstepMaterial2;
    public final ParameterPlayerDistance parameterPlayerDistance;
@@ -262,17 +299,22 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    public ZombiePacket zombiePacket;
    public boolean zombiePacketUpdated;
    public long lastChangeOwner;
+   public int bloodSplatAmount;
+   public BodyPartType lastHitPart;
    private static final SharedSkeleAnimationRepository m_sharedSkeleRepo = new SharedSkeleAnimationRepository();
    public int palette;
+   static final int s_saveFormatVersion = 1;
    public int AttackAnimTime;
    public static int AttackAnimTimeMax = 50;
    public IsoMovingObject spottedLast;
    Aggro[] aggroList;
+   static Map<String, String> temporaryMapCloseSneakBonusDir = Map.ofEntries(Map.entry("trashcontainers_01_08", "NWSE"), Map.entry("trashcontainers_01_09", "NWSE"), Map.entry("trashcontainers_01_10", "NWSE"), Map.entry("trashcontainers_01_11", "NWSE"), Map.entry("trashcontainers_01_12", "NWSE"), Map.entry("trashcontainers_01_13", "NWSE"), Map.entry("trashcontainers_01_14", "NWSE"), Map.entry("trashcontainers_01_15", "NWSE"), Map.entry("f_bushes_1_96", "NWSE"), Map.entry("f_bushes_1_97", "NWSE"), Map.entry("f_bushes_1_98", "NWSE"), Map.entry("f_bushes_1_99", "NWSE"), Map.entry("f_bushes_1_100", "NWSE"), Map.entry("f_bushes_1_101", "NWSE"), Map.entry("f_bushes_1_102", "NWSE"), Map.entry("f_bushes_1_103", "NWSE"), Map.entry("f_bushes_1_104", "NWSE"), Map.entry("f_bushes_1_105", "NWSE"), Map.entry("f_bushes_1_106", "NWSE"), Map.entry("f_bushes_1_107", "NWSE"), Map.entry("f_bushes_1_108", "NWSE"), Map.entry("f_bushes_1_109", "NWSE"), Map.entry("f_bushes_1_110", "NWSE"), Map.entry("f_bushes_1_111", "NWSE"), Map.entry("f_bushes_2_0", "NWSE"), Map.entry("f_bushes_2_1", "NWSE"), Map.entry("f_bushes_2_2", "NWSE"), Map.entry("f_bushes_2_3", "NWSE"), Map.entry("f_bushes_2_4", "NWSE"), Map.entry("f_bushes_2_5", "NWSE"), Map.entry("f_bushes_2_6", "NWSE"), Map.entry("f_bushes_2_7", "NWSE"), Map.entry("f_bushes_2_10", "NWSE"), Map.entry("f_bushes_2_11", "NWSE"), Map.entry("f_bushes_2_12", "NWSE"), Map.entry("f_bushes_2_13", "NWSE"), Map.entry("f_bushes_2_14", "NWSE"), Map.entry("f_bushes_2_15", "NWSE"), Map.entry("f_bushes_2_16", "NWSE"), Map.entry("f_bushes_2_17", "NWSE"), Map.entry("vegetation_ornamental_01_0", "NWSE"), Map.entry("vegetation_ornamental_01_1", "NWSE"), Map.entry("vegetation_ornamental_01_2", "NWSE"), Map.entry("vegetation_ornamental_01_3", "NWSE"), Map.entry("vegetation_ornamental_01_4", "NWSE"), Map.entry("vegetation_ornamental_01_5", "NWSE"), Map.entry("vegetation_ornamental_01_6", "NWSE"), Map.entry("vegetation_ornamental_01_7", "NWSE"), Map.entry("vegetation_ornamental_01_10", "NWSE"), Map.entry("vegetation_ornamental_01_11", "NWSE"), Map.entry("vegetation_ornamental_01_12", "NWSE"), Map.entry("vegetation_ornamental_01_13", "NWSE"), Map.entry("fencing_01_96", "NWSE"), Map.entry("fencing_01_98", "NWSE"), Map.entry("fencing_01_100", "NWSE"), Map.entry("fencing_01_102", "NWSE"), Map.entry("fencing_01_32", "N"), Map.entry("fencing_01_33", "N"), Map.entry("fencing_01_34", "W"), Map.entry("fencing_01_35", "W"), Map.entry("fencing_01_36", "NW"), Map.entry("fencing_01_4", "W"), Map.entry("fencing_01_5", "N"), Map.entry("fencing_01_6", "NW"), Map.entry("carpentry_02_40", "W"), Map.entry("carpentry_02_41", "N"), Map.entry("carpentry_02_42", "NW"), Map.entry("carpentry_02_44", "W"), Map.entry("carpentry_02_45", "N"), Map.entry("carpentry_02_46", "NW"), Map.entry("carpentry_02_48", "W"), Map.entry("carpentry_02_49", "N"), Map.entry("carpentry_02_50", "NW"), Map.entry("fixtures_doors_fences_01_104", "W"), Map.entry("fixtures_doors_fences_01_105", "W"), Map.entry("fixtures_doors_fences_01_96", "W"), Map.entry("fixtures_doors_fences_01_97", "W"), Map.entry("fixtures_doors_fences_01_48", "W"), Map.entry("fixtures_doors_fences_01_49", "W"), Map.entry("fixtures_doors_fences_01_56", "W"), Map.entry("fixtures_doors_fences_01_57", "W"), Map.entry("fixtures_doors_fences_01_98", "N"), Map.entry("fixtures_doors_fences_01_99", "N"), Map.entry("fixtures_doors_fences_01_106", "N"), Map.entry("fixtures_doors_fences_01_107", "N"), Map.entry("fixtures_doors_fences_01_50", "N"), Map.entry("fixtures_doors_fences_01_51", "N"), Map.entry("fixtures_doors_fences_01_58", "N"), Map.entry("fixtures_doors_fences_01_59", "N"), Map.entry("fixtures_doors_fences_01_8", "W"), Map.entry("fixtures_doors_fences_01_9", "N"), Map.entry("fixtures_doors_fences_01_12", "W"), Map.entry("fixtures_doors_fences_01_13", "N"), Map.entry("fixtures_doors_fences_01_4", "W"), Map.entry("fixtures_doors_fences_01_5", "N"));
+   static Map<String, Float> temporaryMapCloseSneakBonusValue = Map.ofEntries(Map.entry("trashcontainers_01_08", 100.0F), Map.entry("trashcontainers_01_09", 100.0F), Map.entry("trashcontainers_01_10", 100.0F), Map.entry("trashcontainers_01_11", 100.0F), Map.entry("trashcontainers_01_12", 100.0F), Map.entry("trashcontainers_01_13", 100.0F), Map.entry("trashcontainers_01_14", 100.0F), Map.entry("trashcontainers_01_15", 100.0F), Map.entry("f_bushes_1_96", 100.0F), Map.entry("f_bushes_1_97", 100.0F), Map.entry("f_bushes_1_98", 100.0F), Map.entry("f_bushes_1_99", 100.0F), Map.entry("f_bushes_1_100", 100.0F), Map.entry("f_bushes_1_101", 100.0F), Map.entry("f_bushes_1_102", 100.0F), Map.entry("f_bushes_1_103", 100.0F), Map.entry("f_bushes_1_104", 100.0F), Map.entry("f_bushes_1_105", 100.0F), Map.entry("f_bushes_1_106", 100.0F), Map.entry("f_bushes_1_107", 100.0F), Map.entry("f_bushes_1_108", 100.0F), Map.entry("f_bushes_1_109", 100.0F), Map.entry("f_bushes_1_110", 100.0F), Map.entry("f_bushes_1_111", 100.0F), Map.entry("f_bushes_2_0", 100.0F), Map.entry("f_bushes_2_1", 100.0F), Map.entry("f_bushes_2_2", 100.0F), Map.entry("f_bushes_2_3", 100.0F), Map.entry("f_bushes_2_4", 100.0F), Map.entry("f_bushes_2_5", 100.0F), Map.entry("f_bushes_2_6", 100.0F), Map.entry("f_bushes_2_7", 100.0F), Map.entry("f_bushes_2_10", 100.0F), Map.entry("f_bushes_2_11", 100.0F), Map.entry("f_bushes_2_12", 100.0F), Map.entry("f_bushes_2_13", 100.0F), Map.entry("f_bushes_2_14", 100.0F), Map.entry("f_bushes_2_15", 100.0F), Map.entry("f_bushes_2_16", 100.0F), Map.entry("f_bushes_2_17", 100.0F), Map.entry("vegetation_ornamental_01_0", 100.0F), Map.entry("vegetation_ornamental_01_1", 100.0F), Map.entry("vegetation_ornamental_01_2", 100.0F), Map.entry("vegetation_ornamental_01_3", 100.0F), Map.entry("vegetation_ornamental_01_4", 100.0F), Map.entry("vegetation_ornamental_01_5", 100.0F), Map.entry("vegetation_ornamental_01_6", 100.0F), Map.entry("vegetation_ornamental_01_7", 100.0F), Map.entry("vegetation_ornamental_01_10", 100.0F), Map.entry("vegetation_ornamental_01_11", 100.0F), Map.entry("vegetation_ornamental_01_12", 100.0F), Map.entry("vegetation_ornamental_01_13", 100.0F), Map.entry("fencing_01_96", 100.0F), Map.entry("fencing_01_98", 100.0F), Map.entry("fencing_01_100", 100.0F), Map.entry("fencing_01_102", 100.0F), Map.entry("fencing_01_32", 100.0F), Map.entry("fencing_01_33", 100.0F), Map.entry("fencing_01_34", 100.0F), Map.entry("fencing_01_35", 100.0F), Map.entry("fencing_01_36", 100.0F), Map.entry("fencing_01_4", 60.0F), Map.entry("fencing_01_5", 60.0F), Map.entry("fencing_01_6", 60.0F), Map.entry("carpentry_02_40", 100.0F), Map.entry("carpentry_02_41", 100.0F), Map.entry("carpentry_02_42", 100.0F), Map.entry("carpentry_02_44", 100.0F), Map.entry("carpentry_02_45", 100.0F), Map.entry("carpentry_02_46", 100.0F), Map.entry("carpentry_02_48", 100.0F), Map.entry("carpentry_02_49", 100.0F), Map.entry("carpentry_02_50", 100.0F), Map.entry("fixtures_doors_fences_01_104", 100.0F), Map.entry("fixtures_doors_fences_01_105", 100.0F), Map.entry("fixtures_doors_fences_01_96", 100.0F), Map.entry("fixtures_doors_fences_01_97", 100.0F), Map.entry("fixtures_doors_fences_01_48", 100.0F), Map.entry("fixtures_doors_fences_01_49", 100.0F), Map.entry("fixtures_doors_fences_01_56", 100.0F), Map.entry("fixtures_doors_fences_01_57", 100.0F), Map.entry("fixtures_doors_fences_01_98", 100.0F), Map.entry("fixtures_doors_fences_01_99", 100.0F), Map.entry("fixtures_doors_fences_01_106", 100.0F), Map.entry("fixtures_doors_fences_01_107", 100.0F), Map.entry("fixtures_doors_fences_01_50", 100.0F), Map.entry("fixtures_doors_fences_01_51", 100.0F), Map.entry("fixtures_doors_fences_01_58", 100.0F), Map.entry("fixtures_doors_fences_01_59", 100.0F), Map.entry("fixtures_doors_fences_01_8", 100.0F), Map.entry("fixtures_doors_fences_01_9", 100.0F), Map.entry("fixtures_doors_fences_01_12", 100.0F), Map.entry("fixtures_doors_fences_01_13", 100.0F), Map.entry("fixtures_doors_fences_01_4", 100.0F), Map.entry("fixtures_doors_fences_01_5", 100.0F));
    public int spotSoundDelay;
    public float movex;
    public float movey;
    private int stepFrameLast;
-   private OnceEvery networkUpdate;
+   private final OnceEvery networkUpdate;
    public short lastRemoteUpdate;
    public short OnlineID;
    private static final ArrayList<IsoDeadBody> tempBodies = new ArrayList();
@@ -298,6 +340,14 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    public boolean isRemoteZombie() {
       return this.authOwner == null;
+   }
+
+   public UdpConnection getOwner() {
+      return this.authOwner;
+   }
+
+   public IsoPlayer getOwnerPlayer() {
+      return this.authOwnerPlayer;
    }
 
    public void setVehicle4TestCollision(BaseVehicle var1) {
@@ -348,6 +398,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.sight = -1;
       this.hearing = -1;
       this.itemsToSpawnAtDeath = null;
+      this.voiceChoice = -1;
       this.soundReactDelay = 0.0F;
       this.delayedSound = new IsoGameCharacter.Location(-1, -1, -1);
       this.bSoundSourceRepeating = false;
@@ -373,8 +424,21 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.m_characterTextureAnimTime = 0.0F;
       this.m_characterTextureAnimDuration = 1.0F;
       this.lastPlayerHit = -1;
+      this.VISION_RADIUS_MAX = 20.0F;
+      this.VISION_RADIUS_MIN = 10.0F;
+      this.VISION_RADIUS_RESULT = 20.0F;
+      this.VISION_FOG_PENALTY_MAX = 7.0F;
+      this.VISION_RAIN_PENALTY_MAX = 2.5F;
+      this.VISION_DARKNESS_PENALTY_MAX = 5.0F;
+      this.HEARING_UNSEEN_OFFSET_MIN = 2;
+      this.HEARING_UNSEEN_OFFSET_HEAVY_RAIN = 5;
+      this.HEARING_UNSEEN_OFFSET_MAX = 10;
       this.itemVisuals = new ItemVisuals();
       this.hitHeadWhileOnFloor = 0;
+      this.m_bAttackDidDamage = false;
+      this.m_attackOutcome = "";
+      this.m_reanimatedForGrappleOnly = false;
+      this.imposter = new Imposter();
       this.vehicle4testCollision = null;
       this.SpriteName = "BobZ";
       this.vectorToTarget = new Vector2();
@@ -383,6 +447,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.isSkeleton = false;
       this.parameterCharacterInside = new ParameterCharacterInside(this);
       this.parameterCharacterMovementSpeed = new ParameterCharacterMovementSpeed(this);
+      this.parameterCharacterOnFire = new ParameterCharacterOnFire(this);
       this.parameterFootstepMaterial = new ParameterFootstepMaterial(this);
       this.parameterFootstepMaterial2 = new ParameterFootstepMaterial2(this);
       this.parameterPlayerDistance = new ParameterPlayerDistance(this);
@@ -396,6 +461,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.zombiePacket = new ZombiePacket();
       this.zombiePacketUpdated = false;
       this.lastChangeOwner = -1L;
+      this.bloodSplatAmount = 1000;
       this.palette = 0;
       this.AttackAnimTime = 50;
       this.spottedLast = null;
@@ -410,6 +476,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.walkVariant = "ZombieWalk";
       this.bCanCrawlUnderVehicle = true;
       this.bCanWalk = true;
+      this.getWrappedGrappleable().setOnGrappledEndCallback(this::onZombieGrappleEnded);
       this.registerVariableCallbacks();
       this.Health = 1.8F + Rand.Next(0.0F, 0.3F);
       this.weight = 0.7F;
@@ -424,6 +491,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       this.setFemale(this.descriptor.isFemale());
+      if (!this.descriptor.getVoicePrefix().contains("Zombie")) {
+         this.descriptor.setVoicePrefix(Objects.equals(this.descriptor.getVoicePrefix(), "VoiceFemale") ? "FemaleZombie" : "MaleZombie");
+      }
+
       this.SpriteName = this.isFemale() ? "KateZ" : "BobZ";
       if (this.palette != 1) {
          this.SpriteName = this.SpriteName + this.palette;
@@ -439,66 +510,103 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.width = 0.3F;
       this.setAlphaAndTarget(0.0F);
       this.finder.maxSearchDistance = 20;
-      if (this.isFemale()) {
-         this.hurtSound = "FemaleZombieHurt";
-      }
-
+      this.hurtSound = this.descriptor.getVoicePrefix() + "Hurt";
       this.initializeStates();
-      this.actionContext.setGroup(ActionGroup.getActionGroup("zombie"));
+      this.getActionContext().setGroup(ActionGroup.getActionGroup("zombie"));
       this.initWornItems("Human");
       this.initAttachedItems("Human");
       this.networkAI = new NetworkZombieAI(this);
       this.clearAggroList();
    }
 
+   public String toString() {
+      String var10000 = this.getClass().getSimpleName();
+      return var10000 + "{  Name:" + this.getName() + ",  ID:" + this.getID() + "  StateFlags:" + ZombieStateFlags.fromZombie(this) + "}";
+   }
+
    public void initializeStates() {
-      HashMap var1 = this.getStateUpdateLookup();
-      var1.clear();
-      var1.put("attack-network", AttackNetworkState.instance());
-      var1.put("attackvehicle-network", IdleState.instance());
-      var1.put("fakedead-attack-network", IdleState.instance());
-      var1.put("lunge-network", LungeNetworkState.instance());
-      var1.put("walktoward-network", WalkTowardNetworkState.instance());
+      this.clearAIStateMap();
+      this.registerAIState("attack-network", AttackNetworkState.instance());
+      this.registerAIState("attackvehicle-network", IdleState.instance());
+      this.registerAIState("fakedead-attack-network", IdleState.instance());
+      this.registerAIState("lunge-network", LungeNetworkState.instance());
+      this.registerAIState("walktoward-network", WalkTowardNetworkState.instance());
+      this.registerAIState("grappledThrownOutWindow", GrappledThrownOutWindowState.instance());
       if (this.bCrawling) {
-         var1.put("attack", AttackState.instance());
-         var1.put("fakedead", FakeDeadZombieState.instance());
-         var1.put("fakedead-attack", FakeDeadAttackState.instance());
-         var1.put("getup", ZombieGetUpFromCrawlState.instance());
-         var1.put("hitreaction", ZombieHitReactionState.instance());
-         var1.put("hitreaction-hit", ZombieHitReactionState.instance());
-         var1.put("idle", ZombieIdleState.instance());
-         var1.put("onground", ZombieOnGroundState.instance());
-         var1.put("pathfind", PathFindState.instance());
-         var1.put("reanimate", ZombieReanimateState.instance());
-         var1.put("staggerback", StaggerBackState.instance());
-         var1.put("thump", ThumpState.instance());
-         var1.put("turn", CrawlingZombieTurnState.instance());
-         var1.put("walktoward", WalkTowardState.instance());
+         this.registerAIState("attack", AttackState.instance());
+         this.registerAIState("fakedead", FakeDeadZombieState.instance());
+         this.registerAIState("fakedead-attack", FakeDeadAttackState.instance());
+         this.registerAIState("getup", ZombieGetUpFromCrawlState.instance());
+         this.registerAIState("hitreaction", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-knockeddown", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-shothead-bwd", ZombieFallDownState.instance());
+         this.registerAIState("hitreaction-shothead-fwd", ZombieFallDownState.instance());
+         this.registerAIState("hitreaction-shothead-fwd02", ZombieFallDownState.instance());
+         this.registerAIState("hitreaction-onfloor", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-gettingup", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-whilesitting", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-hit", ZombieHitReactionState.instance());
+         this.registerAIState("idle", ZombieIdleState.instance());
+         this.registerAIState("onground", ZombieOnGroundState.instance());
+         this.registerAIState("onground-ragdoll", ZombieOnGroundState.instance());
+         this.registerAIState("pathfind", PathFindState.instance());
+         this.registerAIState("reanimate", ZombieReanimateState.instance());
+         this.registerAIState("staggerback", StaggerBackState.instance());
+         this.registerAIState("staggerback-knockeddown", StaggerBackState.instance());
+         this.registerAIState("vehicleCollision-staggerback", StaggerBackState.instance());
+         this.registerAIState("thump", ThumpState.instance());
+         this.registerAIState("turn", CrawlingZombieTurnState.instance());
+         this.registerAIState("walktoward", WalkTowardState.instance());
       } else {
-         var1.put("attack", AttackState.instance());
-         var1.put("attackvehicle", AttackVehicleState.instance());
-         var1.put("bumped", BumpedState.instance());
-         var1.put("climbfence", ClimbOverFenceState.instance());
-         var1.put("climbwindow", ClimbThroughWindowState.instance());
-         var1.put("eatbody", ZombieEatBodyState.instance());
-         var1.put("falldown", ZombieFallDownState.instance());
-         var1.put("falling", ZombieFallingState.instance());
-         var1.put("face-target", ZombieFaceTargetState.instance());
-         var1.put("fakedead", FakeDeadZombieState.instance());
-         var1.put("fakedead-attack", FakeDeadAttackState.instance());
-         var1.put("getdown", ZombieGetDownState.instance());
-         var1.put("getup", ZombieGetUpState.instance());
-         var1.put("hitreaction", ZombieHitReactionState.instance());
-         var1.put("hitreaction-hit", ZombieHitReactionState.instance());
-         var1.put("idle", ZombieIdleState.instance());
-         var1.put("lunge", LungeState.instance());
-         var1.put("onground", ZombieOnGroundState.instance());
-         var1.put("pathfind", PathFindState.instance());
-         var1.put("sitting", ZombieSittingState.instance());
-         var1.put("staggerback", StaggerBackState.instance());
-         var1.put("thump", ThumpState.instance());
-         var1.put("turnalerted", ZombieTurnAlerted.instance());
-         var1.put("walktoward", WalkTowardState.instance());
+         this.registerAIState("attack", AttackState.instance());
+         this.registerAIState("attackvehicle", AttackVehicleState.instance());
+         this.registerAIState("bumped", BumpedState.instance());
+         this.registerAIState("climbfence", ClimbOverFenceState.instance());
+         this.registerAIState("climbwindow", ClimbThroughWindowState.instance());
+         this.registerAIState("eatbody", ZombieEatBodyState.instance());
+         this.registerAIState("falldown", ZombieFallDownState.instance());
+         this.registerAIState("vehicleCollision-falldown", ZombieFallDownState.instance());
+         this.registerAIState("falldown-eatingbody", ZombieFallDownState.instance());
+         this.registerAIState("falldown-knifedeath", ZombieFallDownState.instance());
+         this.registerAIState("falldown-onknees", ZombieFallDownState.instance());
+         this.registerAIState("falldown-whilesitting", ZombieFallDownState.instance());
+         this.registerAIState("falldown-headleft", ZombieFallDownState.instance());
+         this.registerAIState("falldown-headright", ZombieFallDownState.instance());
+         this.registerAIState("falldown-headtop", ZombieFallDownState.instance());
+         this.registerAIState("falldown-speardeath1", ZombieFallDownState.instance());
+         this.registerAIState("falldown-speardeath2", ZombieFallDownState.instance());
+         this.registerAIState("falldown-uppercut", ZombieFallDownState.instance());
+         this.registerAIState("falling", ZombieFallingState.instance());
+         this.registerAIState("face-target", ZombieFaceTargetState.instance());
+         this.registerAIState("fakedead", FakeDeadZombieState.instance());
+         this.registerAIState("fakedead-attack", FakeDeadAttackState.instance());
+         this.registerAIState("getdown", ZombieGetDownState.instance());
+         this.registerAIState("getup", ZombieGetUpState.instance());
+         this.registerAIState("getup-fromOnBack", ZombieGetUpState.instance());
+         this.registerAIState("getup-fromOnFront", ZombieGetUpState.instance());
+         this.registerAIState("getup-fromSitting", ZombieGetUpState.instance());
+         this.registerAIState("hitreaction", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-knockeddown", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-shothead-bwd", ZombieFallDownState.instance());
+         this.registerAIState("hitreaction-shothead-fwd", ZombieFallDownState.instance());
+         this.registerAIState("hitreaction-shothead-fwd02", ZombieFallDownState.instance());
+         this.registerAIState("hitreaction-onfloor", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-gettingup", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-whilesitting", ZombieHitReactionState.instance());
+         this.registerAIState("hitreaction-hit", ZombieHitReactionState.instance());
+         this.registerAIState("idle", ZombieIdleState.instance());
+         this.registerAIState("lunge", LungeState.instance());
+         this.registerAIState("onground", ZombieOnGroundState.instance());
+         this.registerAIState("onground-ragdoll", ZombieOnGroundState.instance());
+         this.registerAIState("pathfind", PathFindState.instance());
+         this.registerAIState("sitting", ZombieSittingState.instance());
+         this.registerAIState("staggerback", StaggerBackState.instance());
+         this.registerAIState("staggerback-knockeddown", StaggerBackState.instance());
+         this.registerAIState("vehicleCollision-staggerback", StaggerBackState.instance());
+         this.registerAIState("thump", ThumpState.instance());
+         this.registerAIState("turnalerted", ZombieTurnAlerted.instance());
+         this.registerAIState("walktoward", WalkTowardState.instance());
+         this.registerAIState("grappled", ZombieIdleState.instance());
       }
 
    }
@@ -508,59 +616,11 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          return GameClient.bClient && this.isRemoteZombie();
       });
       this.setVariable("bMovingNetwork", () -> {
-         return (this.isLocal() || !this.isBumped()) && (IsoUtils.DistanceManhatten(this.networkAI.targetX, this.networkAI.targetY, this.x, this.y) > 0.5F || this.z != (float)this.networkAI.targetZ);
+         return (this.isLocal() || !this.isBumped()) && (IsoUtils.DistanceManhatten(this.networkAI.targetX, this.networkAI.targetY, this.getX(), this.getY()) > 0.5F || this.getZ() != (float)this.networkAI.targetZ);
       });
       this.setVariable("hitHeadType", this::getHitHeadWhileOnFloor);
       this.setVariable("realState", this::getRealState);
-      this.setVariable("battack", () -> {
-         if (SystemDisabler.zombiesDontAttack) {
-            return false;
-         } else if (this.target != null && !this.target.isZombiesDontAttack()) {
-            if (this.target instanceof IsoGameCharacter) {
-               if (this.target.isOnFloor() && ((IsoGameCharacter)this.target).getCurrentState() != BumpedState.instance()) {
-                  this.setTarget((IsoMovingObject)null);
-                  return false;
-               }
-
-               BaseVehicle var1 = ((IsoGameCharacter)this.target).getVehicle();
-               if (var1 != null) {
-                  return false;
-               }
-
-               if (((IsoGameCharacter)this.target).ReanimatedCorpse != null) {
-                  return false;
-               }
-
-               if (((IsoGameCharacter)this.target).getStateMachine().getCurrent() == ClimbOverWallState.instance()) {
-                  return false;
-               }
-            }
-
-            if (this.bReanimate) {
-               return false;
-            } else if (Math.abs(this.target.z - this.z) >= 0.2F) {
-               return false;
-            } else if (this.target instanceof IsoPlayer && ((IsoPlayer)this.target).isGhostMode()) {
-               return false;
-            } else if (this.bFakeDead) {
-               return !this.isUnderVehicle() && this.DistTo(this.target) < 1.3F;
-            } else if (!this.bCrawling) {
-               IsoGridSquare var5 = this.getCurrentSquare();
-               IsoGridSquare var2 = this.target.getCurrentSquare();
-               if (var5 != null && var5.isSomethingTo(var2)) {
-                  return false;
-               } else {
-                  float var3 = this.bCrawling ? 1.4F : 0.72F;
-                  float var4 = this.vectorToTarget.getLength();
-                  return var4 <= var3;
-               }
-            } else {
-               return !this.isUnderVehicle() && this.DistTo(this.target) < 1.3F;
-            }
-         } else {
-            return false;
-         }
-      });
+      this.setVariable("battack", this::getShouldAttack);
       this.setVariable("isFacingTarget", this::isFacingTarget);
       this.setVariable("targetSeenTime", this::getTargetSeenTime);
       this.setVariable("battackvehicle", () -> {
@@ -570,7 +630,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             return false;
          } else if (this.target == null) {
             return false;
-         } else if (Math.abs(this.target.z - this.z) >= 0.8F) {
+         } else if (Math.abs(this.target.getZ() - this.getZ()) >= 0.8F) {
             return false;
          } else if (this.target instanceof IsoPlayer && ((IsoPlayer)this.target).isGhostMode()) {
             return false;
@@ -597,7 +657,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          return this.bFakeDead;
       });
       this.setVariable("bfalling", () -> {
-         return this.z > 0.0F && this.fallTime > 2.0F;
+         return this.getZ() > 0.0F && this.fallTime > 2.0F;
       });
       this.setVariable("bhastarget", () -> {
          if (this.target instanceof IsoGameCharacter && ((IsoGameCharacter)this.target).ReanimatedCorpse != null) {
@@ -617,7 +677,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.setVariable("blunge", () -> {
          if (this.target == null) {
             return false;
-         } else if ((int)this.getZ() != (int)this.target.getZ()) {
+         } else if (PZMath.fastfloor(this.getZ()) != PZMath.fastfloor(this.target.getZ())) {
             return false;
          } else {
             if (this.target instanceof IsoGameCharacter) {
@@ -642,7 +702,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                   return false;
                } else {
                   float var3 = this.vectorToTarget.getLength();
-                  return var3 > 3.5F && (!(var3 <= 4.0F) || !(this.target instanceof IsoGameCharacter) || ((IsoGameCharacter)this.target).getVehicle() == null) ? false : !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), this.target.x, this.target.y, (int)this.getZ(), this.target, false, true);
+                  return var3 > 3.5F && (!(var3 <= 4.0F) || !(this.target instanceof IsoGameCharacter) || ((IsoGameCharacter)this.target).getVehicle() == null) ? false : !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), this.target.getX(), this.target.getY(), PZMath.fastfloor(this.getZ()), this.target, false, true);
                }
             }
          }
@@ -654,6 +714,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          return this.target != null && this.target instanceof IsoPlayer && ((IsoPlayer)this.target).getVehicle() != null ? ((IsoPlayer)this.target).getVehicle().getScript().isSmallVehicle : true;
       });
       this.setVariable("breanimate", this::isReanimate, this::setReanimate);
+      this.setVariable("reanimatedForGrappleOnly", this::isReanimatedForGrappleOnly, this::setReanimatedForGrappleOnly);
       this.setVariable("bstaggerback", this::isStaggerBack);
       this.setVariable("bthump", () -> {
          if (this.getThumpTarget() instanceof IsoObject && !(this.getThumpTarget() instanceof BaseVehicle)) {
@@ -689,8 +750,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             IsoDirections var1;
             boolean var2;
             if (this.target != null && this.vectorToTarget.getLength() != 0.0F) {
-               if (this.isRemoteZombie()) {
-                  tempo.set(this.networkAI.targetX - this.x, this.networkAI.targetY - this.y);
+               if (GameClient.bClient && this.isRemoteZombie()) {
+                  tempo.set(this.networkAI.targetX - this.getX(), this.networkAI.targetY - this.getY());
                } else {
                   tempo.set(this.vectorToTarget);
                }
@@ -723,7 +784,6 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             }
          }
       });
-      this.setVariable("hitforce", this::getHitForce);
       this.setVariable("alerted", () -> {
          return this.alerted;
       });
@@ -745,6 +805,68 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          return NetworkVariables.PredictionTypes.PathFind.equals(this.networkAI.predictionType);
       });
       this.setVariable("bCrawling", this::isCrawling, this::setCrawler);
+      this.setVariable("AttackDidDamage", this::getAttackDidDamage, this::setAttackDidDamage);
+      this.setVariable("AttackOutcome", this::getAttackOutcome, this::setAttackOutcome);
+   }
+
+   protected void OnAnimEvent_IsAlmostUp(IsoGameCharacter var1) {
+      super.OnAnimEvent_IsAlmostUp(var1);
+      if (var1 == this) {
+         this.setSitAgainstWall(false);
+      }
+
+   }
+
+   private boolean getShouldAttack() {
+      if (SystemDisabler.zombiesDontAttack) {
+         return false;
+      } else if (this.isReanimatedForGrappleOnly()) {
+         return false;
+      } else if (this.target != null && !this.target.isZombiesDontAttack()) {
+         if (this.target instanceof IsoGameCharacter) {
+            if (this.target.isOnFloor() && ((IsoGameCharacter)this.target).getCurrentState() != BumpedState.instance()) {
+               this.setTarget((IsoMovingObject)null);
+               return false;
+            }
+
+            BaseVehicle var1 = ((IsoGameCharacter)this.target).getVehicle();
+            if (var1 != null) {
+               return false;
+            }
+
+            if (((IsoGameCharacter)this.target).ReanimatedCorpse != null) {
+               return false;
+            }
+
+            if (((IsoGameCharacter)this.target).getStateMachine().getCurrent() == ClimbOverWallState.instance()) {
+               return false;
+            }
+         }
+
+         if (this.bReanimate) {
+            return false;
+         } else if (Math.abs(this.target.getZ() - this.getZ()) >= 0.2F) {
+            return false;
+         } else if (this.target instanceof IsoPlayer && ((IsoPlayer)this.target).isGhostMode()) {
+            return false;
+         } else if (this.bFakeDead) {
+            return !this.isUnderVehicle() && this.DistTo(this.target) < 1.3F;
+         } else if (!this.bCrawling) {
+            IsoGridSquare var5 = this.getCurrentSquare();
+            IsoGridSquare var2 = this.target.getCurrentSquare();
+            if (var5 != null && var5.isSomethingTo(var2)) {
+               return false;
+            } else {
+               float var3 = this.bCrawling ? 1.4F : 0.72F;
+               float var4 = this.vectorToTarget.getLength();
+               return var4 <= var3;
+            }
+         } else {
+            return !this.isUnderVehicle() && this.DistTo(this.target) < 1.3F;
+         }
+      } else {
+         return false;
+      }
    }
 
    public void actionStateChanged(ActionContext var1) {
@@ -753,10 +875,6 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          this.networkAI.extraUpdate();
       }
 
-   }
-
-   public ActionContext getActionContext() {
-      return this.actionContext;
    }
 
    protected void onAnimPlayerCreated(AnimationPlayer var1) {
@@ -774,10 +892,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public void InitSpritePartsZombie(SurvivorDesc var1) {
-      this.sprite.AnimMap.clear();
-      this.sprite.AnimStack.clear();
-      this.sprite.CurrentAnim = new IsoAnim();
-      this.sprite.CurrentAnim.name = "REMOVE";
+      this.sprite.disposeAnimation();
       this.legsSprite = this.sprite;
       this.legsSprite.name = var1.torso;
       this.ZombieID = Rand.Next(10000);
@@ -814,31 +929,50 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          }
       }
 
-      if (this.isFemale()) {
-         this.hurtSound = "FemaleZombieHurt";
-      } else {
-         this.hurtSound = "MaleZombieHurt";
-      }
-
+      this.hurtSound = var4.getVoicePrefix() + "Hurt";
       this.InitSpritePartsZombie(var4);
       this.sprite.def.tintr = 0.95F + (float)Rand.Next(5) / 100.0F;
       this.sprite.def.tintg = 0.95F + (float)Rand.Next(5) / 100.0F;
       this.sprite.def.tintb = 0.95F + (float)Rand.Next(5) / 100.0F;
       this.setDefaultState(ZombieIdleState.instance());
       this.DoZombieStats();
-      var1.getFloat();
+      int var5 = var1.getInt();
       this.setWidth(0.3F);
       this.TimeSinceSeenFlesh = (float)var1.getInt();
       this.setAlpha(0.0F);
-      this.setFakeDead(var1.getInt() == 1);
-      ArrayList var5 = this.savedInventoryItems;
-      byte var6 = var1.get();
+      int var6 = var1.getInt();
+      if (var5 == 0) {
+         DebugLog.Zombie.debugln("Loading Zombie isFakeDead state:%d", var6);
+         this.setFakeDead(var6 == 1);
+      } else if (var5 >= 1) {
+         ZombieStateFlags var7 = ZombieStateFlags.fromInt(var6);
+         DebugLog.Zombie.debugln("Loading Zombie state flags:%s", var7);
+         if (var7.isFakeDead()) {
+            this.setFakeDead(true);
+         } else if (var7.isCrawling()) {
+            this.setCrawler(true);
+            this.setCanWalk(var7.isCanWalk());
+            this.setOnFloor(true);
+            this.setFallOnFront(true);
+            this.walkVariant = "ZombieWalk";
+            this.DoZombieStats();
+         }
 
-      for(int var7 = 0; var7 < var6; ++var7) {
-         String var8 = GameWindow.ReadString(var1);
-         short var9 = var1.getShort();
-         if (var9 >= 0 && var9 < var5.size() && this.wornItems.getBodyLocationGroup().getLocation(var8) != null) {
-            this.wornItems.setItem(var8, (InventoryItem)var5.get(var9));
+         if (var7.isInitialized()) {
+            this.setCanCrawlUnderVehicle(var7.isCanCrawlUnderVehicle());
+         }
+
+         this.setReanimatedForGrappleOnly(var7.isReanimatedForGrappleOnly());
+      }
+
+      ArrayList var12 = this.savedInventoryItems;
+      byte var8 = var1.get();
+
+      for(int var9 = 0; var9 < var8; ++var9) {
+         String var10 = GameWindow.ReadString(var1);
+         short var11 = var1.getShort();
+         if (var11 >= 0 && var11 < var12.size() && this.wornItems.getBodyLocationGroup().getLocation(var10) != null) {
+            this.wornItems.setItem(var10, (InventoryItem)var12.get(var11));
          }
       }
 
@@ -848,10 +982,12 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public void save(ByteBuffer var1, boolean var2) throws IOException {
+      DebugLog.Saving.trace("Saving: %s", this);
       super.save(var1, var2);
-      var1.putFloat(0.0F);
+      var1.putInt(1);
       var1.putInt((int)this.TimeSinceSeenFlesh);
-      var1.putInt(this.isFakeDead() ? 1 : 0);
+      ZombieStateFlags var3 = ZombieStateFlags.fromZombie(this);
+      var1.putInt(var3.asInt());
       if (this.wornItems.size() > 127) {
          throw new RuntimeException("too many worn items");
       } else {
@@ -881,33 +1017,47 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             if (var2 != PathFindState.instance() && !this.bCrawling) {
                this.climbThroughWindow(var4);
             }
-         } else if (var1 instanceof IsoThumpable && ((IsoThumpable)var1).canClimbThrough(this) && var3) {
-            if (var2 != PathFindState.instance() && !this.bCrawling) {
-               this.climbThroughWindow((IsoThumpable)var1);
-            }
-         } else if ((!(var1 instanceof IsoDoor) || !((IsoDoor)var1).isHoppable()) && var1 != null && var1.getThumpableFor(this) != null && var3) {
-            boolean var5 = (this.isCurrentState(PathFindState.instance()) || this.isCurrentState(WalkTowardState.instance()) || this.isCurrentState(WalkTowardNetworkState.instance())) && this.getPathFindBehavior2().isGoalSound();
-            if (!SandboxOptions.instance.Lore.ThumpNoChasing.getValue() && this.target == null && !var5) {
-               this.setVariable("bPathfind", false);
-               this.setVariable("bMoving", false);
-            } else {
-               if (var1 instanceof IsoThumpable && !SandboxOptions.instance.Lore.ThumpOnConstruction.getValue()) {
+         } else {
+            if (var3 && !this.bCrawling && var1 instanceof IsoWindowFrame) {
+               IsoWindowFrame var5 = (IsoWindowFrame)var1;
+               if (var5.canClimbThrough(this)) {
+                  if (!this.isFacingObject(var5, 0.8F)) {
+                     super.collideWith(var1);
+                     return;
+                  }
+
+                  if (var2 != PathFindState.instance()) {
+                     this.climbThroughWindowFrame(var5);
+                  }
+
                   return;
                }
-
-               Object var6 = var1;
-               if (var1 instanceof IsoWindow && var1.getThumpableFor(this) != null && var1.isDestroyed()) {
-                  var6 = var1.getThumpableFor(this);
-               }
-
-               this.setThumpTarget((Thumpable)var6);
             }
 
-            this.setPath2((PolygonalMap2.Path)null);
-         }
+            if (var1 instanceof IsoThumpable && ((IsoThumpable)var1).canClimbThrough(this) && var3) {
+               if (var2 != PathFindState.instance() && !this.bCrawling) {
+                  this.climbThroughWindow((IsoThumpable)var1);
+               }
+            } else if ((!(var1 instanceof IsoDoor) || !((IsoDoor)var1).isHoppable()) && var1 != null && var1.getThumpableFor(this) != null && var3) {
+               boolean var6 = (this.isCurrentState(PathFindState.instance()) || this.isCurrentState(WalkTowardState.instance()) || this.isCurrentState(WalkTowardNetworkState.instance())) && this.getPathFindBehavior2().isGoalSound();
+               if (!SandboxOptions.instance.Lore.ThumpNoChasing.getValue() && this.target == null && !var6) {
+                  this.setVariable("bPathfind", false);
+                  this.setVariable("bMoving", false);
+               } else {
+                  if (var1 instanceof IsoThumpable && !SandboxOptions.instance.Lore.ThumpOnConstruction.getValue()) {
+                     return;
+                  }
 
-         if (!this.bCrawling && IsoWindowFrame.isWindowFrame(var1) && var3 && var2 != PathFindState.instance()) {
-            this.climbThroughWindowFrame(var1);
+                  Object var7 = var1;
+                  if (var1 instanceof IsoWindow && var1.getThumpableFor(this) != null && var1.isDestroyed()) {
+                     var7 = var1.getThumpableFor(this);
+                  }
+
+                  this.setThumpTarget((Thumpable)var7);
+               }
+
+               this.setPath2((Path)null);
+            }
          }
 
          super.collideWith(var1);
@@ -915,7 +1065,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public float Hit(HandWeapon var1, IsoGameCharacter var2, float var3, boolean var4, float var5, boolean var6) {
-      if (Core.bTutorial && this.ImmortalTutorialZombie) {
+      if ((Core.bTutorial || Core.bDebug) && this.ImmortalTutorialZombie) {
          return 0.0F;
       } else {
          BodyPartType var7 = BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.Torso_Upper), BodyPartType.ToIndex(BodyPartType.Torso_Lower) + 1));
@@ -928,6 +1078,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          }
 
          LuaEventManager.triggerEvent("OnHitZombie", this, var2, var7, var1);
+         this.lastHitPart = var7;
+         var2.setLastHitCharacter(this);
          float var8 = super.Hit(var1, var2, var3, var4, var5, var6);
          if (GameServer.bServer && !this.isRemoteZombie()) {
             this.addAggro(var2, var8);
@@ -961,6 +1113,14 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
    }
 
+   public void onZombieGrappleEnded() {
+      if (this.isReanimatedForGrappleOnly()) {
+         DebugLog.Grapple.debugln("Reanimated Corpse Dropped. Dying again.");
+         this.die();
+      }
+
+   }
+
    private void renderAtlasTexture(float var1, float var2, float var3) {
       if (this.atlasTex != null) {
          if (IsoSprite.globalOffsetX == -1.0F) {
@@ -979,7 +1139,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             this.getCurrentSquare().interpolateLight(var6, var1 - (float)this.getCurrentSquare().getX(), var2 - (float)this.getCurrentSquare().getY());
          }
 
-         this.atlasTex.render((float)((int)var4), (float)((int)var5), var6.r, var6.g, var6.b, var6.a);
+         this.atlasTex.render(var1, var2, var3, (float)((int)var4), (float)((int)var5), var6.r, var6.g, var6.b, var6.a);
       }
    }
 
@@ -1003,7 +1163,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             this.atlasTex = null;
          }
 
-         if (IsoCamera.CamCharacter != IsoPlayer.getInstance()) {
+         if (IsoCamera.getCameraCharacter() != IsoPlayer.getInstance()) {
             this.setAlphaAndTarget(1.0F);
          }
 
@@ -1028,12 +1188,23 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          }
 
          this.renderTextureOverHead(var1);
-         int var2 = (int)IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-         int var3 = (int)IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
+         int var2 = (int)IsoUtils.XToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+         int var3 = (int)IsoUtils.YToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
          int var4 = TextManager.instance.getFontFromEnum(UIFont.Small).getLineHeight();
          TextManager.instance.DrawString((double)var2, (double)(var3 += var4), "AllowRepathDelay : " + this.AllowRepathDelay);
          TextManager.instance.DrawString((double)var2, (double)(var3 += var4), "BonusSpotTime : " + this.BonusSpotTime);
          TextManager.instance.DrawString((double)var2, (double)(var3 + var4), "TimeSinceSeenFlesh : " + this.TimeSinceSeenFlesh);
+      }
+
+      if (DebugOptions.instance.ZombieRenderViewDistance.getValue()) {
+         if (this.target == null) {
+            this.updateVisionRadius();
+            LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), this.VISION_RADIUS_RESULT, 32, 1.0F, 1.0F, 1.0F, 0.3F);
+         } else if (this.BonusSpotTime == 0.0F) {
+            LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), this.VISION_RADIUS_RESULT, 32, 1.0F, 1.0F, 0.0F, 0.3F);
+         } else {
+            LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), this.VISION_RADIUS_RESULT, 32, 1.0F, 0.0F, 0.0F, 0.3F);
+         }
       }
 
    }
@@ -1052,7 +1223,15 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          var10 -= IsoCamera.getOffX();
          var11 -= IsoCamera.getOffY();
          int var12 = IsoCamera.frameState.playerIndex;
-         var9.render(var10, var11, 0.0F, 0.0F, 0.0F, this.getAlpha(var12));
+         if (PerformanceSettings.FBORenderChunk) {
+            IndieGL.enableDepthTest();
+            IndieGL.glBlendFunc(770, 771);
+            IndieGL.glDepthFunc(515);
+            IndieGL.StartShader(0);
+            TextureDraw.nextZ = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var1 + 0.3F, var2 + 0.3F, this.getZ() + 0.3F).depthStart * 2.0F - 1.0F;
+         }
+
+         var9.render(var1, var2, this.getZ(), var10, var11, 0.0F, 0.0F, 0.0F, this.getAlpha(var12));
       }
 
       if (DebugOptions.instance.Character.Debug.Render.Angle.getValue()) {
@@ -1064,8 +1243,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    private void renderTextureOverHead(String var1) {
-      float var2 = this.x;
-      float var3 = this.y;
+      float var2 = this.getX();
+      float var3 = this.getY();
       float var4 = IsoUtils.XToScreen(var2, var3, this.getZ(), 0);
       float var5 = IsoUtils.YToScreen(var2, var3, this.getZ(), 0);
       var4 = var4 - IsoCamera.getOffX() - this.offsetX;
@@ -1087,23 +1266,27 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
    }
 
+   public boolean allowsTwist() {
+      return false;
+   }
+
    public void RespondToSound() {
       if (!this.Ghost) {
          if (!this.isUseless()) {
             if (!GameServer.bServer) {
                if (!GameClient.bClient || !this.isRemoteZombie()) {
                   float var1;
-                  if ((this.getCurrentState() == PathFindState.instance() || this.getCurrentState() == WalkTowardState.instance()) && this.getPathFindBehavior2().isGoalSound() && (int)this.z == this.getPathTargetZ() && this.bSoundSourceRepeating) {
+                  if ((this.getCurrentState() == PathFindState.instance() || this.getCurrentState() == WalkTowardState.instance()) && this.getPathFindBehavior2().isGoalSound() && PZMath.fastfloor(this.getZ()) == this.getPathTargetZ() && this.bSoundSourceRepeating) {
                      var1 = this.DistToSquared((float)this.getPathTargetX(), (float)this.getPathTargetY());
-                     if (var1 < 25.0F && LosUtil.lineClear(this.getCell(), (int)this.x, (int)this.y, (int)this.z, this.getPathTargetX(), this.getPathTargetY(), (int)this.z, false) != LosUtil.TestResults.Blocked) {
+                     if (var1 < 16.0F && LosUtil.lineClear(this.getCell(), PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), this.getPathTargetX(), this.getPathTargetY(), PZMath.fastfloor(this.getZ()), false) != LosUtil.TestResults.Blocked && !this.isNearSirenVehicle()) {
                         this.setVariable("bPathfind", false);
                         this.setVariable("bMoving", false);
-                        this.setPath2((PolygonalMap2.Path)null);
+                        this.setPath2((Path)null);
                      }
                   }
 
                   if (this.soundReactDelay > 0.0F) {
-                     this.soundReactDelay -= GameTime.getInstance().getMultiplier() / 1.6F;
+                     this.soundReactDelay -= GameTime.getInstance().getThirtyFPSMultiplier();
                      if (this.soundReactDelay < 0.0F) {
                         this.soundReactDelay = 0.0F;
                      }
@@ -1127,22 +1310,22 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                      this.soundAttract = var4;
                      this.soundAttractTimeout = 60.0F;
                   } else if (this.soundAttractTimeout > 0.0F) {
-                     this.soundAttractTimeout -= GameTime.getInstance().getMultiplier() / 1.6F;
+                     this.soundAttractTimeout -= GameTime.getInstance().getThirtyFPSMultiplier();
                      if (this.soundAttractTimeout < 0.0F) {
                         this.soundAttractTimeout = 0.0F;
                      }
                   }
 
-                  WorldSoundManager.ResultBiggestSound var5 = WorldSoundManager.instance.getBiggestSoundZomb((int)this.getX(), (int)this.getY(), (int)this.getZ(), true, this);
+                  WorldSoundManager.ResultBiggestSound var5 = WorldSoundManager.instance.getBiggestSoundZomb(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), true, this);
                   if (var5.sound != null && (this.soundAttractTimeout == 0.0F || this.soundAttract * 2.0F < var5.attract)) {
                      var3 = var5.sound;
                      var1 = var5.attract;
                      var2 = var3.source;
                   }
 
-                  if (var3 != null && var3.bRepeating && var3.z == (int)this.z) {
+                  if (var3 != null && var3.bRepeating && var3.z == PZMath.fastfloor(this.getZ())) {
                      float var6 = this.DistToSquared((float)var3.x, (float)var3.y);
-                     if (var6 < 25.0F && LosUtil.lineClear(this.getCell(), (int)this.x, (int)this.y, (int)this.z, var3.x, var3.y, (int)this.z, false) != LosUtil.TestResults.Blocked) {
+                     if (var6 < 25.0F && LosUtil.lineClear(this.getCell(), PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), var3.x, var3.y, PZMath.fastfloor(this.getZ()), false) != LosUtil.TestResults.Blocked) {
                         var3 = null;
                      }
                   }
@@ -1158,17 +1341,17 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                   }
 
                   if (this.delayedSound.x != -1 && this.soundReactDelay == 0.0F) {
-                     int var10 = this.delayedSound.x;
+                     int var13 = this.delayedSound.x;
                      int var7 = this.delayedSound.y;
                      int var8 = this.delayedSound.z;
                      this.delayedSound.x = -1;
-                     float var9 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), (float)var10, (float)var7) / 2.5F;
-                     var10 += Rand.Next((int)(-var9), (int)var9);
+                     float var9 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), (float)var13, (float)var7) / 2.5F;
+                     var13 += Rand.Next((int)(-var9), (int)var9);
                      var7 += Rand.Next((int)(-var9), (int)var9);
                      if ((this.getCurrentState() == PathFindState.instance() || this.getCurrentState() == WalkTowardState.instance()) && (this.getPathFindBehavior2().isGoalLocation() || this.getPathFindBehavior2().isGoalSound())) {
-                        if (!IsoUtils.isSimilarDirection(this, (float)var10, (float)var7, this.getPathFindBehavior2().getTargetX(), this.getPathFindBehavior2().getTargetY(), 0.5F)) {
-                           this.setTurnAlertedValues(var10, var7);
-                           this.pathToSound(var10, var7, var8);
+                        if (!IsoUtils.isSimilarDirection(this, (float)var13, (float)var7, this.getPathFindBehavior2().getTargetX(), this.getPathFindBehavior2().getTargetY(), 0.5F)) {
+                           this.setTurnAlertedValues(var13, var7);
+                           this.pathToSound(var13, var7, var8);
                            this.setLastHeardSound(this.getPathTargetX(), this.getPathTargetY(), this.getPathTargetZ());
                            this.AllowRepathDelay = 120.0F;
                            this.timeSinceRespondToSound = 0.0F;
@@ -1181,12 +1364,34 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                         return;
                      }
 
-                     if (!IsoUtils.isSimilarDirection(this, (float)var10, (float)var7, this.x + this.getForwardDirection().x, this.y + this.getForwardDirection().y, 0.5F)) {
-                        this.setTurnAlertedValues(var10, var7);
+                     if (!IsoUtils.isSimilarDirection(this, (float)var13, (float)var7, this.getX() + this.getForwardDirection().x, this.getY() + this.getForwardDirection().y, 0.5F)) {
+                        this.setTurnAlertedValues(var13, var7);
                      }
 
-                     this.pathToSound(var10, var7, var8);
-                     this.setLastHeardSound(this.getPathTargetX(), this.getPathTargetY(), this.getPathTargetZ());
+                     if (LosUtil.lineClear(this.getCell(), (int)this.getX(), (int)this.getY(), (int)this.getZ(), var13, var7, var8, false) != LosUtil.TestResults.Blocked) {
+                        this.pathToSound(var13, var7, var8);
+                        this.setLastHeardSound(this.getPathTargetX(), this.getPathTargetY(), this.getPathTargetZ());
+                     } else {
+                        int var10 = 2;
+                        if (ClimateManager.getInstance().getRainIntensity() > 0.5F) {
+                           var10 = 5;
+                        }
+
+                        if (SandboxOptions.instance.Lore.Hearing.getValue() == 1) {
+                           var10 -= 2;
+                        }
+
+                        if (SandboxOptions.instance.Lore.Hearing.getValue() == 3) {
+                           var10 += 2;
+                        }
+
+                        var10 = Math.max(Math.min(10, var10), 2);
+                        int var11 = -var10 + (int)(Math.random() * (double)(var10 * 2 + 1));
+                        int var12 = -var10 + (int)(Math.random() * (double)(var10 * 2 + 1));
+                        this.pathToSound(var13 + var11, var7 + var12, var8);
+                        this.setLastHeardSound(this.getPathTargetX() + var11, this.getPathTargetY() + var12, this.getPathTargetZ());
+                     }
+
                      this.AllowRepathDelay = 120.0F;
                      this.timeSinceRespondToSound = 0.0F;
                   }
@@ -1203,10 +1408,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       if (var4 < 0.0F) {
          var4 = Math.abs(var4);
       } else {
-         var4 = new Float(6.283185307179586 - (double)var4);
+         var4 = (float)(6.283185307179586 - (double)var4);
       }
 
-      double var5 = new Double(Math.toDegrees((double)var4));
+      double var5 = Math.toDegrees((double)var4);
       Vector2 var7 = new Vector2(IsoDirections.reverse(this.getDir()).ToVector().x, IsoDirections.reverse(this.getDir()).ToVector().y);
       var7.normalize();
       float var8 = var7.getDirectionNeg();
@@ -1297,9 +1502,33 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       this.setVariable("turnalertedvalue", var11);
-      ZombieTurnAlerted.instance().setParams(this, var3.set((float)var1 + 0.5F - this.x, (float)var2 + 0.5F - this.y).getDirection());
+      ZombieTurnAlerted.instance().setParams(this, var3.set((float)var1 + 0.5F - this.getX(), (float)var2 + 0.5F - this.getY()).getDirection());
       this.alerted = true;
       this.networkAI.extraUpdate();
+   }
+
+   public boolean getAttackDidDamage() {
+      return this.m_bAttackDidDamage;
+   }
+
+   public void setAttackDidDamage(boolean var1) {
+      this.m_bAttackDidDamage = var1;
+   }
+
+   public String getAttackOutcome() {
+      return this.m_attackOutcome;
+   }
+
+   public void setAttackOutcome(String var1) {
+      this.m_attackOutcome = var1;
+   }
+
+   public void setReanimatedForGrappleOnly(boolean var1) {
+      this.m_reanimatedForGrappleOnly = var1;
+   }
+
+   public boolean isReanimatedForGrappleOnly() {
+      return this.m_reanimatedForGrappleOnly;
    }
 
    public void clearAggroList() {
@@ -1380,7 +1609,55 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
    }
 
-   public void spotted(IsoMovingObject var1, boolean var2) {
+   private Float closeSneakBonusCoeff(IsoGridSquare var1, IsoDirections var2) {
+      if (var1 == null) {
+         return null;
+      } else {
+         PZArrayList var3 = var1.getObjects();
+         float var4 = 0.0F;
+
+         for(int var5 = 0; var5 < var3.size(); ++var5) {
+            IsoSprite var6 = ((IsoObject)var3.get(var5)).getSprite();
+            if (var6 != null && var6.getName() != null && temporaryMapCloseSneakBonusDir.containsKey(var6.getName()) && temporaryMapCloseSneakBonusValue.containsKey(var6.getName())) {
+               try {
+                  if (var2.equals(IsoDirections.N) && ((String)temporaryMapCloseSneakBonusDir.get(var6.getName())).contains("N")) {
+                     return (Float)temporaryMapCloseSneakBonusValue.get(var6.getName()) / 100.0F;
+                  }
+
+                  if (var2.equals(IsoDirections.S) && ((String)temporaryMapCloseSneakBonusDir.get(var6.getName())).contains("S")) {
+                     return (Float)temporaryMapCloseSneakBonusValue.get(var6.getName()) / 100.0F;
+                  }
+
+                  if (var2.equals(IsoDirections.W) && ((String)temporaryMapCloseSneakBonusDir.get(var6.getName())).contains("W")) {
+                     return (Float)temporaryMapCloseSneakBonusValue.get(var6.getName()) / 100.0F;
+                  }
+
+                  if (var2.equals(IsoDirections.E) && ((String)temporaryMapCloseSneakBonusDir.get(var6.getName())).contains("E")) {
+                     return (Float)temporaryMapCloseSneakBonusValue.get(var6.getName()) / 100.0F;
+                  }
+               } catch (Exception var8) {
+                  DebugLog.General.println("Problem with tile property CloseSneakBonus" + var6.getName());
+               }
+            }
+         }
+
+         return null;
+      }
+   }
+
+   private float getObstacleMod(IsoGridSquare var1, IsoDirections var2) {
+      Float var3 = this.closeSneakBonusCoeff(var1, var2);
+      if (var3 != null) {
+         return 1.0F - var3;
+      } else {
+         IsoGridSquare var4 = var1.nav[var2.index()];
+         IsoDirections var5 = var2.equals(IsoDirections.S) ? IsoDirections.N : (var2.equals(IsoDirections.E) ? IsoDirections.W : var2);
+         Float var6 = this.closeSneakBonusCoeff(var4, var5);
+         return var6 != null ? 1.0F - var6 : 1.0F;
+      }
+   }
+
+   public void spottedNew(IsoMovingObject var1, boolean var2) {
       Vector2 var10000;
       if (GameClient.bClient && this.isRemoteZombie()) {
          if (this.getTarget() != null) {
@@ -1390,303 +1667,268 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             var10000.x -= this.getX();
             var10000 = this.vectorToTarget;
             var10000.y -= this.getY();
+            if (this.isCurrentState(LungeNetworkState.instance())) {
+               Vector2 var24 = new Vector2();
+               var24.x = this.vectorToTarget.x;
+               var24.y = this.vectorToTarget.y;
+               var24.normalize();
+               this.DirectionFromVector(var24);
+               this.getVectorFromDirection(this.getForwardDirection());
+               this.setForwardDirection(var24);
+            }
          }
 
       } else if (this.getCurrentSquare() != null) {
          if (var1.getCurrentSquare() != null) {
-            if (!this.getCurrentSquare().getProperties().Is(IsoFlagType.smoke) && !this.isUseless()) {
-               if (!(var1 instanceof IsoPlayer) || !((IsoPlayer)var1).isGhostMode()) {
-                  IsoGameCharacter var3 = (IsoGameCharacter)Type.tryCastTo(var1, IsoGameCharacter.class);
-                  if (var3 != null && !var3.isDead()) {
-                     if (this.getCurrentSquare() == null) {
-                        this.ensureOnTile();
-                     }
+            if (GameClient.bClient && !GameClient.connection.isReady()) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else if (this.isReanimatedForGrappleOnly()) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else if (this.isUseless()) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else if (this.getCurrentSquare().getProperties().Is(IsoFlagType.smoke)) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else {
+               IsoGameCharacter var3 = (IsoGameCharacter)Type.tryCastTo(var1, IsoGameCharacter.class);
+               if (var3 != null && !var3.isDead()) {
+                  IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+                  if (var4 == null || !var4.isGhostMode()) {
+                     if (!GameClient.bClient && !GameServer.bServer || var4 == null || !var4.networkAI.isDisconnected()) {
+                        if (this.getCurrentSquare() == null) {
+                           this.ensureOnTile();
+                        }
 
-                     if (var1.getCurrentSquare() == null) {
-                        var1.ensureOnTile();
-                     }
+                        if (var1.getCurrentSquare() == null) {
+                           var1.ensureOnTile();
+                        }
 
-                     float var4 = 200.0F;
-                     int var5 = var1 instanceof IsoPlayer && !GameServer.bServer ? ((IsoPlayer)var1).PlayerIndex : 0;
-                     float var6 = (var1.getCurrentSquare().lighting[var5].lightInfo().r + var1.getCurrentSquare().lighting[var5].lightInfo().g + var1.getCurrentSquare().lighting[var5].lightInfo().b) / 3.0F;
-                     float var7 = RenderSettings.getInstance().getAmbientForPlayer(var5);
-                     float var8 = (this.getCurrentSquare().lighting[var5].lightInfo().r + this.getCurrentSquare().lighting[var5].lightInfo().g + this.getCurrentSquare().lighting[var5].lightInfo().b) / 3.0F;
-                     var8 = var8 * var8 * var8;
-                     if (var6 > 1.0F) {
-                        var6 = 1.0F;
-                     }
+                        float var5 = 100.0F;
+                        int var6 = var4 != null && !GameServer.bServer ? var4.PlayerIndex : 0;
+                        float var7 = (var1.getCurrentSquare().lighting[var6].lightInfo().r + var1.getCurrentSquare().lighting[var6].lightInfo().g + var1.getCurrentSquare().lighting[var6].lightInfo().b) / 3.0F;
+                        var7 = Math.max(0.0F, Math.min(1.0F, var7));
+                        var5 *= var7;
+                        if (var1.getCurrentSquare().getZ() != this.current.getZ()) {
+                           int var9 = Math.abs(var1.getCurrentSquare().getZ() - this.current.getZ()) * 5 + 1;
+                           var5 /= (float)var9;
+                        }
 
-                     if (var6 < 0.0F) {
-                        var6 = 0.0F;
-                     }
+                        Vector2 var25 = IsoGameCharacter.tempo;
+                        var25.x = var1.getX();
+                        var25.y = var1.getY();
+                        var25.x -= this.getX();
+                        var25.y -= this.getY();
+                        float var10 = GameTime.getInstance().getViewDist();
+                        if (!(var25.getLength() > var10)) {
+                           if (GameServer.bServer) {
+                              this.bIndoorZombie = false;
+                           }
 
-                     if (var8 > 1.0F) {
-                        var8 = 1.0F;
-                     }
+                           if (var25.getLength() < var10) {
+                              var10 = var25.getLength();
+                           }
 
-                     if (var8 < 0.0F) {
-                        var8 = 0.0F;
-                     }
+                           var10 *= 1.1F;
+                           if (var10 > GameTime.getInstance().getViewDistMax()) {
+                              var10 = GameTime.getInstance().getViewDistMax();
+                           }
 
-                     float var9 = 1.0F - (var6 - var8);
-                     if (var6 < 0.2F) {
-                        var6 = 0.2F;
-                     }
+                           var25.normalize();
+                           Vector2 var11 = this.getLookVector(tempo2);
+                           float var12 = var11.dot(var25);
+                           this.updateVisionRadius();
+                           if (this.DistTo(var1) > this.VISION_RADIUS_RESULT) {
+                              var5 = 0.0F;
+                           }
 
-                     if (var7 < 0.2F) {
-                        var7 = 0.2F;
-                     }
-
-                     if (var1.getCurrentSquare().getRoom() != this.getCurrentSquare().getRoom()) {
-                        var4 = 50.0F;
-                        if (var1.getCurrentSquare().getRoom() != null && this.getCurrentSquare().getRoom() == null || var1.getCurrentSquare().getRoom() == null && this.getCurrentSquare().getRoom() != null) {
-                           var4 = 20.0F;
-                           if (!var3.isAiming() && !var3.isSneaking()) {
-                              if (var1.getMovementLastFrame().getLength() <= 0.04F && var6 < 0.4F) {
-                                 var4 = 10.0F;
+                           if ((double)var10 > 0.5) {
+                              if (var12 < -0.4F) {
+                                 var5 = 0.0F;
+                              } else if (var12 < -0.2F) {
+                                 var5 /= 8.0F;
+                              } else if (var12 < -0.0F) {
+                                 var5 /= 4.0F;
+                              } else if (var12 < 0.2F) {
+                                 var5 /= 2.0F;
+                              } else if (var12 <= 0.4F) {
+                                 var5 *= 2.0F;
+                              } else if (var12 <= 0.6F) {
+                                 var5 *= 8.0F;
+                              } else if (var12 <= 0.8F) {
+                                 var5 *= 16.0F;
+                              } else {
+                                 var5 *= 32.0F;
                               }
-                           } else if (var6 < 0.4F) {
-                              var4 = 0.0F;
-                           } else {
-                              var4 = 10.0F;
-                           }
-                        }
-                     }
-
-                     tempo.x = var1.getX();
-                     tempo.y = var1.getY();
-                     var10000 = tempo;
-                     var10000.x -= this.getX();
-                     var10000 = tempo;
-                     var10000.y -= this.getY();
-                     if (var1.getCurrentSquare().getZ() != this.current.getZ()) {
-                        int var10 = Math.abs(var1.getCurrentSquare().getZ() - this.current.getZ()) * 5;
-                        ++var10;
-                        var4 /= (float)var10;
-                     }
-
-                     float var23 = GameTime.getInstance().getViewDist();
-                     if (!(tempo.getLength() > var23)) {
-                        if (GameServer.bServer) {
-                           this.bIndoorZombie = false;
-                        }
-
-                        if (tempo.getLength() < var23) {
-                           var23 = tempo.getLength();
-                        }
-
-                        var23 *= 1.1F;
-                        if (var23 > GameTime.getInstance().getViewDistMax()) {
-                           var23 = GameTime.getInstance().getViewDistMax();
-                        }
-
-                        tempo.normalize();
-                        Vector2 var11 = this.getLookVector(tempo2);
-                        float var12 = var11.dot(tempo);
-                        if (this.DistTo(var1) > 20.0F) {
-                           var4 -= 10000.0F;
-                        }
-
-                        if ((double)var23 > 0.5) {
-                           if (var12 < -0.4F) {
-                              var4 = 0.0F;
-                           } else if (var12 < -0.2F) {
-                              var4 /= 8.0F;
-                           } else if (var12 < -0.0F) {
-                              var4 /= 4.0F;
-                           } else if (var12 < 0.2F) {
-                              var4 /= 2.0F;
-                           } else if (var12 <= 0.4F) {
-                              var4 *= 2.0F;
-                           } else if (var12 > 0.4F) {
-                              var4 *= 8.0F;
-                           } else if (var12 > 0.6F) {
-                              var4 *= 16.0F;
-                           } else if (var12 > 0.8F) {
-                              var4 *= 32.0F;
-                           }
-                        }
-
-                        if (var4 > 0.0F && this.target instanceof IsoPlayer) {
-                           IsoPlayer var13 = (IsoPlayer)this.target;
-                           if (!GameServer.bServer && var13.RemoteID == -1 && this.current.isCanSee(var13.PlayerIndex)) {
-                              ((IsoPlayer)this.target).targetedByZombie = true;
-                              ((IsoPlayer)this.target).lastTargeted = 0.0F;
-                           }
-                        }
-
-                        var4 *= var9;
-                        int var24 = (int)var1.getZ() - (int)this.getZ();
-                        if (var24 >= 1) {
-                           var4 /= (float)(var24 * 3);
-                        }
-
-                        float var14 = PZMath.clamp(var23 / GameTime.getInstance().getViewDist(), 0.0F, 1.0F);
-                        var4 *= 1.0F - var14;
-                        var4 *= 1.0F - var14;
-                        var4 *= 1.0F - var14;
-                        float var15 = PZMath.clamp(var23 / 10.0F, 0.0F, 1.0F);
-                        var4 *= 1.0F + (1.0F - var15) * 10.0F;
-                        float var16 = var1.getMovementLastFrame().getLength();
-                        if (var16 == 0.0F && var6 <= 0.2F) {
-                           var6 = 0.0F;
-                        }
-
-                        if (var3 != null) {
-                           if (var3.getTorchStrength() > 0.0F) {
-                              var4 *= 3.0F;
                            }
 
-                           if (var16 < 0.01F) {
-                              var4 *= 0.5F;
-                           } else if (var3.isSneaking()) {
-                              var4 *= 0.4F;
-                           } else if (var3.isAiming()) {
-                              var4 *= 0.75F;
-                           } else if (var16 < 0.06F) {
-                              var4 *= 0.8F;
-                           } else if (var16 >= 0.06F) {
-                              var4 *= 2.4F;
+                           if (var5 > 0.0F) {
+                              IsoPlayer var13 = (IsoPlayer)Type.tryCastTo(this.target, IsoPlayer.class);
+                              if (var13 != null && !GameServer.bServer && var13.RemoteID == -1 && this.current.isCanSee(var13.PlayerIndex)) {
+                                 var13.targetedByZombie = true;
+                                 var13.lastTargeted = 0.0F;
+                              }
                            }
 
-                           if (this.eatBodyTarget != null) {
-                              var4 *= 0.6F;
+                           float var26 = var1.getMovementLastFrame().getLength();
+                           float var14 = 0.8F;
+                           if (var26 == 0.5F) {
+                              var14 = 1.0F;
+                           } else if (var26 == 1.0F) {
+                              var14 = 1.5F;
+                           } else if (var26 == 1.5F) {
+                              var14 = 2.0F;
                            }
 
-                           if (var23 < 5.0F && (!var3.isRunning() && !var3.isSneaking() && !var3.isAiming() || var3.isRunning())) {
-                              var4 *= 3.0F;
+                           var5 *= var14;
+                           if (var10 < 5.0F && (!var3.isRunning() && !var3.isSneaking() && !var3.isAiming() || var3.isRunning())) {
+                              var5 *= 3.0F;
                            }
 
+                           float var15 = var3.getSneakSpotMod();
+                           if (var4 != null && !var4.isSneaking()) {
+                              var15 = 1.0F;
+                           }
+
+                           var5 *= var15;
                            if (this.spottedLast == var1 && this.TimeSinceSeenFlesh < 120.0F) {
-                              var4 = 1000.0F;
                            }
 
-                           var4 *= var3.getSneakSpotMod();
-                           var4 *= var7;
+                           float var16;
+                           float var17;
                            if (this.target != var1 && this.target != null) {
-                              float var17 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), var1.getX(), var1.getY());
-                              float var18 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), this.target.getX(), this.target.getY());
-                              if (var17 > var18) {
+                              var16 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), var1.getX(), var1.getY());
+                              var17 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), this.target.getX(), this.target.getY());
+                              if (var16 > var17) {
                                  return;
                               }
                            }
 
-                           var4 *= 0.3F;
                            if (var2) {
-                              var4 = 1000000.0F;
+                              var5 = 1000000.0F;
                            }
 
                            if (this.BonusSpotTime > 0.0F) {
-                              var4 = 1000000.0F;
+                              var5 *= 5.0F;
                            }
 
-                           var4 *= 1.2F;
                            if (this.sight == 1) {
-                              var4 *= 2.5F;
+                              var5 *= 2.5F;
                            }
 
                            if (this.sight == 3) {
-                              var4 *= 0.45F;
+                              var5 *= 0.45F;
                            }
 
                            if (this.inactive) {
-                              var4 *= 0.25F;
+                              var5 *= 0.25F;
                            }
 
-                           var4 *= 0.25F;
-                           if (var1 instanceof IsoPlayer && ((IsoPlayer)var1).Traits.Inconspicuous.isSet()) {
-                              var4 *= 0.5F;
+                           var16 = 1.0F;
+                           if (var4 != null && var4.Traits.Inconspicuous.isSet()) {
+                              var16 = 0.8F;
                            }
 
-                           if (var1 instanceof IsoPlayer && ((IsoPlayer)var1).Traits.Conspicuous.isSet()) {
-                              var4 *= 2.0F;
+                           if (var4 != null && var4.Traits.Conspicuous.isSet()) {
+                              var16 = 1.2F;
                            }
 
-                           var4 *= 1.6F;
-                           IsoGridSquare var25 = null;
-                           IsoGridSquare var26 = null;
-                           float var21;
-                           if (this.getCurrentSquare() != var1.getCurrentSquare() && var1 instanceof IsoPlayer && ((IsoPlayer)var1).isSneaking()) {
-                              int var19 = Math.abs(this.getCurrentSquare().getX() - var1.getCurrentSquare().getX());
-                              int var20 = Math.abs(this.getCurrentSquare().getY() - var1.getCurrentSquare().getY());
-                              if (var19 > var20) {
+                           var5 *= var16;
+                           var17 = 1.0F;
+                           int var19;
+                           if (this.getCurrentSquare() != var1.getCurrentSquare() && var4 != null && var4.isSneaking()) {
+                              int var18 = Math.abs(this.getCurrentSquare().getX() - var1.getCurrentSquare().getX());
+                              var19 = Math.abs(this.getCurrentSquare().getY() - var1.getCurrentSquare().getY());
+                              if (var18 > var19) {
                                  if (this.getCurrentSquare().getX() - var1.getCurrentSquare().getX() > 0) {
-                                    var25 = var1.getCurrentSquare().nav[IsoDirections.E.index()];
+                                    var17 = this.getObstacleMod(var1.getCurrentSquare(), IsoDirections.E);
                                  } else {
-                                    var25 = var1.getCurrentSquare();
-                                    var26 = var1.getCurrentSquare().nav[IsoDirections.W.index()];
+                                    var17 = this.getObstacleMod(var1.getCurrentSquare(), IsoDirections.W);
                                  }
                               } else if (this.getCurrentSquare().getY() - var1.getCurrentSquare().getY() > 0) {
-                                 var25 = var1.getCurrentSquare().nav[IsoDirections.S.index()];
+                                 var17 = this.getObstacleMod(var1.getCurrentSquare(), IsoDirections.S);
                               } else {
-                                 var25 = var1.getCurrentSquare();
-                                 var26 = var1.getCurrentSquare().nav[IsoDirections.N.index()];
-                              }
-
-                              if (var25 != null && var1 instanceof IsoGameCharacter) {
-                                 var21 = ((IsoGameCharacter)var1).checkIsNearWall();
-                                 if (var21 == 1.0F && var26 != null) {
-                                    var21 = var26.getGridSneakModifier(true);
-                                 }
-
-                                 if (var21 > 1.0F) {
-                                    float var22 = var1.DistTo(var25.x, var25.y);
-                                    if (var22 > 1.0F) {
-                                       var21 /= var22;
-                                    }
-
-                                    var4 /= var21;
-                                 }
+                                 var17 = this.getObstacleMod(var1.getCurrentSquare(), IsoDirections.N);
                               }
                            }
 
-                           var4 = (float)Math.floor((double)var4);
+                           var5 *= var17;
                            boolean var27 = false;
-                           var4 = Math.min(var4, 400.0F);
-                           var4 /= 400.0F;
-                           var4 = Math.max(0.0F, var4);
-                           var4 = Math.min(1.0F, var4);
-                           float var28 = GameTime.instance.getMultiplier();
-                           var4 = (float)(1.0 - Math.pow((double)(1.0F - var4), (double)var28));
-                           var4 *= 100.0F;
-                           if ((float)Rand.Next(10000) / 100.0F < var4) {
-                              var27 = true;
+
+                           for(var19 = 0; var19 < IsoWorld.instance.CurrentCell.getVehicles().size(); ++var19) {
+                              BaseVehicle var20 = (BaseVehicle)IsoWorld.instance.CurrentCell.getVehicles().get(var19);
+                              Vector3 var21 = var20.getIntersectPoint(new Vector3(var3.getX(), var3.getY(), var3.getZ() + 0.1F), new Vector3(this.getX(), this.getY(), this.getZ() + 0.1F));
+                              if (var21 != null) {
+                                 var27 = true;
+                              }
+                           }
+
+                           var25.x = var1.getX();
+                           var25.y = var1.getY();
+                           var25.x -= this.getX();
+                           var25.y -= this.getY();
+                           float var28 = var27 && var4.getVehicle() == null ? (var25.getLength() < 1.5F ? 0.5F : 0.0F) : 1.0F;
+                           var5 *= var28;
+                           var5 /= this.getWornItemsVisionModifier();
+                           if (this.getEatBodyTarget() != null && var5 > 0.0F) {
+                              var5 = (float)((double)var5 * 0.5);
+                           }
+
+                           var5 = (float)PZMath.fastfloor(var5);
+                           boolean var29 = false;
+                           var5 = Math.min(var5, 400.0F);
+                           var5 /= 400.0F;
+                           var5 = Math.max(0.0F, var5);
+                           var5 = Math.min(1.0F, var5);
+                           float var30 = GameTime.instance.getMultiplier();
+                           var5 = (float)(1.0 - Math.pow((double)(1.0F - var5), (double)var30));
+                           var5 *= 100.0F;
+                           if ((float)Rand.Next(10000) / 100.0F < var5) {
+                              var29 = true;
                            }
 
                            if (!GameClient.bClient && !GameServer.bServer || NetworkZombieManager.canSpotted(this) || var1 == this.target) {
-                              if (!var27) {
-                                 if (var4 > 20.0F && var1 instanceof IsoPlayer && var23 < 15.0F) {
-                                    ((IsoPlayer)var1).bCouldBeSeenThisFrame = true;
+                              if (!var29) {
+                                 if (var5 > 20.0F && var4 != null && var10 < 15.0F) {
+                                    var4.bCouldBeSeenThisFrame = true;
                                  }
 
-                                 if (!((IsoPlayer)var1).isbCouldBeSeenThisFrame() && !((IsoPlayer)var1).isbSeenThisFrame() && ((IsoPlayer)var1).isSneaking() && ((IsoPlayer)var1).isJustMoved() && Rand.Next((int)(1100.0F * GameTime.instance.getInvMultiplier())) == 0) {
+                                 boolean var31 = var4 != null && !var4.isbCouldBeSeenThisFrame() && !var4.isbSeenThisFrame() && var4.isSneaking() && var4.isJustMoved();
+                                 float var32 = 1100.0F;
+                                 if (GameServer.bDebug) {
+                                    var32 = 100.0F;
+                                 }
+
+                                 if (var31 && Rand.Next((int)(var32 * GameTime.instance.getInvMultiplier())) == 0) {
                                     if (GameServer.bServer) {
-                                       GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.Sneak, 1);
-                                    } else {
-                                       ((IsoPlayer)var1).getXp().AddXP(PerkFactory.Perks.Sneak, 1.0F);
+                                       GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.Sneak, 1.0F);
+                                    } else if (!GameClient.bClient) {
+                                       var4.getXp().AddXP(PerkFactory.Perks.Sneak, 1.0F);
                                     }
                                  }
 
-                                 if (!((IsoPlayer)var1).isbCouldBeSeenThisFrame() && !((IsoPlayer)var1).isbSeenThisFrame() && ((IsoPlayer)var1).isSneaking() && ((IsoPlayer)var1).isJustMoved() && Rand.Next((int)(1100.0F * GameTime.instance.getInvMultiplier())) == 0) {
+                                 if (var31 && Rand.Next((int)(var32 * GameTime.instance.getInvMultiplier())) == 0) {
                                     if (GameServer.bServer) {
-                                       GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.Lightfoot, 1);
-                                    } else {
-                                       ((IsoPlayer)var1).getXp().AddXP(PerkFactory.Perks.Lightfoot, 1.0F);
+                                       GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.Lightfoot, 1.0F);
+                                    } else if (!GameClient.bClient) {
+                                       var4.getXp().AddXP(PerkFactory.Perks.Lightfoot, 1.0F);
                                     }
                                  }
 
                               } else {
-                                 if (var1 instanceof IsoPlayer) {
-                                    ((IsoPlayer)var1).setbSeenThisFrame(true);
+                                 if (var4 != null) {
+                                    var4.setbSeenThisFrame(true);
                                  }
 
                                  if (!var2) {
-                                    this.BonusSpotTime = 120.0F;
+                                    this.BonusSpotTime = 720.0F;
                                  }
 
-                                 this.LastTargetSeenX = (int)var1.getX();
-                                 this.LastTargetSeenY = (int)var1.getY();
-                                 this.LastTargetSeenZ = (int)var1.getZ();
+                                 this.LastTargetSeenX = PZMath.fastfloor(var1.getX());
+                                 this.LastTargetSeenY = PZMath.fastfloor(var1.getY());
+                                 this.LastTargetSeenZ = PZMath.fastfloor(var1.getZ());
                                  if (this.stateMachine.getCurrent() != StaggerBackState.instance()) {
                                     if (this.target != var1) {
                                        this.targetSeenTime = 0.0F;
@@ -1702,7 +1944,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                                     var10000.x -= this.getX();
                                     var10000 = this.vectorToTarget;
                                     var10000.y -= this.getY();
-                                    var21 = this.vectorToTarget.getLength();
+                                    float var22 = this.vectorToTarget.getLength();
                                     if (!var2) {
                                        this.TimeSinceSeenFlesh = 0.0F;
                                        this.targetSeenTime += GameTime.getInstance().getRealworldSecondsSinceLastUpdate();
@@ -1710,7 +1952,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
                                     if (this.target != this.spottedLast || this.getCurrentState() != LungeState.instance() || !(this.LungeTimer > 0.0F)) {
                                        if (this.target != this.spottedLast || this.getCurrentState() != AttackVehicleState.instance()) {
-                                          if ((int)this.getZ() == (int)this.target.getZ() && (var21 <= 3.5F || this.target instanceof IsoGameCharacter && ((IsoGameCharacter)this.target).getVehicle() != null && var21 <= 4.0F) && this.getStateEventDelayTimer() <= 0.0F && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1.x, var1.y, (int)this.getZ(), var1)) {
+                                          if (PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(this.target.getZ()) && (var22 <= 3.5F || this.target instanceof IsoGameCharacter && ((IsoGameCharacter)this.target).getVehicle() != null && var22 <= 4.0F) && this.getStateEventDelayTimer() <= 0.0F && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1.getX(), var1.getY(), PZMath.fastfloor(this.getZ()), var1)) {
                                              this.setTarget(var1);
                                              if (this.getCurrentState() == LungeState.instance()) {
                                                 return;
@@ -1733,8 +1975,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                                                    return;
                                                 }
 
-                                                BaseVehicle var29 = ((IsoGameCharacter)this.target).getVehicle();
-                                                if (Math.abs(var29.getCurrentSpeedKmHour()) > 0.8F && this.DistToSquared(var29) <= 16.0F) {
+                                                BaseVehicle var23 = ((IsoGameCharacter)this.target).getVehicle();
+                                                if (Math.abs(var23.getCurrentSpeedKmHour()) > 0.8F && this.DistToSquared(var23) <= 16.0F) {
                                                    return;
                                                 }
 
@@ -1760,18 +2002,444 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                      }
                   }
                }
-            } else {
-               this.setTarget((IsoMovingObject)null);
-               this.spottedLast = null;
             }
          }
       }
    }
 
+   public void spottedOld(IsoMovingObject var1, boolean var2) {
+      Vector2 var10000;
+      if (GameClient.bClient && this.isRemoteZombie()) {
+         if (this.getTarget() != null) {
+            this.vectorToTarget.x = this.getTarget().getX();
+            this.vectorToTarget.y = this.getTarget().getY();
+            var10000 = this.vectorToTarget;
+            var10000.x -= this.getX();
+            var10000 = this.vectorToTarget;
+            var10000.y -= this.getY();
+            if (this.isCurrentState(LungeNetworkState.instance())) {
+               Vector2 var25 = new Vector2();
+               var25.x = this.vectorToTarget.x;
+               var25.y = this.vectorToTarget.y;
+               var25.normalize();
+               this.DirectionFromVector(var25);
+               this.getVectorFromDirection(this.getForwardDirection());
+               this.setForwardDirection(var25);
+            }
+         }
+
+      } else if (this.getCurrentSquare() != null) {
+         if (var1.getCurrentSquare() != null) {
+            if (GameClient.bClient && !GameClient.connection.isReady()) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else if (this.isReanimatedForGrappleOnly()) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else if (this.isUseless()) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else if (this.getCurrentSquare().getProperties().Is(IsoFlagType.smoke)) {
+               this.setTarget((IsoMovingObject)null);
+               this.spottedLast = null;
+            } else {
+               IsoGameCharacter var3 = (IsoGameCharacter)Type.tryCastTo(var1, IsoGameCharacter.class);
+               if (var3 != null && !var3.isDead()) {
+                  IsoPlayer var4 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+                  if (var4 == null || !var4.isGhostMode()) {
+                     if (!GameClient.bClient && !GameServer.bServer || var4 == null || !var4.networkAI.isDisconnected()) {
+                        if (this.getCurrentSquare() == null) {
+                           this.ensureOnTile();
+                        }
+
+                        if (var1.getCurrentSquare() == null) {
+                           var1.ensureOnTile();
+                        }
+
+                        float var5 = 200.0F;
+                        int var6 = var4 != null && !GameServer.bServer ? var4.PlayerIndex : 0;
+                        float var7 = (var1.getCurrentSquare().lighting[var6].lightInfo().r + var1.getCurrentSquare().lighting[var6].lightInfo().g + var1.getCurrentSquare().lighting[var6].lightInfo().b) / 3.0F;
+                        float var8 = RenderSettings.getInstance().getAmbientForPlayer(var6);
+                        float var9 = (this.getCurrentSquare().lighting[var6].lightInfo().r + this.getCurrentSquare().lighting[var6].lightInfo().g + this.getCurrentSquare().lighting[var6].lightInfo().b) / 3.0F;
+                        var9 = var9 * var9 * var9;
+                        if (var7 > 1.0F) {
+                           var7 = 1.0F;
+                        }
+
+                        if (var7 < 0.0F) {
+                           var7 = 0.0F;
+                        }
+
+                        if (var9 > 1.0F) {
+                           var9 = 1.0F;
+                        }
+
+                        if (var9 < 0.0F) {
+                           var9 = 0.0F;
+                        }
+
+                        float var10 = 1.0F - (var7 - var9);
+                        if (var7 < 0.2F) {
+                           var7 = 0.2F;
+                        }
+
+                        if (var8 < 0.2F) {
+                           var8 = 0.2F;
+                        }
+
+                        if (var1.getCurrentSquare().getRoom() != this.getCurrentSquare().getRoom()) {
+                           var5 = 50.0F;
+                           if (var1.getCurrentSquare().getRoom() != null && this.getCurrentSquare().getRoom() == null || var1.getCurrentSquare().getRoom() == null && this.getCurrentSquare().getRoom() != null) {
+                              var5 = 20.0F;
+                              if (!var3.isAiming() && !var3.isSneaking()) {
+                                 if (var1.getMovementLastFrame().getLength() <= 0.04F && var7 < 0.4F) {
+                                    var5 = 10.0F;
+                                 }
+                              } else if (var7 < 0.4F) {
+                                 var5 = 0.0F;
+                              } else {
+                                 var5 = 10.0F;
+                              }
+                           }
+                        }
+
+                        Vector2 var11 = IsoGameCharacter.tempo;
+                        var11.x = var1.getX();
+                        var11.y = var1.getY();
+                        var11.x -= this.getX();
+                        var11.y -= this.getY();
+                        if (var1.getCurrentSquare().getZ() != this.current.getZ()) {
+                           int var12 = Math.abs(var1.getCurrentSquare().getZ() - this.current.getZ()) * 5;
+                           ++var12;
+                           var5 /= (float)var12;
+                        }
+
+                        float var26 = GameTime.getInstance().getViewDist();
+                        if (!(var11.getLength() > var26)) {
+                           if (GameServer.bServer) {
+                              this.bIndoorZombie = false;
+                           }
+
+                           if (var11.getLength() < var26) {
+                              var26 = var11.getLength();
+                           }
+
+                           var26 *= 1.1F;
+                           if (var26 > GameTime.getInstance().getViewDistMax()) {
+                              var26 = GameTime.getInstance().getViewDistMax();
+                           }
+
+                           var11.normalize();
+                           Vector2 var13 = this.getLookVector(tempo2);
+                           float var14 = var13.dot(var11);
+                           this.updateVisionRadius();
+                           if (this.DistTo(var1) > this.VISION_RADIUS_RESULT) {
+                              var5 -= 10000.0F;
+                           }
+
+                           if ((double)var26 > 0.5) {
+                              if (var14 < -0.4F) {
+                                 var5 = 0.0F;
+                              } else if (var14 < -0.2F) {
+                                 var5 /= 8.0F;
+                              } else if (var14 < -0.0F) {
+                                 var5 /= 4.0F;
+                              } else if (var14 < 0.2F) {
+                                 var5 /= 2.0F;
+                              } else if (var14 <= 0.4F) {
+                                 var5 *= 2.0F;
+                              } else if (var14 <= 0.6F) {
+                                 var5 *= 8.0F;
+                              } else if (var14 <= 0.8F) {
+                                 var5 *= 16.0F;
+                              } else {
+                                 var5 *= 32.0F;
+                              }
+                           }
+
+                           if (var5 > 0.0F) {
+                              IsoPlayer var15 = (IsoPlayer)Type.tryCastTo(this.target, IsoPlayer.class);
+                              if (var15 != null && !GameServer.bServer && var15.RemoteID == -1 && this.current.isCanSee(var15.PlayerIndex)) {
+                                 var15.targetedByZombie = true;
+                                 var15.lastTargeted = 0.0F;
+                              }
+                           }
+
+                           var5 *= var10;
+                           int var27 = PZMath.fastfloor(var1.getZ()) - PZMath.fastfloor(this.getZ());
+                           if (var27 >= 1) {
+                              var5 /= (float)(var27 * 3);
+                           }
+
+                           float var16 = PZMath.clamp(var26 / GameTime.getInstance().getViewDist(), 0.0F, 1.0F);
+                           var5 *= 1.0F - var16;
+                           var5 *= 1.0F - var16;
+                           var5 *= 1.0F - var16;
+                           float var17 = PZMath.clamp(var26 / 10.0F, 0.0F, 1.0F);
+                           var5 *= 1.0F + (1.0F - var17) * 10.0F;
+                           float var18 = var1.getMovementLastFrame().getLength();
+                           if (var18 == 0.0F && var7 <= 0.2F) {
+                              var7 = 0.0F;
+                           }
+
+                           if (var3 != null) {
+                              if (var3.getTorchStrength() > 0.0F) {
+                                 var5 *= 3.0F;
+                              }
+
+                              if (var18 < 0.01F) {
+                                 var5 *= 0.5F;
+                              } else if (var3.isSneaking()) {
+                                 var5 *= 0.4F;
+                              } else if (var3.isAiming()) {
+                                 var5 *= 0.75F;
+                              } else if (var18 < 0.06F) {
+                                 var5 *= 0.8F;
+                              } else if (var18 >= 0.06F) {
+                                 var5 *= 2.4F;
+                              }
+
+                              if (this.eatBodyTarget != null) {
+                                 var5 *= 0.6F;
+                              }
+
+                              if (var26 < 5.0F && (!var3.isRunning() && !var3.isSneaking() && !var3.isAiming() || var3.isRunning())) {
+                                 var5 *= 3.0F;
+                              }
+
+                              if (this.spottedLast == var1 && this.TimeSinceSeenFlesh < 120.0F) {
+                                 var5 = 1000.0F;
+                              }
+
+                              var5 *= var3.getSneakSpotMod();
+                              var5 *= var8;
+                              float var20;
+                              if (this.target != var1 && this.target != null) {
+                                 float var19 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), var1.getX(), var1.getY());
+                                 var20 = IsoUtils.DistanceManhatten(this.getX(), this.getY(), this.target.getX(), this.target.getY());
+                                 if (var19 > var20) {
+                                    return;
+                                 }
+                              }
+
+                              var5 *= 0.3F;
+                              if (var2) {
+                                 var5 = 1000000.0F;
+                              }
+
+                              if (this.BonusSpotTime > 0.0F) {
+                                 var5 = 1000000.0F;
+                              }
+
+                              var5 *= 1.2F;
+                              if (this.sight == 1) {
+                                 var5 *= 2.5F;
+                              }
+
+                              if (this.sight == 3) {
+                                 var5 *= 0.45F;
+                              }
+
+                              if (this.inactive) {
+                                 var5 *= 0.25F;
+                              }
+
+                              var5 *= 0.25F;
+                              if (var4 != null && var4.Traits.Inconspicuous.isSet()) {
+                                 var5 *= 0.5F;
+                              }
+
+                              if (var4 != null && var4.Traits.Conspicuous.isSet()) {
+                                 var5 *= 2.0F;
+                              }
+
+                              var5 *= 1.6F;
+                              if (this.getCurrentSquare() != var1.getCurrentSquare() && var4 != null && var4.isSneaking()) {
+                                 IsoGridSquare var28 = null;
+                                 IsoGridSquare var29 = null;
+                                 int var21 = Math.abs(this.getCurrentSquare().getX() - var1.getCurrentSquare().getX());
+                                 int var22 = Math.abs(this.getCurrentSquare().getY() - var1.getCurrentSquare().getY());
+                                 if (var21 > var22) {
+                                    if (this.getCurrentSquare().getX() - var1.getCurrentSquare().getX() > 0) {
+                                       var28 = var1.getCurrentSquare().nav[IsoDirections.E.index()];
+                                    } else {
+                                       var28 = var1.getCurrentSquare();
+                                       var29 = var1.getCurrentSquare().nav[IsoDirections.W.index()];
+                                    }
+                                 } else if (this.getCurrentSquare().getY() - var1.getCurrentSquare().getY() > 0) {
+                                    var28 = var1.getCurrentSquare().nav[IsoDirections.S.index()];
+                                 } else {
+                                    var28 = var1.getCurrentSquare();
+                                    var29 = var1.getCurrentSquare().nav[IsoDirections.N.index()];
+                                 }
+
+                                 if (var28 != null && var3 != null) {
+                                    float var23 = var3.checkIsNearWall();
+                                    if (var23 == 1.0F && var29 != null) {
+                                       var23 = var29.getGridSneakModifier(true);
+                                    }
+
+                                    if (var23 > 1.0F) {
+                                       float var24 = var1.DistTo(var28.x, var28.y);
+                                       if (var24 > 1.0F) {
+                                          var23 /= var24;
+                                       }
+
+                                       var5 /= var23;
+                                    }
+                                 }
+                              }
+
+                              var5 /= this.getWornItemsVisionModifier();
+                              if (this.getEatBodyTarget() != null && var5 > 0.0F) {
+                                 var5 = (float)((double)var5 * 0.5);
+                              }
+
+                              var5 = (float)PZMath.fastfloor(var5);
+                              boolean var30 = false;
+                              var5 = Math.min(var5, 400.0F);
+                              var5 /= 400.0F;
+                              var5 = Math.max(0.0F, var5);
+                              var5 = Math.min(1.0F, var5);
+                              var20 = GameTime.instance.getMultiplier();
+                              var5 = (float)(1.0 - Math.pow((double)(1.0F - var5), (double)var20));
+                              var5 *= 100.0F;
+                              if ((float)Rand.Next(10000) / 100.0F < var5) {
+                                 var30 = true;
+                              }
+
+                              if (!GameClient.bClient && !GameServer.bServer || NetworkZombieManager.canSpotted(this) || var1 == this.target) {
+                                 if (!var30) {
+                                    if (var5 > 20.0F && var4 != null && var26 < 15.0F) {
+                                       var4.bCouldBeSeenThisFrame = true;
+                                    }
+
+                                    boolean var32 = var4 != null && !var4.isbCouldBeSeenThisFrame() && !var4.isbSeenThisFrame() && var4.isSneaking() && var4.isJustMoved();
+                                    float var34 = 1100.0F;
+                                    if (GameServer.bDebug) {
+                                       var34 = 100.0F;
+                                    }
+
+                                    if (var32 && Rand.Next((int)(var34 * GameTime.instance.getInvMultiplier())) == 0) {
+                                       if (GameServer.bServer) {
+                                          GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.Sneak, 1.0F);
+                                       } else if (!GameClient.bClient) {
+                                          var4.getXp().AddXP(PerkFactory.Perks.Sneak, 1.0F);
+                                       }
+                                    }
+
+                                    if (var32 && Rand.Next((int)(var34 * GameTime.instance.getInvMultiplier())) == 0) {
+                                       if (GameServer.bServer) {
+                                          GameServer.addXp((IsoPlayer)var1, PerkFactory.Perks.Lightfoot, 1.0F);
+                                       } else if (!GameClient.bClient) {
+                                          var4.getXp().AddXP(PerkFactory.Perks.Lightfoot, 1.0F);
+                                       }
+                                    }
+
+                                 } else {
+                                    if (var4 != null) {
+                                       var4.setbSeenThisFrame(true);
+                                    }
+
+                                    if (!var2) {
+                                       this.BonusSpotTime = 120.0F;
+                                    }
+
+                                    this.LastTargetSeenX = PZMath.fastfloor(var1.getX());
+                                    this.LastTargetSeenY = PZMath.fastfloor(var1.getY());
+                                    this.LastTargetSeenZ = PZMath.fastfloor(var1.getZ());
+                                    if (this.stateMachine.getCurrent() != StaggerBackState.instance()) {
+                                       if (this.target != var1) {
+                                          this.targetSeenTime = 0.0F;
+                                          if (GameServer.bServer && !this.isRemoteZombie()) {
+                                             this.addAggro(var1, 1.0F);
+                                          }
+                                       }
+
+                                       this.setTarget(var1);
+                                       this.vectorToTarget.x = var1.getX();
+                                       this.vectorToTarget.y = var1.getY();
+                                       var10000 = this.vectorToTarget;
+                                       var10000.x -= this.getX();
+                                       var10000 = this.vectorToTarget;
+                                       var10000.y -= this.getY();
+                                       float var31 = this.vectorToTarget.getLength();
+                                       if (!var2) {
+                                          this.TimeSinceSeenFlesh = 0.0F;
+                                          this.targetSeenTime += GameTime.getInstance().getRealworldSecondsSinceLastUpdate();
+                                       }
+
+                                       if (this.target != this.spottedLast || this.getCurrentState() != LungeState.instance() || !(this.LungeTimer > 0.0F)) {
+                                          if (this.target != this.spottedLast || this.getCurrentState() != AttackVehicleState.instance()) {
+                                             if (PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(this.target.getZ()) && (var31 <= 3.5F || this.target instanceof IsoGameCharacter && ((IsoGameCharacter)this.target).getVehicle() != null && var31 <= 4.0F) && this.getStateEventDelayTimer() <= 0.0F && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1.getX(), var1.getY(), PZMath.fastfloor(this.getZ()), var1)) {
+                                                this.setTarget(var1);
+                                                if (this.getCurrentState() == LungeState.instance()) {
+                                                   return;
+                                                }
+                                             }
+
+                                             this.spottedLast = var1;
+                                             if (!this.Ghost && !this.getCurrentSquare().getProperties().Is(IsoFlagType.smoke)) {
+                                                this.setTarget(var1);
+                                                if (this.AllowRepathDelay > 0.0F) {
+                                                   return;
+                                                }
+
+                                                if (this.target instanceof IsoGameCharacter && ((IsoGameCharacter)this.target).getVehicle() != null) {
+                                                   if ((this.getCurrentState() == PathFindState.instance() || this.getCurrentState() == WalkTowardState.instance()) && this.getPathFindBehavior2().getTargetChar() == this.target) {
+                                                      return;
+                                                   }
+
+                                                   if (this.getCurrentState() == AttackVehicleState.instance()) {
+                                                      return;
+                                                   }
+
+                                                   BaseVehicle var33 = ((IsoGameCharacter)this.target).getVehicle();
+                                                   if (Math.abs(var33.getCurrentSpeedKmHour()) > 0.8F && this.DistToSquared(var33) <= 16.0F) {
+                                                      return;
+                                                   }
+
+                                                   this.pathToCharacter((IsoGameCharacter)this.target);
+                                                   this.AllowRepathDelay = 10.0F;
+                                                   return;
+                                                }
+
+                                                this.pathToCharacter(var3);
+                                                if (Rand.Next(5) == 0) {
+                                                   this.spotSoundDelay = 200;
+                                                }
+
+                                                this.AllowRepathDelay = 480.0F;
+                                             }
+
+                                          }
+                                       }
+                                    }
+                                 }
+                              }
+                           }
+                        }
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   public void spotted(IsoMovingObject var1, boolean var2) {
+      if (SandboxOptions.instance.Lore.SpottedLogic.getValue()) {
+         this.spottedNew(var1, var2);
+      } else {
+         this.spottedOld(var1, var2);
+      }
+
+   }
+
    public void Move(Vector2 var1) {
       if (!GameClient.bClient || this.authOwner != null) {
-         this.nx += var1.x * GameTime.instance.getMultiplier();
-         this.ny += var1.y * GameTime.instance.getMultiplier();
+         this.setNextX(this.getNextX() + var1.x * GameTime.instance.getMultiplier());
+         this.setNextY(this.getNextY() + var1.y * GameTime.instance.getMultiplier());
          this.movex = var1.x;
          this.movey = var1.y;
       }
@@ -1779,11 +2447,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    public void MoveUnmodded(Vector2 var1) {
       float var2;
-      float var4;
       if (this.speedType == 1 && (this.isCurrentState(LungeState.instance()) || this.isCurrentState(LungeNetworkState.instance()) || this.isCurrentState(AttackState.instance()) || this.isCurrentState(AttackNetworkState.instance()) || this.isCurrentState(StaggerBackState.instance()) || this.isCurrentState(ZombieHitReactionState.instance())) && this.target instanceof IsoGameCharacter) {
-         var2 = this.target.nx - this.x;
-         float var3 = this.target.ny - this.y;
-         var4 = (float)Math.sqrt((double)(var2 * var2 + var3 * var3));
+         var2 = this.target.getNextX() - this.getX();
+         float var3 = this.target.getNextY() - this.getY();
+         float var4 = (float)Math.sqrt((double)(var2 * var2 + var3 * var3));
          var4 -= this.getWidth() + this.target.getWidth() - 0.1F;
          var4 = Math.max(0.0F, var4);
          if (var1.getLength() > var4) {
@@ -1791,16 +2458,15 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          }
       }
 
-      if (this.isRemoteZombie()) {
+      if (GameClient.bClient && this.isRemoteZombie()) {
          var2 = IsoUtils.DistanceTo(this.realx, this.realy, this.networkAI.targetX, this.networkAI.targetY);
          if (var2 > 1.0F) {
-            Vector2 var6 = new Vector2(this.realx - this.x, this.realy - this.y);
-            var6.normalize();
-            var4 = 0.5F + IsoUtils.smoothstep(0.5F, 1.5F, IsoUtils.DistanceTo(this.x, this.y, this.networkAI.targetX, this.networkAI.targetY) / var2);
-            float var5 = var1.getLength();
-            var1.normalize();
-            PZMath.lerp(var1, var1, var6, 0.5F);
-            var1.setLength(var5 * var4);
+            Vector2 var7 = new Vector2(this.networkAI.targetX - this.realx, this.networkAI.targetY - this.realy);
+            Vector2 var8 = new Vector2(this.realx - this.getX(), this.realy - this.getY());
+            float var5 = 0.5F + IsoUtils.smoothstep(0.5F, 1.5F, IsoUtils.DistanceTo(this.getX(), this.getY(), this.networkAI.targetX, this.networkAI.targetY) / var2);
+            Vector2 var6 = new Vector2(var7.x + var8.x, var7.y + var8.y);
+            var6.setLength(var1.getLength() * var5);
+            var1.set(var6);
          }
       }
 
@@ -1822,7 +2488,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                return false;
             }
 
-            float var8 = IsoUtils.DistanceToSquared(this.x, this.y, var5.x, var5.y);
+            float var8 = IsoUtils.DistanceToSquared(this.getX(), this.getY(), var5.getX(), var5.getY());
             if (var8 < var2) {
                var2 = var8;
             }
@@ -1861,6 +2527,12 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             var2 = ParameterCharacterMovementSpeed.MovementType.Sprint;
       }
 
+      this.addFootstepParametersIfNeeded();
+      this.parameterCharacterMovementSpeed.setMovementType(var2);
+      this.DoFootstepSound(var3);
+   }
+
+   public void addFootstepParametersIfNeeded() {
       if (!GameServer.bServer && !this.getFMODParameters().parameterList.contains(this.parameterCharacterMovementSpeed)) {
          this.getFMODParameters().add(this.parameterCharacterMovementSpeed);
          this.getFMODParameters().add(this.parameterFootstepMaterial);
@@ -1868,8 +2540,6 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          this.getFMODParameters().add(this.parameterShoeType);
       }
 
-      this.parameterCharacterMovementSpeed.setMovementType(var2);
-      this.DoFootstepSound(var3);
    }
 
    public void DoFootstepSound(float var1) {
@@ -1946,42 +2616,66 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       super.postupdate();
+      if (this.isReanimatedForGrappleOnly() && !this.isBeingGrappled() && !this.isDead()) {
+         DebugLog.Grapple.warn("Failsafe. IsoZombie grappleEnd event never occurred.");
+         DebugLog.Grapple.warn("Reanimated Corpse Dropped. Dying again.");
+         this.die();
+      }
+
+      if (this.isReanimatedForGrappleOnly() && this.isBeingGrappled() && this.getGrappledBy().isMoving() && this.bloodSplatAmount > 0) {
+         byte var1 = 100;
+         float var2 = 200.0F / (float)var1 * GameTime.instance.getInvMultiplier();
+         if ((float)Rand.Next((int)var2) < var2 * 0.3F) {
+            DebugLog.Zombie.trace("Dragged corpse. Bleeding on the floor 1.");
+            this.splatBloodFloor();
+            this.bloodSplatAmount -= 2;
+         }
+
+         if (Rand.Next((int)var2) == 0) {
+            DebugLog.Zombie.trace("Dragged corpse. Bleeding on the floor 2.");
+            this.splatBloodFloor();
+            this.bloodSplatAmount -= 2;
+         }
+
+         this.getModData().rawset("_bloodSplatAmount", BoxedStaticValues.toDouble((double)this.bloodSplatAmount));
+      }
+
       if (this.current == null && (!GameClient.bClient || this.authOwner != null)) {
          this.removeFromWorld();
          this.removeFromSquare();
       }
 
       if (!GameServer.bServer) {
-         IsoPlayer var1 = this.getReanimatedPlayer();
-         if (var1 != null) {
-            var1.setX(this.getX());
-            var1.setY(this.getY());
-            var1.setZ(this.getZ());
-            var1.setDir(this.getDir());
-            var1.setForwardDirection(this.getForwardDirection());
-            AnimationPlayer var2 = this.getAnimationPlayer();
-            AnimationPlayer var3 = var1.getAnimationPlayer();
-            if (var2 != null && var2.isReady() && var3 != null && var3.isReady()) {
-               var3.setTargetAngle(var2.getAngle());
+         IsoPlayer var5 = this.getReanimatedPlayer();
+         if (var5 != null) {
+            var5.setX(this.getX());
+            var5.setY(this.getY());
+            var5.setZ(this.getZ());
+            var5.setDir(this.getDir());
+            var5.setForwardDirection(this.getForwardDirection());
+            AnimationPlayer var6 = this.getAnimationPlayer();
+            AnimationPlayer var3 = var5.getAnimationPlayer();
+            if (var6 != null && var6.isReady() && var3 != null && var3.isReady()) {
+               var3.setTargetAngle(var6.getAngle());
                var3.setAngleToTarget();
             }
 
-            var1.setCurrent(this.getCell().getGridSquare((int)var1.x, (int)var1.y, (int)var1.z));
-            var1.updateLightInfo();
-            if (var1.soundListener != null) {
-               var1.soundListener.setPos(var1.getX(), var1.getY(), var1.getZ());
-               var1.soundListener.tick();
+            var5.setCurrent(this.getCell().getGridSquare(PZMath.fastfloor(var5.getX()), PZMath.fastfloor(var5.getY()), PZMath.fastfloor(var5.getZ())));
+            var5.updateLightInfo();
+            if (var5.soundListener != null) {
+               var5.soundListener.setPos(var5.getX(), var5.getY(), var5.getZ());
+               var5.soundListener.tick();
             }
 
             IsoPlayer var4 = IsoPlayer.getInstance();
-            IsoPlayer.setInstance(var1);
-            var1.updateLOS();
+            IsoPlayer.setInstance(var5);
+            var5.updateLOS();
             IsoPlayer.setInstance(var4);
             if (GameClient.bClient && this.authOwner == null && this.networkUpdate.Check()) {
-               GameClient.instance.sendPlayer(var1);
+               GameClient.instance.sendPlayer(var5);
             }
 
-            var1.dirtyRecalcGridStackTime = 2.0F;
+            var5.dirtyRecalcGridStackTime = 2.0F;
          }
       }
 
@@ -2022,6 +2716,17 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    private void updateInternal() {
+      if (Core.bDebug && this.getOutfitName() != null && this.getOutfitName().contains("Debug")) {
+         String var1 = this.getOutfitName();
+         if (var1.contains("Immortal")) {
+            this.setImmortalTutorialZombie(true);
+         }
+
+         if (var1.contains("Useless")) {
+            this.setUseless(true);
+         }
+      }
+
       if (GameClient.bClient && !this.isRemoteZombie()) {
          ZombieCountOptimiser.incrementZombie(this);
          MPStatistics.clientZombieUpdated();
@@ -2038,32 +2743,32 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       if (this.bCrawling) {
-         if (this.actionContext.getGroup() != ActionGroup.getActionGroup("zombie-crawler")) {
+         if (this.getActionContext().getGroup() != ActionGroup.getActionGroup("zombie-crawler")) {
             this.advancedAnimator.OnAnimDataChanged(false);
             this.initializeStates();
-            this.actionContext.setGroup(ActionGroup.getActionGroup("zombie-crawler"));
+            this.getActionContext().setGroup(ActionGroup.getActionGroup("zombie-crawler"));
          }
-      } else if (this.actionContext.getGroup() != ActionGroup.getActionGroup("zombie")) {
+      } else if (this.getActionContext().getGroup() != ActionGroup.getActionGroup("zombie")) {
          this.advancedAnimator.OnAnimDataChanged(false);
          this.initializeStates();
-         this.actionContext.setGroup(ActionGroup.getActionGroup("zombie"));
+         this.getActionContext().setGroup(ActionGroup.getActionGroup("zombie"));
       }
 
       if (this.getThumpTimer() > 0) {
          --this.thumpTimer;
       }
 
-      BaseVehicle var1 = this.getNearVehicle();
-      if (var1 != null) {
-         if (this.target == null && var1.hasLightbar() && var1.lightbarSirenMode.get() > 0) {
-            VehiclePart var2 = var1.getUseablePart(this, false);
+      BaseVehicle var5 = this.getNearVehicle();
+      if (var5 != null) {
+         if (this.target == null && var5.isSirening()) {
+            VehiclePart var2 = var5.getUseablePart(this, false);
             if (var2 != null && var2.getSquare().DistTo((IsoMovingObject)this) < 0.7F) {
-               this.setThumpTarget(var1);
+               this.setThumpTarget(var5);
             }
          }
 
-         if (var1.isAlarmed() && !var1.isPreviouslyEntered() && Rand.Next(10000) < 1) {
-            var1.triggerAlarm();
+         if (var5.isAlarmed() && !var5.isPreviouslyEntered() && Rand.Next(10000) < 1) {
+            var5.triggerAlarm();
          }
       }
 
@@ -2074,7 +2779,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       if (GameClient.bClient && this.authOwner == null) {
-         if (this.lastRemoteUpdate > 800 && (this.legsSprite.CurrentAnim.name.equals("ZombieDeath") || this.legsSprite.CurrentAnim.name.equals("ZombieStaggerBack") || this.legsSprite.CurrentAnim.name.equals("ZombieGetUp"))) {
+         if (this.lastRemoteUpdate > 800 && this.legsSprite.hasAnimation() && (this.legsSprite.CurrentAnim.name.equals("ZombieDeath") || this.legsSprite.CurrentAnim.name.equals("ZombieStaggerBack") || this.legsSprite.CurrentAnim.name.equals("ZombieGetUp"))) {
             DebugLog.log(DebugType.Zombie, "removing stale zombie 800 id=" + this.OnlineID);
             VirtualZombieManager.instance.removeZombieFromWorld(this);
             return;
@@ -2100,23 +2805,24 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             } else {
                this.BonusSpotTime = PZMath.clamp(this.BonusSpotTime - GameTime.instance.getMultiplier(), 0.0F, 3.4028235E38F);
                this.TimeSinceSeenFlesh = PZMath.clamp(this.TimeSinceSeenFlesh + GameTime.instance.getMultiplier(), 0.0F, 3.4028235E38F);
+               this.checkZombieEntersPlayerBuilding();
                if (this.getStateMachine().getCurrent() != ClimbThroughWindowState.instance() && this.getStateMachine().getCurrent() != ClimbOverFenceState.instance() && this.getStateMachine().getCurrent() != CrawlingZombieTurnState.instance() && this.getStateMachine().getCurrent() != ZombieHitReactionState.instance() && this.getStateMachine().getCurrent() != ZombieFallDownState.instance()) {
                   this.setCollidable(true);
                   LuaEventManager.triggerEvent("OnZombieUpdate", this);
                   if (Core.bLastStand && this.getStateMachine().getCurrent() != ThumpState.instance() && this.getStateMachine().getCurrent() != AttackState.instance() && this.TimeSinceSeenFlesh > 120.0F && Rand.Next(36000) == 0) {
-                     IsoPlayer var6 = null;
-                     float var3 = 1000000.0F;
+                     IsoPlayer var7 = null;
+                     float var8 = 1000000.0F;
 
                      for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
-                        if (IsoPlayer.players[var4] != null && IsoPlayer.players[var4].DistTo(this) < var3 && !IsoPlayer.players[var4].isDead()) {
-                           var3 = IsoPlayer.players[var4].DistTo(this);
-                           var6 = IsoPlayer.players[var4];
+                        if (IsoPlayer.players[var4] != null && IsoPlayer.players[var4].DistTo(this) < var8 && !IsoPlayer.players[var4].isDead()) {
+                           var8 = IsoPlayer.players[var4].DistTo(this);
+                           var7 = IsoPlayer.players[var4];
                         }
                      }
 
-                     if (var6 != null) {
+                     if (var7 != null) {
                         this.AllowRepathDelay = -1.0F;
-                        this.pathToCharacter(var6);
+                        this.pathToCharacter(var7);
                      }
 
                   } else {
@@ -2128,9 +2834,17 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                            this.vehicle4testCollision = null;
                            return;
                         }
-                     } else if (this.Health > 0.0F && this.vehicle4testCollision != null && this.testCollideWithVehicles(this.vehicle4testCollision)) {
-                        this.vehicle4testCollision = null;
-                        return;
+                     } else {
+                        if (this.Health > 0.0F && this.vehicle4testCollision != null) {
+                           this.setVehicleCollision(this.testCollideWithVehicles(this.vehicle4testCollision));
+                        } else {
+                           this.setVehicleCollision(false);
+                        }
+
+                        if (this.isVehicleCollision()) {
+                           this.vehicle4testCollision = null;
+                           return;
+                        }
                      }
 
                      this.vehicle4testCollision = null;
@@ -2147,13 +2861,13 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                         DebugLog.log(DebugType.Zombie, "Zombie added to ReusableZombies after super.update - RETURNING " + this);
                      } else if (this.getStateMachine().getCurrent() != ClimbThroughWindowState.instance() && this.getStateMachine().getCurrent() != ClimbOverFenceState.instance() && this.getStateMachine().getCurrent() != CrawlingZombieTurnState.instance()) {
                         this.ensureOnTile();
-                        State var5 = this.stateMachine.getCurrent();
-                        if (var5 != StaggerBackState.instance() && var5 != BurntToDeath.instance() && var5 != FakeDeadZombieState.instance() && var5 != ZombieFallDownState.instance() && var5 != ZombieOnGroundState.instance() && var5 != ZombieHitReactionState.instance() && var5 != ZombieGetUpState.instance()) {
+                        State var6 = this.stateMachine.getCurrent();
+                        if (var6 != StaggerBackState.instance() && var6 != BurntToDeath.instance() && var6 != FakeDeadZombieState.instance() && var6 != ZombieFallDownState.instance() && var6 != ZombieOnGroundState.instance() && var6 != ZombieHitReactionState.instance() && var6 != ZombieGetUpState.instance()) {
                            if (GameServer.bServer && this.OnlineID == -1) {
                               this.OnlineID = ServerMap.instance.getUniqueZombieId();
                            } else {
                               IsoSpriteInstance var10000;
-                              if (var5 == PathFindState.instance() && this.finder.progress == AStarPathFinder.PathFindProgress.notyetfound) {
+                              if (var6 == PathFindState.instance() && this.finder.progress == AStarPathFinder.PathFindProgress.notyetfound) {
                                  if (this.bCrawling) {
                                     this.PlayAnim("ZombieCrawl");
                                     this.def.AnimFrameIncrease = 0.0F;
@@ -2163,8 +2877,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                                     var10000 = this.def;
                                     var10000.AnimFrameIncrease *= 0.5F;
                                  }
-                              } else if (var5 != AttackState.instance() && var5 != AttackVehicleState.instance() && (this.nx != this.x || this.ny != this.y)) {
-                                 if (this.walkVariantUse == null || var5 != LungeState.instance() && var5 != LungeNetworkState.instance()) {
+                              } else if (var6 != AttackState.instance() && var6 != AttackVehicleState.instance() && (this.getNextX() != this.getX() || this.getNextY() != this.getY())) {
+                                 if (this.walkVariantUse == null || var6 != LungeState.instance() && var6 != LungeNetworkState.instance()) {
                                     this.walkVariantUse = this.walkVariant;
                                  }
 
@@ -2172,7 +2886,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                                     this.walkVariantUse = "ZombieCrawl";
                                  }
 
-                                 if (var5 != ZombieIdleState.instance() && var5 != StaggerBackState.instance() && var5 != ThumpState.instance() && var5 != FakeDeadZombieState.instance()) {
+                                 if (var6 != ZombieIdleState.instance() && var6 != StaggerBackState.instance() && var6 != ThumpState.instance() && var6 != FakeDeadZombieState.instance()) {
                                     if (this.bRunning) {
                                        this.PlayAnim("Run");
                                        this.def.setFrameSpeedPerFrame(0.33F);
@@ -2204,11 +2918,28 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                            if (this.target != null) {
                               this.vectorToTarget.x = this.target.getX();
                               this.vectorToTarget.y = this.target.getY();
-                              Vector2 var7 = this.vectorToTarget;
-                              var7.x -= this.getX();
-                              var7 = this.vectorToTarget;
-                              var7.y -= this.getY();
+                              Vector2 var9 = this.vectorToTarget;
+                              var9.x -= this.getX();
+                              var9 = this.vectorToTarget;
+                              var9.y -= this.getY();
                               this.updateZombieTripping();
+                           }
+
+                           int var3;
+                           if (this.getSquare() != null && this.getSquare().hasFarmingPlant()) {
+                              var3 = (int)(100.0F / GameTime.getInstance().getTrueMultiplier());
+                              var3 = Math.max(1, var3);
+                              if (Rand.NextBool(var3)) {
+                                 this.getSquare().destroyFarmingPlant();
+                              }
+                           }
+
+                           if (this.getSquare() != null && this.getSquare().hasLitCampfire() && this.isMoving()) {
+                              var3 = (int)(10000.0F / GameTime.getInstance().getTrueMultiplier());
+                              var3 = Math.max(1, var3);
+                              if (Rand.NextBool(var3)) {
+                                 this.getSquare().putOutCampfire();
+                              }
                            }
 
                            if (this.getCurrentState() != PathFindState.instance() && this.getCurrentState() != WalkTowardState.instance() && this.getCurrentState() != ClimbThroughWindowState.instance()) {
@@ -2219,7 +2950,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                               this.RespondToSound();
                            }
 
-                           this.timeSinceRespondToSound += GameTime.getInstance().getMultiplier() / 1.6F;
+                           this.timeSinceRespondToSound += GameTime.getInstance().getThirtyFPSMultiplier();
                            this.separate();
                            this.updateSearchForCorpse();
                            if (this.TimeSinceSeenFlesh > 2000.0F && this.timeSinceRespondToSound > 2000.0F) {
@@ -2251,6 +2982,54 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    }
 
+   public int getVoiceChoice() {
+      if (this.voiceChoice == -1) {
+         this.voiceChoice = Rand.Next(3) + 1;
+      }
+
+      return this.voiceChoice;
+   }
+
+   public String getVoiceSoundName() {
+      String var1 = this.getDescriptor().getVoicePrefix();
+      String var2 = this.speedType == 1 ? "Sprinter" : "";
+      String var3 = "Voice";
+      String var10000;
+      switch (this.getVoiceChoice()) {
+         case 2:
+            var10000 = "B";
+            break;
+         case 3:
+            var10000 = "C";
+            break;
+         default:
+            var10000 = "A";
+      }
+
+      String var4 = var10000;
+      return var1 + var2 + var3 + var4;
+   }
+
+   public String getBiteSoundName() {
+      String var1 = this.getDescriptor().getVoicePrefix();
+      String var2 = this.speedType == 1 ? "Sprinter" : "";
+      String var3 = "Bite";
+      String var10000;
+      switch (this.getVoiceChoice()) {
+         case 2:
+            var10000 = "B";
+            break;
+         case 3:
+            var10000 = "C";
+            break;
+         default:
+            var10000 = "A";
+      }
+
+      String var4 = var10000;
+      return var1 + var2 + var3 + var4;
+   }
+
    public void updateVocalProperties() {
       if (!GameServer.bServer) {
          boolean var1 = SoundManager.instance.isListenerInRange(this.getX(), this.getY(), 20.0F);
@@ -2258,11 +3037,12 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             this.vocalEvent = 0L;
          }
 
-         if (!this.isDead() && !this.isFakeDead() && var1) {
+         boolean var2 = !this.isDead() && !this.isReanimatedForGrappleOnly();
+         if (var2 && !this.isFakeDead() && var1) {
             ZombieVocalsManager.instance.addCharacter(this);
          }
 
-         if (this.vocalEvent != 0L && !this.isDead() && this.isFakeDead() && this.getEmitter().isPlaying(this.vocalEvent)) {
+         if (this.vocalEvent != 0L && var2 && this.isFakeDead() && this.getEmitter().isPlaying(this.vocalEvent)) {
             this.getEmitter().stopSoundLocal(this.vocalEvent);
             this.vocalEvent = 0L;
          }
@@ -2290,7 +3070,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          }
 
          if (this.bodyToEat == null) {
-            this.checkForCorpseTimer -= GameTime.getInstance().getMultiplier() / 1.6F;
+            this.checkForCorpseTimer -= GameTime.getInstance().getThirtyFPSMultiplier();
             if (this.checkForCorpseTimer <= 0.0F) {
                this.checkForCorpseTimer = 10000.0F;
                tempBodies.clear();
@@ -2300,7 +3080,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                      IsoGridSquare var3 = this.getCell().getGridSquare((double)(this.getX() + (float)var1), (double)(this.getY() + (float)var2), (double)this.getZ());
                      if (var3 != null) {
                         IsoDeadBody var4 = var3.getDeadBody();
-                        if (var4 != null && !var4.isSkeleton() && !var4.isZombie() && var4.getEatingZombies().size() < 3 && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var4.x, var4.y, (int)this.getZ(), (IsoMovingObject)null, false, true)) {
+                        if (var4 != null && !var4.isSkeleton() && !var4.isZombie() && var4.getEatingZombies().size() < 3 && !var4.isAnimal() && !var4.isAnimalSkeleton() && !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var4.getX(), var4.getY(), PZMath.fastfloor(this.getZ()), (IsoMovingObject)null, false, true)) {
                            tempBodies.add(var4);
                         }
                      }
@@ -2316,7 +3096,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
          if (this.bodyToEat != null && this.isCurrentState(ZombieIdleState.instance())) {
             if (this.DistToSquared(this.bodyToEat) > 1.0F) {
-               Vector2 var5 = tempo.set(this.x - this.bodyToEat.x, this.y - this.bodyToEat.y);
+               Vector2 var5 = tempo.set(this.getX() - this.bodyToEat.getX(), this.getY() - this.bodyToEat.getY());
                var5.setLength(0.5F);
                this.pathToLocationF(this.bodyToEat.getX() + var5.x, this.bodyToEat.getY() + var5.y, this.bodyToEat.getZ());
             }
@@ -2395,6 +3175,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                IsoDoor var5 = (IsoDoor)Type.tryCastTo(var4, IsoDoor.class);
                IsoThumpable var6 = (IsoThumpable)Type.tryCastTo(var4, IsoThumpable.class);
                IsoWindow var7 = (IsoWindow)Type.tryCastTo(var4, IsoWindow.class);
+               IsoWindowFrame var8 = (IsoWindowFrame)Type.tryCastTo(var4, IsoWindowFrame.class);
                if (var7 != null && var7.canClimbThrough(this)) {
                   if (!this.isFacingObject(var7, 0.8F)) {
                      return false;
@@ -2402,60 +3183,64 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
                      this.climbThroughWindow(var7);
                      return true;
                   }
+               } else if (var8 != null && var8.canClimbThrough(this)) {
+                  if (!this.isFacingObject(var8, 0.8F)) {
+                     return false;
+                  } else {
+                     this.climbThroughWindowFrame(var8);
+                     return true;
+                  }
                } else if (var6 != null && var6.canClimbThrough(this)) {
                   this.climbThroughWindow(var6);
                   return true;
-               } else if (var6 != null && var6.getThumpableFor(this) != null || var7 != null && var7.getThumpableFor(this) != null || var5 != null && var5.getThumpableFor(this) != null) {
-                  int var8 = var3.getX() - this.current.getX();
-                  int var9 = var3.getY() - this.current.getY();
-                  IsoDirections var10 = IsoDirections.N;
-                  if (var8 < 0 && Math.abs(var8) > Math.abs(var9)) {
-                     var10 = IsoDirections.S;
+               } else if (var6 != null && var6.getThumpableFor(this) != null || var7 != null && var7.getThumpableFor(this) != null || var8 != null && var8.getThumpableFor(this) != null || var5 != null && var5.getThumpableFor(this) != null) {
+                  int var9 = var3.getX() - this.current.getX();
+                  int var10 = var3.getY() - this.current.getY();
+                  IsoDirections var11 = IsoDirections.N;
+                  if (var9 < 0 && Math.abs(var9) > Math.abs(var10)) {
+                     var11 = IsoDirections.S;
                   }
 
-                  if (var8 < 0 && Math.abs(var8) <= Math.abs(var9)) {
-                     var10 = IsoDirections.SW;
+                  if (var9 < 0 && Math.abs(var9) <= Math.abs(var10)) {
+                     var11 = IsoDirections.SW;
                   }
 
-                  if (var8 > 0 && Math.abs(var8) > Math.abs(var9)) {
-                     var10 = IsoDirections.W;
+                  if (var9 > 0 && Math.abs(var9) > Math.abs(var10)) {
+                     var11 = IsoDirections.W;
                   }
 
-                  if (var8 > 0 && Math.abs(var8) <= Math.abs(var9)) {
-                     var10 = IsoDirections.SE;
+                  if (var9 > 0 && Math.abs(var9) <= Math.abs(var10)) {
+                     var11 = IsoDirections.SE;
                   }
 
-                  if (var9 < 0 && Math.abs(var8) < Math.abs(var9)) {
-                     var10 = IsoDirections.N;
+                  if (var10 < 0 && Math.abs(var9) < Math.abs(var10)) {
+                     var11 = IsoDirections.N;
                   }
 
-                  if (var9 < 0 && Math.abs(var8) >= Math.abs(var9)) {
-                     var10 = IsoDirections.NW;
+                  if (var10 < 0 && Math.abs(var9) >= Math.abs(var10)) {
+                     var11 = IsoDirections.NW;
                   }
 
-                  if (var9 > 0 && Math.abs(var8) < Math.abs(var9)) {
-                     var10 = IsoDirections.E;
+                  if (var10 > 0 && Math.abs(var9) < Math.abs(var10)) {
+                     var11 = IsoDirections.E;
                   }
 
-                  if (var9 > 0 && Math.abs(var8) >= Math.abs(var9)) {
-                     var10 = IsoDirections.NE;
+                  if (var10 > 0 && Math.abs(var9) >= Math.abs(var10)) {
+                     var11 = IsoDirections.NE;
                   }
 
-                  if (this.getDir() == var10) {
-                     boolean var11 = this.getPathFindBehavior2().isGoalSound() && (this.isCurrentState(PathFindState.instance()) || this.isCurrentState(WalkTowardState.instance()) || this.isCurrentState(WalkTowardNetworkState.instance()));
-                     if (SandboxOptions.instance.Lore.ThumpNoChasing.getValue() || this.target != null || var11) {
+                  if (this.getDir() == var11) {
+                     boolean var12 = this.getPathFindBehavior2().isGoalSound() && (this.isCurrentState(PathFindState.instance()) || this.isCurrentState(WalkTowardState.instance()) || this.isCurrentState(WalkTowardNetworkState.instance()));
+                     if (SandboxOptions.instance.Lore.ThumpNoChasing.getValue() || this.target != null || var12) {
                         if (var7 != null && var7.getThumpableFor(this) != null) {
                            var4 = (IsoObject)var7.getThumpableFor(this);
                         }
 
                         this.setThumpTarget(var4);
-                        this.setPath2((PolygonalMap2.Path)null);
+                        this.setPath2((Path)null);
                      }
                   }
 
-                  return true;
-               } else if (var4 != null && IsoWindowFrame.isWindowFrame(var4)) {
-                  this.climbThroughWindowFrame(var4);
                   return true;
                } else {
                   return false;
@@ -2487,39 +3272,32 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             this.wornItems.setFromItemVisuals(this.itemVisuals);
             this.wornItems.addItemsToItemContainer(this.getInventory());
 
-            InventoryItem var4;
-            for(int var2 = 0; var2 < this.attachedItems.size(); ++var2) {
+            int var2;
+            for(var2 = 0; var2 < this.attachedItems.size(); ++var2) {
                AttachedItem var3 = this.attachedItems.get(var2);
-               var4 = var3.getItem();
+               InventoryItem var4 = var3.getItem();
                if (!this.getInventory().contains(var4)) {
+                  if (var4.hasTag("ApplyOwnerName") && this.getDescriptor() != null) {
+                     var4.nameAfterDescriptor(this.getDescriptor());
+                  } else if (var4.hasTag("MonogramOwnerName") && this.getDescriptor() != null) {
+                     var4.monogramAfterDescriptor(this.getDescriptor());
+                  }
+
                   var4.setContainer(this.getInventory());
                   this.getInventory().getItems().add(var4);
                }
             }
 
-            IsoBuilding var7 = this.getCurrentBuilding();
-            if (var7 != null && var7.getDef() != null && var7.getDef().getKeyId() != -1 && Rand.Next(4) == 0) {
-               int var10000;
-               if (Rand.Next(10) != 1) {
-                  var10000 = Rand.Next(5);
-                  String var8 = "Base.Key" + (var10000 + 1);
-                  var4 = this.inventory.AddItem(var8);
-                  var4.setKeyId(var7.getDef().getKeyId());
-               } else {
-                  InventoryItem var9 = this.inventory.AddItem("Base.KeyRing");
-                  if (var9 instanceof InventoryContainer) {
-                     InventoryContainer var11 = (InventoryContainer)var9;
-                     var10000 = Rand.Next(5);
-                     String var5 = "Base.Key" + (var10000 + 1);
-                     InventoryItem var6 = var11.getInventory().AddItem(var5);
-                     var6.setKeyId(var7.getDef().getKeyId());
-                  }
-               }
-            }
-
             if (this.itemsToSpawnAtDeath != null && !this.itemsToSpawnAtDeath.isEmpty()) {
-               for(int var10 = 0; var10 < this.itemsToSpawnAtDeath.size(); ++var10) {
-                  this.inventory.AddItem((InventoryItem)this.itemsToSpawnAtDeath.get(var10));
+               for(var2 = 0; var2 < this.itemsToSpawnAtDeath.size(); ++var2) {
+                  InventoryItem var5 = (InventoryItem)this.itemsToSpawnAtDeath.get(var2);
+                  if (var5.hasTag("ApplyOwnerName") && this.getDescriptor() != null) {
+                     var5.nameAfterDescriptor(this.getDescriptor());
+                  } else if (var5.hasTag("MonogramOwnerName") && this.getDescriptor() != null) {
+                     var5.monogramAfterDescriptor(this.getDescriptor());
+                  }
+
+                  ItemSpawner.spawnItem((InventoryItem)this.itemsToSpawnAtDeath.get(var2), this.inventory);
                }
 
                this.itemsToSpawnAtDeath.clear();
@@ -2559,6 +3337,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       int var2 = -1;
       if (var1 == 5) {
          var2 = Rand.Next(4);
+      } else if (var1 == 6) {
+         var2 = Rand.Next(3) + 1;
       }
 
       if (this.memory == -1 && var1 == 1 || var2 == 0) {
@@ -2578,64 +3358,22 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
 
       if (SandboxOptions.instance.Lore.Sight.getValue() == 4) {
-         this.sight = Rand.Next(1, 4);
+         this.sight = Rand.Next(3) + 1;
+      } else if (SandboxOptions.instance.Lore.Sight.getValue() == 5) {
+         this.sight = Rand.Next(2) + 2;
       } else {
          this.sight = SandboxOptions.instance.Lore.Sight.getValue();
       }
 
       if (SandboxOptions.instance.Lore.Hearing.getValue() == 4) {
-         this.hearing = Rand.Next(1, 4);
+         this.hearing = Rand.Next(3) + 1;
+      } else if (SandboxOptions.instance.Lore.Hearing.getValue() == 5) {
+         this.hearing = Rand.Next(2) + 2;
       } else {
          this.hearing = SandboxOptions.instance.Lore.Hearing.getValue();
       }
 
-      if (this.speedType == -1) {
-         this.speedType = SandboxOptions.instance.Lore.Speed.getValue();
-         if (this.speedType == 4) {
-            this.speedType = Rand.Next(2);
-         }
-
-         if (this.inactive) {
-            this.speedType = 3;
-         }
-      }
-
-      IsoSpriteInstance var10000;
-      if (this.bCrawling) {
-         this.speedMod = 0.3F;
-         this.speedMod += (float)Rand.Next(1500) / 10000.0F;
-         var10000 = this.def;
-         var10000.AnimFrameIncrease *= 0.8F;
-      } else if (SandboxOptions.instance.Lore.Speed.getValue() != 3 && this.speedType != 3 && Rand.Next(3) == 0) {
-         if (SandboxOptions.instance.Lore.Speed.getValue() != 3 || this.speedType != 3) {
-            this.bLunger = true;
-            this.speedMod = 0.85F;
-            this.walkVariant = this.walkVariant + "2";
-            this.speedMod += (float)Rand.Next(1500) / 10000.0F;
-            this.def.setFrameSpeedPerFrame(0.24F);
-            var10000 = this.def;
-            var10000.AnimFrameIncrease *= this.speedMod;
-         }
-      } else {
-         this.speedMod = 0.55F;
-         this.speedMod += (float)Rand.Next(1500) / 10000.0F;
-         this.walkVariant = this.walkVariant + "1";
-         this.def.setFrameSpeedPerFrame(0.24F);
-         var10000 = this.def;
-         var10000.AnimFrameIncrease *= this.speedMod;
-      }
-
-      this.walkType = Integer.toString(Rand.Next(5) + 1);
-      if (this.speedType == 1) {
-         this.setTurnDelta(1.0F);
-         this.walkType = "sprint" + this.walkType;
-      }
-
-      if (this.speedType == 3) {
-         this.walkType = Integer.toString(Rand.Next(3) + 1);
-         this.walkType = "slow" + this.walkType;
-      }
-
+      this.doZombieSpeed();
       this.initCanCrawlUnderVehicle();
    }
 
@@ -2670,15 +3408,27 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public boolean isFakeDead() {
+      if (SandboxOptions.instance.Lore.DisableFakeDead.getValue() == 3) {
+         this.bFakeDead = false;
+      }
+
+      if (this != null && this.getSquare() != null && this.getSquare().HasStairs() && this.bFakeDead) {
+         this.bFakeDead = false;
+      }
+
       return this.bFakeDead;
    }
 
    public void setFakeDead(boolean var1) {
-      if (var1 && Rand.Next(2) == 0) {
-         this.setCrawlerType(2);
-      }
+      if (this != null && this.getSquare() != null && this.getSquare().HasStairs()) {
+         this.bFakeDead = false;
+      } else {
+         if (var1 && Rand.Next(2) == 0) {
+            this.setCrawlerType(2);
+         }
 
-      this.bFakeDead = var1;
+         this.bFakeDead = var1;
+      }
    }
 
    public boolean isForceFakeDead() {
@@ -2692,11 +3442,15 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    public float Hit(BaseVehicle var1, float var2, boolean var3, Vector2 var4) {
       float var5 = 0.0F;
       this.AttackedBy = var1.getDriver();
+      if (this.AttackedBy != null) {
+         this.AttackedBy.setUseHandWeapon((HandWeapon)null);
+      }
+
       this.setHitDir(var4);
       this.setHitForce(var2 * 0.15F);
       int var6 = (int)(var2 * 6.0F);
-      this.setTarget(var1.getCharacter(0));
-      if (!this.bStaggerBack && !this.isOnFloor() && this.getCurrentState() != ZombieGetUpState.instance() && this.getCurrentState() != ZombieOnGroundState.instance()) {
+      this.setTarget(var1.getDriver());
+      if (!this.isStaggerBack() && !this.isOnFloor() && this.getCurrentState() != ZombieGetUpState.instance() && this.getCurrentState() != ZombieOnGroundState.instance()) {
          boolean var7 = this.isStaggerBack();
          boolean var8 = this.isKnockedDown();
          boolean var9 = this.isBecomeCrawler();
@@ -2732,14 +3486,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             var8 = true;
          } else {
             var5 = this.getHealth();
-            if (!GameServer.bServer && !GameClient.bClient) {
-               this.Health -= var5;
+            if (!GameServer.bServer && !GameClient.bClient && !this.isGodMod()) {
+               CombatManager.getInstance().applyDamage((IsoGameCharacter)this, var5);
                this.Kill(var1.getDriver());
             }
-         }
-
-         if (DebugOptions.instance.MultiplayerZombieCrawler.getValue()) {
-            var9 = true;
          }
 
          if (!GameServer.bServer) {
@@ -2755,7 +3505,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          this.setHitReaction("Floor");
          var5 = var2 / 5.0F;
          if (!GameServer.bServer && !GameClient.bClient) {
-            this.Health -= var5;
+            CombatManager.getInstance().applyDamage((IsoGameCharacter)this, var5);
             if (this.isDead()) {
                this.Kill(var1.getDriver());
             }
@@ -2862,217 +3612,6 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
    }
 
-   private void processHitDirection(HandWeapon var1, IsoGameCharacter var2) {
-      String var3 = var2.getVariableString("ZombieHitReaction");
-      if ("Shot".equals(var3)) {
-         var3 = "ShotBelly";
-         var2.setCriticalHit(Rand.Next(100) < ((IsoPlayer)var2).calculateCritChance(this));
-         Vector2 var4 = var2.getForwardDirection();
-         Vector2 var5 = this.getHitAngle();
-         double var6 = (double)(var4.x * var5.y - var4.y * var5.x);
-         double var8 = var6 >= 0.0 ? 1.0 : -1.0;
-         double var10 = (double)(var4.x * var5.x + var4.y * var5.y);
-         double var12 = Math.acos(var10) * var8;
-         if (var12 < 0.0) {
-            var12 += 6.283185307179586;
-         }
-
-         String var14 = "";
-         int var15;
-         if (Math.toDegrees(var12) < 45.0) {
-            this.setHitFromBehind(true);
-            var14 = "S";
-            var15 = Rand.Next(9);
-            if (var15 > 6) {
-               var14 = "L";
-            }
-
-            if (var15 > 4) {
-               var14 = "R";
-            }
-         }
-
-         if (Math.toDegrees(var12) > 45.0 && Math.toDegrees(var12) < 90.0) {
-            this.setHitFromBehind(true);
-            if (Rand.Next(4) == 0) {
-               var14 = "S";
-            } else {
-               var14 = "R";
-            }
-         }
-
-         if (Math.toDegrees(var12) > 90.0 && Math.toDegrees(var12) < 135.0) {
-            var14 = "R";
-         }
-
-         if (Math.toDegrees(var12) > 135.0 && Math.toDegrees(var12) < 180.0) {
-            if (Rand.Next(4) == 0) {
-               var14 = "N";
-            } else {
-               var14 = "R";
-            }
-         }
-
-         if (Math.toDegrees(var12) > 180.0 && Math.toDegrees(var12) < 225.0) {
-            var14 = "N";
-            var15 = Rand.Next(9);
-            if (var15 > 6) {
-               var14 = "L";
-            }
-
-            if (var15 > 4) {
-               var14 = "R";
-            }
-         }
-
-         if (Math.toDegrees(var12) > 225.0 && Math.toDegrees(var12) < 270.0) {
-            if (Rand.Next(4) == 0) {
-               var14 = "N";
-            } else {
-               var14 = "L";
-            }
-         }
-
-         if (Math.toDegrees(var12) > 270.0 && Math.toDegrees(var12) < 315.0) {
-            this.setHitFromBehind(true);
-            var14 = "L";
-         }
-
-         if (Math.toDegrees(var12) > 315.0) {
-            if (Rand.Next(4) == 0) {
-               var14 = "S";
-            } else {
-               var14 = "L";
-            }
-         }
-
-         if ("N".equals(var14)) {
-            if (this.isHitFromBehind()) {
-               var3 = "ShotBellyStep";
-            } else {
-               var15 = Rand.Next(2);
-               switch (var15) {
-                  case 0:
-                     var3 = "ShotBelly";
-                     break;
-                  case 1:
-                     var3 = "ShotBellyStep";
-               }
-            }
-         }
-
-         if ("S".equals(var14)) {
-            var3 = "ShotBellyStep";
-         }
-
-         if ("L".equals(var14) || "R".equals(var14)) {
-            if (this.isHitFromBehind()) {
-               var15 = Rand.Next(3);
-               switch (var15) {
-                  case 0:
-                     var3 = "ShotChest";
-                     break;
-                  case 1:
-                     var3 = "ShotLeg";
-                     break;
-                  case 2:
-                     var3 = "ShotShoulderStep";
-               }
-            } else {
-               var15 = Rand.Next(5);
-               switch (var15) {
-                  case 0:
-                     var3 = "ShotChest";
-                     break;
-                  case 1:
-                     var3 = "ShotChestStep";
-                     break;
-                  case 2:
-                     var3 = "ShotLeg";
-                     break;
-                  case 3:
-                     var3 = "ShotShoulder";
-                     break;
-                  case 4:
-                     var3 = "ShotShoulderStep";
-               }
-            }
-
-            var3 = var3 + var14;
-         }
-
-         if (var2.isCriticalHit()) {
-            if ("S".equals(var14)) {
-               var3 = "ShotHeadFwd";
-            }
-
-            if ("N".equals(var14)) {
-               var3 = "ShotHeadBwd";
-            }
-
-            if (("L".equals(var14) || "R".equals(var14)) && Rand.Next(4) == 0) {
-               var3 = "ShotHeadBwd";
-            }
-         }
-
-         if (var3.contains("Head")) {
-            this.addBlood(BloodBodyPartType.Head, false, true, true);
-         } else if (var3.contains("Chest")) {
-            this.addBlood(BloodBodyPartType.Torso_Upper, !this.isCriticalHit(), this.isCriticalHit(), true);
-         } else if (var3.contains("Belly")) {
-            this.addBlood(BloodBodyPartType.Torso_Lower, !this.isCriticalHit(), this.isCriticalHit(), true);
-         } else {
-            boolean var16;
-            if (var3.contains("Leg")) {
-               var16 = Rand.Next(2) == 0;
-               if ("L".equals(var14)) {
-                  this.addBlood(var16 ? BloodBodyPartType.LowerLeg_L : BloodBodyPartType.UpperLeg_L, !this.isCriticalHit(), this.isCriticalHit(), true);
-               } else {
-                  this.addBlood(var16 ? BloodBodyPartType.LowerLeg_R : BloodBodyPartType.UpperLeg_R, !this.isCriticalHit(), this.isCriticalHit(), true);
-               }
-            } else if (var3.contains("Shoulder")) {
-               var16 = Rand.Next(2) == 0;
-               if ("L".equals(var14)) {
-                  this.addBlood(var16 ? BloodBodyPartType.ForeArm_L : BloodBodyPartType.UpperArm_L, !this.isCriticalHit(), this.isCriticalHit(), true);
-               } else {
-                  this.addBlood(var16 ? BloodBodyPartType.ForeArm_R : BloodBodyPartType.UpperArm_R, !this.isCriticalHit(), this.isCriticalHit(), true);
-               }
-            }
-         }
-      } else if (var1.getCategories().contains("Blunt")) {
-         this.addBlood(BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.UpperArm_L.index(), BloodBodyPartType.Groin.index())), false, false, true);
-      } else if (!var1.getCategories().contains("Unarmed")) {
-         this.addBlood(BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.UpperArm_L.index(), BloodBodyPartType.Groin.index())), false, true, true);
-      }
-
-      if ("ShotHeadFwd".equals(var3) && Rand.Next(2) == 0) {
-         var3 = "ShotHeadFwd02";
-      }
-
-      if (this.getEatBodyTarget() != null) {
-         if (this.getVariableBoolean("onknees")) {
-            var3 = "OnKnees";
-         } else {
-            var3 = "Eating";
-         }
-      }
-
-      if ("Floor".equalsIgnoreCase(var3) && this.isCurrentState(ZombieGetUpState.instance()) && this.isFallOnFront()) {
-         var3 = "GettingUpFront";
-      }
-
-      if (var3 != null && !"".equals(var3)) {
-         this.setHitReaction(var3);
-      } else {
-         this.setStaggerBack(true);
-         this.setHitReaction("");
-         if ("LEFT".equals(this.getPlayerAttackPosition()) || "RIGHT".equals(this.getPlayerAttackPosition())) {
-            var2.setCriticalHit(false);
-         }
-      }
-
-   }
-
    public void hitConsequences(HandWeapon var1, IsoGameCharacter var2, boolean var3, float var4, boolean var5) {
       if (!this.isOnlyJawStab() || this.isCloseKilled()) {
          super.hitConsequences(var1, var2, var3, var4, var5);
@@ -3080,12 +3619,14 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             DebugLog.Combat.debugln("Zombie #" + this.OnlineID + " got hit for " + var4);
          }
 
-         this.actionContext.reportEvent("wasHit");
+         this.getActionContext().reportEvent("wasHit");
          if (!var5) {
-            this.processHitDirection(var1, var2);
+            CombatManager.getInstance().processHit(var1, var2, this);
+            RagdollSettingsManager var6 = RagdollSettingsManager.getInstance();
+            this.setUsePhysicHitReaction(var6.usePhysicHitReaction(this));
          }
 
-         if (!GameClient.bClient || this.target == null || var2 == this.target || !(IsoUtils.DistanceToSquared(this.x, this.y, this.target.x, this.target.y) < 10.0F)) {
+         if (!GameClient.bClient || this.target == null || var2 == this.target || !(IsoUtils.DistanceToSquared(this.getX(), this.getY(), this.target.getX(), this.target.getY()) < 10.0F)) {
             this.setTarget(var2);
          }
 
@@ -3102,7 +3643,8 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
    }
 
-   public void playHurtSound() {
+   public long playHurtSound() {
+      return 0L;
    }
 
    private void checkClimbOverFenceHit() {
@@ -3121,12 +3663,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    private void checkClimbThroughWindowHit() {
       if (!this.isOnFloor()) {
          if (this.isCurrentState(ClimbThroughWindowState.instance()) && this.getVariableBoolean("ClimbWindowStarted") && !this.isVariable("ClimbWindowOutcome", "fall") && !this.getVariableBoolean("ClimbWindowFlopped")) {
-            HashMap var1 = (HashMap)this.StateMachineParams.get(ClimbThroughWindowState.instance());
-            byte var2 = 12;
-            byte var3 = 13;
-            int var4 = (Integer)var1.get(Integer.valueOf(var2));
-            int var5 = (Integer)var1.get(Integer.valueOf(var3));
-            this.climbFenceWindowHit(var4, var5);
+            ClimbThroughWindowPositioningParams var1 = ClimbThroughWindowState.instance().getPositioningParams(this);
+            if (var1 != null) {
+               this.climbFenceWindowHit(var1.endX, var1.endY);
+            }
          }
       }
    }
@@ -3134,16 +3674,16 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    private void climbFenceWindowHit(int var1, int var2) {
       if (this.getDir() == IsoDirections.W) {
          this.setX((float)var1 + 0.9F);
-         this.setLx(this.getX());
+         this.setLastX(this.getX());
       } else if (this.getDir() == IsoDirections.E) {
          this.setX((float)var1 + 0.1F);
-         this.setLx(this.getX());
+         this.setLastX(this.getX());
       } else if (this.getDir() == IsoDirections.N) {
          this.setY((float)var2 + 0.9F);
-         this.setLy(this.getY());
+         this.setLastY(this.getY());
       } else if (this.getDir() == IsoDirections.S) {
          this.setY((float)var2 + 0.1F);
-         this.setLy(this.getY());
+         this.setLastY(this.getY());
       }
 
       this.setStaggerBack(false);
@@ -3154,9 +3694,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    private boolean shouldBecomeCrawler(IsoGameCharacter var1) {
-      if (DebugOptions.instance.MultiplayerZombieCrawler.getValue()) {
-         return true;
-      } else if (this.isBecomeCrawler()) {
+      if (this.isBecomeCrawler()) {
          return true;
       } else if (this.isCrawling()) {
          return false;
@@ -3168,11 +3706,11 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          return false;
       } else {
          IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
-         if (var2 != null && !var2.isAimAtFloor() && var2.bDoShove) {
+         if (var2 != null && !var2.isAimAtFloor() && var2.isDoShove()) {
             return false;
          } else {
             byte var3 = 30;
-            if (var2 != null && var2.isAimAtFloor() && var2.bDoShove) {
+            if (var2 != null && var2.isAimAtFloor() && var2.isDoShove()) {
                if (this.isHitLegsWhileOnFloor()) {
                   var3 = 7;
                } else {
@@ -3189,8 +3727,13 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.getEmitter().stopOrTriggerSoundByName("BurningFlesh");
       this.clearAggroList();
       VirtualZombieManager.instance.RemoveZombie(this);
-      this.setPath2((PolygonalMap2.Path)null);
-      PolygonalMap2.instance.cancelRequest(this);
+      this.setPath2((Path)null);
+      if (PathfindNative.USE_NATIVE_CODE) {
+         PathfindNative.instance.cancelRequest(this);
+      } else {
+         PolygonalMap2.instance.cancelRequest(this);
+      }
+
       if (this.getFinder().progress != AStarPathFinder.PathFindProgress.notrunning && this.getFinder().progress != AStarPathFinder.PathFindProgress.found) {
          this.getFinder().progress = AStarPathFinder.PathFindProgress.notrunning;
       }
@@ -3218,13 +3761,14 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          this.zombiePacketUpdated = false;
       }
 
+      this.imposter.destroy();
       super.removeFromWorld();
    }
 
    public void resetForReuse() {
       this.setCrawler(false);
       this.initializeStates();
-      this.actionContext.setGroup(ActionGroup.getActionGroup("zombie"));
+      this.getActionContext().setGroup(ActionGroup.getActionGroup("zombie"));
       this.advancedAnimator.OnAnimDataChanged(false);
       this.setStateMachineLocked(false);
       this.setDefaultState();
@@ -3307,6 +3851,12 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.m_persistentOutfitId = 0;
       this.m_bPersistentOutfitInit = false;
       this.sharedDesc = null;
+      this.imposter.destroy();
+      if (this.hasModData()) {
+         this.getModData().wipe();
+      }
+
+      this.setInvulnerable(false);
    }
 
    public boolean wasFakeDead() {
@@ -3326,7 +3876,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public void setBecomeCrawler(boolean var1) {
-      this.bBecomeCrawler = var1;
+      if (!this.isInvulnerable()) {
+         this.bBecomeCrawler = var1;
+      }
+
    }
 
    public boolean isReanimate() {
@@ -3360,12 +3913,13 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.setFemale(var1);
       if (this.getDescriptor() != null) {
          this.getDescriptor().setFemale(var1);
+         this.getDescriptor().setVoicePrefix(var1 ? "FemaleZombie" : "MaleZombie");
       }
 
       this.SpriteName = var1 ? "KateZ" : "BobZ";
-      this.hurtSound = var1 ? "FemaleZombieHurt" : "MaleZombieHurt";
+      this.hurtSound = this.getDescriptor().getVoicePrefix() + "Hurt";
       if (this.vocalEvent != 0L) {
-         String var2 = var1 ? "FemaleZombieCombined" : "MaleZombieCombined";
+         String var2 = this.getVoiceSoundName();
          if (this.getEmitter() != null && !this.getEmitter().isPlaying(var2)) {
             this.getEmitter().stopSoundLocal(this.vocalEvent);
             this.vocalEvent = 0L;
@@ -3375,28 +3929,56 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public void addRandomBloodDirtHolesEtc() {
-      this.addBlood((BloodBodyPartType)null, false, true, false);
-      this.addDirt((BloodBodyPartType)null, OutfitRNG.Next(5, 10), false);
-      this.addRandomVisualDamages();
-      this.addRandomVisualBandages();
-      int var1 = Math.max(8 - (int)IsoWorld.instance.getWorldAgeDays() / 30, 0);
-
-      int var2;
-      for(var2 = 0; var2 < 5; ++var2) {
-         if (OutfitRNG.NextBool(var1)) {
-            this.addBlood((BloodBodyPartType)null, false, true, false);
-            this.addDirt((BloodBodyPartType)null, (Integer)null, false);
-         }
+      if (!this.isSkeleton()) {
+         this.addRandomVisualDamages();
+         this.addRandomVisualBandages();
       }
 
-      for(var2 = 0; var2 < 8; ++var2) {
-         if (OutfitRNG.NextBool(var1)) {
-            BloodBodyPartType var3 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
-            this.addHole(var3);
-            this.addBlood(var3, true, false, false);
-         }
-      }
+      float var1 = (float)SandboxOptions.instance.ClothingDegradation.getValue();
+      if (var1 != 1.0F) {
+         var1 = (var1 - 1.0F) / 2.0F;
+         var1 *= var1;
+         boolean var2 = var1 >= 1.0F;
+         this.addBlood((BloodBodyPartType)null, false, true, false);
+         int var3 = (int)(IsoWorld.instance.getWorldAgeDays() / 30.0F * var1);
+         this.addLotsOfDirt((BloodBodyPartType)null, (int)((float)(Rand.Next(5, 20) + Math.min(var3, 24)) * var1), var2);
+         int var4 = Math.max(8 - var3, 0);
+         int var5 = PZMath.clamp(var3, 5, 10);
+         var5 = (int)((float)var5 * var1);
 
+         int var6;
+         for(var6 = 0; var6 < var5; ++var6) {
+            if (OutfitRNG.NextBool(var4)) {
+               this.addBlood((BloodBodyPartType)null, false, true, false);
+            }
+
+            if (OutfitRNG.NextBool(var4 / 2)) {
+               this.addLotsOfDirt((BloodBodyPartType)null, (Integer)null, var2);
+            }
+         }
+
+         var5 = PZMath.clamp(var3, 8, 16);
+         var5 = (int)((float)var5 * var1);
+         var4 /= 2;
+
+         BloodBodyPartType var7;
+         for(var6 = 0; var6 < var5; ++var6) {
+            if (OutfitRNG.NextBool(var4)) {
+               var7 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
+               this.addHole(var7);
+               this.addBlood(var7, true, false, false);
+            }
+         }
+
+         for(var6 = 0; var6 < var5; ++var6) {
+            if (OutfitRNG.NextBool(var4)) {
+               var7 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
+               this.addHole(var7);
+               this.addLotsOfDirt(var7, 1, var2);
+            }
+         }
+
+      }
    }
 
    public void useDescriptor(SharedDescriptors.Descriptor var1) {
@@ -3422,11 +4004,11 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public int getScreenProperX(int var1) {
-      return (int)(IsoUtils.XToScreen(this.x, this.y, this.z, 0) - IsoCamera.cameras[var1].getOffX());
+      return (int)(IsoUtils.XToScreen(this.getX(), this.getY(), this.getZ(), 0) - IsoCamera.cameras[var1].getOffX());
    }
 
    public int getScreenProperY(int var1) {
-      return (int)(IsoUtils.YToScreen(this.x, this.y, this.z, 0) - IsoCamera.cameras[var1].getOffY());
+      return (int)(IsoUtils.YToScreen(this.getX(), this.getY(), this.getZ(), 0) - IsoCamera.cameras[var1].getOffY());
    }
 
    public BaseVisual getVisual() {
@@ -3474,9 +4056,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
             var2.loadItems();
             this.pendingOutfitName = var1;
          } else {
-            this.getHumanVisual().dressInNamedOutfit(var1, this.itemVisuals);
-            this.getHumanVisual().synchWithOutfit(this.getHumanVisual().getOutfit());
             UnderwearDefinition.addRandomUnderwear(this);
+            this.getDescriptor().setForename(SurvivorFactory.getRandomForename(this.isFemale()));
+            this.getHumanVisual().dressInNamedOutfit(var1, this.itemVisuals, false);
+            this.getHumanVisual().synchWithOutfit(this.getHumanVisual().getOutfit());
             this.onWornItemsChanged();
          }
       }
@@ -3498,6 +4081,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       this.wornItems.clear();
       this.getHumanVisual().dressInClothingItem(var1, this.itemVisuals);
       this.onWornItemsChanged();
+   }
+
+   public boolean onDeath_ShouldDoSplatterAndSounds(HandWeapon var1, IsoGameCharacter var2, boolean var3) {
+      return this.isReanimatedForGrappleOnly() && !this.isBeingGrappled() ? false : super.onDeath_ShouldDoSplatterAndSounds(var1, var2, var3);
    }
 
    public void onWornItemsChanged() {
@@ -3670,12 +4257,12 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          if (this.isCurrentState(WalkTowardState.instance())) {
             float var1 = this.getPathFindBehavior2().getTargetX();
             float var2 = this.getPathFindBehavior2().getTargetY();
-            if (this.DistToSquared(var1, var2) > 0.010000001F && PolygonalMap2.instance.lineClearCollide(this.x, this.y, var1, var2, (int)this.z, (IsoMovingObject)null)) {
+            if (this.DistToSquared(var1, var2) > 0.010000001F && PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1, var2, PZMath.fastfloor(this.getZ()), (IsoMovingObject)null)) {
                return false;
             }
          }
 
-         return this.isCurrentState(ZombieGetDownState.instance()) ? false : PolygonalMap2.instance.canStandAt(this.x, this.y, (int)this.z, (IsoMovingObject)null, false, true);
+         return this.isCurrentState(ZombieGetDownState.instance()) ? false : PolygonalMap2.instance.canStandAt(this.getX(), this.getY(), (int)this.getZ(), (IsoMovingObject)null, false, true);
       }
    }
 
@@ -3751,7 +4338,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    private void updateEatBodyTarget() {
-      if (this.bodyToEat != null && this.isCurrentState(ZombieIdleState.instance()) && this.DistToSquared(this.bodyToEat) <= 1.0F && (int)this.getZ() == (int)this.bodyToEat.getZ()) {
+      if (this.bodyToEat != null && this.isCurrentState(ZombieIdleState.instance()) && this.DistToSquared(this.bodyToEat) <= 1.0F && PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(this.bodyToEat.getZ())) {
          this.setEatBodyTarget(this.bodyToEat, false);
          this.bodyToEat = null;
       }
@@ -3860,7 +4447,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public boolean isSkeleton() {
-      if (Core.bDebug && DebugOptions.instance.ModelSkeleton.getValue()) {
+      if (Core.bDebug && DebugOptions.instance.Model.ForceSkeleton.getValue()) {
          this.getHumanVisual().setSkinTextureIndex(2);
          return true;
       } else {
@@ -3988,7 +4575,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       } else if (GameClient.bClient && !this.isLocal() && this.isBumped()) {
          return false;
       } else {
-         tempo.set(this.target.x - this.x, this.target.y - this.y).normalize();
+         tempo.set(this.target.getX() - this.getX(), this.target.getY() - this.getY()).normalize();
          if (tempo.getLength() == 0.0F) {
             return true;
          } else {
@@ -4033,7 +4620,7 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
          return false;
       } else {
          IsoGameCharacter var1 = (IsoGameCharacter)Type.tryCastTo(this.target, IsoGameCharacter.class);
-         if (var1 != null && (int)var1.getZ() == (int)this.getZ()) {
+         if (var1 != null && PZMath.fastfloor(var1.getZ()) == PZMath.fastfloor(this.getZ())) {
             if (var1.getVehicle() != null) {
                return false;
             } else {
@@ -4096,6 +4683,51 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    public boolean isNoTeeth() {
       return this.noTeeth;
+   }
+
+   public boolean cantBite() {
+      if (this.getWornItem("Mask") != null && !this.getWornItem("Mask").hasTag("CanEat")) {
+         return true;
+      } else if (this.getWornItem("MaskEyes") != null && !this.getWornItem("MaskEyes").hasTag("CanEat")) {
+         return true;
+      } else if (this.getWornItem("MaskFull") != null && !this.getWornItem("MaskFull").hasTag("CanEat")) {
+         return true;
+      } else if (this.getWornItem("FullHat") != null && !this.getWornItem("FullHat").hasTag("CanEat")) {
+         return true;
+      } else if (this.getWornItem("FullSuitHead") != null && !this.getWornItem("FullSuitHead").hasTag("CanEat")) {
+         return true;
+      } else {
+         ItemVisuals var1 = new ItemVisuals();
+         this.getItemVisuals(var1);
+
+         for(int var2 = 0; var2 < var1.size(); ++var2) {
+            ItemVisual var3 = (ItemVisual)var1.get(var2);
+            Item var4 = var3.getScriptItem();
+            if (var4 != null && var4.getType() == Item.Type.Clothing) {
+               if (Objects.equals(var4.getBodyLocation(), "Mask") && !var4.hasTag("CanEat")) {
+                  return true;
+               }
+
+               if (Objects.equals(var4.getBodyLocation(), "MaskEyes") && !var4.hasTag("CanEat")) {
+                  return true;
+               }
+
+               if (Objects.equals(var4.getBodyLocation(), "MaskFull") && !var4.hasTag("CanEat")) {
+                  return true;
+               }
+
+               if (Objects.equals(var4.getBodyLocation(), "FullHat") && !var4.hasTag("CanEat")) {
+                  return true;
+               }
+
+               if (Objects.equals(var4.getBodyLocation(), "FullSuitHead") && !var4.hasTag("CanEat")) {
+                  return true;
+               }
+            }
+         }
+
+         return this.isNoTeeth();
+      }
    }
 
    public void setNoTeeth(boolean var1) {
@@ -4228,6 +4860,10 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
 
    public void Kill(IsoGameCharacter var1, boolean var2) {
       if (!this.isOnKillDone()) {
+         if (GameServer.bServer) {
+            MPStatistics.onZombieWasKilled(this.isOnFire());
+         }
+
          super.Kill(var1);
          if (this.shouldDoInventory()) {
             this.DoZombieInventory();
@@ -4284,10 +4920,6 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       return this.networkAI;
    }
 
-   public boolean wasLocal() {
-      return this.getNetworkCharacterAI() == null || this.getNetworkCharacterAI().wasLocal();
-   }
-
    public boolean isLocal() {
       return super.isLocal() || !this.isRemoteZombie();
    }
@@ -4300,13 +4932,13 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
       }
    }
 
+   public boolean isSkipResolveCollision() {
+      return super.isSkipResolveCollision() || this.isCurrentState(ZombieHitReactionState.instance()) || this.isCurrentState(ZombieFallDownState.instance()) || this.isCurrentState(ZombieOnGroundState.instance()) || this.isCurrentState(StaggerBackState.instance());
+   }
+
    public void applyDamageFromVehicle(float var1, float var2) {
       this.addBlood(var1);
-      this.Health -= var2;
-      if (this.Health < 0.0F) {
-         this.Health = 0.0F;
-      }
-
+      CombatManager.getInstance().applyDamage((IsoGameCharacter)this, var2);
    }
 
    public float Hit(BaseVehicle var1, float var2, boolean var3, float var4, float var5) {
@@ -4317,12 +4949,250 @@ public final class IsoZombie extends IsoGameCharacter implements IHumanVisual {
    }
 
    public Float calcHitDir(IsoGameCharacter var1, HandWeapon var2, Vector2 var3) {
-      Float var4 = super.calcHitDir(var1, var2, var3);
+      Float var4;
       if (this.getAnimationPlayer() != null) {
          var4 = this.getAnimAngleRadians();
       }
 
+      var4 = super.calcHitDir(var1, var2, var3);
       return var4;
+   }
+
+   private void updateVisionRadius() {
+      ClimateManager var1 = ClimateManager.getInstance();
+      float var2 = var1.getRainIntensity() * 2.5F;
+      float var3 = var1.getFogIntensity() * 7.0F;
+      float var4 = 1.0F - Math.min(var1.getDayLightStrength(), var1.getAmbient());
+      float var5 = var4 * 5.0F;
+      if (this.target != null && this.target instanceof IsoPlayer && this.target.getCurrentSquare() != null) {
+         var5 = (1.0F - this.target.getCurrentSquare().getLightLevel(((IsoPlayer)this.target).getPlayerNum())) * 5.0F;
+      }
+
+      float var6 = 20.0F - Math.max(var5, var2 + var3);
+      if (this.sight == 1 || SandboxOptions.instance.Lore.Sight.getValue() == 1) {
+         var6 *= 1.75F;
+      }
+
+      if (this.sight == 3 || SandboxOptions.instance.Lore.Sight.getValue() == 3) {
+         var6 *= 0.35F;
+      }
+
+      var6 /= this.getWornItemsVisionModifier();
+      if (this.getEatBodyTarget() != null) {
+         var6 = (float)((double)var6 * 0.5);
+      }
+
+      this.VISION_RADIUS_RESULT = PZMath.clamp(var6, 10.0F, 20.0F);
+   }
+
+   public boolean shouldZombieHaveKey(boolean var1) {
+      String var2 = this.getOutfitName();
+      boolean var3 = true;
+      if (this.isSkeleton() && this.getHumanVisual() != null) {
+         return false;
+      } else if (this.getOutfitName() == null) {
+         return var3;
+      } else {
+         if (var2.contains("Inmate")) {
+            var3 = false;
+         } else if (var2.contains("Backpacker")) {
+            var3 = false;
+         } else if (var2.contains("Evacuee") && !var1) {
+            var3 = false;
+         } else if (var2.contains("Stripper")) {
+            var3 = false;
+         } else if (var2.contains("Naked")) {
+            var3 = false;
+         } else if (var2.equals("Bandit") && !var1) {
+            var3 = false;
+         } else if (var2.equals("Bathrobe")) {
+            var3 = false;
+         } else if (var2.equals("Bedroom")) {
+            var3 = false;
+         } else if (var2.equals("Hobbo")) {
+            var3 = false;
+         } else if (var2.equals("HockeyPyscho")) {
+            var3 = false;
+         } else if (var2.equals("HospitalPatient")) {
+            var3 = false;
+         } else if (var2.equals("Swimmer")) {
+            var3 = false;
+         }
+
+         return var3;
+      }
+   }
+
+   private void checkZombieEntersPlayerBuilding() {
+      IsoPlayer var1 = (IsoPlayer)Type.tryCastTo(this.target, IsoPlayer.class);
+      if (var1 != null && var1.isLocalPlayer()) {
+         if (this.getCurrentSquare() != null && this.getCurrentSquare().isCanSee(var1.PlayerIndex)) {
+            IsoBuilding var2 = this.getCurrentBuilding();
+            if (var2 != null) {
+               IsoBuilding var3 = var1.getCurrentBuilding();
+               if (var2 == var3) {
+                  Object var4 = this.getMusicIntensityEventModData("ZombieEntersPlayerBuilding");
+                  if (var4 == null) {
+                     this.setMusicIntensityEventModData("ZombieEntersPlayerBuilding", GameTime.getInstance().getWorldAgeHours());
+                     var1.triggerMusicIntensityEvent("ZombieEntersPlayerBuilding");
+                  }
+
+               }
+            }
+         }
+      }
+   }
+
+   public void doZombieSpeed() {
+      this.doZombieSpeedInternal(this.speedType);
+   }
+
+   public void doZombieSpeed(int var1) {
+      this.doZombieSpeedInternal(var1);
+   }
+
+   private void doZombieSpeedInternal(int var1) {
+      var1 = this.determineZombieSpeed(var1);
+      if (this.bCrawling) {
+         this.doCrawlerSpeed(var1);
+      } else if (SandboxOptions.instance.Lore.Speed.getValue() != 3 && var1 != 3) {
+         if (Rand.Next(3) != 0) {
+            this.doFakeShambler(var1);
+         } else if (SandboxOptions.instance.Lore.Speed.getValue() != 2 && var1 != 2) {
+            if (SandboxOptions.instance.Lore.Speed.getValue() == 1 || var1 == 1) {
+               this.doSprinter();
+            }
+         } else {
+            this.doFastShambler();
+         }
+      } else {
+         this.doShambler();
+      }
+
+   }
+
+   private void doCrawlerSpeed(int var1) {
+      this.speedMod = 0.3F;
+      this.speedMod += (float)Rand.Next(1500) / 10000.0F;
+      IsoSpriteInstance var10000 = this.def;
+      var10000.AnimFrameIncrease *= 0.8F;
+      this.doZombieSpeedInternal2(var1);
+   }
+
+   private void doSprinter() {
+      this.bLunger = true;
+      this.speedMod = 0.85F;
+      this.walkVariant = "ZombieWalk2";
+      this.speedMod += (float)Rand.Next(1500) / 10000.0F;
+      this.def.setFrameSpeedPerFrame(0.24F);
+      IsoSpriteInstance var10000 = this.def;
+      var10000.AnimFrameIncrease *= this.speedMod;
+      this.speedType = 1;
+      this.doZombieSpeedInternal2();
+   }
+
+   private void doFastShambler() {
+      this.bLunger = true;
+      this.speedMod = 0.85F;
+      this.walkVariant = "ZombieWalk2";
+      this.speedMod += (float)Rand.Next(1500) / 10000.0F;
+      this.def.setFrameSpeedPerFrame(0.24F);
+      IsoSpriteInstance var10000 = this.def;
+      var10000.AnimFrameIncrease *= this.speedMod;
+      this.speedType = 2;
+      this.doZombieSpeedInternal2();
+   }
+
+   private void doFakeShambler() {
+      this.speedMod = 0.55F;
+      this.speedMod += (float)Rand.Next(1500) / 10000.0F;
+      this.walkVariant = "ZombieWalk1";
+      this.def.setFrameSpeedPerFrame(0.24F);
+      IsoSpriteInstance var10000 = this.def;
+      var10000.AnimFrameIncrease *= this.speedMod;
+      this.doZombieSpeedInternal2();
+   }
+
+   private void doFakeShambler(int var1) {
+      this.speedMod = 0.55F;
+      this.speedMod += (float)Rand.Next(1500) / 10000.0F;
+      this.walkVariant = "ZombieWalk1";
+      this.def.setFrameSpeedPerFrame(0.24F);
+      IsoSpriteInstance var10000 = this.def;
+      var10000.AnimFrameIncrease *= this.speedMod;
+      this.doZombieSpeedInternal2(var1);
+   }
+
+   private void doShambler() {
+      this.speedMod = 0.55F;
+      this.speedMod += (float)Rand.Next(1500) / 10000.0F;
+      this.walkVariant = "ZombieWalk1";
+      this.def.setFrameSpeedPerFrame(0.24F);
+      IsoSpriteInstance var10000 = this.def;
+      var10000.AnimFrameIncrease *= this.speedMod;
+      this.speedType = 3;
+      this.doZombieSpeedInternal2();
+   }
+
+   private void doZombieSpeedInternal2() {
+      this.doZombieSpeedInternal2(this.speedType);
+   }
+
+   private void doZombieSpeedInternal2(int var1) {
+      if (var1 == 3) {
+         this.walkType = Integer.toString(Rand.Next(3) + 1);
+         this.walkType = "slow" + this.walkType;
+      } else {
+         this.walkType = Integer.toString(Rand.Next(5) + 1);
+      }
+
+      if (var1 == 1) {
+         this.setTurnDelta(1.0F);
+         this.walkType = "sprint" + this.walkType;
+      }
+
+      this.speedType = var1;
+   }
+
+   private int determineZombieSpeed(int var1) {
+      if (var1 != -1) {
+         return var1;
+      } else {
+         var1 = SandboxOptions.instance.Lore.Speed.getValue();
+         if (this.inactive) {
+            var1 = 3;
+         } else if (var1 == 4) {
+            if (Rand.Next(100) < SandboxOptions.instance.Lore.SprinterPercentage.getValue()) {
+               var1 = 1;
+            } else {
+               var1 = Rand.Next(2) + 2;
+            }
+         }
+
+         return var1;
+      }
+   }
+
+   public String getLastHitPart() {
+      return this.lastHitPart == null ? null : this.lastHitPart.toString();
+   }
+
+   public boolean shouldDressInRandomOutfit() {
+      return this.bDressInRandomOutfit;
+   }
+
+   public String getOutfitName() {
+      if (this.shouldDressInRandomOutfit()) {
+         ModelManager.instance.dressInRandomOutfit(this);
+      }
+
+      if (this.getHumanVisual() != null) {
+         HumanVisual var1 = this.getHumanVisual();
+         Outfit var2 = var1.getOutfit();
+         return var2 == null ? null : var2.m_Name;
+      } else {
+         return null;
+      }
    }
 
    private static class Aggro {

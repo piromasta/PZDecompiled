@@ -2,52 +2,32 @@ package zombie.randomizedWorld.randomizedVehicleStory;
 
 import java.util.ArrayList;
 import java.util.List;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.Vector2;
+import zombie.iso.zones.Zone;
 import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
 
 public final class RVSUtilityVehicle extends RandomizedVehicleStoryBase {
-   private ArrayList<String> tools = null;
-   private ArrayList<String> carpenterTools = null;
    private Params params = new Params();
 
    public RVSUtilityVehicle() {
       this.name = "Utility Vehicle";
       this.minZoneWidth = 8;
       this.minZoneHeight = 9;
-      this.setChance(7);
-      this.tools = new ArrayList();
-      this.tools.add("Base.PickAxe");
-      this.tools.add("Base.Shovel");
-      this.tools.add("Base.Shovel2");
-      this.tools.add("Base.Hammer");
-      this.tools.add("Base.LeadPipe");
-      this.tools.add("Base.PipeWrench");
-      this.tools.add("Base.Sledgehammer");
-      this.tools.add("Base.Sledgehammer2");
-      this.carpenterTools = new ArrayList();
-      this.carpenterTools.add("Base.Hammer");
-      this.carpenterTools.add("Base.NailsBox");
-      this.carpenterTools.add("Base.Plank");
-      this.carpenterTools.add("Base.Plank");
-      this.carpenterTools.add("Base.Plank");
-      this.carpenterTools.add("Base.Screwdriver");
-      this.carpenterTools.add("Base.Saw");
-      this.carpenterTools.add("Base.Saw");
-      this.carpenterTools.add("Base.Woodglue");
+      this.setChance(70);
    }
 
-   public void randomizeVehicleStory(IsoMetaGrid.Zone var1, IsoChunk var2) {
+   public void randomizeVehicleStory(Zone var1, IsoChunk var2) {
       this.callVehicleStorySpawner(var1, var2, 0.0F);
    }
 
-   public void doUtilityVehicle(IsoMetaGrid.Zone var1, IsoChunk var2, String var3, String var4, String var5, Integer var6, String var7, ArrayList<String> var8, int var9, boolean var10) {
+   public void doUtilityVehicle(Zone var1, IsoChunk var2, String var3, String var4, String var5, Integer var6, String var7, ArrayList<String> var8, int var9, boolean var10) {
       this.params.zoneName = var3;
       this.params.scriptName = var4;
       this.params.outfits = var5;
@@ -58,11 +38,11 @@ public final class RVSUtilityVehicle extends RandomizedVehicleStoryBase {
       this.params.addTrailer = var10;
    }
 
-   public boolean initVehicleStorySpawner(IsoMetaGrid.Zone var1, IsoChunk var2, boolean var3) {
+   public boolean initVehicleStorySpawner(Zone var1, IsoChunk var2, boolean var3) {
       int var4 = Rand.Next(0, 7);
       switch (var4) {
          case 0:
-            this.doUtilityVehicle(var1, var2, (String)null, "Base.PickUpTruck", "ConstructionWorker", 0, "ConstructionWorker", this.tools, Rand.Next(0, 3), true);
+            this.doUtilityVehicle(var1, var2, (String)null, "Base.VanUtility", "ConstructionWorker", 0, "ConstructionWorker", this.getUtilityToolClutter(), Rand.Next(0, 3), true);
             break;
          case 1:
             this.doUtilityVehicle(var1, var2, "police", (String)null, "Police", (Integer)null, (String)null, (ArrayList)null, 0, false);
@@ -74,7 +54,7 @@ public final class RVSUtilityVehicle extends RandomizedVehicleStoryBase {
             this.doUtilityVehicle(var1, var2, "ranger", (String)null, "Ranger", (Integer)null, (String)null, (ArrayList)null, 0, true);
             break;
          case 4:
-            this.doUtilityVehicle(var1, var2, "mccoy", (String)null, "McCoys", 0, "Carpenter", this.carpenterTools, Rand.Next(2, 6), true);
+            this.doUtilityVehicle(var1, var2, "carpenter", (String)null, "ConstructionWorker", 0, "Carpenter", this.getCarpentryToolClutter(), Rand.Next(2, 6), true);
             break;
          case 5:
             this.doUtilityVehicle(var1, var2, "postal", (String)null, "Postal", (Integer)null, (String)null, (ArrayList)null, 0, false);
@@ -115,15 +95,15 @@ public final class RVSUtilityVehicle extends RandomizedVehicleStoryBase {
       IsoGridSquare var3 = var2.square;
       if (var3 != null) {
          float var4 = var2.z;
-         IsoMetaGrid.Zone var5 = (IsoMetaGrid.Zone)var1.getParameter("zone", IsoMetaGrid.Zone.class);
+         Zone var5 = (Zone)var1.getParameter("zone", Zone.class);
          BaseVehicle var6 = (BaseVehicle)var1.getParameter("vehicle1", BaseVehicle.class);
          switch (var2.id) {
             case "tool":
                if (var6 != null) {
-                  float var9 = PZMath.max(var2.position.x - (float)var3.x, 0.001F);
+                  float var12 = PZMath.max(var2.position.x - (float)var3.x, 0.001F);
                   float var10 = PZMath.max(var2.position.y - (float)var3.y, 0.001F);
                   float var11 = 0.0F;
-                  var3.AddWorldInventoryItem((String)PZArrayUtil.pickRandom((List)this.params.items), var9, var10, var11);
+                  ItemSpawner.spawnItem((String)PZArrayUtil.pickRandom((List)this.params.items), var3, var12, var10, var11);
                }
                break;
             case "trailer":
@@ -134,7 +114,13 @@ public final class RVSUtilityVehicle extends RandomizedVehicleStoryBase {
             case "vehicle1":
                var6 = this.addVehicle(var5, var2.position.x, var2.position.y, var4, var2.direction, this.params.zoneName, this.params.scriptName, (Integer)null, this.params.vehicleDistrib);
                if (var6 != null) {
-                  this.addZombiesOnVehicle(Rand.Next(2, 5), this.params.outfits, this.params.femaleChance, var6);
+                  var6.setAlarmed(false);
+                  String var9 = this.params.outfits;
+                  if (var6.getZombieType() != null) {
+                     var9 = var6.getRandomZombieType();
+                  }
+
+                  this.addZombiesOnVehicle(Rand.Next(2, 5), var9, this.params.femaleChance, var6);
                }
          }
 

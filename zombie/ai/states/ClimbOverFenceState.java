@@ -18,9 +18,9 @@ import zombie.characters.BodyDamage.BodyPart;
 import zombie.characters.BodyDamage.BodyPartType;
 import zombie.characters.Moodles.MoodleType;
 import zombie.characters.skills.PerkFactory;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.debug.DebugOptions;
 import zombie.iso.IsoDirections;
@@ -69,55 +69,67 @@ public final class ClimbOverFenceState extends State {
    public static final int TRIP_METAL_BARS = 8;
    public static final int TRIP_WINDOW = 9;
 
-   public ClimbOverFenceState() {
-   }
-
    public static ClimbOverFenceState instance() {
       return _instance;
    }
 
+   private ClimbOverFenceState() {
+      this.addAnimEventListener("CheckAttack", this::OnAnimEvent_CheckAttack);
+      this.addAnimEventListener("VaultSprintFallLanded", this::OnAnimEvent_VaultSprintFallLanded);
+      this.addAnimEventListener("FallenOnKnees", this::OnAnimEvent_FallenOnKnees);
+      this.addAnimEventListener("OnFloor", this::OnAnimEvent_OnFloor);
+      this.addAnimEventListener("PlayFenceSound", this::OnAnimEvent_PlayFenceSound);
+      this.addAnimEventListener("PlayerVoiceSound", this::OnAnimEvent_PlayVoiceSound);
+      this.addAnimEventListener("PlayTripSound", this::OnAnimEvent_PlayTripSound);
+      this.addAnimEventListener("SetCollidable", this::OnAnimEvent_SetCollidable);
+      this.addAnimEventListener("SetState", this::OnAnimEvent_SetState);
+      this.addAnimEventListener("VaultOverStarted", this::OnAnimEvent_VaultOverStarted);
+   }
+
    public void enter(IsoGameCharacter var1) {
+      IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       var1.setVariable("FenceLungeX", 0.0F);
       var1.setVariable("FenceLungeY", 0.0F);
-      HashMap var2 = var1.getStateMachineParams(this);
+      HashMap var3 = var1.getStateMachineParams(this);
       var1.setIgnoreMovement(true);
       Stats var10000;
-      if (var2.get(PARAM_RUN) == Boolean.TRUE) {
+      if (var3.get(PARAM_RUN) == Boolean.TRUE) {
          var1.setVariable("VaultOverRun", true);
          var10000 = var1.getStats();
          var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce * 300.0);
-      } else if (var2.get(PARAM_SPRINT) == Boolean.TRUE) {
+      } else if (var3.get(PARAM_SPRINT) == Boolean.TRUE) {
          var1.setVariable("VaultOverSprint", true);
          var10000 = var1.getStats();
          var10000.endurance = (float)((double)var10000.endurance - ZomboidGlobals.RunningEnduranceReduce * 700.0);
       }
 
-      boolean var3 = var2.get(PARAM_COUNTER) == Boolean.TRUE;
+      boolean var4 = var3.get(PARAM_COUNTER) == Boolean.TRUE;
       var1.setVariable("ClimbingFence", true);
       var1.setVariable("ClimbFenceStarted", false);
       var1.setVariable("ClimbFenceFinished", false);
-      var1.setVariable("ClimbFenceOutcome", var3 ? "obstacle" : "success");
+      var1.setVariable("ClimbFenceOutcome", var4 ? "obstacle" : "success");
       var1.clearVariable("ClimbFenceFlopped");
       if ((var1.getVariableBoolean("VaultOverRun") || var1.getVariableBoolean("VaultOverSprint")) && this.shouldFallAfterVaultOver(var1)) {
          var1.setVariable("ClimbFenceOutcome", "fall");
       }
 
-      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
-      if (!var3 && var4 != null && var4.shouldDoFenceLunge()) {
+      IsoZombie var5 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      if (!var4 && var5 != null && var5.shouldDoFenceLunge()) {
          var1.setVariable("ClimbFenceOutcome", "lunge");
-         this.setLungeXVars(var4);
+         this.setLungeXVars(var5);
       }
 
-      if (var2.get(PARAM_SOLID_FLOOR) == Boolean.FALSE) {
+      if (var3.get(PARAM_SOLID_FLOOR) == Boolean.FALSE) {
          var1.setVariable("ClimbFenceOutcome", "falling");
       }
 
-      if (!(var1 instanceof IsoZombie) && var2.get(PARAM_SHEET_ROPE) == Boolean.TRUE) {
+      if (!(var1 instanceof IsoZombie) && var3.get(PARAM_SHEET_ROPE) == Boolean.TRUE) {
          var1.setVariable("ClimbFenceOutcome", "rope");
       }
 
-      if (var1 instanceof IsoPlayer && ((IsoPlayer)var1).isLocalPlayer()) {
-         ((IsoPlayer)var1).dirtyRecalcGridStackTime = 20.0F;
+      if (var2 != null && var2.isLocalPlayer()) {
+         var2.dirtyRecalcGridStackTime = 20.0F;
+         var2.triggerMusicIntensityEvent("HopFence");
       }
 
    }
@@ -129,8 +141,8 @@ public final class ClimbOverFenceState extends State {
          var1.setVariable("FenceLungeY", 0.0F);
          float var3 = 0.0F;
          Vector2 var4 = var1.getForwardDirection();
-         PZMath.SideOfLine var5 = PZMath.testSideOfLine(var1.x, var1.y, var1.x + var4.x, var1.y + var4.y, var2.x, var2.y);
-         float var6 = (float)Math.acos((double)var1.getDotWithForwardDirection(var2.x, var2.y));
+         PZMath.SideOfLine var5 = PZMath.testSideOfLine(var1.getX(), var1.getY(), var1.getX() + var4.x, var1.getY() + var4.y, var2.getX(), var2.getY());
+         float var6 = (float)Math.acos((double)var1.getDotWithForwardDirection(var2.getX(), var2.getY()));
          float var7 = PZMath.clamp(PZMath.radToDeg(var6), 0.0F, 90.0F);
          switch (var5) {
             case Left:
@@ -169,10 +181,10 @@ public final class ClimbOverFenceState extends State {
          var7 = 0.05F;
          if (var3 != IsoDirections.N && var3 != IsoDirections.S) {
             if (var3 == IsoDirections.W || var3 == IsoDirections.E) {
-               var1.y = var1.ny = PZMath.clamp(var1.y, (float)var5 + var7, (float)(var5 + 1) - var7);
+               var1.setY(var1.setNextY(PZMath.clamp(var1.getY(), (float)var5 + var7, (float)(var5 + 1) - var7)));
             }
          } else {
-            var1.x = var1.nx = PZMath.clamp(var1.x, (float)var4 + var7, (float)(var4 + 1) - var7);
+            var1.setX(var1.setNextX(PZMath.clamp(var1.getX(), (float)var4 + var7, (float)(var4 + 1) - var7)));
          }
       }
 
@@ -193,11 +205,11 @@ public final class ClimbOverFenceState extends State {
                ++var7;
          }
 
-         if ((int)var1.x != (int)var7 && (var3 == IsoDirections.W || var3 == IsoDirections.E)) {
+         if (PZMath.fastfloor(var1.getX()) != PZMath.fastfloor(var7) && (var3 == IsoDirections.W || var3 == IsoDirections.E)) {
             this.slideX(var1, var7);
          }
 
-         if ((int)var1.y != (int)var8 && (var3 == IsoDirections.N || var3 == IsoDirections.S)) {
+         if (PZMath.fastfloor(var1.getY()) != PZMath.fastfloor(var8) && (var3 == IsoDirections.N || var3 == IsoDirections.S)) {
             this.slideY(var1, var8);
          }
       }
@@ -209,11 +221,16 @@ public final class ClimbOverFenceState extends State {
          var1.setFallOnFront(var9);
       }
 
+      if (var1.getVariableBoolean("ClimbFenceStarted") && var1.isVariable("ClimbFenceOutcome", "fall")) {
+         var1.setFallTime(Math.max(var1.getFallTime(), 2.1F));
+      }
+
    }
 
    public void exit(IsoGameCharacter var1) {
       HashMap var2 = var1.getStateMachineParams(this);
-      if (var1 instanceof IsoPlayer && "fall".equals(var1.getVariableString("ClimbFenceOutcome"))) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      if (var3 != null && "fall".equals(var1.getVariableString("ClimbFenceOutcome"))) {
          var1.setSprinting(false);
       }
 
@@ -222,20 +239,21 @@ public final class ClimbOverFenceState extends State {
       var1.clearVariable("ClimbFenceOutcome");
       var1.clearVariable("ClimbFenceStarted");
       var1.clearVariable("ClimbFenceFlopped");
+      var1.clearVariable("PlayerVoiceSound");
       var1.ClearVariable("VaultOverSprint");
       var1.ClearVariable("VaultOverRun");
       var1.setIgnoreMovement(false);
-      IsoZombie var3 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
-      if (var3 != null) {
-         var3.AllowRepathDelay = 0.0F;
+      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      if (var4 != null) {
+         var4.AllowRepathDelay = 0.0F;
          if (var2.get(PARAM_PREV_STATE) == PathFindState.instance()) {
             if (var1.getPathFindBehavior2().getTargetChar() == null) {
                var1.setVariable("bPathfind", true);
                var1.setVariable("bMoving", false);
-            } else if (var3.isTargetLocationKnown()) {
+            } else if (var4.isTargetLocationKnown()) {
                var1.pathToCharacter(var1.getPathFindBehavior2().getTargetChar());
-            } else if (var3.LastTargetSeenX != -1) {
-               var1.pathToLocation(var3.LastTargetSeenX, var3.LastTargetSeenY, var3.LastTargetSeenZ);
+            } else if (var4.LastTargetSeenX != -1) {
+               var1.pathToLocation(var4.LastTargetSeenX, var4.LastTargetSeenY, var4.LastTargetSeenZ);
             }
          } else if (var2.get(PARAM_PREV_STATE) == WalkTowardState.instance() || var2.get(PARAM_PREV_STATE) == WalkTowardNetworkState.instance()) {
             var1.setVariable("bPathFind", false);
@@ -243,115 +261,121 @@ public final class ClimbOverFenceState extends State {
          }
       }
 
-      if (var1 instanceof IsoZombie) {
-         ((IsoZombie)var1).networkAI.isClimbing = false;
+      if (var4 != null) {
+         var4.networkAI.isClimbing = false;
       }
 
    }
 
-   public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
-      HashMap var3 = var1.getStateMachineParams(this);
-      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
-      if (var2.m_EventName.equalsIgnoreCase("CheckAttack") && var4 != null && var4.target instanceof IsoGameCharacter) {
-         ((IsoGameCharacter)var4.target).attackFromWindowsLunge(var4);
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("ActiveAnimFinishing")) {
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("VaultSprintFallLanded")) {
-         var1.dropHandItems();
-         var1.fallenOnKnees();
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("FallenOnKnees")) {
-         var1.fallenOnKnees();
-      }
-
-      IsoObject var5;
-      if (var2.m_EventName.equalsIgnoreCase("OnFloor")) {
-         var3.put(PARAM_ZOMBIE_ON_FLOOR, Boolean.parseBoolean(var2.m_ParameterValue));
-         if (Boolean.parseBoolean(var2.m_ParameterValue)) {
-            this.setLungeXVars((IsoZombie)var1);
-            var5 = this.getFence(var1);
-            if (this.countZombiesClimbingOver(var5) >= 2) {
-               var5.Damage = (short)(var5.Damage - Rand.Next(7, 12) / (this.isMetalFence(var5) ? 2 : 1));
-               if (var5.Damage <= 0) {
-                  IsoDirections var6 = (IsoDirections)Type.tryCastTo(var3.get(PARAM_DIR), IsoDirections.class);
-                  var5.destroyFence(var6);
-               }
-            }
-
-            var1.setVariable("ClimbFenceFlopped", true);
-         }
-      }
-
-      long var7;
-      ParameterCharacterMovementSpeed var9;
-      int var12;
-      if (var2.m_EventName.equalsIgnoreCase("PlayFenceSound")) {
-         if (!SoundManager.instance.isListenerInRange(var1.getX(), var1.getY(), 10.0F)) {
-            return;
-         }
-
-         var5 = this.getFence(var1);
-         if (var5 == null) {
-            return;
-         }
-
-         var12 = this.getFenceType(var5);
-         var7 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
-         if (var1 instanceof IsoPlayer) {
-            var9 = ((IsoPlayer)var1).getParameterCharacterMovementSpeed();
-            var1.getEmitter().setParameterValue(var7, var9.getParameterDescription(), var9.calculateCurrentValue());
-         }
-
-         var1.getEmitter().setParameterValue(var7, FMODManager.instance.getParameterDescription("FenceTypeLow"), (float)var12);
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("PlayTripSound")) {
-         if (!SoundManager.instance.isListenerInRange(var1.getX(), var1.getY(), 10.0F)) {
-            return;
-         }
-
-         var5 = this.getFence(var1);
-         if (var5 == null) {
-            return;
-         }
-
-         var12 = this.getTripType(var5);
-         var7 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
-         var9 = ((IsoPlayer)var1).getParameterCharacterMovementSpeed();
-         var1.getEmitter().setParameterValue(var7, var9.getParameterDescription(), var9.calculateCurrentValue());
-         var1.getEmitter().setParameterValue(var7, FMODManager.instance.getParameterDescription("TripObstacleType"), (float)var12);
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("SetCollidable")) {
-         var3.put(PARAM_COLLIDABLE, Boolean.parseBoolean(var2.m_ParameterValue));
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("SetState")) {
-         if (var4 == null) {
-            return;
-         }
-
-         try {
-            ParameterZombieState.State var11 = ParameterZombieState.State.valueOf(var2.m_ParameterValue);
-            var4.parameterZombieState.setState(var11);
-         } catch (IllegalArgumentException var10) {
-         }
-      }
-
-      if (var2.m_EventName.equalsIgnoreCase("VaultOverStarted")) {
-         if (var1 instanceof IsoPlayer && !((IsoPlayer)var1).isLocalPlayer()) {
-            return;
-         }
-
+   private void OnAnimEvent_VaultOverStarted(IsoGameCharacter var1) {
+      if (!(var1 instanceof IsoPlayer) || ((IsoPlayer)var1).isLocalPlayer()) {
          if (var1.isVariable("ClimbFenceOutcome", "fall")) {
             var1.reportEvent("EventFallClimb");
             var1.setVariable("BumpDone", true);
             var1.setFallOnFront(true);
          }
+
+      }
+   }
+
+   private void OnAnimEvent_SetState(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      var1.getStateMachineParams(this);
+      if (var4 != null) {
+         try {
+            ParameterZombieState.State var6 = ParameterZombieState.State.valueOf(var2.m_ParameterValue);
+            var4.parameterZombieState.setState(var6);
+         } catch (IllegalArgumentException var7) {
+         }
+
+      }
+   }
+
+   private void OnAnimEvent_SetCollidable(IsoGameCharacter var1, AnimEvent var2) {
+      HashMap var3 = var1.getStateMachineParams(this);
+      var3.put(PARAM_COLLIDABLE, Boolean.parseBoolean(var2.m_ParameterValue));
+   }
+
+   private void OnAnimEvent_PlayTripSound(IsoGameCharacter var1, AnimEvent var2) {
+      if (SoundManager.instance.isListenerInRange(var1.getX(), var1.getY(), 10.0F)) {
+         IsoObject var3 = this.getFence(var1);
+         if (var3 != null) {
+            int var4 = this.getTripType(var3);
+            long var5 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
+            ParameterCharacterMovementSpeed var7 = ((IsoPlayer)var1).getParameterCharacterMovementSpeed();
+            var1.getEmitter().setParameterValue(var5, var7.getParameterDescription(), var7.calculateCurrentValue());
+            var1.getEmitter().setParameterValue(var5, FMODManager.instance.getParameterDescription("TripObstacleType"), (float)var4);
+         }
+      }
+   }
+
+   private void OnAnimEvent_PlayVoiceSound(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      var1.getStateMachineParams(this);
+      if (!var1.getVariableBoolean("PlayerVoiceSound")) {
+         if (var3 != null) {
+            var1.setVariable("PlayerVoiceSound", true);
+            var3.playerVoiceSound(var2.m_ParameterValue);
+         }
+      }
+   }
+
+   private void OnAnimEvent_PlayFenceSound(IsoGameCharacter var1, AnimEvent var2) {
+      if (SoundManager.instance.isListenerInRange(var1.getX(), var1.getY(), 10.0F)) {
+         IsoObject var3 = this.getFence(var1);
+         if (var3 != null) {
+            if (var1 instanceof IsoZombie) {
+               long var8 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
+               int var6 = this.getTripType(var3);
+               var1.getEmitter().setParameterValue(var8, FMODManager.instance.getParameterDescription("TripObstacleType"), (float)var6);
+            } else {
+               int var4 = this.getFenceType(var3);
+               long var5 = var1.getEmitter().playSoundImpl(var2.m_ParameterValue, (IsoObject)null);
+               if (var1 instanceof IsoPlayer) {
+                  ParameterCharacterMovementSpeed var7 = ((IsoPlayer)var1).getParameterCharacterMovementSpeed();
+                  var1.getEmitter().setParameterValue(var5, var7.getParameterDescription(), var7.calculateCurrentValue());
+               }
+
+               var1.getEmitter().setParameterValue(var5, FMODManager.instance.getParameterDescription("FenceTypeLow"), (float)var4);
+            }
+         }
+      }
+   }
+
+   private void OnAnimEvent_OnFloor(IsoGameCharacter var1, AnimEvent var2) {
+      HashMap var3 = var1.getStateMachineParams(this);
+      var3.put(PARAM_ZOMBIE_ON_FLOOR, Boolean.parseBoolean(var2.m_ParameterValue));
+      if (Boolean.parseBoolean(var2.m_ParameterValue)) {
+         this.setLungeXVars((IsoZombie)var1);
+         IsoObject var4 = this.getFence(var1);
+         if (this.countZombiesClimbingOver(var4) >= 2) {
+            var4.Damage = (short)(var4.Damage - Rand.Next(7, 12) / (this.isMetalFence(var4) ? 2 : 1));
+            if (var4.Damage <= 0) {
+               IsoDirections var5 = (IsoDirections)Type.tryCastTo(var3.get(PARAM_DIR), IsoDirections.class);
+               var4.destroyFence(var5);
+            }
+         }
+
+         var1.setVariable("ClimbFenceFlopped", true);
+      }
+
+   }
+
+   private void OnAnimEvent_FallenOnKnees(IsoGameCharacter var1) {
+      var1.fallenOnKnees();
+   }
+
+   private void OnAnimEvent_VaultSprintFallLanded(IsoGameCharacter var1) {
+      var1.dropHandItems();
+      var1.fallenOnKnees();
+   }
+
+   private void OnAnimEvent_CheckAttack(IsoGameCharacter var1) {
+      IsoZombie var2 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+      if (var2 != null && var2.target instanceof IsoGameCharacter) {
+         ((IsoGameCharacter)var2.target).attackFromWindowsLunge(var2);
       }
 
    }
@@ -360,18 +384,18 @@ public final class ClimbOverFenceState extends State {
       boolean var3 = var1.getPath2() != null;
       boolean var4 = var1 instanceof IsoPlayer;
       if (var3 && var4) {
-         var2.turnDelta = Math.max(var2.turnDelta, 10.0F);
+         var2.setMaxTurnDelta(2.0F);
       }
 
    }
 
    public boolean isIgnoreCollide(IsoGameCharacter var1, int var2, int var3, int var4, int var5, int var6, int var7) {
       HashMap var8 = var1.getStateMachineParams(this);
-      int var9 = (Integer)var8.get(PARAM_START_X);
-      int var10 = (Integer)var8.get(PARAM_START_Y);
-      int var11 = (Integer)var8.get(PARAM_END_X);
-      int var12 = (Integer)var8.get(PARAM_END_Y);
-      int var13 = (Integer)var8.get(PARAM_Z);
+      int var9 = (Integer)var8.getOrDefault(PARAM_START_X, 0);
+      int var10 = (Integer)var8.getOrDefault(PARAM_START_Y, 0);
+      int var11 = (Integer)var8.getOrDefault(PARAM_END_X, 0);
+      int var12 = (Integer)var8.getOrDefault(PARAM_END_Y, 0);
+      int var13 = (Integer)var8.getOrDefault(PARAM_Z, 0);
       if (var13 == var4 && var13 == var7) {
          int var14 = PZMath.min(var9, var11);
          int var15 = PZMath.min(var10, var12);
@@ -388,17 +412,17 @@ public final class ClimbOverFenceState extends State {
    }
 
    private void slideX(IsoGameCharacter var1, float var2) {
-      float var3 = 0.05F * GameTime.getInstance().getMultiplier() / 1.6F;
-      var3 = var2 > var1.x ? Math.min(var3, var2 - var1.x) : Math.max(-var3, var2 - var1.x);
-      var1.x += var3;
-      var1.nx = var1.x;
+      float var3 = 0.05F * GameTime.getInstance().getThirtyFPSMultiplier();
+      var3 = var2 > var1.getX() ? Math.min(var3, var2 - var1.getX()) : Math.max(-var3, var2 - var1.getX());
+      var1.setX(var1.getX() + var3);
+      var1.setNextX(var1.getX());
    }
 
    private void slideY(IsoGameCharacter var1, float var2) {
-      float var3 = 0.05F * GameTime.getInstance().getMultiplier() / 1.6F;
-      var3 = var2 > var1.y ? Math.min(var3, var2 - var1.y) : Math.max(-var3, var2 - var1.y);
-      var1.y += var3;
-      var1.ny = var1.y;
+      float var3 = 0.05F * GameTime.getInstance().getThirtyFPSMultiplier();
+      var3 = var2 > var1.getY() ? Math.min(var3, var2 - var1.getY()) : Math.max(-var3, var2 - var1.getY());
+      var1.setY(var1.getY() + var3);
+      var1.setNextY(var1.getY());
    }
 
    private IsoObject getFence(IsoGameCharacter var1) {
@@ -513,6 +537,7 @@ public final class ClimbOverFenceState extends State {
 
          if (var1.getMoodles() != null) {
             var2 += (float)(var1.getMoodles().getMoodleLevel(MoodleType.Endurance) * 10);
+            var2 += (float)(var1.getMoodles().getMoodleLevel(MoodleType.Drunk) * 10);
             var2 += (float)(var1.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 13);
             var2 += (float)(var1.getMoodles().getMoodleLevel(MoodleType.Pain) * 5);
          }

@@ -7,7 +7,7 @@ import zombie.audio.parameters.ParameterZombieState;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoMovingObject;
@@ -40,7 +40,6 @@ public final class ZombieHitReactionState extends State {
 
    public void execute(IsoGameCharacter var1) {
       HashMap var2 = var1.getStateMachineParams(this);
-      var1.setOnFloor(((IsoZombie)var1).isKnockedDown());
       var2.put(2, (Float)var2.get(2) + GameTime.getInstance().getMultiplier());
       if (var2.get(1) == Boolean.TRUE) {
          if (!var1.isHitFromBehind()) {
@@ -59,11 +58,14 @@ public final class ZombieHitReactionState extends State {
       var2.collideWhileHit = true;
       if (var2.target != null) {
          var2.AllowRepathDelay = 0.0F;
-         var2.spotted(var2.target, true);
+         var2.setTarget(var2.target);
       }
 
       var2.setStaggerBack(false);
-      var2.setHitReaction("");
+      if (var1.isAlive()) {
+         var2.setHitReaction("");
+      }
+
       var2.setEatBodyTarget((IsoMovingObject)null, false);
       var2.setSitAgainstWall(false);
       var2.setShootable(true);
@@ -120,7 +122,7 @@ public final class ZombieHitReactionState extends State {
          var4.playBloodSplatterSound();
 
          for(int var6 = 0; var6 < 10; ++var6) {
-            var4.getCurrentSquare().getChunk().addBloodSplat(var4.x + Rand.Next(-0.5F, 0.5F), var4.y + Rand.Next(-0.5F, 0.5F), var4.z, Rand.Next(8));
+            var4.getCurrentSquare().getChunk().addBloodSplat(var4.getX() + Rand.Next(-0.5F, 0.5F), var4.getY() + Rand.Next(-0.5F, 0.5F), var4.getZ(), Rand.Next(8));
             if (Rand.Next(5) == 0) {
                new IsoZombieGiblets(IsoZombieGiblets.GibletType.B, var4.getCell(), var4.getX(), var4.getY(), var4.getZ() + 0.3F, Rand.Next(-0.2F, 0.2F) * 1.5F, Rand.Next(-0.2F, 0.2F) * 1.5F);
             } else {

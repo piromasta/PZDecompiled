@@ -7,7 +7,7 @@ import java.util.Iterator;
 import java.util.Map;
 import zombie.ZomboidFileSystem;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.input.GameKeyboard;
 import zombie.iso.Vector2;
 import zombie.ui.TextManager;

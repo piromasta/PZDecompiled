@@ -178,6 +178,15 @@ public final class SGlobalObjects {
       }
    }
 
+   public static void OnModDataChangeItself(String var0, IsoObject var1) {
+      if (!GameClient.bClient && var1 != null) {
+         SGlobalObjectSystem var2 = getSystemByName(var0);
+         if (var2 != null) {
+            var2.OnModDataChangeItself(var1);
+         }
+      }
+   }
+
    public static void Reset() {
       for(int var0 = 0; var0 < systems.size(); ++var0) {
          SGlobalObjectSystem var1 = (SGlobalObjectSystem)systems.get(var0);

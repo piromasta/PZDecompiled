@@ -1,12 +1,14 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Role;
 import zombie.commands.AltCommandArgs;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
 import zombie.core.raknet.UdpConnection;
@@ -24,11 +26,11 @@ import zombie.network.GameServer;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_NoClip"
 )
-@RequiredRight(
-   requiredRights = 62
+@RequiredCapability(
+   requiredCapability = Capability.ToggleNoclipHimself
 )
 public class NoClipCommand extends CommandBase {
-   public NoClipCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public NoClipCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -38,9 +40,11 @@ public class NoClipCommand extends CommandBase {
       String var3 = this.getCommandArg(1);
       if (this.getCommandArgsCount() == 2 || this.getCommandArgsCount() == 1 && !var2.equals("-true") && !var2.equals("-false")) {
          var1 = var2;
-         if (this.connection.accessLevel == 2 && !var2.equals(this.getExecutorUsername())) {
-            return "An Observer can only toggle noclip on himself";
+         if (this.connection != null && !this.connection.role.haveCapability(Capability.ToggleNoclipEveryone)) {
+            return "Not enough rights";
          }
+      } else if (this.connection != null && !this.connection.role.haveCapability(Capability.ToggleNoclipHimself)) {
+         return "Not enough rights";
       }
 
       boolean var4 = false;

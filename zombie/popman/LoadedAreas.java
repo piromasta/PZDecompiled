@@ -1,6 +1,7 @@
 package zombie.popman;
 
 import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.core.raknet.UdpConnection;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoWorld;
@@ -8,7 +9,7 @@ import zombie.iso.Vector3;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
 
-final class LoadedAreas {
+public final class LoadedAreas {
    public static final int MAX_AREAS = 64;
    public int[] areas = new int[256];
    public int count;
@@ -29,14 +30,14 @@ final class LoadedAreas {
          if (this.serverCells) {
             for(var1 = 0; var1 < ServerMap.instance.LoadedCells.size(); ++var1) {
                ServerMap.ServerCell var2 = (ServerMap.ServerCell)ServerMap.instance.LoadedCells.get(var1);
-               this.add(var2.WX * 5, var2.WY * 5, 5, 5);
+               this.add(var2.WX * 8, var2.WY * 8, 8, 8);
             }
          } else {
             int var3;
             for(var1 = 0; var1 < GameServer.Players.size(); ++var1) {
                IsoPlayer var6 = (IsoPlayer)GameServer.Players.get(var1);
-               var3 = (int)var6.x / 10;
-               int var4 = (int)var6.y / 10;
+               var3 = PZMath.fastfloor(var6.getX()) / 8;
+               int var4 = PZMath.fastfloor(var6.getY()) / 8;
                this.add(var3 - var6.OnlineChunkGridWidth / 2, var4 - var6.OnlineChunkGridWidth / 2, var6.OnlineChunkGridWidth, var6.OnlineChunkGridWidth);
             }
 
@@ -46,8 +47,8 @@ final class LoadedAreas {
                for(var3 = 0; var3 < 4; ++var3) {
                   Vector3 var9 = var7.connectArea[var3];
                   if (var9 != null) {
-                     int var5 = (int)var9.z;
-                     this.add((int)var9.x - var5 / 2, (int)var9.y - var5 / 2, var5, var5);
+                     int var5 = PZMath.fastfloor(var9.z);
+                     this.add(PZMath.fastfloor(var9.x) - var5 / 2, PZMath.fastfloor(var9.y) - var5 / 2, var5, var5);
                   }
                }
             }
@@ -134,17 +135,17 @@ final class LoadedAreas {
    }
 
    public boolean isOnEdge(int var1, int var2) {
-      if (var1 % 10 != 0 && (var1 + 1) % 10 != 0 && var2 % 10 != 0 && (var2 + 1) % 10 != 0) {
+      if (PZMath.coordmodulo(var1, 8) != 0 && PZMath.coordmodulo(var1 + 1, 8) != 0 && PZMath.coordmodulo(var2, 8) != 0 && PZMath.coordmodulo(var2 + 1, 8) != 0) {
          return false;
       } else {
          int var3 = 0;
 
          while(var3 < this.count) {
             int var4 = var3 * 4;
-            int var5 = this.areas[var4++] * 10;
-            int var6 = this.areas[var4++] * 10;
-            int var7 = var5 + this.areas[var4++] * 10;
-            int var8 = var6 + this.areas[var4++] * 10;
+            int var5 = this.areas[var4++] * 8;
+            int var6 = this.areas[var4++] * 8;
+            int var7 = var5 + this.areas[var4++] * 8;
+            int var8 = var6 + this.areas[var4++] * 8;
             boolean var9 = var1 >= var5 && var1 < var7;
             boolean var10 = var2 >= var6 && var2 < var8;
             if (!var9 || var2 != var6 && var2 != var8 - 1) {

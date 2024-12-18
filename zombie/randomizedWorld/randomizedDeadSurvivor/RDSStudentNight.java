@@ -1,7 +1,7 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.RoomDef;
@@ -18,10 +18,12 @@ public final class RDSStudentNight extends RandomizedDeadSurvivorBase {
       this.name = "Student Night";
       this.setChance(4);
       this.setMaximumDays(60);
-      this.otherItems.add("Base.Cigarettes");
-      this.otherItems.add("Base.WhiskeyFull");
+      this.otherItems.add("Base.CigaretteSingle");
+      this.otherItems.add("Base.Whiskey");
       this.otherItems.add("Base.Wine");
       this.otherItems.add("Base.Wine2");
+      this.otherItems.add("Base.WineBox");
+      this.otherItems.add("Base.CigaretteRollingPapers");
       this.items.add("Base.Crisps");
       this.items.add("Base.Crisps2");
       this.items.add("Base.Crisps3");
@@ -48,14 +50,16 @@ public final class RDSStudentNight extends RandomizedDeadSurvivorBase {
    public void randomizeDeadSurvivor(BuildingDef var1) {
       RoomDef var2 = this.getLivingRoomOrKitchen(var1);
       this.addZombies(var1, Rand.Next(2, 5), (String)null, (Integer)null, var2);
-      RoomDef var3 = this.getRoom(var1, "bedroom");
-      this.addZombies(var1, 1, "Naked", 0, var3);
-      this.addItemsOnGround(var3, true);
-      this.addZombies(var1, 1, "Naked", 100, var3);
-      this.addItemsOnGround(var3, false);
-      this.addRandomItemsOnGround(var2, this.items, Rand.Next(3, 7));
-      this.addRandomItemsOnGround(var2, this.otherItems, Rand.Next(2, 6));
-      var1.bAlarmed = false;
+      RoomDef var3 = this.getRoomNoKids(var1, "bedroom");
+      if (var3 != null) {
+         this.addZombies(var1, 1, "Naked", 0, var3);
+         this.addItemsOnGround(var3, true);
+         this.addZombies(var1, 1, "Naked", 100, var3);
+         this.addItemsOnGround(var3, false);
+         this.addRandomItemsOnGround(var2, this.items, Rand.Next(3, 7));
+         this.addRandomItemsOnGround(var2, this.otherItems, Rand.Next(2, 6));
+         var1.bAlarmed = false;
+      }
    }
 
    private void addItemsOnGround(RoomDef var1, boolean var2) {

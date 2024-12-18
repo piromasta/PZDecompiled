@@ -37,6 +37,8 @@ public class ChunkChecksum {
             stringBuilder.append(File.separator);
             stringBuilder.append(Core.GameSaveWorld);
             stringBuilder.append(File.separator);
+            stringBuilder.append("map");
+            stringBuilder.append(File.separator);
             stringBuilder.append("map_");
             stringBuilder.append(var0);
             stringBuilder.append("_");

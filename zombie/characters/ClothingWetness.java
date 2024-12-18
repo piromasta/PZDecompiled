@@ -45,14 +45,16 @@ public final class ClothingWetness {
       for(var1 = itemVisuals.size() - 1; var1 >= 0; --var1) {
          ItemVisual var2 = (ItemVisual)itemVisuals.get(var1);
          InventoryItem var3 = var2.getInventoryItem();
-         ArrayList var4 = var3.getBloodClothingType();
-         if (var4 != null) {
-            coveredParts.clear();
-            BloodClothingType.getCoveredParts(var4, coveredParts);
+         if (var3 != null) {
+            ArrayList var4 = var3.getBloodClothingType();
+            if (var4 != null) {
+               coveredParts.clear();
+               BloodClothingType.getCoveredParts(var4, coveredParts);
 
-            for(int var5 = 0; var5 < coveredParts.size(); ++var5) {
-               BloodBodyPartType var6 = (BloodBodyPartType)coveredParts.get(var5);
-               this.clothing[var6.index()].add(var3);
+               for(int var5 = 0; var5 < coveredParts.size(); ++var5) {
+                  BloodBodyPartType var6 = (BloodBodyPartType)coveredParts.get(var5);
+                  this.clothing[var6.index()].add(var3);
+               }
             }
          }
       }
@@ -81,6 +83,11 @@ public final class ClothingWetness {
       for(int var5 = 0; var5 < itemVisuals.size(); ++var5) {
          InventoryItem var6 = ((ItemVisual)itemVisuals.get(var5)).getInventoryItem();
          if (var6 instanceof Clothing) {
+            if (var6 != null && var6.hasTag("BreakWhenWet") && var6.getWetness() >= 100.0F) {
+               var6.setCondition(0);
+               this.character.onWornItemsChanged();
+            }
+
             if (var6.getBloodClothingType() == null) {
                ((Clothing)var6).updateWetness(true);
             } else {
@@ -103,7 +110,7 @@ public final class ClothingWetness {
       boolean var16;
       float var17;
       boolean var28;
-      label282:
+      label293:
       for(var7 = 0; var7 < this.clothing.length; ++var7) {
          var8 = BloodBodyPartType.FromIndex(var7);
          var9 = BodyPartType.FromIndex(var7);
@@ -156,7 +163,7 @@ public final class ClothingWetness {
                      Clothing var20;
                      while(true) {
                         if (var18 < 0) {
-                           continue label282;
+                           continue label293;
                         }
 
                         int var10002;
@@ -183,7 +190,7 @@ public final class ClothingWetness {
                                     var17 = PZMath.max(0.0F, 1.0F - var20.getWaterResistance());
                                     if (var17 <= 0.0F) {
                                        var10002 = this.perspiringParts[var7]--;
-                                       continue label282;
+                                       continue label293;
                                     }
                                  }
                                  break;

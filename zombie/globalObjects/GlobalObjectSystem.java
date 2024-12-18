@@ -4,6 +4,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.Lua.LuaManager;
+import zombie.iso.IsoGridSquare;
 
 public abstract class GlobalObjectSystem {
    private static final ArrayDeque<ArrayList<GlobalObject>> objectListPool = new ArrayDeque();
@@ -52,6 +53,10 @@ public abstract class GlobalObjectSystem {
 
    public final GlobalObject getObjectAt(int var1, int var2, int var3) {
       return this.lookup.getObjectAt(var1, var2, var3);
+   }
+
+   public final GlobalObject getObjectAt(IsoGridSquare var1) {
+      return this.lookup.getObjectAt(var1.getX(), var1.getY(), var1.getZ());
    }
 
    public final boolean hasObjectsInChunk(int var1, int var2) {

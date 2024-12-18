@@ -1,6 +1,7 @@
 package zombie.ui;
 
 import zombie.core.Color;
+import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
 import zombie.input.Mouse;
 
@@ -114,7 +115,7 @@ public final class ScrollBar extends UIElement {
 
       if (var5) {
          this.BeingDragged = true;
-         this.MouseDragStartPos = Mouse.getY();
+         this.MouseDragStartPos = Mouse.getYA();
          this.ButtonDragStartPos = this.ButtonOffset;
       } else {
          this.ButtonOffset = (float)(var3 - (double)((this.ButtonInsideLength + (float)(this.ButtonEndLength * 2)) / 2.0F));
@@ -131,11 +132,15 @@ public final class ScrollBar extends UIElement {
       return Boolean.FALSE;
    }
 
+   public boolean isBeingDragged() {
+      return this.BeingDragged;
+   }
+
    public void update() {
       super.update();
       int var1;
       if (this.BeingDragged) {
-         var1 = this.MouseDragStartPos - Mouse.getY();
+         var1 = this.MouseDragStartPos - Mouse.getYA();
          this.ButtonOffset = this.ButtonDragStartPos - (float)var1;
          if (this.ButtonOffset < 0.0F) {
             this.ButtonOffset = 0.0F;
@@ -178,7 +183,7 @@ public final class ScrollBar extends UIElement {
                int var8 = var1 * (this.ParentTextBox.Lines.size() - var2);
                float var9 = (float)var7 / (float)var8;
                float var10 = this.ButtonOffset / var9;
-               this.ParentTextBox.TopLineIndex = (int)(var10 / (float)var1);
+               this.ParentTextBox.TopLineIndex = PZMath.min((int)(var10 / (float)var1), this.ParentTextBox.Lines.size() - var2 - 1);
             } else {
                this.ButtonOffset = 0.0F;
                this.ButtonInsideLength = (float)(this.getHeight().intValue() - this.ButtonEndLength * 2);

@@ -2,12 +2,14 @@ package zombie.iso;
 
 import gnu.trove.map.hash.THashMap;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.core.textures.Texture;
 import zombie.inventory.ItemContainer;
+import zombie.iso.objects.IsoFeedingTrough;
 import zombie.iso.objects.IsoStove;
 import zombie.network.GameServer;
 import zombie.util.LocationRNG;
@@ -17,6 +19,7 @@ public class ContainerOverlays {
    public static final ContainerOverlays instance = new ContainerOverlays();
    private static final ArrayList<ContainerOverlayEntry> tempEntries = new ArrayList();
    private final THashMap<String, ContainerOverlay> overlayMap = new THashMap();
+   private final HashMap<String, ArrayList<String>> overlayNameToUnderlyingName = new HashMap();
 
    public ContainerOverlays() {
    }
@@ -95,6 +98,37 @@ public class ContainerOverlays {
          }
 
          this.overlayMap.put(var4.name, var4);
+         Iterator var11 = var4.entries.iterator();
+
+         while(var11.hasNext()) {
+            ContainerOverlayEntry var12 = (ContainerOverlayEntry)var11.next();
+            String var13 = var12.fewItems;
+            ArrayList var14;
+            if (var13 != null) {
+               var14 = (ArrayList)this.overlayNameToUnderlyingName.get(var13);
+               if (var14 == null) {
+                  var14 = new ArrayList();
+                  this.overlayNameToUnderlyingName.put(var13, var14);
+               }
+
+               if (!var14.contains(var4.name)) {
+                  var14.add(var4.name);
+               }
+            }
+
+            var13 = var12.manyItems;
+            if (var13 != null) {
+               var14 = (ArrayList)this.overlayNameToUnderlyingName.get(var13);
+               if (var14 == null) {
+                  var14 = new ArrayList();
+                  this.overlayNameToUnderlyingName.put(var13, var14);
+               }
+
+               if (!var14.contains(var4.name)) {
+                  var14.add(var4.name);
+               }
+            }
+         }
       }
    }
 
@@ -116,40 +150,46 @@ public class ContainerOverlays {
       return var1 != null && var1.sprite != null && var1.sprite.name != null && this.overlayMap.containsKey(var1.sprite.name);
    }
 
+   public ArrayList<String> getUnderlyingSpriteNames(String var1) {
+      return (ArrayList)this.overlayNameToUnderlyingName.get(var1);
+   }
+
    public void updateContainerOverlaySprite(IsoObject var1) {
       if (var1 != null) {
          if (!(var1 instanceof IsoStove)) {
-            IsoGridSquare var2 = var1.getSquare();
-            if (var2 != null) {
-               String var3 = null;
-               ItemContainer var4 = var1.getContainer();
-               if (var1.sprite != null && var1.sprite.name != null && var4 != null && var4.getItems() != null && !var4.isEmpty()) {
-                  ContainerOverlay var5 = (ContainerOverlay)this.overlayMap.get(var1.sprite.name);
-                  if (var5 != null) {
-                     String var6 = "other";
-                     if (var2.getRoom() != null) {
-                        var6 = var2.getRoom().getName();
-                     }
+            if (!(var1 instanceof IsoFeedingTrough)) {
+               IsoGridSquare var2 = var1.getSquare();
+               if (var2 != null) {
+                  String var3 = null;
+                  ItemContainer var4 = var1.getContainer();
+                  if (var1.sprite != null && var1.sprite.name != null && var4 != null && var4.getItems() != null && !var4.isEmpty()) {
+                     ContainerOverlay var5 = (ContainerOverlay)this.overlayMap.get(var1.sprite.name);
+                     if (var5 != null) {
+                        String var6 = "other";
+                        if (var2.getRoom() != null) {
+                           var6 = var2.getRoom().getName();
+                        }
 
-                     ContainerOverlayEntry var7 = var5.pickRandom(var6, var2.x, var2.y, var2.z);
-                     if (var7 == null) {
-                        var7 = var5.pickRandom("other", var2.x, var2.y, var2.z);
-                     }
+                        ContainerOverlayEntry var7 = var5.pickRandom(var6, var2.x, var2.y, var2.z);
+                        if (var7 == null) {
+                           var7 = var5.pickRandom("other", var2.x, var2.y, var2.z);
+                        }
 
-                     if (var7 != null) {
-                        var3 = var7.manyItems;
-                        if (var7.fewItems != null && var4.getItems().size() < 7) {
-                           var3 = var7.fewItems;
+                        if (var7 != null) {
+                           var3 = var7.manyItems;
+                           if (var7.fewItems != null && var4.getItems().size() < 7) {
+                              var3 = var7.fewItems;
+                           }
                         }
                      }
                   }
-               }
 
-               if (!StringUtils.isNullOrWhitespace(var3) && !GameServer.bServer && Texture.getSharedTexture(var3) == null) {
-                  var3 = null;
-               }
+                  if (!StringUtils.isNullOrWhitespace(var3) && !GameServer.bServer && Texture.getSharedTexture(var3) == null) {
+                     var3 = null;
+                  }
 
-               var1.setOverlaySprite(var3);
+                  var1.setOverlaySprite(var3);
+               }
             }
          }
       }
@@ -157,6 +197,7 @@ public class ContainerOverlays {
 
    public void Reset() {
       this.overlayMap.clear();
+      this.overlayNameToUnderlyingName.clear();
    }
 
    private static final class ContainerOverlay {

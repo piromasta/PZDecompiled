@@ -4,9 +4,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import zombie.GameWindow;
 import zombie.core.Color;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.random.Rand;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
 import zombie.inventory.InventoryItem;
@@ -48,7 +48,9 @@ public class Moveable extends InventoryItem {
    }
 
    public String getName() {
-      if ("Moveable Object".equals(this.movableFullName)) {
+      if (this.getScriptItem() != null && this.hasTag("UseDisplayName")) {
+         return this.getScriptItem().getDisplayName();
+      } else if ("Moveable Object".equals(this.movableFullName)) {
          return this.name;
       } else if (this.movableFullName.equals(this.name)) {
          return Translator.getMoveableDisplayName(this.customNameFull);
@@ -115,10 +117,10 @@ public class Moveable extends InventoryItem {
                      this.worldSprite = var1;
                      if (var2.getSpriteGrid() != null) {
                         this.spriteGrid = var2.getSpriteGrid();
-                        int var12 = var2.getSpriteGrid().getSpriteIndex(var2);
-                        this.isMultiGridAnchor = var12 == 0;
+                        this.isMultiGridAnchor = var2 == this.spriteGrid.getAnchorSprite();
                      }
 
+                     this.getCustomIcon(var1);
                      return true;
                   }
 
@@ -147,11 +149,11 @@ public class Moveable extends InventoryItem {
                   this.customNameFull = var5;
                   if (var2.getSpriteGrid() != null) {
                      this.spriteGrid = var2.getSpriteGrid();
-                     int var13 = var2.getSpriteGrid().getSpriteIndex(var2);
-                     int var14 = var2.getSpriteGrid().getSpriteCount();
-                     this.isMultiGridAnchor = var13 == 0;
+                     int var12 = this.spriteGrid.getSpriteIndex(var2);
+                     int var13 = this.spriteGrid.getSpriteCount();
+                     this.isMultiGridAnchor = var2 == this.spriteGrid.getAnchorSprite();
                      if (!var3.Is("ForceSingleItem")) {
-                        this.name = this.name + " (" + (var13 + 1) + "/" + var14 + ")";
+                        this.name = this.name + " (" + (var12 + 1) + "/" + var13 + ")";
                      } else {
                         this.name = this.name + " (1/1)";
                      }
@@ -215,12 +217,57 @@ public class Moveable extends InventoryItem {
                }
             }
          } catch (Exception var10) {
-            System.out.println("Error in Moveable item: " + var10.getMessage());
+            DebugLog.Moveable.debugln("Error in Moveable item: " + var10.getMessage());
          }
 
-         System.out.println("Warning: Moveable not valid");
+         DebugLog.Moveable.warn("Warning: Moveable not valid for " + var1);
          return false;
       }
+   }
+
+   public void getCustomIcon(String var1) {
+      if (this.texture == null || this.texture.getName() == null || this.texture.getName().equals("Item_Moveable_object") || this.texture.getName().equals("Question_On")) {
+         IsoSprite var2 = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(var1);
+         PropertyContainer var3 = var2.getProperties();
+         Texture var4 = null;
+         String var5 = null;
+         var5 = var1;
+         if (var1 != null) {
+            var4 = Texture.getSharedTexture(var1);
+            if (var4 != null) {
+               var4 = var4.splitIcon();
+            }
+         }
+
+         if (var4 == null) {
+            if (!var3.Is("MoveType")) {
+               var5 = "Item_Moveable_object";
+            } else if (var3.Val("MoveType").equals("WallObject")) {
+               var5 = "Item_Moveable_wallobject";
+            } else if (var3.Val("MoveType").equals("WindowObject")) {
+               var5 = "Item_Moveable_windowobject";
+            } else if (var3.Val("MoveType").equals("Window")) {
+               var5 = "Item_Moveable_window";
+            } else if (var3.Val("MoveType").equals("FloorTile")) {
+               var5 = "Item_Moveable_floortile";
+            } else if (var3.Val("MoveType").equals("FloorRug")) {
+               var5 = "Item_Moveable_floorrug";
+            } else if (var3.Val("MoveType").equals("Vegitation")) {
+               var5 = "Item_Moveable_vegitation";
+            }
+
+            if (var5 != null) {
+               var4 = Texture.getSharedTexture(var5);
+            }
+         }
+
+         if (var4 == null) {
+            var4 = Texture.getSharedTexture("media/inventory/Question_On.png");
+         }
+
+         this.setTexture(var4);
+      }
+
    }
 
    public boolean isLight() {

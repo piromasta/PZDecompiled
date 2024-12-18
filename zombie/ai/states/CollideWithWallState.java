@@ -7,6 +7,7 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.iso.IsoDirections;
+import zombie.util.Type;
 
 public final class CollideWithWallState extends State {
    private static final CollideWithWallState _instance = new CollideWithWallState();
@@ -48,16 +49,31 @@ public final class CollideWithWallState extends State {
    }
 
    public void exit(IsoGameCharacter var1) {
+      var1.clearVariable("PlayerVoiceSound");
       var1.setCollideType((String)null);
       var1.setIgnoreMovement(false);
    }
 
    public void animEvent(IsoGameCharacter var1, AnimEvent var2) {
+      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       if ("PlayCollideSound".equalsIgnoreCase(var2.m_EventName)) {
-         long var3 = var1.playSound(var2.m_ParameterValue);
-         ParameterCharacterMovementSpeed var5 = ((IsoPlayer)var1).getParameterCharacterMovementSpeed();
-         var1.getEmitter().setParameterValue(var3, var5.getParameterDescription(), (float)ParameterCharacterMovementSpeed.MovementType.Sprint.label);
-         var1.getEmitter().setParameterValue(var3, FMODManager.instance.getParameterDescription("TripObstacleType"), 7.0F);
+         long var4 = var1.playSound(var2.m_ParameterValue);
+         ParameterCharacterMovementSpeed var6 = ((IsoPlayer)var1).getParameterCharacterMovementSpeed();
+         var1.getEmitter().setParameterValue(var4, var6.getParameterDescription(), (float)ParameterCharacterMovementSpeed.MovementType.Sprint.label);
+         var1.getEmitter().setParameterValue(var4, FMODManager.instance.getParameterDescription("TripObstacleType"), 7.0F);
+      }
+
+      if (var2.m_EventName.equalsIgnoreCase("PlayerVoiceSound")) {
+         if (var1.getVariableBoolean("PlayerVoiceSound")) {
+            return;
+         }
+
+         if (var3 == null) {
+            return;
+         }
+
+         var1.setVariable("PlayerVoiceSound", true);
+         var3.playerVoiceSound(var2.m_ParameterValue);
       }
 
    }

@@ -9,6 +9,7 @@ import zombie.erosion.season.ErosionIceQueen;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class NatureBush extends ErosionCategory {
    private final int[][] soilRef = new int[][]{{11, 11, 12, 13}, {5, 5, 7, 8, 11, 11, 12, 13, 11, 11, 12, 13}, {5, 5, 7, 8, 5, 5, 7, 8, 11, 11, 12, 13}, {1, 1, 4, 5}, {5, 5, 7, 8, 1, 1, 4, 5, 1, 1, 4, 5}, {5, 5, 7, 8, 5, 5, 7, 8, 1, 1, 4, 5}, {9, 10, 14, 15}, {5, 5, 7, 8, 9, 10, 14, 15, 9, 10, 14, 15}, {5, 5, 7, 8, 5, 5, 7, 8, 9, 10, 14, 15}, {2, 3, 16, 16}, {5, 5, 7, 8, 2, 3, 16, 16, 2, 3, 16, 16}, {5, 5, 7, 8, 5, 5, 7, 8, 2, 3, 16, 16}};
@@ -19,61 +20,61 @@ public final class NatureBush extends ErosionCategory {
    public NatureBush() {
    }
 
-   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5) {
-      int var6 = var1.getObjects().size();
-      boolean var7 = false;
+   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6) {
+      int var7 = var1.getObjects().size();
+      boolean var8 = false;
 
-      for(int var8 = var6 - 1; var8 >= 1; --var8) {
-         IsoObject var9 = (IsoObject)var1.getObjects().get(var8);
-         IsoSprite var10 = var9.getSprite();
-         if (var10 != null && var10.getName() != null) {
-            int var11;
-            if (var10.getName().startsWith("vegetation_foliage")) {
-               var11 = var2.soil;
-               if (var11 < 0 || var11 >= this.soilRef.length) {
-                  var11 = var2.rand(var1.x, var1.y, this.soilRef.length);
+      for(int var9 = var7 - 1; var9 >= 1; --var9) {
+         IsoObject var10 = (IsoObject)var1.getObjects().get(var9);
+         IsoSprite var11 = var10.getSprite();
+         if (var11 != null && var11.getName() != null) {
+            int var12;
+            if (var11.getName().startsWith("vegetation_foliage")) {
+               var12 = var2.soil;
+               if (var12 < 0 || var12 >= this.soilRef.length) {
+                  var12 = var2.rand(var1.x, var1.y, this.soilRef.length);
                }
 
-               int[] var12 = this.soilRef[var11];
-               int var13 = var2.noiseMainInt;
-               CategoryData var14 = (CategoryData)this.setCatModData(var2);
-               var14.gameObj = var12[var2.rand(var1.x, var1.y, var12.length)] - 1;
-               var14.maxStage = (int)Math.floor((double)((float)var13 / 60.0F));
-               var14.stage = var14.maxStage;
-               var14.spawnTime = 0;
-               var1.RemoveTileObject(var9);
-               var7 = true;
-            }
-
-            if (var10.getName().startsWith("f_bushes_1_")) {
-               var11 = Integer.parseInt(var10.getName().replace("f_bushes_1_", ""));
+               int[] var13 = this.soilRef[var12];
+               int var14 = var2.noiseMainInt;
                CategoryData var15 = (CategoryData)this.setCatModData(var2);
-               var15.gameObj = var11 % 16;
-               var15.maxStage = 1;
+               var15.gameObj = var13[var2.rand(var1.x, var1.y, var13.length)] - 1;
+               var15.maxStage = (int)Math.floor((double)((float)var14 / 60.0F));
                var15.stage = var15.maxStage;
                var15.spawnTime = 0;
-               var1.RemoveTileObject(var9);
-               var7 = true;
+               var1.RemoveTileObject(var10);
+               var8 = true;
+            }
+
+            if (var11.getName().startsWith("f_bushes_1_")) {
+               var12 = Integer.parseInt(var11.getName().replace("f_bushes_1_", ""));
+               CategoryData var16 = (CategoryData)this.setCatModData(var2);
+               var16.gameObj = var12 % 16;
+               var16.maxStage = 1;
+               var16.stage = var16.maxStage;
+               var16.spawnTime = 0;
+               var1.RemoveTileObject(var10);
+               var8 = true;
             }
          }
       }
 
-      return var7;
+      return var8;
    }
 
-   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6) {
-      if (var1.getObjects().size() > (var5 ? 2 : 1)) {
+   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7) {
+      if (var1.getObjects().size() > (var6 ? 2 : 1)) {
          return false;
       } else if (var2.soil >= 0 && var2.soil < this.soilRef.length) {
-         int[] var7 = this.soilRef[var2.soil];
-         int var8 = var2.noiseMainInt;
-         int var9 = var2.rand(var1.x, var1.y, 101);
-         if (var9 < this.spawnChance[var8]) {
-            CategoryData var10 = (CategoryData)this.setCatModData(var2);
-            var10.gameObj = var7[var2.rand(var1.x, var1.y, var7.length)] - 1;
-            var10.maxStage = (int)Math.floor((double)((float)var8 / 60.0F));
-            var10.stage = 0;
-            var10.spawnTime = 100 - var8;
+         int[] var8 = this.soilRef[var2.soil];
+         int var9 = var2.noiseMainInt;
+         int var10 = var2.rand(var1.x, var1.y, 101);
+         if (var10 < this.spawnChance[var9]) {
+            CategoryData var11 = (CategoryData)this.setCatModData(var2);
+            var11.gameObj = var8[var2.rand(var1.x, var1.y, var8.length)] - 1;
+            var11.maxStage = (int)Math.floor((double)((float)var9 / 60.0F));
+            var11.stage = 0;
+            var11.spawnTime = 100 - var9;
             return true;
          } else {
             return false;

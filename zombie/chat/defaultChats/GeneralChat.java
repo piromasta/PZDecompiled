@@ -12,7 +12,6 @@ import zombie.chat.ChatUtility;
 import zombie.core.Color;
 import zombie.core.Translator;
 import zombie.core.network.ByteBufferWriter;
-import zombie.debug.DebugLog;
 import zombie.network.GameServer;
 import zombie.network.chat.ChatType;
 
@@ -71,11 +70,10 @@ public class GeneralChat extends ChatBase {
             GameServer.discordBot.sendMessage(var1.getAuthor(), var1.getText());
             var3 = this.members.iterator();
 
-            label28:
             while(true) {
                do {
                   if (!var3.hasNext()) {
-                     break label28;
+                     return;
                   }
 
                   var4 = (Short)var3.next();
@@ -88,7 +86,6 @@ public class GeneralChat extends ChatBase {
          super.sendMessageToChatMembers(var1);
       }
 
-      DebugLog.log("New message '" + var1 + "' was sent members of chat '" + this.getID() + "'");
    }
 
    public void sendToDiscordGeneralChatDisabled() {

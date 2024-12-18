@@ -10,6 +10,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Stack;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
@@ -87,6 +88,7 @@ public final class TraitFactory {
       public boolean prof;
       public Texture texture = null;
       private boolean removeInMP = false;
+      public Stack<String> FreeTraitStack = new Stack();
       private List<String> freeRecipes = new ArrayList();
       public ArrayList<String> MutuallyExclusive = new ArrayList(0);
       public HashMap<PerkFactory.Perk, Integer> XPBoostMap = new HashMap();
@@ -97,6 +99,16 @@ public final class TraitFactory {
          } else {
             DebugLog.General.warn("invalid perk passed to Trait.addXPBoost trait=%s perk=%s", this.name, var1);
          }
+      }
+
+      public void addFreeTrait(String var1) {
+         this.FreeTraitStack.add(var1);
+      }
+
+      public ArrayList<String> getFreeTraits() {
+         ArrayList var1 = new ArrayList();
+         var1.addAll(this.FreeTraitStack);
+         return var1;
       }
 
       public List<String> getFreeRecipes() {
@@ -153,7 +165,7 @@ public final class TraitFactory {
                var1 = -var1;
             }
 
-            return var2 + (new Integer(var1)).toString();
+            return var2 + Integer.toString(var1);
          }
       }
 

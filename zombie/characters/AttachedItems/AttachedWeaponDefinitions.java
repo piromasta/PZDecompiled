@@ -7,16 +7,19 @@ import java.util.Map;
 import se.krka.kahlua.j2se.KahluaTableImpl;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
+import zombie.SandboxOptions;
 import zombie.Lua.LuaManager;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characters.IsoZombie;
 import zombie.core.Core;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.population.Outfit;
 import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
+import zombie.inventory.ItemPickerJava;
 import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoWorld;
 import zombie.scripting.ScriptManager;
@@ -90,40 +93,59 @@ public final class AttachedWeaponDefinitions {
       }
    }
 
+   public void alwaysAddARandomAttachedWeapon(IsoZombie var1) {
+      if (!"Tutorial".equals(Core.getInstance().getGameMode())) {
+         this.checkDirty();
+         if (!this.m_definitions.isEmpty()) {
+            ArrayList var2 = AttachedWeaponDefinitions.L_addRandomAttachedWeapon.definitions;
+            var2.clear();
+            var2.addAll(this.m_definitions);
+            AttachedWeaponDefinition var3 = this.pickRandomInList(var2, var1);
+            if (var3 != null) {
+               var2.remove(var3);
+               this.addAttachedWeapon(var3, var1);
+            }
+         }
+      }
+   }
+
    private void addAttachedWeapon(AttachedWeaponDefinition var1, IsoZombie var2) {
       String var3 = (String)OutfitRNG.pickRandom(var1.weapons);
-      InventoryItem var4 = InventoryItemFactory.CreateItem(var3);
-      if (var4 != null) {
-         if (var4 instanceof HandWeapon) {
-            ((HandWeapon)var4).randomizeBullets();
-         }
-
-         var4.setCondition(OutfitRNG.Next(Math.max(2, var4.getConditionMax() - 5), var4.getConditionMax()));
-         var2.setAttachedItem((String)OutfitRNG.pickRandom(var1.weaponLocation), var4);
-         if (var1.ensureItem != null && !this.outfitHasItem(var2, var1.ensureItem)) {
-            Item var5 = ScriptManager.instance.FindItem(var1.ensureItem);
-            if (var5 != null && var5.getClothingItemAsset() != null) {
-               var2.getHumanVisual().addClothingItem(var2.getItemVisuals(), var5);
-            } else {
-               var2.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem(var1.ensureItem));
+      if (!SandboxOptions.instance.RemoveZombieLoot.getValue() || ItemPickerJava.getLootModifier(var3) != 0.0F) {
+         InventoryItem var4 = InventoryItemFactory.CreateItem(var3);
+         if (var4 != null) {
+            if (var4 instanceof HandWeapon) {
+               ((HandWeapon)var4).randomizeBullets();
             }
-         }
 
-         if (!var1.bloodLocations.isEmpty()) {
-            for(int var7 = 0; var7 < var1.bloodLocations.size(); ++var7) {
-               BloodBodyPartType var6 = (BloodBodyPartType)var1.bloodLocations.get(var7);
-               var2.addBlood(var6, true, true, true);
-               var2.addBlood(var6, true, true, true);
-               var2.addBlood(var6, true, true, true);
-               if (var1.addHoles) {
-                  var2.addHole(var6);
-                  var2.addHole(var6);
-                  var2.addHole(var6);
-                  var2.addHole(var6);
+            var4.setConditionNoSound(OutfitRNG.Next(Math.max(2, var4.getConditionMax() - 5), var4.getConditionMax()));
+            var2.setAttachedItem((String)OutfitRNG.pickRandom(var1.weaponLocation), var4);
+            if (var1.ensureItem != null && !this.outfitHasItem(var2, var1.ensureItem)) {
+               Item var5 = ScriptManager.instance.FindItem(var1.ensureItem);
+               if (var5 != null && var5.getClothingItemAsset() != null) {
+                  var2.getHumanVisual().addClothingItem(var2.getItemVisuals(), var5);
+               } else {
+                  var2.addItemToSpawnAtDeath(InventoryItemFactory.CreateItem(var1.ensureItem));
                }
             }
-         }
 
+            if (!var1.bloodLocations.isEmpty()) {
+               float var8 = Math.max((float)Rand.Next(100) / 100.0F, (float)Rand.Next(100) / 100.0F);
+               var8 = Math.max(var8, (float)Rand.Next(100) / 100.0F);
+               var4.setBloodLevel(var8);
+
+               for(int var6 = 0; var6 < var1.bloodLocations.size(); ++var6) {
+                  BloodBodyPartType var7 = (BloodBodyPartType)var1.bloodLocations.get(var6);
+                  var2.addBlood(var7, true, true, true);
+                  var2.addBlood(var7, true, true, true);
+                  var2.addBlood(var7, true, true, true);
+                  if (var1.addHoles) {
+                     var2.addHole(var7, true);
+                  }
+               }
+            }
+
+         }
       }
    }
 
@@ -195,7 +217,7 @@ public final class AttachedWeaponDefinitions {
       this.m_outfitDefinitions.clear();
       KahluaTableImpl var1 = (KahluaTableImpl)LuaManager.env.rawget("AttachedWeaponDefinitions");
       if (var1 != null) {
-         this.m_chanceOfAttachedWeapon = var1.rawgetInt("chanceOfAttachedWeapon");
+         this.m_chanceOfAttachedWeapon = SandboxOptions.instance.Lore.ChanceOfAttachedWeapon.getValue();
          Iterator var2 = var1.delegate.entrySet().iterator();
 
          while(true) {

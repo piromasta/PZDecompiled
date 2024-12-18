@@ -1,6 +1,7 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -23,37 +24,40 @@ public final class RBSchool extends RandomizedBuildingBase {
                         int var9 = Rand.Next(0, 8);
                         switch (var9) {
                            case 0:
-                              var6.AddWorldInventoryItem("Pen", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Pen", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 1:
-                              var6.AddWorldInventoryItem("Pencil", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Pencil", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 2:
-                              var6.AddWorldInventoryItem("Crayons", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Crayons", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 3:
-                              var6.AddWorldInventoryItem("RedPen", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("RedPen", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 4:
-                              var6.AddWorldInventoryItem("BluePen", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("BluePen", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 5:
-                              var6.AddWorldInventoryItem("Eraser", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Eraser", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              break;
+                           case 6:
+                              ItemSpawner.spawnItem("CorrectionFluid", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                         }
 
                         int var10 = Rand.Next(0, 6);
                         switch (var10) {
                            case 0:
-                              var6.AddWorldInventoryItem("Doodle", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("DoodleKids", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 1:
-                              var6.AddWorldInventoryItem("Book", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Book_SchoolTextbook", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 2:
-                              var6.AddWorldInventoryItem("Notebook", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("Notebook", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                               break;
                            case 3:
-                              var6.AddWorldInventoryItem("SheetPaper2", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
+                              ItemSpawner.spawnItem("SheetPaper2", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), var8.getSurfaceOffsetNoTable() / 96.0F);
                         }
                      }
                   }
@@ -63,39 +67,39 @@ public final class RBSchool extends RandomizedBuildingBase {
                         var7 = Rand.Next(0, 10);
                         switch (var7) {
                            case 0:
-                              var6.AddWorldInventoryItem("Doodle", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("DoodleKids", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 1:
-                              var6.AddWorldInventoryItem("Book", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("Book_SchoolTextbook", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 2:
-                              var6.AddWorldInventoryItem("Notebook", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("Notebook", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 3:
-                              var6.AddWorldInventoryItem("SheetPaper2", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("SheetPaper2", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 4:
-                              var6.AddWorldInventoryItem("Pen", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("Pen", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 5:
-                              var6.AddWorldInventoryItem("Pencil", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("Pencil", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 6:
-                              var6.AddWorldInventoryItem("Crayons", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("Crayons", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 7:
-                              var6.AddWorldInventoryItem("RedPen", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("RedPen", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 8:
-                              var6.AddWorldInventoryItem("BluePen", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("BluePen", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                               break;
                            case 9:
-                              var6.AddWorldInventoryItem("Eraser", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                              ItemSpawner.spawnItem("Eraser", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                         }
                      }
 
                      if (Rand.NextBool(120)) {
-                        var6.AddWorldInventoryItem("Bag_Schoolbag", Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
+                        ItemSpawner.spawnItem("Bag_Schoolbag_Kids", var6, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), 0.0F);
                      }
                   }
                }

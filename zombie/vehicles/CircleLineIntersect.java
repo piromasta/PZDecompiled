@@ -451,7 +451,7 @@ public class CircleLineIntersect {
       IsoPlayer var24 = IsoPlayer.getInstance();
       ArrayList var25 = new ArrayList();
       boolean var26 = true;
-      ForceCircle var27 = new ForceCircle((double)var24.x, (double)var24.y, (double)(var24.nx - var24.x), (double)(var24.ny - var24.y), 0.295);
+      ForceCircle var27 = new ForceCircle((double)var24.getX(), (double)var24.getY(), (double)(var24.getNextX() - var24.getX()), (double)(var24.getNextY() - var24.getY()), 0.295);
       if (var5 != null) {
          var5.drawCircle((float)var27.getX2(), (float)var27.getY2(), 0.3F);
       }
@@ -466,7 +466,7 @@ public class CircleLineIntersect {
          return false;
       } else {
          int var30 = var28.collideinto.length;
-         Vector2f var31 = new Vector2f(var24.nx - var24.x, var24.ny - var24.y);
+         Vector2f var31 = new Vector2f(var24.getNextX() - var24.getX(), var24.getNextY() - var24.getY());
          if (var31.length() > 0.0F) {
             var31.normalise();
          }
@@ -478,7 +478,7 @@ public class CircleLineIntersect {
             if (var33 == var20 || var33 == var21) {
                LineDrawer.addLine(var7 + WorldSimulation.instance.offsetX, var8 + WorldSimulation.instance.offsetY, 0.0F, var9 + WorldSimulation.instance.offsetX, var10 + WorldSimulation.instance.offsetY, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
                var34 = CircleLineIntersect.VectorMath.closestpointonline((double)(var7 + WorldSimulation.instance.offsetX), (double)(var8 + WorldSimulation.instance.offsetY), (double)(var9 + WorldSimulation.instance.offsetX), (double)(var10 + WorldSimulation.instance.offsetY), var27.getX(), var27.getY());
-               var0.set((float)(var34.x - (double)var24.x), (float)(var34.y - (double)var24.y), 0.0F);
+               var0.set((float)(var34.x - (double)var24.getX()), (float)(var34.y - (double)var24.getY()), 0.0F);
                var0.normalize();
                var35 = CircleLineIntersect.VectorMath.dotproduct((double)var31.x, (double)var31.y, (double)var0.x, (double)var0.y);
                if (var35 < 0.0) {
@@ -489,7 +489,7 @@ public class CircleLineIntersect {
             if (var33 == var22 || var33 == var23) {
                LineDrawer.addLine(var1 - var6.x / 2.0F + WorldSimulation.instance.offsetX, var2 - var6.z / 2.0F + WorldSimulation.instance.offsetY, 0.0F, var1 + var6.x / 2.0F + WorldSimulation.instance.offsetX, var2 + var6.z / 2.0F + WorldSimulation.instance.offsetY, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
                var34 = CircleLineIntersect.VectorMath.closestpointonline((double)(var1 - var6.x / 2.0F + WorldSimulation.instance.offsetX), (double)(var2 - var6.z / 2.0F + WorldSimulation.instance.offsetY), (double)(var1 + var6.x / 2.0F + WorldSimulation.instance.offsetX), (double)(var2 + var6.z / 2.0F + WorldSimulation.instance.offsetY), var27.getX(), var27.getY());
-               var0.set((float)(var34.x - (double)var24.x), (float)(var34.y - (double)var24.y), 0.0F);
+               var0.set((float)(var34.x - (double)var24.getX()), (float)(var34.y - (double)var24.getY()), 0.0F);
                var0.normalize();
                var35 = CircleLineIntersect.VectorMath.dotproduct((double)var31.x, (double)var31.y, (double)var0.x, (double)var0.y);
                if (var35 < 0.0) {

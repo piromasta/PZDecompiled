@@ -14,6 +14,7 @@ import zombie.core.Clipboard;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
 import zombie.core.ThreadGroups;
+import zombie.core.logger.ExceptionLogger;
 import zombie.core.profiling.PerformanceProfileFrameProbe;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.sprite.SpriteRenderState;
@@ -21,6 +22,7 @@ import zombie.core.textures.TextureID;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugLogStream;
 import zombie.debug.DebugOptions;
+import zombie.debug.DebugType;
 import zombie.input.GameKeyboard;
 import zombie.input.Mouse;
 import zombie.network.GameServer;
@@ -48,6 +50,9 @@ public class RenderThread {
    private static volatile boolean m_waitForRenderState = false;
    private static volatile boolean m_hasContext = false;
    private static boolean m_cursorVisible = true;
+   private static long RenderTime = 0L;
+   private static long StartWaitTime = 0L;
+   private static long WaitTime = 0L;
 
    public RenderThread() {
    }
@@ -82,6 +87,10 @@ public class RenderThread {
       RenderThread.start();
    }
 
+   public static long getRenderTime() {
+      return RenderTime;
+   }
+
    public static void renderLoop() {
       if (!GameServer.bServer) {
          synchronized(m_initLock) {
@@ -99,8 +108,14 @@ public class RenderThread {
       }
 
       acquireContextReentrant();
+      boolean var0 = true;
 
-      for(boolean var0 = true; var0; Thread.yield()) {
+      while(var0) {
+         long var1 = System.nanoTime();
+         if (StartWaitTime == 0L) {
+            StartWaitTime = var1;
+         }
+
          synchronized(m_contextLock) {
             if (!m_hasContext) {
                acquireContextReentrant();
@@ -115,13 +130,13 @@ public class RenderThread {
             }
 
             flushInvokeQueue();
-            if (!m_renderingEnabled) {
-               m_isCloseRequested = false;
-            } else {
+            if (m_renderingEnabled) {
                GameWindow.GameInput.poll();
                Mouse.poll();
                GameKeyboard.poll();
                m_isCloseRequested = m_isCloseRequested || Display.isCloseRequested();
+            } else {
+               m_isCloseRequested = false;
             }
 
             if (!GameServer.bServer) {
@@ -131,6 +146,9 @@ public class RenderThread {
             DebugOptions.testThreadCrash(0);
             var0 = !GameWindow.bGameThreadExited;
          }
+
+         RenderTime = System.nanoTime() - var1;
+         Thread.yield();
       }
 
       releaseContextReentrant();
@@ -268,19 +286,23 @@ public class RenderThread {
          DebugLogStream var10000 = DebugLog.General;
          String var10001 = var3.getClass().getTypeName();
          var10000.error("Thrown an " + var10001 + ": " + var3.getMessage());
-         var3.printStackTrace();
+         ExceptionLogger.logException(var3);
       }
 
       return var0;
    }
 
+   public static long getWaitTime() {
+      return WaitTime;
+   }
+
    private static boolean lockStepRenderStep() {
       SpriteRenderState var0 = SpriteRenderer.instance.acquireStateForRendering(RenderThread::waitForRenderStateCallback);
       if (var0 != null) {
+         WaitTime = System.nanoTime() - StartWaitTime;
+         StartWaitTime = 0L;
          m_cursorVisible = var0.bCursorVisible;
-         RenderThread.s_performance.spriteRendererPostRender.invokeAndMeasure(() -> {
-            SpriteRenderer.instance.postRender();
-         });
+         RenderThread.s_performance.spriteRendererPostRender.invokeAndMeasure(SpriteRenderer.instance, SpriteRenderer::postRender);
          RenderThread.s_performance.displayUpdate.invokeAndMeasure(() -> {
             Display.update(true);
             checkControllers();
@@ -294,9 +316,7 @@ public class RenderThread {
       } else {
          notifyRenderStateQueue();
          if (!m_waitForRenderState || LuaManager.thread != null && LuaManager.thread.bStep) {
-            RenderThread.s_performance.displayUpdate.invokeAndMeasure(() -> {
-               Display.processMessages();
-            });
+            RenderThread.s_performance.displayUpdate.invokeAndMeasure(Display::processMessages);
          }
 
          return true;
@@ -432,7 +452,7 @@ public class RenderThread {
                try {
                   m_hasContext = true;
                   Display.makeCurrent();
-                  Display.setVSyncEnabled(Core.OptionVSync);
+                  Display.setVSyncEnabled(Core.getInstance().getOptionVSync());
                } catch (LWJGLException var2) {
                   DebugLog.General.error("Exception thrown trying to gain GL context.");
                   var2.printStackTrace();
@@ -560,7 +580,7 @@ public class RenderThread {
 
    public static boolean isCloseRequested() {
       if (m_isCloseRequested) {
-         DebugLog.log("EXITDEBUG: RenderThread.isCloseRequested 1");
+         DebugType.ExitDebug.debugln("RenderThread.isCloseRequested 1");
          return m_isCloseRequested;
       } else {
          if (!m_isInitialized) {
@@ -568,7 +588,7 @@ public class RenderThread {
                if (!m_isInitialized) {
                   m_isCloseRequested = Display.isCloseRequested();
                   if (m_isCloseRequested) {
-                     DebugLog.log("EXITDEBUG: RenderThread.isCloseRequested 2");
+                     DebugType.ExitDebug.debugln("RenderThread.isCloseRequested 2");
                   }
                }
             }

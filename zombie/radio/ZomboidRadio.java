@@ -18,14 +18,16 @@ import zombie.SandboxOptions;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Roles;
 import zombie.chat.ChatElement;
 import zombie.chat.ChatMessage;
 import zombie.core.Color;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.VoiceManagerData;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugLogStream;
 import zombie.debug.DebugType;
@@ -642,7 +644,7 @@ public final class ZomboidRadio {
             if (var3 != null && var3.getLastSpokenLine() != null && (this.playerLastLine[var2] == null || !this.playerLastLine[var2].equals(var3.getLastSpokenLine()))) {
                String var4 = var3.getLastSpokenLine();
                this.playerLastLine[var2] = var4;
-               if (!var1.equals(GameMode.Client) || (!var3.accessLevel.equals("admin") && !var3.accessLevel.equals("gm") && !var3.accessLevel.equals("overseer") && !var3.accessLevel.equals("moderator") || !ServerOptions.instance.DisableRadioStaff.getValue() && (!ServerOptions.instance.DisableRadioAdmin.getValue() || !var3.accessLevel.equals("admin")) && (!ServerOptions.instance.DisableRadioGM.getValue() || !var3.accessLevel.equals("gm")) && (!ServerOptions.instance.DisableRadioOverseer.getValue() || !var3.accessLevel.equals("overseer")) && (!ServerOptions.instance.DisableRadioModerator.getValue() || !var3.accessLevel.equals("moderator"))) && (!ServerOptions.instance.DisableRadioInvisible.getValue() || !var3.isInvisible())) {
+               if (!var1.equals(GameMode.Client) || (var3.role != Roles.getDefaultForAdmin() && var3.role != Roles.getDefaultForGM() && var3.role != Roles.getDefaultForModerator() || !ServerOptions.instance.DisableRadioStaff.getValue() && (!ServerOptions.instance.DisableRadioAdmin.getValue() || var3.role != Roles.getDefaultForAdmin()) && (!ServerOptions.instance.DisableRadioGM.getValue() || var3.role != Roles.getDefaultForGM()) && (!ServerOptions.instance.DisableRadioOverseer.getValue() || var3.role != Roles.getDefaultForOverseer()) && (!ServerOptions.instance.DisableRadioModerator.getValue() || var3.role != Roles.getDefaultForModerator())) && (!ServerOptions.instance.DisableRadioInvisible.getValue() || !var3.isInvisible())) {
                   this.freqlist.clear();
                   if (!GameClient.bClient && !GameServer.bServer) {
                      for(int var9 = 0; var9 < IsoPlayer.numPlayers; ++var9) {
@@ -660,8 +662,8 @@ public final class ZomboidRadio {
 
                   while(var10.hasNext()) {
                      WaveSignalDevice var12 = (WaveSignalDevice)var10.next();
-                     if (var12 != null && var12.getDeviceData() != null && var12.getDeviceData().getIsTurnedOn() && var12.getDeviceData().getIsTwoWay() && var12.HasPlayerInRange() && !var12.getDeviceData().getMicIsMuted() && this.GetDistance((int)var3.getX(), (int)var3.getY(), (int)var12.getX(), (int)var12.getY()) < var12.getDeviceData().getMicRange()) {
-                        this.addFrequencyListEntry(true, var12.getDeviceData(), (int)var12.getX(), (int)var12.getY());
+                     if (var12 != null && var12.getDeviceData() != null && var12.getDeviceData().getIsTurnedOn() && var12.getDeviceData().getIsTwoWay() && var12.HasPlayerInRange() && !var12.getDeviceData().getMicIsMuted() && this.GetDistance(PZMath.fastfloor(var3.getX()), PZMath.fastfloor(var3.getY()), PZMath.fastfloor(var12.getX()), PZMath.fastfloor(var12.getY())) < var12.getDeviceData().getMicRange()) {
+                        this.addFrequencyListEntry(true, var12.getDeviceData(), PZMath.fastfloor(var12.getX()), PZMath.fastfloor(var12.getY()));
                      }
                   }
 
@@ -686,8 +688,8 @@ public final class ZomboidRadio {
       boolean var3 = var1 == var2;
       if (var1 != null) {
          Radio var4 = var1.getEquipedRadio();
-         if (var4 != null && var4.getDeviceData() != null && var4.getDeviceData().getIsPortable() && var4.getDeviceData().getIsTwoWay() && var4.getDeviceData().getIsTurnedOn() && !var4.getDeviceData().getMicIsMuted() && (var3 || this.GetDistance((int)var2.getX(), (int)var2.getY(), (int)var1.getX(), (int)var1.getY()) < var4.getDeviceData().getMicRange())) {
-            this.addFrequencyListEntry(true, var4.getDeviceData(), (int)var1.getX(), (int)var1.getY());
+         if (var4 != null && var4.getDeviceData() != null && var4.getDeviceData().getIsPortable() && var4.getDeviceData().getIsTwoWay() && var4.getDeviceData().getIsTurnedOn() && !var4.getDeviceData().getMicIsMuted() && (var3 || this.GetDistance(PZMath.fastfloor(var2.getX()), PZMath.fastfloor(var2.getY()), PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY())) < var4.getDeviceData().getMicRange())) {
+            this.addFrequencyListEntry(true, var4.getDeviceData(), PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()));
          }
       }
 
@@ -795,7 +797,7 @@ public final class ZomboidRadio {
                   boolean var18 = false;
                   if (var10 == -1) {
                      var18 = true;
-                  } else if (var1 != (int)var17.getX() && var2 != (int)var17.getY()) {
+                  } else if (var1 != PZMath.fastfloor(var17.getX()) && var2 != PZMath.fastfloor(var17.getY())) {
                      var18 = true;
                   }
 
@@ -803,7 +805,7 @@ public final class ZomboidRadio {
                      int var19 = -1;
                      if (var10 > 0) {
                         this.hasAppliedRangeDistortion = false;
-                        var19 = this.GetDistance((int)var17.getX(), (int)var17.getY(), var1, var2);
+                        var19 = this.GetDistance(PZMath.fastfloor(var17.getX()), PZMath.fastfloor(var17.getY()), var1, var2);
                         var4 = this.doDeviceRangeDistortion(var4, var10, var19);
                      }
 

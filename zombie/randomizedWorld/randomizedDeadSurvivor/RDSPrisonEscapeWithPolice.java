@@ -2,7 +2,7 @@ package zombie.randomizedWorld.randomizedDeadSurvivor;
 
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.RoomDef;
@@ -26,10 +26,15 @@ public final class RDSPrisonEscapeWithPolice extends RandomizedDeadSurvivorBase 
       }
 
       if (var4 != null) {
-         IsoGridSquare var5 = var4.getSquare().getCell().getGridSquare(var4.getSquare().x - 2, var4.getSquare().y - 2, 0);
-         ArrayList var6 = this.addZombiesOnSquare(3, "Police", (Integer)null, var5);
+         String var5 = "Police";
+         if (var4.getZombieType() != null) {
+            var5 = var4.getRandomZombieType();
+         }
+
+         IsoGridSquare var6 = var4.getSquare().getCell().getGridSquare(var4.getSquare().x - 2, var4.getSquare().y - 2, 0);
+         ArrayList var7 = this.addZombiesOnSquare(3, var5, (Integer)null, var6);
          if (!var3.isEmpty()) {
-            var3.addAll(var6);
+            var3.addAll(var7);
             ((IsoZombie)var3.get(Rand.Next(var3.size()))).addItemToSpawnAtDeath(var4.createVehicleKey());
             var1.bAlarmed = false;
          }

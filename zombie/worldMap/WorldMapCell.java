@@ -2,6 +2,7 @@ package zombie.worldMap;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+import zombie.iso.IsoCell;
 
 public final class WorldMapCell {
    public int m_x;
@@ -12,8 +13,8 @@ public final class WorldMapCell {
    }
 
    public void hitTest(float var1, float var2, ArrayList<WorldMapFeature> var3) {
-      var1 -= (float)(this.m_x * 300);
-      var2 -= (float)(this.m_y * 300);
+      var1 -= (float)(this.m_x * IsoCell.CellSizeInSquares);
+      var2 -= (float)(this.m_y * IsoCell.CellSizeInSquares);
 
       for(int var4 = 0; var4 < this.m_features.size(); ++var4) {
          WorldMapFeature var5 = (WorldMapFeature)this.m_features.get(var4);

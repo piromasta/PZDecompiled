@@ -2,7 +2,8 @@ package zombie.erosion;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.random.RandInterface;
 import zombie.core.utils.Bits;
 import zombie.debug.DebugLog;
 import zombie.erosion.categories.ErosionCategory;
@@ -69,6 +70,7 @@ public final class ErosionData {
       public int noiseMainInt;
       public float noiseKudzu;
       public int soil;
+      public RandInterface rand;
       public byte magicNumByte;
       public float magicNum;
       public final ArrayList<ErosionCategory.Data> regions = new ArrayList();
@@ -136,10 +138,6 @@ public final class ErosionData {
             this.soil = var1.get();
             this.magicNumByte = var1.get();
             this.magicNum = Bits.unpackByteToFloatUnit(this.magicNumByte);
-            if (var2 < 55) {
-               var1.get();
-            }
-
             byte var4 = 0;
             if (Bits.hasFlags((byte)var3, 4)) {
                var4 = 1;
@@ -170,7 +168,7 @@ public final class ErosionData {
 
       public final int rand(int var1, int var2, int var3) {
          if (!ErosionData.staticRand && !GameServer.bServer && !GameClient.bClient) {
-            return Rand.Next(var3);
+            return this.rand != null ? this.rand.Next(var3) : Rand.Next(var3);
          } else {
             float var4 = (float)rands[var1 % 90 + var2 % 90 * 90] / 100.0F;
             return Math.min((int)(var4 * (float)var3), var3 - 1);

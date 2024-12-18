@@ -67,7 +67,7 @@ public class JobChunkUpdate extends RegionJob {
          int var7 = this.buffer.getInt();
          int var8 = this.buffer.getInt();
          int var9 = this.buffer.getInt();
-         var1.select.reset(var8 * 10, var9 * 10, 0, true, false);
+         var1.select.reset(var8 * 8, var9 * 8, 0, true, false);
          int var10;
          if (GameClient.bClient) {
             if (this.netTimeStamp != -1L && this.netTimeStamp < var1.select.chunk.getLastUpdateStamp()) {
@@ -148,7 +148,7 @@ public class JobChunkUpdate extends RegionJob {
    }
 
    public boolean canAddChunk() {
-      return this.buffer.position() + 1024 < this.buffer.capacity();
+      return this.buffer.position() + 2076 < this.buffer.capacity();
    }
 
    private int startBufferBlock() {
@@ -175,11 +175,11 @@ public class JobChunkUpdate extends RegionJob {
    }
 
    public boolean addChunkFromDataChunk(DataChunk var1) {
-      if (this.buffer.position() + 1024 >= this.buffer.capacity()) {
+      if (this.buffer.position() + 2076 >= this.buffer.capacity()) {
          return false;
       } else {
          int var2 = this.startBufferBlock();
-         this.buffer.putInt(195);
+         this.buffer.putInt(219);
          this.buffer.putInt(var1.getChunkX());
          this.buffer.putInt(var1.getChunkY());
          var1.save(this.buffer);
@@ -189,11 +189,11 @@ public class JobChunkUpdate extends RegionJob {
    }
 
    public boolean addChunkFromIsoChunk(IsoChunk var1) {
-      if (this.buffer.position() + 1024 >= this.buffer.capacity()) {
+      if (this.buffer.position() + 2076 >= this.buffer.capacity()) {
          return false;
       } else {
          int var2 = this.startBufferBlock();
-         this.buffer.putInt(195);
+         this.buffer.putInt(219);
          this.buffer.putInt(var1.wx);
          this.buffer.putInt(var1.wy);
          ChunkUpdate.writeIsoChunkIntoBuffer(var1, this.buffer);
@@ -206,16 +206,19 @@ public class JobChunkUpdate extends RegionJob {
       if (this.buffer.position() + var1.limit() >= this.buffer.capacity()) {
          return false;
       } else {
-         var1.getInt();
-         int var2 = this.startBufferBlock();
-         this.buffer.putInt(var1.getInt());
-         this.buffer.putInt(var1.getInt());
-         this.buffer.putInt(var1.getInt());
-         var1.mark();
+         int var2 = var1.getInt();
          int var3 = var1.getInt();
+         int var4 = var1.getInt();
+         int var5 = var1.getInt();
+         int var6 = this.startBufferBlock();
+         this.buffer.putInt(var3);
+         this.buffer.putInt(var4);
+         this.buffer.putInt(var5);
+         var1.mark();
+         int var7 = var1.getInt();
          var1.reset();
-         this.buffer.put(var1.array(), var1.position(), var3);
-         this.endBufferBlock(var2);
+         this.buffer.put(var1.array(), var1.position(), var7);
+         this.endBufferBlock(var6);
          return true;
       }
    }

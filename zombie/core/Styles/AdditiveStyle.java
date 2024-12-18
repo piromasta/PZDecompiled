@@ -1,6 +1,7 @@
 package zombie.core.Styles;
 
 import zombie.IndieGL;
+import zombie.core.opengl.GLStateRenderThread;
 
 public final class AdditiveStyle extends AbstractStyle {
    private static final long serialVersionUID = 1L;
@@ -14,7 +15,7 @@ public final class AdditiveStyle extends AbstractStyle {
    }
 
    public void resetState() {
-      IndieGL.glBlendFuncA(770, 771);
+      GLStateRenderThread.BlendFuncSeparate.restore();
    }
 
    public AlphaOp getAlphaOp() {

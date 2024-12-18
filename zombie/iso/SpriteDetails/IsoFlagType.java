@@ -101,7 +101,17 @@ public enum IsoFlagType {
    SpearOnlyAttackThrough(95),
    forceRender(96),
    open(97),
-   MAX(98);
+   SpriteConfig(98),
+   BlockRain(99),
+   EntityScript(100),
+   isEave(101),
+   openAir(102),
+   HasLightOnSprite(103),
+   unlit(104),
+   NeverCutaway(105),
+   DoubleDoor1(106),
+   DoubleDoor2(107),
+   MAX(108);
 
    private final int index;
    private static final IsoFlagType[] EnumConstants = (IsoFlagType[])IsoFlagType.class.getEnumConstants();
@@ -120,8 +130,7 @@ public enum IsoFlagType {
    }
 
    public static IsoFlagType FromString(String var0) {
-      IsoFlagType var1 = (IsoFlagType)fromStringMap.get(var0);
-      return var1 == null ? MAX : var1;
+      return (IsoFlagType)fromStringMap.getOrDefault(var0, MAX);
    }
 
    static {

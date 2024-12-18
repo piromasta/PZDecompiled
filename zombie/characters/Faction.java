@@ -6,8 +6,8 @@ import java.util.Iterator;
 import zombie.GameWindow;
 import zombie.chat.ChatSettings;
 import zombie.chat.defaultChats.FactionChat;
-import zombie.core.Rand;
 import zombie.core.network.ByteBufferWriter;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.network.GameClient;
 import zombie.network.ServerOptions;
@@ -59,6 +59,11 @@ public final class Faction {
 
    public boolean canCreateTag() {
       return this.players.size() + 1 >= ServerOptions.instance.FactionPlayersRequiredForTag.getValue();
+   }
+
+   public static boolean isInSameFaction(IsoPlayer var0, IsoPlayer var1) {
+      Faction var2 = getPlayerFaction(var0);
+      return var2 != null && (var2.isMember(var1.getUsername()) || var2.isOwner(var1.getUsername()));
    }
 
    public static boolean isAlreadyInFaction(String var0) {
@@ -171,10 +176,6 @@ public final class Faction {
 
    public boolean isOwner(String var1) {
       return this.getOwner().equals(var1);
-   }
-
-   public boolean isPlayerMember(IsoPlayer var1) {
-      return this.isMember(var1.getUsername());
    }
 
    public boolean isMember(String var1) {

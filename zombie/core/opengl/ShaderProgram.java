@@ -1,25 +1,27 @@
 package zombie.core.opengl;
 
-import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.system.MemoryUtil;
-import org.lwjgl.util.vector.Matrix4f;
 import org.lwjglx.BufferUtils;
 import zombie.DebugFileWatcher;
 import zombie.PredicatedFileWatcher;
 import zombie.SystemDisabler;
 import zombie.ZomboidFileSystem;
+import zombie.core.SceneShaderStore;
+import zombie.core.ShaderHelper;
+import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugLogStream;
+import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
 import zombie.iso.Vector2;
 import zombie.iso.Vector3;
@@ -28,6 +30,7 @@ public final class ShaderProgram {
    private int m_shaderID = 0;
    private final String m_name;
    private final boolean m_isStatic;
+   private final boolean m_isInstanced;
    private final ArrayList<ShaderUnit> m_vertexUnits = new ArrayList();
    private final ArrayList<ShaderUnit> m_fragmentUnits = new ArrayList();
    private final HashMap<String, PredicatedFileWatcher> m_fileWatchers = new HashMap();
@@ -36,11 +39,14 @@ public final class ShaderProgram {
    private final HashMap<String, Uniform> uniformsByName = new HashMap();
    private final ArrayList<IShaderProgramListener> m_onCompiledListeners = new ArrayList();
    private final int[] m_uvScaleUniforms = new int[10];
-   private static FloatBuffer floatBuffer;
+   public final Matrix4f ModelView = new Matrix4f();
+   public final Matrix4f Projection = new Matrix4f();
+   private static final FloatBuffer floatBuffer = BufferUtils.createFloatBuffer(16);
 
-   private ShaderProgram(String var1, boolean var2) {
+   private ShaderProgram(String var1, boolean var2, boolean var3) {
       this.m_name = var1;
       this.m_isStatic = var2;
+      this.m_isInstanced = var3;
    }
 
    public String getName() {
@@ -59,10 +65,10 @@ public final class ShaderProgram {
 
    private void invokeProgramCompiledEvent() {
       this.Start();
-      this.m_uvScaleUniforms[0] = ARBShaderObjects.glGetUniformLocationARB(this.m_shaderID, "UVScale");
+      this.m_uvScaleUniforms[0] = GL20.glGetUniformLocation(this.m_shaderID, "UVScale");
 
       for(int var1 = 1; var1 < this.m_uvScaleUniforms.length; ++var1) {
-         this.m_uvScaleUniforms[var1] = ARBShaderObjects.glGetUniformLocationARB(this.m_shaderID, "UVScale" + var1);
+         this.m_uvScaleUniforms[var1] = GL20.glGetUniformLocation(this.m_shaderID, "UVScale" + var1);
       }
 
       this.End();
@@ -85,12 +91,14 @@ public final class ShaderProgram {
          this.destroy();
       }
 
+      this.ModelView.identity();
+      this.Projection.identity();
       String var1 = this.getName();
       if (DebugLog.isEnabled(DebugType.Shader)) {
-         DebugLog.Shader.debugln(var1 + (this.m_isStatic ? "(Static)" : ""));
+         DebugLog.Shader.debugln(var1 + (this.m_isStatic ? "(Static)" : "") + (this.m_isInstanced ? "(Instanced)" : ""));
       }
 
-      this.m_shaderID = ARBShaderObjects.glCreateProgramObjectARB();
+      this.m_shaderID = GL20.glCreateProgram();
       if (this.m_shaderID == 0) {
          DebugLog.Shader.error("Failed to create Shader: " + var1 + " could not create new Shader Program ID.");
       } else {
@@ -105,20 +113,21 @@ public final class ShaderProgram {
             this.destroy();
          } else {
             this.registerFileWatchers();
-            ARBShaderObjects.glLinkProgramARB(this.m_shaderID);
-            if (ARBShaderObjects.glGetObjectParameteriARB(this.m_shaderID, 35714) == 0) {
+            GL20.glLinkProgram(this.m_shaderID);
+            if (GL20.glGetProgrami(this.m_shaderID, 35714) == 0) {
                this.m_compileFailed = true;
-               DebugLog.Shader.error("Failed to link new Shader Program:" + var1 + " bStatic:" + this.m_isStatic);
+               DebugLog.Shader.error("Failed to link new Shader Program:" + var1 + " bStatic:" + this.m_isStatic + " bInstanced:" + this.m_isInstanced);
                DebugLog.Shader.error(getLogInfo(this.m_shaderID));
                this.destroy();
             } else {
-               ARBShaderObjects.glValidateProgramARB(this.m_shaderID);
-               if (ARBShaderObjects.glGetObjectParameteriARB(this.m_shaderID, 35715) == 0) {
+               GL20.glValidateProgram(this.m_shaderID);
+               if (GL20.glGetProgrami(this.m_shaderID, 35715) == 0) {
                   this.m_compileFailed = true;
-                  DebugLog.Shader.error("Failed to validate Shader Program:" + var1 + " bStatic:" + this.m_isStatic);
+                  DebugLog.Shader.error("Failed to validate Shader Program:" + var1 + " bStatic:" + this.m_isStatic + " bInstanced:" + this.m_isInstanced);
                   DebugLog.Shader.error(getLogInfo(this.m_shaderID));
                   this.destroy();
                } else {
+                  ShaderPrograms.getInstance().registerProgram(this);
                   this.onCompileSuccess();
                }
             }
@@ -255,11 +264,14 @@ public final class ShaderProgram {
    }
 
    private String getRootVertFileName() {
-      return this.m_isStatic ? "media/shaders/" + this.getName() + "_static.vert" : "media/shaders/" + this.getName() + ".vert";
+      String var1 = this.m_isStatic ? "_static" : "";
+      String var2 = this.m_isInstanced ? "_instanced" : "";
+      return "media/shaders/" + this.getName() + var1 + var2 + ".vert";
    }
 
    private String getRootFragFileName(String var1) {
-      return "media/shaders/" + var1 + ".frag";
+      String var2 = this.m_isInstanced ? "_instanced" : "";
+      return "media/shaders/" + var1 + var2 + ".frag";
    }
 
    public ShaderUnit addShader(String var1, ShaderUnit.Type var2) {
@@ -294,13 +306,13 @@ public final class ShaderProgram {
       return var4;
    }
 
-   public static ShaderProgram createShaderProgram(String var0, boolean var1, boolean var2) {
-      ShaderProgram var3 = new ShaderProgram(var0, var1);
-      if (var2) {
-         var3.compile();
+   public static ShaderProgram createShaderProgram(String var0, boolean var1, boolean var2, boolean var3) {
+      ShaderProgram var4 = new ShaderProgram(var0, var1, var2);
+      if (var3) {
+         var4.compile();
       }
 
-      return var3;
+      return var4;
    }
 
    /** @deprecated */
@@ -320,24 +332,15 @@ public final class ShaderProgram {
    }
 
    public static void printLogInfo(int var0) {
-      IntBuffer var1 = MemoryUtil.memAllocInt(1);
-      ARBShaderObjects.glGetObjectParameterivARB(var0, 35716, var1);
-      int var2 = var1.get();
-      MemoryUtil.memFree(var1);
-      if (var2 > 1) {
-         ByteBuffer var3 = MemoryUtil.memAlloc(var2);
-         var1.flip();
-         ARBShaderObjects.glGetInfoLogARB(var0, var1, var3);
-         byte[] var4 = new byte[var2];
-         var3.get(var4);
-         String var5 = new String(var4);
-         DebugLog.Shader.debugln(":\n" + var5);
-         MemoryUtil.memFree(var3);
+      int var1 = GL20.glGetShaderi(var0, 35716);
+      if (var1 > 1) {
+         String var2 = GL20.glGetShaderInfoLog(var0, var1);
+         DebugLog.Shader.debugln(":\n" + var2);
       }
    }
 
    public static String getLogInfo(int var0) {
-      return ARBShaderObjects.glGetInfoLogARB(var0, ARBShaderObjects.glGetObjectParameteriARB(var0, 35716));
+      return GL20.glGetProgramInfoLog(var0, GL20.glGetProgrami(var0, 35716));
    }
 
    public boolean isCompiled() {
@@ -368,9 +371,10 @@ public final class ShaderProgram {
             }
 
             this.m_fragmentUnits.clear();
-            ARBShaderObjects.glDeleteObjectARB(this.m_shaderID);
+            GL20.glDeleteShader(this.m_shaderID);
             PZGLUtil.checkGLError(true);
          } finally {
+            ShaderPrograms.getInstance().unregisterProgram(this);
             this.m_vertexUnits.clear();
             this.m_fragmentUnits.clear();
             this.m_shaderID = 0;
@@ -387,18 +391,18 @@ public final class ShaderProgram {
    }
 
    public void Start() {
-      ARBShaderObjects.glUseProgramObjectARB(this.getShaderID());
+      ShaderHelper.glUseProgramObjectARB(this.getShaderID());
    }
 
    public void End() {
-      ARBShaderObjects.glUseProgramObjectARB(0);
+      ShaderHelper.glUseProgramObjectARB(SceneShaderStore.DefaultShaderID);
    }
 
    public void setSamplerUnit(String var1, int var2) {
       Uniform var3 = this.getUniform(var1, 35678);
       if (var3 != null) {
          var3.sampler = var2;
-         ARBShaderObjects.glUniform1iARB(var3.loc, var2);
+         GL20.glUniform1i(var3.loc, var2);
       }
 
    }
@@ -414,7 +418,7 @@ public final class ShaderProgram {
    public void setValue(String var1, float var2) {
       Uniform var3 = this.getUniform(var1, 5126);
       if (var3 != null) {
-         ARBShaderObjects.glUniform1fARB(var3.loc, var2);
+         GL20.glUniform1f(var3.loc, var2);
       }
 
    }
@@ -422,7 +426,7 @@ public final class ShaderProgram {
    public void setValue(String var1, int var2) {
       Uniform var3 = this.getUniform(var1, 5124);
       if (var3 != null) {
-         ARBShaderObjects.glUniform1iARB(var3.loc, var2);
+         GL20.glUniform1i(var3.loc, var2);
       }
 
    }
@@ -479,6 +483,14 @@ public final class ShaderProgram {
       }
    }
 
+   public void setValue(String var1, org.lwjgl.util.vector.Matrix4f var2) {
+      Uniform var3 = this.getUniform(var1, 35676);
+      if (var3 != null) {
+         this.setTransformMatrix(var3.loc, var2);
+      }
+
+   }
+
    public void setValue(String var1, Matrix4f var2) {
       Uniform var3 = this.getUniform(var1, 35676);
       if (var3 != null) {
@@ -496,11 +508,18 @@ public final class ShaderProgram {
          }
 
          GL13.glActiveTexture('蓀' + var4.sampler);
-         GL11.glEnable(3553);
+         if (var4.sampler < 8) {
+            GL11.glEnable(3553);
+         }
+
          int var5 = Texture.lastTextureID;
          var2.bind();
          if (var4.sampler > 0) {
             Texture.lastTextureID = var5;
+         }
+
+         if (DebugOptions.instance.Checks.BoundTextures.getValue()) {
+            SpriteRenderer.ringBuffer.debugBoundTexture(var2, '蓀' + var4.sampler);
          }
 
          Vector2 var6 = var2.getUVScale(ShaderProgram.L_setValue.vector2);
@@ -532,26 +551,29 @@ public final class ShaderProgram {
    }
 
    public void setVector2(int var1, float var2, float var3) {
-      ARBShaderObjects.glUniform2fARB(var1, var2, var3);
+      GL20.glUniform2f(var1, var2, var3);
    }
 
    public void setVector3(int var1, float var2, float var3, float var4) {
-      ARBShaderObjects.glUniform3fARB(var1, var2, var3, var4);
+      GL20.glUniform3f(var1, var2, var3, var4);
    }
 
    public void setVector4(int var1, float var2, float var3, float var4, float var5) {
-      ARBShaderObjects.glUniform4fARB(var1, var2, var3, var4, var5);
+      GL20.glUniform4f(var1, var2, var3, var4, var5);
    }
 
-   void setTransformMatrix(int var1, Matrix4f var2) {
-      if (floatBuffer == null) {
-         floatBuffer = BufferUtils.createFloatBuffer(38400);
-      }
-
+   void setTransformMatrix(int var1, org.lwjgl.util.vector.Matrix4f var2) {
       floatBuffer.clear();
       var2.store(floatBuffer);
       floatBuffer.flip();
-      ARBShaderObjects.glUniformMatrix4fvARB(var1, true, floatBuffer);
+      GL20.glUniformMatrix4fv(var1, true, floatBuffer);
+   }
+
+   void setTransformMatrix(int var1, Matrix4f var2) {
+      floatBuffer.clear();
+      var2.get(floatBuffer);
+      floatBuffer.limit(16);
+      GL20.glUniformMatrix4fv(var1, false, floatBuffer);
    }
 
    public static class Uniform {

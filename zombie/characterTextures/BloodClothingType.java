@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import zombie.SandboxOptions;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.core.skinnedmodel.visual.HumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisual;
@@ -35,7 +35,19 @@ public enum BloodClothingType {
    UpperLegs,
    LowerArms,
    UpperArms,
-   Groin;
+   Groin,
+   Hand_L,
+   Hand_R,
+   ForeArm_L,
+   ForeArm_R,
+   UpperArm_L,
+   UpperArm_R,
+   UpperLeg_L,
+   UpperLeg_R,
+   LowerLeg_L,
+   LowerLeg_R,
+   Foot_L,
+   Foot_R;
 
    private static HashMap<BloodClothingType, ArrayList<BloodBodyPartType>> coveredParts = null;
    private static final ArrayList<BloodBodyPartType> bodyParts = new ArrayList();
@@ -96,8 +108,32 @@ public enum BloodClothingType {
          return LowerArms;
       } else if (UpperArms.toString().equals(var0)) {
          return UpperArms;
+      } else if (Groin.toString().equals(var0)) {
+         return Groin;
+      } else if (Hand_L.toString().equals(var0)) {
+         return Hand_L;
+      } else if (Hand_R.toString().equals(var0)) {
+         return Hand_R;
+      } else if (ForeArm_L.toString().equals(var0)) {
+         return ForeArm_L;
+      } else if (ForeArm_R.toString().equals(var0)) {
+         return ForeArm_R;
+      } else if (UpperArm_L.toString().equals(var0)) {
+         return UpperArm_L;
+      } else if (UpperArm_R.toString().equals(var0)) {
+         return UpperArm_R;
+      } else if (UpperLeg_L.toString().equals(var0)) {
+         return UpperLeg_L;
+      } else if (UpperLeg_R.toString().equals(var0)) {
+         return UpperLeg_R;
+      } else if (LowerLeg_L.toString().equals(var0)) {
+         return LowerLeg_L;
+      } else if (LowerLeg_R.toString().equals(var0)) {
+         return LowerLeg_R;
+      } else if (Foot_L.toString().equals(var0)) {
+         return Foot_L;
       } else {
-         return Groin.toString().equals(var0) ? Groin : null;
+         return Foot_R.toString().equals(var0) ? Foot_R : null;
       }
    }
 
@@ -163,36 +199,66 @@ public enum BloodClothingType {
          var11.add(BloodBodyPartType.Hand_R);
          coveredParts.put(Hands, var11);
          ArrayList var12 = new ArrayList();
-         var12.add(BloodBodyPartType.Head);
-         coveredParts.put(Head, var12);
+         var12.add(BloodBodyPartType.Hand_L);
+         coveredParts.put(Hand_L, var12);
          ArrayList var13 = new ArrayList();
-         var13.add(BloodBodyPartType.Neck);
-         coveredParts.put(Neck, var13);
+         var13.add(BloodBodyPartType.Hand_R);
+         coveredParts.put(Hand_R, var13);
          ArrayList var14 = new ArrayList();
-         var14.add(BloodBodyPartType.Groin);
-         coveredParts.put(Groin, var14);
+         var14.add(BloodBodyPartType.Head);
+         coveredParts.put(Head, var14);
          ArrayList var15 = new ArrayList();
-         var15.add(BloodBodyPartType.Torso_Upper);
-         coveredParts.put(UpperBody, var15);
+         var15.add(BloodBodyPartType.Neck);
+         coveredParts.put(Neck, var15);
          ArrayList var16 = new ArrayList();
-         var16.add(BloodBodyPartType.Torso_Lower);
-         coveredParts.put(LowerBody, var16);
+         var16.add(BloodBodyPartType.Groin);
+         coveredParts.put(Groin, var16);
          ArrayList var17 = new ArrayList();
-         var17.add(BloodBodyPartType.LowerLeg_L);
-         var17.add(BloodBodyPartType.LowerLeg_R);
-         coveredParts.put(LowerLegs, var17);
+         var17.add(BloodBodyPartType.Torso_Upper);
+         coveredParts.put(UpperBody, var17);
          ArrayList var18 = new ArrayList();
-         var18.add(BloodBodyPartType.UpperLeg_L);
-         var18.add(BloodBodyPartType.UpperLeg_R);
-         coveredParts.put(UpperLegs, var18);
+         var18.add(BloodBodyPartType.Torso_Lower);
+         coveredParts.put(LowerBody, var18);
          ArrayList var19 = new ArrayList();
-         var19.add(BloodBodyPartType.UpperArm_L);
-         var19.add(BloodBodyPartType.UpperArm_R);
-         coveredParts.put(UpperArms, var19);
+         var19.add(BloodBodyPartType.LowerLeg_L);
+         var19.add(BloodBodyPartType.LowerLeg_R);
+         coveredParts.put(LowerLegs, var19);
          ArrayList var20 = new ArrayList();
-         var20.add(BloodBodyPartType.ForeArm_L);
-         var20.add(BloodBodyPartType.ForeArm_R);
-         coveredParts.put(LowerArms, var20);
+         var20.add(BloodBodyPartType.LowerLeg_L);
+         coveredParts.put(LowerLeg_L, var20);
+         ArrayList var21 = new ArrayList();
+         var21.add(BloodBodyPartType.LowerLeg_R);
+         coveredParts.put(LowerLeg_R, var21);
+         ArrayList var22 = new ArrayList();
+         var22.add(BloodBodyPartType.UpperLeg_L);
+         var22.add(BloodBodyPartType.UpperLeg_R);
+         coveredParts.put(UpperLegs, var22);
+         ArrayList var23 = new ArrayList();
+         var23.add(BloodBodyPartType.UpperLeg_L);
+         coveredParts.put(UpperLeg_L, var23);
+         ArrayList var24 = new ArrayList();
+         var24.add(BloodBodyPartType.UpperLeg_R);
+         coveredParts.put(UpperLeg_R, var24);
+         ArrayList var25 = new ArrayList();
+         var25.add(BloodBodyPartType.UpperArm_L);
+         var25.add(BloodBodyPartType.UpperArm_R);
+         coveredParts.put(UpperArms, var25);
+         ArrayList var26 = new ArrayList();
+         var26.add(BloodBodyPartType.UpperArm_L);
+         coveredParts.put(UpperArm_L, var26);
+         ArrayList var27 = new ArrayList();
+         var27.add(BloodBodyPartType.UpperArm_R);
+         coveredParts.put(UpperArm_R, var27);
+         ArrayList var28 = new ArrayList();
+         var28.add(BloodBodyPartType.ForeArm_L);
+         var28.add(BloodBodyPartType.ForeArm_R);
+         coveredParts.put(LowerArms, var28);
+         ArrayList var29 = new ArrayList();
+         var29.add(BloodBodyPartType.ForeArm_L);
+         coveredParts.put(ForeArm_L, var29);
+         ArrayList var30 = new ArrayList();
+         var30.add(BloodBodyPartType.ForeArm_R);
+         coveredParts.put(ForeArm_R, var30);
       }
 
    }
@@ -301,21 +367,26 @@ public enum BloodClothingType {
             if (var9 != null) {
                for(int var10 = 0; var10 < var9.size(); ++var10) {
                   BloodClothingType var11 = (BloodClothingType)var8.getBloodClothingType().get(var10);
-                  if (((ArrayList)coveredParts.get(var11)).contains(var0) && var8.canHaveHoles && var7.getHole(var0) == 0.0F) {
+                  if (((ArrayList)coveredParts.get(var11)).contains(var0) && var7.getHole(var0) == 0.0F) {
                      var4 = var7;
                      break;
                   }
                }
 
                if (var4 != null) {
-                  var4.setHole(var0);
                   Clothing var12 = (Clothing)Type.tryCastTo(var4.getInventoryItem(), Clothing.class);
-                  if (var12 != null) {
+                  if (var12 != null && var8.canHaveHoles) {
+                     var4.setHole(var0);
                      var12.removePatch(var0);
-                     var12.setCondition(var12.getCondition() - var12.getCondLossPerHole());
+                     var12.setCondition((int)((float)var12.getCondition() - var12.getCondLossPerHole()));
+                     var5 = true;
+                  } else if (var12 != null && !var8.canHaveHoles && Rand.NextBool(var12.getConditionLowerChance())) {
+                     var12.setCondition(var12.getCondition() - 1);
+                  } else if (var12 == null && var8.canHaveHoles) {
+                     var4.setHole(var0);
+                     var5 = true;
                   }
 
-                  var5 = true;
                   if (!var3) {
                      break;
                   }
@@ -406,7 +477,7 @@ public enum BloodClothingType {
          var14 = var2.getDirt(var0);
          var2.setDirt(var0, var14 + 0.05F);
          float var15 = var2.getDirt(var0);
-         if (Rand.NextBool(Math.abs((new Float(var15 * 100.0F)).intValue() - 100))) {
+         if (Rand.NextBool(Math.abs((int)(var15 * 100.0F) - 100))) {
             return;
          }
 
@@ -435,7 +506,7 @@ public enum BloodClothingType {
                         var15 = var5.getDirt(var0);
                      }
 
-                     if (Rand.NextBool(Math.abs((new Float(var15 * 100.0F)).intValue() - 100))) {
+                     if (Rand.NextBool(Math.abs((int)(var15 * 100.0F) - 100))) {
                         break;
                      }
                   }
@@ -487,7 +558,7 @@ public enum BloodClothingType {
          var14 = var2.getBlood(var0);
          var2.setBlood(var0, var14 + 0.05F);
          float var15 = var2.getBlood(var0);
-         if (OutfitRNG.NextBool(Math.abs((new Float(var15 * 100.0F)).intValue() - 100))) {
+         if (OutfitRNG.NextBool(Math.abs((int)(var15 * 100.0F) - 100))) {
             return;
          }
 
@@ -516,7 +587,7 @@ public enum BloodClothingType {
                         var15 = var5.getBlood(var0);
                      }
 
-                     if (OutfitRNG.NextBool(Math.abs((new Float(var15 * 100.0F)).intValue() - 100))) {
+                     if (OutfitRNG.NextBool(Math.abs((int)(var15 * 100.0F) - 100))) {
                         break;
                      }
                   }

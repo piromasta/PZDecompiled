@@ -1,32 +1,18 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
-import java.util.ArrayList;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.stash.StashSystem;
 import zombie.iso.BuildingDef;
 import zombie.iso.RoomDef;
+import zombie.iso.SpawnPoints;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
 public final class RDSHouseParty extends RandomizedDeadSurvivorBase {
-   final ArrayList<String> items = new ArrayList();
-
    public RDSHouseParty() {
       this.name = "House Party";
       this.setChance(4);
-      this.items.add("Base.Crisps");
-      this.items.add("Base.Crisps2");
-      this.items.add("Base.Crisps3");
-      this.items.add("Base.Pop");
-      this.items.add("Base.Pop2");
-      this.items.add("Base.Pop3");
-      this.items.add("Base.Cupcake");
-      this.items.add("Base.Cupcake");
-      this.items.add("Base.CakeSlice");
-      this.items.add("Base.CakeSlice");
-      this.items.add("Base.CakeSlice");
-      this.items.add("Base.CakeSlice");
-      this.items.add("Base.CakeSlice");
    }
 
    public boolean isValid(BuildingDef var1, boolean var2) {
@@ -34,6 +20,12 @@ public final class RDSHouseParty extends RandomizedDeadSurvivorBase {
       if (GameClient.bClient) {
          return false;
       } else if (var1.isAllExplored() && !var2) {
+         return false;
+      } else if (SpawnPoints.instance.isSpawnBuilding(var1)) {
+         this.debugLine = "Spawn houses are invalid";
+         return false;
+      } else if (StashSystem.isStashBuilding(var1)) {
+         this.debugLine = "Stash buildings are invalid";
          return false;
       } else {
          if (!var2) {
@@ -57,7 +49,7 @@ public final class RDSHouseParty extends RandomizedDeadSurvivorBase {
    public void randomizeDeadSurvivor(BuildingDef var1) {
       RoomDef var2 = this.getRoom(var1, "livingroom");
       this.addZombies(var1, Rand.Next(5, 8), "Party", (Integer)null, var2);
-      this.addRandomItemsOnGround(var2, this.items, Rand.Next(4, 7));
+      this.addRandomItemsOnGround(var2, this.getHousePartyClutter(), Rand.Next(4, 7));
       var1.bAlarmed = false;
    }
 }

@@ -26,6 +26,8 @@ public enum MoodleType {
    Hypothermia,
    Windchill,
    CantSprint,
+   Uncomfortable,
+   NoxiousSmell,
    FoodEaten,
    MAX;
 
@@ -82,6 +84,10 @@ public enum MoodleType {
             return Windchill;
          case 23:
             return CantSprint;
+         case 24:
+            return Uncomfortable;
+         case 25:
+            return NoxiousSmell;
          default:
             return MAX;
       }
@@ -134,8 +140,12 @@ public enum MoodleType {
          return Hyperthermia;
       } else if (var0.equals("Hypothermia")) {
          return Hypothermia;
+      } else if (var0.equals("CantSprint")) {
+         return CantSprint;
+      } else if (var0.equals("Uncomfortable")) {
+         return Uncomfortable;
       } else {
-         return var0.equals("CantSprint") ? CantSprint : MAX;
+         return var0.equals("NoxiousSmell") ? NoxiousSmell : MAX;
       }
    }
 
@@ -149,6 +159,32 @@ public enum MoodleType {
       } else if (var0 == CantSprint) {
          return Translator.getText("Moodles_CantSprint");
       } else {
+         if (var0 == Uncomfortable) {
+            switch (var1) {
+               case 1:
+                  return Translator.getText("Moodles_Uncomfortable_lvl1");
+               case 2:
+                  return Translator.getText("Moodles_Uncomfortable_lvl2");
+               case 3:
+                  return Translator.getText("Moodles_Uncomfortable_lvl3");
+               case 4:
+                  return Translator.getText("Moodles_Uncomfortable_lvl4");
+            }
+         }
+
+         if (var0 == NoxiousSmell) {
+            switch (var1) {
+               case 1:
+                  return Translator.getText("Moodles_NoxiousSmell_lvl1");
+               case 2:
+                  return Translator.getText("Moodles_NoxiousSmell_lvl2");
+               case 3:
+                  return Translator.getText("Moodles_NoxiousSmell_lvl3");
+               case 4:
+                  return Translator.getText("Moodles_NoxiousSmell_lvl4");
+            }
+         }
+
          if (var0 == Endurance) {
             switch (var1) {
                case 1:
@@ -462,6 +498,32 @@ public enum MoodleType {
       } else if (var0 == CantSprint) {
          return Translator.getText("Moodles_CantSprint_desc");
       } else {
+         if (var0 == Uncomfortable) {
+            switch (var1) {
+               case 1:
+                  return Translator.getText("Moodles_Uncomfortable_desc_lvl1");
+               case 2:
+                  return Translator.getText("Moodles_Uncomfortable_desc_lvl2");
+               case 3:
+                  return Translator.getText("Moodles_Uncomfortable_desc_lvl3");
+               case 4:
+                  return Translator.getText("Moodles_Uncomfortable_desc_lvl4");
+            }
+         }
+
+         if (var0 == NoxiousSmell) {
+            switch (var1) {
+               case 1:
+                  return Translator.getText("Moodles_NoxiousSmell_desc_lvl1");
+               case 2:
+                  return Translator.getText("Moodles_NoxiousSmell_desc_lvl2");
+               case 3:
+                  return Translator.getText("Moodles_NoxiousSmell_desc_lvl3");
+               case 4:
+                  return Translator.getText("Moodles_NoxiousSmell_desc_lvl4");
+            }
+         }
+
          if (var0 == Endurance) {
             switch (var1) {
                case 1:
@@ -794,6 +856,10 @@ public enum MoodleType {
          return 2;
       } else if (var0 == CantSprint) {
          return 2;
+      } else if (var0 == Uncomfortable) {
+         return 2;
+      } else if (var0 == NoxiousSmell) {
+         return 2;
       } else if (var0 == Injured) {
          return 2;
       } else if (var0 == Pain) {
@@ -870,8 +936,12 @@ public enum MoodleType {
                return 22;
             case CantSprint:
                return 23;
-            case MAX:
+            case Uncomfortable:
                return 24;
+            case NoxiousSmell:
+               return 25;
+            case MAX:
+               return 26;
             default:
                return 0;
          }

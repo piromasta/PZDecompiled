@@ -5,9 +5,10 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.function.Consumer;
+import org.joml.Vector3f;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.WornItems.BodyLocations;
 import zombie.characters.WornItems.WornItems;
@@ -28,7 +29,6 @@ import zombie.core.skinnedmodel.visual.IHumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.core.textures.ColorInfo;
-import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 import zombie.debug.DebugLog;
 import zombie.gameStates.GameLoadingState;
@@ -39,22 +39,30 @@ import zombie.inventory.types.InventoryContainer;
 import zombie.inventory.types.Moveable;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMetaCell;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.SliceY;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
+import zombie.iso.fboRenderChunk.FBORenderCorpses;
+import zombie.iso.fboRenderChunk.FBORenderObjectHighlight;
+import zombie.iso.fboRenderChunk.FBORenderShadows;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.iso.zones.Zone;
 import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.MannequinScript;
 import zombie.scripting.objects.ModelScript;
 import zombie.util.StringUtils;
 import zombie.util.list.PZArrayUtil;
+import zombie.vehicles.BaseVehicle;
 
 public class IsoMannequin extends IsoObject implements IHumanVisual {
    private static final ColorInfo inf = new ColorInfo();
@@ -177,6 +185,10 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
       int var2 = IsoCamera.frameState.playerIndex;
       if (var1 != this.perPlayer[var2].renderDirection) {
          this.perPlayer[var2].renderDirection = var1;
+         if (PerformanceSettings.FBORenderChunk) {
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+         }
+
       }
    }
 
@@ -192,6 +204,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
             this.sendObjectChange("rotate");
          }
 
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
       }
    }
 
@@ -226,10 +239,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
       this.bFemale = var1.get() == 1;
       this.bZombie = var1.get() == 1;
       this.bSkeleton = var1.get() == 1;
-      if (var2 >= 191) {
-         this.mannequinScriptName = GameWindow.ReadString(var1);
-      }
-
+      this.mannequinScriptName = GameWindow.ReadString(var1);
       this.pose = GameWindow.ReadString(var1);
       this.humanVisual.load(var1, var2);
       this.textureName = this.humanVisual.getSkinTexture();
@@ -305,7 +315,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
    public void loadState(ByteBuffer var1) throws IOException {
       var1.get();
       var1.get();
-      this.load(var1, 195);
+      this.load(var1, 219);
       this.initOutfit();
       this.validateSkinTexture();
       this.validatePose();
@@ -314,10 +324,21 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
 
    public void addToWorld() {
       super.addToWorld();
-      this.initOutfit();
-      this.validateSkinTexture();
-      this.validatePose();
-      this.syncModel();
+      if (this.square == null || this.square.chunk == null || this.square.chunk.jobType != IsoChunk.JobType.SoftReset) {
+         this.initOutfit();
+         this.validateSkinTexture();
+         this.validatePose();
+         this.syncModel();
+         if (!FBORenderCell.instance.mannequinList.contains(this)) {
+            FBORenderCell.instance.mannequinList.add(this);
+         }
+
+      }
+   }
+
+   public void removeFromWorld() {
+      super.removeFromWorld();
+      FBORenderCell.instance.mannequinList.remove(this);
    }
 
    private void initMannequinScript() {
@@ -403,55 +424,141 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
       this.renderShadow(var1, var2, var3);
       if (this.bAnimate) {
          this.animatedModel.update();
-         Drawer var11 = this.drawers[SpriteRenderer.instance.getMainStateIndex()];
-         var11.init(var1, var2, var3);
-         SpriteRenderer.instance.drawGeneric(var11);
+         Drawer var15 = this.drawers[SpriteRenderer.instance.getMainStateIndex()];
+         var15.init(var1, var2, var3);
+         SpriteRenderer.instance.drawGeneric(var15);
       } else {
-         IsoDirections var9 = this.dir;
-         PerPlayer var10 = this.perPlayer[var8];
-         if (var10.renderDirection != null && var10.renderDirection != IsoDirections.Max) {
-            this.dir = var10.renderDirection;
-            var10.renderDirection = null;
-            var10.bWasRenderDirection = true;
-            var10.atlasTex = null;
-         } else if (var10.bWasRenderDirection) {
-            var10.bWasRenderDirection = false;
-            var10.atlasTex = null;
-         }
+         boolean var9 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+         if (FBORenderChunkManager.instance.isCaching()) {
+            FBORenderChunk var18 = this.square.chunk.getRenderLevels(var8).getFBOForLevel(this.square.z, Core.getInstance().getZoom(var8));
+            IsoDirections var19 = this.dir;
+            PerPlayer var20 = this.perPlayer[var8];
+            if (var20.renderDirection != null && var20.renderDirection != IsoDirections.Max) {
+               this.dir = var20.renderDirection;
+               var20.renderDirection = null;
+               var20.bWasRenderDirection = true;
+               var20.atlasTex = null;
+            } else if (var20.bWasRenderDirection) {
+               var20.bWasRenderDirection = false;
+               var20.atlasTex = null;
+            }
 
-         if (var10.atlasTex == null) {
-            var10.atlasTex = DeadBodyAtlas.instance.getBodyTexture(this);
-            DeadBodyAtlas.instance.render();
-         }
+            FBORenderCorpses.getInstance().render(var18.index, this);
+            this.dir = var19;
+         } else {
+            IsoDirections var10;
+            PerPlayer var11;
+            if (PerformanceSettings.FBORenderChunk) {
+               if (this.animatedModel == null) {
+                  this.animatedModel = new AnimatedModel();
+                  this.animatedModel.setAnimate(false);
+                  this.drawers = new Drawer[3];
 
-         this.dir = var9;
-         if (var10.atlasTex != null) {
-            if (this.isHighlighted()) {
-               inf.r = this.getHighlightColor().r;
-               inf.g = this.getHighlightColor().g;
-               inf.b = this.getHighlightColor().b;
-               inf.a = this.getHighlightColor().a;
+                  for(int var16 = 0; var16 < this.drawers.length; ++var16) {
+                     this.drawers[var16] = new Drawer();
+                  }
+               }
+
+               this.animatedModel.setAnimSetName(this.getAnimSetName());
+               this.animatedModel.setState(this.getAnimStateName());
+               this.animatedModel.setVariable("Female", this.bFemale);
+               this.animatedModel.setVariable("Pose", this.getPose());
+               var10 = this.dir;
+               var11 = this.perPlayer[var8];
+               if (var11.renderDirection != null && var11.renderDirection != IsoDirections.Max) {
+                  var10 = var11.renderDirection;
+                  var11.renderDirection = null;
+                  var11.bWasRenderDirection = true;
+                  var11.atlasTex = null;
+               } else if (var11.bWasRenderDirection) {
+                  var11.bWasRenderDirection = false;
+                  var11.atlasTex = null;
+               }
+
+               this.animatedModel.setAngle(var10.ToVector());
+               this.animatedModel.setModelData(this.humanVisual, this.itemVisuals);
+               this.animatedModel.update();
+               Drawer var17 = this.drawers[SpriteRenderer.instance.getMainStateIndex()];
+               IsoObject[] var12 = (IsoObject[])this.square.getObjects().getElements();
+
+               for(int var13 = 0; var13 < this.square.getObjects().size(); ++var13) {
+                  IsoObject var14 = var12[var13];
+                  if (var14.isTableSurface()) {
+                     var3 += (var14.getSurfaceOffset() + 1.0F) / 96.0F;
+                  }
+               }
+
+               if (var9) {
+                  this.animatedModel.setTint(this.getHighlightColor());
+               } else {
+                  this.animatedModel.setTint(1.0F, 1.0F, 1.0F);
+               }
+
+               var17.init(var1, var2, var3);
+               SpriteRenderer.instance.drawGeneric(var17);
             } else {
-               inf.r = var4.r;
-               inf.g = var4.g;
-               inf.b = var4.b;
-               inf.a = var4.a;
-            }
+               var10 = this.dir;
+               var11 = this.perPlayer[var8];
+               if (var11.renderDirection != null && var11.renderDirection != IsoDirections.Max) {
+                  this.dir = var11.renderDirection;
+                  var11.renderDirection = null;
+                  var11.bWasRenderDirection = true;
+                  var11.atlasTex = null;
+               } else if (var11.bWasRenderDirection) {
+                  var11.bWasRenderDirection = false;
+                  var11.atlasTex = null;
+               }
 
-            var4 = inf;
-            if (!this.isHighlighted() && PerformanceSettings.LightingFrameSkip < 3) {
-               this.square.interpolateLight(var4, var1 - (float)this.square.getX(), var2 - (float)this.square.getY());
-            }
+               if (var11.atlasTex == null) {
+                  var11.atlasTex = DeadBodyAtlas.instance.getBodyTexture(this);
+                  DeadBodyAtlas.instance.render();
+               }
 
-            var10.atlasTex.render((float)((int)this.screenX), (float)((int)this.screenY), var4.r, var4.g, var4.b, this.getAlpha(var8));
-            if (Core.bDebug) {
+               this.dir = var10;
+               if (var11.atlasTex != null) {
+                  if (var9) {
+                     inf.r = this.getHighlightColor().r;
+                     inf.g = this.getHighlightColor().g;
+                     inf.b = this.getHighlightColor().b;
+                     inf.a = this.getHighlightColor().a;
+                  } else {
+                     inf.r = var4.r;
+                     inf.g = var4.g;
+                     inf.b = var4.b;
+                     inf.a = var4.a;
+                  }
+
+                  var4 = inf;
+                  if (!var9 && PerformanceSettings.LightingFrameSkip < 3) {
+                     this.square.interpolateLight(var4, var1 - (float)this.square.getX(), var2 - (float)this.square.getY());
+                  }
+
+                  IndieGL.disableDepthTest();
+                  SpriteRenderer.instance.StartShader(0, var8);
+                  var11.atlasTex.render(var1, var2, var3, (float)((int)this.screenX), (float)((int)this.screenY), var4.r, var4.g, var4.b, this.getAlpha(var8));
+                  SpriteRenderer.instance.EndShader();
+                  if (Core.bDebug) {
+                  }
+               }
+
             }
          }
-
       }
    }
 
    public void renderFxMask(float var1, float var2, float var3, boolean var4) {
+   }
+
+   public boolean shouldRenderEachFrame() {
+      return this.bAnimate;
+   }
+
+   public void checkRenderDirection(int var1) {
+      PerPlayer var2 = this.perPlayer[var1];
+      if ((var2.renderDirection == null || var2.renderDirection == IsoDirections.Max) && var2.bWasRenderDirection) {
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+      }
+
    }
 
    private void calcScreenPos(float var1, float var2, float var3) {
@@ -477,16 +584,31 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
 
    }
 
-   private void renderShadow(float var1, float var2, float var3) {
-      Texture var4 = Texture.getSharedTexture("dropshadow");
-      int var5 = IsoCamera.frameState.playerIndex;
-      float var6 = 0.8F * this.getAlpha(var5);
-      ColorInfo var7 = this.square.lighting[var5].lightInfo();
-      var6 *= (var7.r + var7.g + var7.b) / 3.0F;
-      var6 *= 0.8F;
-      float var8 = this.screenX - (float)var4.getWidth() / 2.0F * (float)Core.TileScale;
-      float var9 = this.screenY - (float)var4.getHeight() / 2.0F * (float)Core.TileScale;
-      SpriteRenderer.instance.render(var4, var8, var9, (float)var4.getWidth() * (float)Core.TileScale, (float)var4.getHeight() * (float)Core.TileScale, 1.0F, 1.0F, 1.0F, var6, (Consumer)null);
+   public void renderShadow(float var1, float var2, float var3) {
+      if (!FBORenderChunkManager.instance.isCaching()) {
+         float var4 = 0.45F;
+         float var5 = 0.4725F;
+         float var6 = 0.5611F;
+         int var7 = IsoCamera.frameState.playerIndex;
+         ColorInfo var8 = this.square.lighting[var7].lightInfo();
+         Vector3f var9 = BaseVehicle.allocVector3f().set(1.0F, 0.0F, 0.0F);
+         if (PerformanceSettings.FBORenderChunk) {
+            IsoObject[] var10 = (IsoObject[])this.square.getObjects().getElements();
+
+            for(int var11 = 0; var11 < this.square.getObjects().size(); ++var11) {
+               IsoObject var12 = var10[var11];
+               if (var12.isTableSurface()) {
+                  var3 += (var12.getSurfaceOffset() + 2.0F) / 96.0F;
+               }
+            }
+
+            FBORenderShadows.getInstance().addShadow(var1, var2, var3, var9, var4, var5, var6, var8.r, var8.g, var8.a, 0.8F * this.getAlpha(var7), false);
+            BaseVehicle.releaseVector3f(var9);
+         } else {
+            IsoDeadBody.renderShadow(var1, var2, var3, var9, var4, var5, var6, var8, 0.8F * this.getAlpha(var7));
+            BaseVehicle.releaseVector3f(var9);
+         }
+      }
    }
 
    private void initOutfit() {
@@ -567,7 +689,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
 
    private void getPropertiesFromZone() {
       if (this.getObjectIndex() != -1) {
-         IsoMetaCell var1 = IsoWorld.instance.getMetaGrid().getCellData(this.square.x / 300, this.square.y / 300);
+         IsoMetaCell var1 = IsoWorld.instance.getMetaGrid().getCellData(this.square.x / IsoCell.CellSizeInSquares, this.square.y / IsoCell.CellSizeInSquares);
          if (var1 != null && var1.mannequinZones != null) {
             ArrayList var2 = var1.mannequinZones;
             MannequinZone var3 = null;
@@ -692,6 +814,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
             }
 
             this.syncModel();
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          }
       }
    }
@@ -702,6 +825,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
          if (this.container == null || this.container.getItems().indexOf(var3) == -1) {
             this.wornItems.remove(var3);
             this.syncModel();
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
             --var2;
          }
       }
@@ -737,7 +861,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
          synchronized(SliceY.SliceBufferLock) {
             ByteBuffer var3 = SliceY.SliceBuffer;
             var3.clear();
-            var3.putInt(195);
+            var3.putInt(219);
             this.save(var3);
             var3.flip();
             var1.byteData = ByteBuffer.allocate(var3.limit());
@@ -836,7 +960,7 @@ public class IsoMannequin extends IsoObject implements IHumanVisual {
       }
    }
 
-   public static final class MannequinZone extends IsoMetaGrid.Zone {
+   public static final class MannequinZone extends Zone {
       public int bFemale = -1;
       public IsoDirections dir;
       public String mannequinScript;

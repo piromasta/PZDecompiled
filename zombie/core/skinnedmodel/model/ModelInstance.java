@@ -3,12 +3,14 @@ package zombie.core.skinnedmodel.model;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
+import org.joml.AxisAngle4f;
 import org.joml.Math;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import zombie.GameTime;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.visual.ItemVisual;
@@ -18,10 +20,13 @@ import zombie.core.textures.Texture;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.IsoLightSource;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
+import zombie.iso.Vector3;
+import zombie.iso.areas.IsoRoom;
 import zombie.iso.weather.ClimateManager;
 import zombie.network.GameClient;
 import zombie.popman.ObjectPool;
@@ -51,6 +56,7 @@ public class ModelInstance {
    public ModelInstance matrixModel;
    public SoftwareModelMeshInstance softwareMesh;
    public final ArrayList<ModelInstance> sub = new ArrayList();
+   public float targetDepth;
    private int instanceSkip;
    private ItemVisual itemVisual = null;
    public boolean bResetAfterRender = false;
@@ -64,6 +70,13 @@ public class ModelInstance {
    public String attachmentNameParent = null;
    public float scale = 1.0F;
    public String maskVariableValue = null;
+   private static final Matrix4f gcAttachmentMatrix = new Matrix4f();
+   private static final Matrix4f gcTransposedAttachmentMatrix = new Matrix4f();
+   private static final org.lwjgl.util.vector.Matrix4f gcBoneModelTransform = new org.lwjgl.util.vector.Matrix4f();
+   private static final Vector3f gcVector3f = new Vector3f();
+   private static final AxisAngle4f gcAxisAngle4f = new AxisAngle4f();
+   private static final Vector3 modelSpaceForward = new Vector3(0.0F, 0.0F, 1.0F);
+   private static final Vector3 gcRotatedForward = new Vector3();
    public PlayerData[] playerData;
    private static final ColorInfo tempColorInfo = new ColorInfo();
    private static final ColorInfo tempColorInfo2 = new ColorInfo();
@@ -160,26 +173,22 @@ public class ModelInstance {
 
    public void UpdateDir() {
       if (this.AnimPlayer != null) {
-         this.AnimPlayer.UpdateDir(this.character);
+         this.AnimPlayer.updateForwardDirection(this.character);
       }
    }
 
-   public void Update() {
-      float var1;
+   public void Update(float var1) {
+      float var2;
       if (this.character != null) {
-         var1 = this.character.DistTo(IsoPlayer.getInstance());
-         if (!this.character.amputations.isEmpty() && var1 > 0.0F && this.AnimPlayer != null) {
+         var2 = this.character.DistTo(IsoPlayer.getInstance());
+         if (!this.character.amputations.isEmpty() && var2 > 0.0F && this.AnimPlayer != null) {
             this.AnimPlayer.dismembered.clear();
-            ArrayList var2 = this.character.amputations;
+            ArrayList var3 = this.character.amputations;
 
-            for(int var3 = 0; var3 < var2.size(); ++var3) {
-               String var4 = (String)var2.get(var3);
-               this.AnimPlayer.dismember((Integer)this.AnimPlayer.getSkinningData().BoneIndices.get(var4));
+            for(int var4 = 0; var4 < var3.size(); ++var4) {
+               String var5 = (String)var3.get(var4);
+               this.AnimPlayer.dismember((Integer)this.AnimPlayer.getSkinningData().BoneIndices.get(var5));
             }
-         }
-
-         if (Math.abs(this.character.speedMod - 0.5957F) < 1.0E-4F) {
-            boolean var5 = false;
          }
       }
 
@@ -191,10 +200,10 @@ public class ModelInstance {
                   this.skipped = 1;
                }
 
-               var1 = GameTime.instance.getTimeDelta() * (float)this.skipped;
-               this.AnimPlayer.Update(var1);
+               var2 = var1 * (float)this.skipped;
+               this.AnimPlayer.Update(var2);
             } else {
-               this.AnimPlayer.DoAngles();
+               this.AnimPlayer.DoAngles(var1);
             }
 
             this.AnimPlayer.parentPlayer = null;
@@ -212,7 +221,7 @@ public class ModelInstance {
 
    public void SetForceDir(Vector2 var1) {
       if (this.AnimPlayer != null) {
-         this.AnimPlayer.SetForceDir(var1);
+         this.AnimPlayer.setTargetAndCurrentDirection(var1);
       }
 
    }
@@ -331,12 +340,45 @@ public class ModelInstance {
       return this.m_textureInitializer != null && this.m_textureInitializer.isDirty();
    }
 
+   public void getAttachmentWorldPosition(ModelAttachment var1, Vector3 var2, Vector3 var3) {
+      float var4 = this.AnimPlayer.getRenderedAngle();
+      this.AnimPlayer.getBoneModelTransform(this.parentBone, gcBoneModelTransform);
+      this.getAttachmentMatrix(var1, gcAttachmentMatrix);
+      PZMath.convertMatrix(gcBoneModelTransform, gcTransposedAttachmentMatrix);
+      gcTransposedAttachmentMatrix.transpose();
+      gcTransposedAttachmentMatrix.mul(gcAttachmentMatrix, gcAttachmentMatrix);
+      gcAttachmentMatrix.getTranslation(gcVector3f);
+      var2.x = gcVector3f.x;
+      var2.y = gcVector3f.y;
+      var2.z = gcVector3f.z;
+      Model.VectorToWorldCoords(this.character.getX(), this.character.getY(), this.character.getZ(), var4, var2);
+      gcAttachmentMatrix.getRotation(gcAxisAngle4f);
+      this.rotateVectorByAxisAngle();
+      var3.x = gcRotatedForward.x;
+      var3.y = gcRotatedForward.y;
+      var3.z = gcRotatedForward.z;
+      Model.VectorToWorldCoords(0.0F, 0.0F, 0.0F, var4, var3);
+   }
+
+   private void rotateVectorByAxisAngle() {
+      float var1 = gcAxisAngle4f.x;
+      float var2 = gcAxisAngle4f.y;
+      float var3 = gcAxisAngle4f.z;
+      float var4 = gcAxisAngle4f.angle;
+      float var5 = Math.cos(var4);
+      float var6 = Math.sin(var4);
+      float var7 = modelSpaceForward.x * (var5 + var1 * var1 * (1.0F - var5)) + modelSpaceForward.y * (var1 * var2 * (1.0F - var5) - var3 * var6) + modelSpaceForward.z * (var1 * var3 * (1.0F - var5) + var2 * var6);
+      float var8 = modelSpaceForward.x * (var2 * var1 * (1.0F - var5) + var3 * var6) + modelSpaceForward.y * (var5 + var2 * var2 * (1.0F - var5)) + modelSpaceForward.z * (var2 * var3 * (1.0F - var5) - var1 * var6);
+      float var9 = modelSpaceForward.x * (var3 * var1 * (1.0F - var5) - var2 * var6) + modelSpaceForward.y * (var3 * var2 * (1.0F - var5) + var1 * var6) + modelSpaceForward.z * (var5 + var3 * var3 * (1.0F - var5));
+      gcRotatedForward.set(var7, var8, var9);
+   }
+
    public static final class PlayerData {
-      FrameLightInfo[] frameLights;
-      ArrayList<IsoGridSquare.ResultLight> chosenLights;
-      Vector3f targetAmbient;
-      Vector3f currentAmbient;
-      EffectLight[] effectLightsMain;
+      private FrameLightInfo[] frameLights;
+      private ArrayList<IsoGridSquare.ResultLight> chosenLights;
+      private Vector3f targetAmbient;
+      public Vector3f currentAmbient;
+      public EffectLight[] effectLightsMain;
       private static final ObjectPool<PlayerData> pool = new ObjectPool(PlayerData::new);
 
       public PlayerData() {
@@ -480,7 +522,7 @@ public class ModelInstance {
                if (!var3.active) {
                   var3.distSq = 3.4028235E38F;
                } else {
-                  var3.distSq = IsoUtils.DistanceToSquared(var1.x, var1.y, var1.z, (float)var3.x + 0.5F, (float)var3.y + 0.5F, (float)var3.z);
+                  var3.distSq = IsoUtils.DistanceToSquared(var1.getX(), var1.getY(), var1.getZ(), (float)var3.x + 0.5F, (float)var3.y + 0.5F, (float)var3.z);
                }
             }
          }
@@ -524,38 +566,46 @@ public class ModelInstance {
                }
 
                this.completeFrameLightsForFrame();
-               var1.getCurrentSquare().interpolateLight(ModelInstance.tempColorInfo, var1.x % 1.0F, var1.y % 1.0F);
+               var1.getCurrentSquare().interpolateLight(ModelInstance.tempColorInfo, var1.getX() % 1.0F, var1.getY() % 1.0F);
                this.targetAmbient.x = ModelInstance.tempColorInfo.r;
                this.targetAmbient.y = ModelInstance.tempColorInfo.g;
                this.targetAmbient.z = ModelInstance.tempColorInfo.b;
-               if (var1.z - (float)((int)var1.z) > 0.2F) {
-                  IsoGridSquare var14 = IsoWorld.instance.CurrentCell.getGridSquare((int)var1.x, (int)var1.y, (int)var1.z + 1);
-                  if (var14 != null) {
-                     ColorInfo var15 = ModelInstance.tempColorInfo2;
-                     var14.lighting[IsoCamera.frameState.playerIndex].lightInfo();
-                     var14.interpolateLight(var15, var1.x % 1.0F, var1.y % 1.0F);
-                     ModelInstance.tempColorInfo.interp(var15, (var1.z - ((float)((int)var1.z) + 0.2F)) / 0.8F, ModelInstance.tempColorInfo);
+               if (var1.getZ() - (float)PZMath.fastfloor(var1.getZ()) > 0.2F) {
+                  IsoGridSquare var15 = IsoWorld.instance.CurrentCell.getGridSquare(PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()) + 1);
+                  if (var15 != null) {
+                     ColorInfo var16 = ModelInstance.tempColorInfo2;
+                     var15.lighting[IsoCamera.frameState.playerIndex].lightInfo();
+                     var15.interpolateLight(var16, var1.getX() % 1.0F, var1.getY() % 1.0F);
+                     ModelInstance.tempColorInfo.interp(var16, (var1.getZ() - ((float)PZMath.fastfloor(var1.getZ()) + 0.2F)) / 0.8F, ModelInstance.tempColorInfo);
                      this.targetAmbient.set(ModelInstance.tempColorInfo.r, ModelInstance.tempColorInfo.g, ModelInstance.tempColorInfo.b);
                   }
                }
 
-               float var16 = GameTime.getInstance().getMultiplier();
-               this.currentAmbient.x = this.step(this.currentAmbient.x, this.targetAmbient.x, (this.targetAmbient.x - this.currentAmbient.x) / (10.0F * var16));
-               this.currentAmbient.y = this.step(this.currentAmbient.y, this.targetAmbient.y, (this.targetAmbient.y - this.currentAmbient.y) / (10.0F * var16));
-               this.currentAmbient.z = this.step(this.currentAmbient.z, this.targetAmbient.z, (this.targetAmbient.z - this.currentAmbient.z) / (10.0F * var16));
+               float var17 = GameTime.getInstance().getMultiplier();
+               this.currentAmbient.x = this.step(this.currentAmbient.x, this.targetAmbient.x, (this.targetAmbient.x - this.currentAmbient.x) / (10.0F * var17));
+               this.currentAmbient.y = this.step(this.currentAmbient.y, this.targetAmbient.y, (this.targetAmbient.y - this.currentAmbient.y) / (10.0F * var17));
+               this.currentAmbient.z = this.step(this.currentAmbient.z, this.targetAmbient.z, (this.targetAmbient.z - this.currentAmbient.z) / (10.0F * var17));
                if (var2) {
                   this.setCurrentToTarget();
                }
 
                this.sortLights(var1);
-               float var17 = 0.7F;
+               float var18 = 0.7F;
 
                for(int var7 = 0; var7 < 5; ++var7) {
                   FrameLightInfo var8 = this.frameLights[var7];
                   if (var8 != null && var8.active) {
                      EffectLight var9 = this.effectLightsMain[var7];
-                     if ((var8.flags & 1) != 0) {
-                        var9.set(var1.x, var1.y, (float)((int)var1.z + 1), var8.currentColor.x * var17, var8.currentColor.y * var17, var8.currentColor.z * var17, var8.radius);
+                     int var10 = var8.flags;
+                     if ((var10 & 1) != 0) {
+                        IsoRoom var11 = var1.getCurrentSquare().getRoom();
+                        if (var11 == null || var11.findRoomLightByID(var8.id) == null) {
+                           var10 &= -2;
+                        }
+                     }
+
+                     if ((var10 & 1) != 0) {
+                        var9.set(var1.getX(), var1.getY(), (float)(PZMath.fastfloor(var1.getZ()) + 1), var8.currentColor.x * var18, var8.currentColor.y * var18, var8.currentColor.z * var18, var8.radius);
                      } else if ((var8.flags & 2) != 0) {
                         if (var1 instanceof IsoPlayer) {
                            int var10000;
@@ -565,42 +615,42 @@ public class ModelInstance {
                               var10000 = ((IsoPlayer)var1).PlayerIndex + 1;
                            }
 
-                           int var11 = ((IsoPlayer)var1).PlayerIndex;
-                           int var12 = var11 * 4 + 1;
-                           int var13 = var11 * 4 + 3 + 1;
-                           if (var8.id < var12 || var8.id > var13) {
+                           int var12 = ((IsoPlayer)var1).PlayerIndex;
+                           int var13 = var12 * 4 + 1;
+                           int var14 = var12 * 4 + 3 + 1;
+                           if (var8.id < var13 || var8.id > var14) {
                               var9.set((float)var8.x, (float)var8.y, (float)var8.z, var8.currentColor.x, var8.currentColor.y, var8.currentColor.z, var8.radius);
                            }
                         } else {
                            var9.set((float)var8.x, (float)var8.y, (float)var8.z, var8.currentColor.x * 2.0F, var8.currentColor.y, var8.currentColor.z, var8.radius);
                         }
                      } else {
-                        var9.set((float)var8.x + 0.5F, (float)var8.y + 0.5F, (float)var8.z + 0.5F, var8.currentColor.x * var17, var8.currentColor.y * var17, var8.currentColor.z * var17, var8.radius);
+                        var9.set((float)var8.x + 0.5F, (float)var8.y + 0.5F, (float)var8.z + 0.5F, var8.currentColor.x * var18, var8.currentColor.y * var18, var8.currentColor.z * var18, var8.radius);
                      }
                   }
                }
 
                if (var4 <= 3 && var1 instanceof IsoPlayer && var1.getTorchStrength() > 0.0F) {
-                  this.effectLightsMain[2].set(var1.x + var1.getForwardDirection().x * 0.5F, var1.y + var1.getForwardDirection().y * 0.5F, var1.z + 0.25F, 1.0F, 1.0F, 1.0F, 2);
+                  this.effectLightsMain[2].set(var1.getX() + var1.getForwardDirection().x * 0.5F, var1.getY() + var1.getForwardDirection().y * 0.5F, var1.getZ() + 0.25F, 1.0F, 1.0F, 1.0F, 2);
                }
 
-               float var18 = 0.0F;
-               float var19 = 1.0F;
-               float var20 = this.lerp(var18, var19, this.currentAmbient.x);
-               float var10 = this.lerp(var18, var19, this.currentAmbient.y);
-               float var21 = this.lerp(var18, var19, this.currentAmbient.z);
+               float var19 = 0.0F;
+               float var20 = 1.0F;
+               float var21 = this.lerp(var19, var20, this.currentAmbient.x);
+               float var22 = this.lerp(var19, var20, this.currentAmbient.y);
+               float var23 = this.lerp(var19, var20, this.currentAmbient.z);
                if (var1.getCurrentSquare().isOutside()) {
-                  var20 *= ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
-                  var10 *= ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
                   var21 *= ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
-                  this.effectLightsMain[3].set(var1.x - 2.0F, var1.y - 2.0F, var1.z + 1.0F, var20 / 4.0F, var10 / 4.0F, var21 / 4.0F, 5000);
-                  this.effectLightsMain[4].set(var1.x + 2.0F, var1.y + 2.0F, var1.z + 1.0F, var20 / 4.0F, var10 / 4.0F, var21 / 4.0F, 5000);
+                  var22 *= ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
+                  var23 *= ModelInstance.MODEL_LIGHT_MULT_OUTSIDE;
+                  this.effectLightsMain[3].set(var1.getX() - 2.0F, var1.getY() - 2.0F, var1.getZ() + 1.0F, var21 / 4.0F, var22 / 4.0F, var23 / 4.0F, 5000);
+                  this.effectLightsMain[4].set(var1.getX() + 2.0F, var1.getY() + 2.0F, var1.getZ() + 1.0F, var21 / 4.0F, var22 / 4.0F, var23 / 4.0F, 5000);
                } else if (var1.getCurrentSquare().getRoom() != null) {
-                  var20 *= ModelInstance.MODEL_LIGHT_MULT_ROOM;
-                  var10 *= ModelInstance.MODEL_LIGHT_MULT_ROOM;
                   var21 *= ModelInstance.MODEL_LIGHT_MULT_ROOM;
-                  this.effectLightsMain[3].set(var1.x - 2.0F, var1.y - 2.0F, var1.z + 1.0F, var20 / 4.0F, var10 / 4.0F, var21 / 4.0F, 5000);
-                  this.effectLightsMain[4].set(var1.x + 2.0F, var1.y + 2.0F, var1.z + 1.0F, var20 / 4.0F, var10 / 4.0F, var21 / 4.0F, 5000);
+                  var22 *= ModelInstance.MODEL_LIGHT_MULT_ROOM;
+                  var23 *= ModelInstance.MODEL_LIGHT_MULT_ROOM;
+                  this.effectLightsMain[3].set(var1.getX() - 2.0F, var1.getY() - 2.0F, var1.getZ() + 1.0F, var21 / 4.0F, var22 / 4.0F, var23 / 4.0F, 5000);
+                  this.effectLightsMain[4].set(var1.getX() + 2.0F, var1.getY() + 2.0F, var1.getZ() + 1.0F, var21 / 4.0F, var22 / 4.0F, var23 / 4.0F, 5000);
                }
 
             }
@@ -681,6 +731,20 @@ public class ModelInstance {
          this.g = var5;
          this.b = var6;
          this.radius = var7;
+      }
+
+      public void clear() {
+         this.set(0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0);
+      }
+
+      public void set(IsoLightSource var1) {
+         this.x = (float)var1.x + 0.5F;
+         this.y = (float)var1.y + 0.5F;
+         this.z = (float)var1.z;
+         this.r = var1.r;
+         this.g = var1.g;
+         this.b = var1.b;
+         this.radius = var1.radius;
       }
    }
 }

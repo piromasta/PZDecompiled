@@ -6,12 +6,14 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.function.Consumer;
 import zombie.GameTime;
+import zombie.IndieGL;
 import zombie.characters.IsoPlayer;
 import zombie.chat.ChatElement;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.fonts.AngelCodeFont;
+import zombie.core.random.Rand;
 import zombie.core.textures.Texture;
 import zombie.network.GameServer;
 
@@ -832,6 +834,10 @@ public final class TextDrawObject {
       }
 
       if (!(var11 - (double)var19 >= (double)var17) && !(var11 + (double)this.getWidth() + (double)var19 <= 0.0) && !(var4 - (double)var19 >= (double)var18) && !(var4 + (double)this.getHeight() + (double)var19 <= 0.0)) {
+         if (PerformanceSettings.FBORenderChunk) {
+            IndieGL.glBlendFunc(770, 771);
+         }
+
          if (this.drawBackground && ChatElement.backdropTexture != null) {
             ChatElement.backdropTexture.renderInnerBased((int)var11, (int)var4, this.getWidth(), this.getHeight(), 0.0F, 0.0F, 0.0F, 0.4F * var9);
          }

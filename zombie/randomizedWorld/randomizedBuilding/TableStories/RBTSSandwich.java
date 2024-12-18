@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 
 public final class RBTSSandwich extends RBTableStoryBase {

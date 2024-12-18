@@ -12,17 +12,22 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Stack;
 import java.util.UUID;
 import java.util.function.Consumer;
+import org.joml.GeometryUtils;
 import org.joml.Vector3f;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.AmbientStreamManager;
+import zombie.CombatManager;
 import zombie.DebugFileWatcher;
+import zombie.GameProfiler;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.IndieGL;
 import zombie.PersistentOutfits;
 import zombie.PredicatedFileWatcher;
 import zombie.SandboxOptions;
@@ -49,20 +54,21 @@ import zombie.ai.states.ClimbDownSheetRopeState;
 import zombie.ai.states.ClimbOverFenceState;
 import zombie.ai.states.ClimbOverWallState;
 import zombie.ai.states.ClimbSheetRopeState;
+import zombie.ai.states.ClimbThroughWindowPositioningParams;
 import zombie.ai.states.ClimbThroughWindowState;
 import zombie.ai.states.CloseWindowState;
 import zombie.ai.states.CollideWithWallState;
 import zombie.ai.states.FakeDeadZombieState;
+import zombie.ai.states.FishingState;
+import zombie.ai.states.GrappledThrownOutWindowState;
 import zombie.ai.states.IdleState;
 import zombie.ai.states.LungeNetworkState;
 import zombie.ai.states.LungeState;
 import zombie.ai.states.OpenWindowState;
 import zombie.ai.states.PathFindState;
-import zombie.ai.states.PlayerFallDownState;
 import zombie.ai.states.PlayerGetUpState;
 import zombie.ai.states.PlayerHitReactionPVPState;
 import zombie.ai.states.PlayerHitReactionState;
-import zombie.ai.states.PlayerKnockedDown;
 import zombie.ai.states.PlayerOnGroundState;
 import zombie.ai.states.SmashWindowState;
 import zombie.ai.states.StaggerBackState;
@@ -73,10 +79,15 @@ import zombie.ai.states.ZombieFallDownState;
 import zombie.ai.states.ZombieFallingState;
 import zombie.ai.states.ZombieHitReactionState;
 import zombie.ai.states.ZombieOnGroundState;
+import zombie.ai.states.animals.AnimalIdleState;
+import zombie.ai.states.animals.AnimalOnGroundState;
+import zombie.ai.states.animals.AnimalPathFindState;
+import zombie.ai.states.animals.AnimalWalkState;
 import zombie.audio.BaseSoundEmitter;
 import zombie.audio.FMODParameter;
 import zombie.audio.FMODParameterList;
 import zombie.audio.GameSoundClip;
+import zombie.audio.parameters.ParameterVehicleHitLocation;
 import zombie.audio.parameters.ParameterZombieState;
 import zombie.characterTextures.BloodBodyPartType;
 import zombie.characterTextures.BloodClothingType;
@@ -102,7 +113,9 @@ import zombie.characters.action.ActionContext;
 import zombie.characters.action.ActionState;
 import zombie.characters.action.ActionStateSnapshot;
 import zombie.characters.action.IActionStateChanged;
+import zombie.characters.animals.IsoAnimal;
 import zombie.characters.skills.PerkFactory;
+import zombie.characters.traits.CharacterTraits;
 import zombie.characters.traits.TraitCollection;
 import zombie.characters.traits.TraitFactory;
 import zombie.chat.ChatElement;
@@ -114,7 +127,6 @@ import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.SpriteRenderer;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
@@ -122,8 +134,16 @@ import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
-import zombie.core.profiling.PerformanceProfileProbe;
+import zombie.core.physics.BallisticsController;
+import zombie.core.physics.BallisticsTarget;
+import zombie.core.physics.RagdollController;
+import zombie.core.physics.RagdollStateData;
+import zombie.core.profiling.PerformanceProbes;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.BaseGrappleable;
+import zombie.core.skinnedmodel.IGrappleable;
+import zombie.core.skinnedmodel.IGrappleableWrapper;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.AdvancedAnimator;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -132,26 +152,32 @@ import zombie.core.skinnedmodel.advancedanimation.AnimNode;
 import zombie.core.skinnedmodel.advancedanimation.AnimState;
 import zombie.core.skinnedmodel.advancedanimation.AnimationSet;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableHandle;
+import zombie.core.skinnedmodel.advancedanimation.AnimationVariableReference;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableSlotCallbackBool;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableSlotCallbackFloat;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableSlotCallbackInt;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableSlotCallbackString;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableSource;
 import zombie.core.skinnedmodel.advancedanimation.AnimationVariableType;
-import zombie.core.skinnedmodel.advancedanimation.IAnimEventCallback;
 import zombie.core.skinnedmodel.advancedanimation.IAnimatable;
 import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableMap;
 import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSlot;
+import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSource;
 import zombie.core.skinnedmodel.advancedanimation.LiveAnimNode;
 import zombie.core.skinnedmodel.advancedanimation.debug.AnimatorDebugMonitor;
+import zombie.core.skinnedmodel.advancedanimation.events.AnimEventBroadcaster;
+import zombie.core.skinnedmodel.advancedanimation.events.IAnimEventCallback;
+import zombie.core.skinnedmodel.advancedanimation.events.IAnimEventWrappedBroadcaster;
 import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.core.skinnedmodel.animation.AnimationMultiTrack;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
+import zombie.core.skinnedmodel.animation.AnimatorsBoneTransform;
 import zombie.core.skinnedmodel.animation.debug.AnimationPlayerRecorder;
 import zombie.core.skinnedmodel.model.Model;
 import zombie.core.skinnedmodel.model.ModelInstance;
 import zombie.core.skinnedmodel.model.ModelInstanceTextureCreator;
+import zombie.core.skinnedmodel.model.SkinningData;
 import zombie.core.skinnedmodel.population.BeardStyle;
 import zombie.core.skinnedmodel.population.BeardStyles;
 import zombie.core.skinnedmodel.population.ClothingItem;
@@ -170,20 +196,26 @@ import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.core.utils.UpdateLimit;
+import zombie.core.znet.SteamGameServer;
 import zombie.core.znet.SteamUtils;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
 import zombie.debug.LineDrawer;
 import zombie.debug.LogSeverity;
+import zombie.entity.ComponentType;
+import zombie.entity.components.fluids.Fluid;
+import zombie.entity.components.fluids.FluidCategory;
+import zombie.entity.components.fluids.FluidConsume;
+import zombie.entity.components.fluids.FluidContainer;
 import zombie.gameStates.IngameState;
 import zombie.input.Mouse;
 import zombie.interfaces.IUpdater;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
+import zombie.inventory.types.AnimalInventoryItem;
 import zombie.inventory.types.Clothing;
-import zombie.inventory.types.Drainable;
 import zombie.inventory.types.Food;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.InventoryContainer;
@@ -196,10 +228,10 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoLightSource;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoObjectPicker;
+import zombie.iso.IsoPuddles;
 import zombie.iso.IsoRoofFixer;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
@@ -213,7 +245,10 @@ import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.IsoBuilding;
 import zombie.iso.areas.IsoRoom;
 import zombie.iso.areas.NonPvpZone;
+import zombie.iso.areas.SafeHouse;
+import zombie.iso.fboRenderChunk.FBORenderShadows;
 import zombie.iso.objects.IsoBall;
+import zombie.iso.objects.IsoBulletTracerEffects;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoFallingClothing;
 import zombie.iso.objects.IsoFireManager;
@@ -224,26 +259,36 @@ import zombie.iso.objects.IsoWindow;
 import zombie.iso.objects.IsoWindowFrame;
 import zombie.iso.objects.IsoZombieGiblets;
 import zombie.iso.objects.RainManager;
+import zombie.iso.objects.ShadowParams;
 import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.iso.weather.ClimateManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.NetworkVariables;
-import zombie.network.PacketValidator;
+import zombie.network.PVPLogTool;
+import zombie.network.PacketTypes;
 import zombie.network.ServerGUI;
 import zombie.network.ServerMap;
 import zombie.network.ServerOptions;
-import zombie.network.Userlog;
+import zombie.network.anticheats.AntiCheatXPUpdate;
 import zombie.network.chat.ChatServer;
 import zombie.network.chat.ChatType;
-import zombie.network.packets.hit.AttackVars;
-import zombie.network.packets.hit.HitInfo;
+import zombie.network.fields.AttackVars;
+import zombie.network.fields.HitInfo;
+import zombie.network.packets.INetworkPacket;
+import zombie.network.packets.VariableSyncPacket;
+import zombie.pathfind.Path;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.PolygonalMap2;
 import zombie.popman.ObjectPool;
+import zombie.popman.animal.AnimalInstanceManager;
 import zombie.profanity.ProfanityFilter;
 import zombie.radio.ZomboidRadio;
 import zombie.scripting.ScriptManager;
+import zombie.scripting.entity.components.crafting.CraftRecipe;
 import zombie.scripting.objects.Item;
 import zombie.scripting.objects.Recipe;
 import zombie.scripting.objects.VehicleScript;
@@ -253,20 +298,20 @@ import zombie.ui.TextManager;
 import zombie.ui.TutorialManager;
 import zombie.ui.UIFont;
 import zombie.ui.UIManager;
+import zombie.util.FrameDelay;
 import zombie.util.IPooledObject;
 import zombie.util.Pool;
 import zombie.util.StringUtils;
 import zombie.util.Type;
+import zombie.util.lambda.Invokers;
 import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.VehicleLight;
 import zombie.vehicles.VehiclePart;
 
-public abstract class IsoGameCharacter extends IsoMovingObject implements Talker, ChatElementOwner, IAnimatable, IAnimationVariableMap, IClothingItemListener, IActionStateChanged, IAnimEventCallback, IFMODParameterUpdater, ILuaVariableSource, ILuaGameCharacter {
+public abstract class IsoGameCharacter extends IsoMovingObject implements Talker, ChatElementOwner, IAnimatable, IAnimationVariableMap, IClothingItemListener, IActionStateChanged, IAnimEventCallback, IAnimEventWrappedBroadcaster, IFMODParameterUpdater, IGrappleableWrapper, ILuaVariableSource, ILuaGameCharacter {
+   public IsoAIModule ai = new IsoAIModule(this);
    private boolean ignoreAimingInput = false;
-   public boolean doRenderShadow = true;
    private boolean doDeathSound = true;
    private boolean canShout = true;
    public boolean doDirtBloodEtc = true;
@@ -289,26 +334,25 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private static String sleepText = null;
    protected final ArrayList<InventoryItem> savedInventoryItems = new ArrayList();
    private final String instancename;
-   protected GameCharacterAIBrain GameCharacterAIBrain;
    public final ArrayList<String> amputations = new ArrayList();
    public ModelInstance hair;
    public ModelInstance beard;
    public ModelInstance primaryHandModel;
    public ModelInstance secondaryHandModel;
-   public final ActionContext actionContext = new ActionContext(this);
+   private final ActionContext actionContext = new ActionContext(this);
    public final BaseCharacterSoundEmitter emitter;
    private final FMODParameterList fmodParameters = new FMODParameterList();
    private final AnimationVariableSource m_GameVariables = new AnimationVariableSource();
    private AnimationVariableSource m_PlaybackGameVariables = null;
    private boolean bRunning = false;
    private boolean bSprinting = false;
-   private boolean m_godMod = false;
-   private boolean m_invisible = false;
    private boolean m_avoidDamage = false;
    public boolean callOut = false;
    public IsoGameCharacter ReanimatedCorpse;
    public int ReanimatedCorpseID = -1;
    private AnimationPlayer m_animPlayer = null;
+   private boolean m_animPlayerRecordingExclusive = false;
+   private boolean m_deferredMovementEnabled = true;
    public final AdvancedAnimator advancedAnimator;
    public final HashMap<State, HashMap<Object, Object>> StateMachineParams = new HashMap();
    public long clientIgnoreCollision = 0L;
@@ -317,13 +361,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    public int bumpNbr = 0;
    public boolean upKillCount = true;
    private final ArrayList<PerkInfo> PerkList = new ArrayList();
-   private final Vector2 m_forwardDirection = new Vector2();
+   protected final Vector2 m_forwardDirection = new Vector2();
    public boolean Asleep = false;
+   public boolean isResting = false;
    public boolean blockTurning = false;
    public float speedMod = 1.0F;
    public IsoSprite legsSprite;
    private boolean bFemale = true;
    public float knockbackAttackMod = 1.0F;
+   private boolean animal = false;
    public final boolean[] IsVisibleToPlayer = new boolean[4];
    public float savedVehicleX;
    public float savedVehicleY;
@@ -374,6 +420,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    protected float runSpeedModifier = 1.0F;
    private float walkSpeedModifier = 1.0F;
    private float combatSpeedModifier = 1.0F;
+   private float clothingDiscomfortModifier = 0.0F;
    private boolean bRangedWeaponEmpty = false;
    public ArrayList<InventoryContainer> bagsWorn;
    protected boolean ForceWakeUp;
@@ -391,11 +438,17 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    protected float Health = 1.0F;
    protected boolean bDead = false;
    protected boolean bKill = false;
+   private boolean useRagdoll = false;
+   private boolean isEditingRagdoll = false;
+   private boolean isRagdoll = false;
+   private boolean ragdollFall = false;
+   private boolean vehicleCollision = false;
    protected boolean bPlayingDeathSound = false;
    private boolean bDeathDragDown = false;
    protected String hurtSound = "MaleZombieHurt";
    protected ItemContainer inventory = new ItemContainer();
    protected InventoryItem leftHandItem;
+   protected boolean handItemShouldSendToClients = false;
    private int NextWander = 200;
    private boolean OnFire = false;
    private int pathIndex = 0;
@@ -426,11 +479,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    public final CharacterTraits Traits = new CharacterTraits();
    private int maxWeight = 8;
    private int maxWeightBase = 8;
+   private float SleepingTabletEffect = 0.0F;
    private float SleepingTabletDelta = 1.0F;
    private float BetaEffect = 0.0F;
-   private float DepressEffect = 0.0F;
-   private float SleepingTabletEffect = 0.0F;
    private float BetaDelta = 0.0F;
+   private float DepressEffect = 0.0F;
    private float DepressDelta = 0.0F;
    private float DepressFirstTakeTime = -1.0F;
    private float PainEffect = 0.0F;
@@ -439,7 +492,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private float haloDispTime = 128.0F;
    protected TextDrawObject userName;
    private TextDrawObject haloNote;
-   private final HashMap<String, String> namesPrefix = new HashMap();
    private static final String namePvpSuffix = " [img=media/ui/Skull.png]";
    private static final String nameCarKeySuffix = " [img=media/ui/CarKey.png";
    private static final String voiceSuffix = "[img=media/ui/voiceon.png] ";
@@ -449,8 +501,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private boolean canSeeCurrent = false;
    private boolean drawUserName = false;
    private final Location LastHeardSound = new Location(-1, -1, -1);
-   private float lrx = 0.0F;
-   private float lry = 0.0F;
    protected boolean bClimbing = false;
    private boolean lastCollidedW = false;
    private boolean lastCollidedN = false;
@@ -469,6 +519,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private float RecoilDelay = 0.0F;
    private float BeenMovingFor = 0.0F;
    private float BeenSprintingFor = 0.0F;
+   private float AimingDelay = 0.0F;
    private boolean forceShove = false;
    private String clickSound = null;
    private float reduceInfectionPower = 0.0F;
@@ -484,17 +535,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private boolean wasOnStairs = false;
    private ChatMessage lastChatMessage;
    private String lastSpokenLine;
-   private boolean unlimitedEndurance = false;
-   private boolean unlimitedCarry = false;
-   private boolean buildCheat = false;
-   private boolean farmingCheat = false;
-   private boolean healthCheat = false;
-   private boolean mechanicsCheat = false;
-   private boolean movablesCheat = false;
-   private boolean timedActionInstantCheat = false;
+   private final Cheats m_cheats = new Cheats();
    private boolean showAdminTag = true;
    private long isAnimForecasted = 0L;
    private boolean fallOnFront = false;
+   private boolean bKilledByFall = false;
    private boolean hitFromBehind = false;
    private String hitReaction = "";
    private String bumpType = "";
@@ -506,13 +551,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private Radio equipedRadio;
    private InventoryItem leftHandCache;
    private InventoryItem rightHandCache;
+   private InventoryItem backCache;
    private final ArrayList<ReadBook> ReadBooks = new ArrayList();
-   private final LightInfo lightInfo = new LightInfo();
+   public final LightInfo lightInfo = new LightInfo();
    private final LightInfo lightInfo2 = new LightInfo();
-   private PolygonalMap2.Path path2;
+   private Path path2;
    private final MapKnowledge mapKnowledge = new MapKnowledge();
-   public final AttackVars attackVars = new AttackVars();
-   public final ArrayList<HitInfo> hitList = new ArrayList();
+   protected final AttackVars attackVars = new AttackVars();
+   private final ArrayList<HitInfo> hitInfoList = new ArrayList();
    private final PathFindBehavior2 pfb2 = new PathFindBehavior2(this);
    private final InventoryItem[] cacheEquiped = new InventoryItem[2];
    private boolean bAimAtFloor = false;
@@ -522,10 +568,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private ModelInstanceTextureCreator textureCreator = null;
    public boolean bUpdateEquippedTextures = false;
    private final ArrayList<ModelInstance> readyModelData = new ArrayList();
+   private boolean m_isSitOnFurniture = false;
+   private IsoObject m_sitOnFurnitureObject = null;
+   private IsoDirections m_sitOnFurnitureDirection = null;
    private boolean sitOnGround = false;
    private boolean ignoreMovement = false;
    private boolean hideWeaponModel = false;
-   private boolean isAiming = false;
+   private boolean m_isAiming = false;
    private float beardGrowTiming = -1.0F;
    private float hairGrowTiming = -1.0F;
    private float m_moveDelta = 1.0F;
@@ -537,8 +586,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private boolean m_isTurning = false;
    private boolean m_isTurningAround = false;
    private boolean m_isTurning90 = false;
-   public long lastAutomaticShoot = 0L;
-   public int shootInARow = 0;
    private boolean invincible = false;
    private float lungeFallTimer = 0.0F;
    private SleepingEventData m_sleepingEventData;
@@ -554,9 +601,18 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    public boolean forceNullOverride;
    protected final UpdateLimit ulBeatenVehicle;
    private float m_momentumScalar;
-   private final HashMap<String, State> m_stateUpdateLookup;
-   private boolean attackAnim;
+   private final HashMap<String, State> m_aiStateMap;
+   private boolean m_isPerformingAttackAnim;
+   private boolean m_isPerformingShoveAnim;
+   private boolean m_isPerformingStompAnim;
    private NetworkTeleport teleport;
+   private float wornItemsVisionModifier;
+   private float wornItemsHearingModifier;
+   private float corpseSicknessRate;
+   private float blurFactor;
+   private float blurFactorTarget;
+   public boolean usernameDisguised;
+   private float climbRopeTime;
    /** @deprecated */
    @Deprecated
    public ArrayList<Integer> invRadioFreq;
@@ -565,16 +621,39 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private final String m_UID;
    private boolean m_bDebugVariablesRegistered;
    private float effectiveEdibleBuffTimer;
+   private final HashMap<String, Integer> readLiterature;
+   private IsoGameCharacter lastHitCharacter;
+   private String m_fireMode;
+   protected BallisticsController ballisticsController;
+   protected BallisticsTarget ballisticsTarget;
+   private final BaseGrappleable m_grappleable;
+   private boolean m_isAnimatingBackwards;
+   private float m_animationTimeScale;
+   private boolean m_animationUpdatingThisFrame;
+   private final FrameDelay m_animationInvisibleFrameDelay;
+   private long muzzleFlashDuration;
+   public long lastAnimalPet;
+   private final AnimEventBroadcaster m_animEventBroadcaster;
+   public IsoGameCharacter vbdebugHitTarget;
+   private String m_hitDirEnum;
+   private boolean m_isGrappleThrowOutWindow;
+   private static final Vector3f tempVector3f00 = new Vector3f();
+   private static final Vector3f tempVector3f01 = new Vector3f();
+   private final Recoil m_recoil;
+   public boolean doRender;
+   public boolean usePhysicHitReaction;
    private float m_shadowFM;
    private float m_shadowBM;
    private long shadowTick;
    private static final ItemVisuals tempItemVisuals = new ItemVisuals();
    private static final ArrayList<IsoMovingObject> movingStatic = new ArrayList();
-   private long m_muzzleFlash;
+   final PerformanceProbes.Invokable.Params0.IProbe postUpdateInternal;
+   final PerformanceProbes.Invokable.Params0.IProbe updateInternal;
    private static final Bandages s_bandages = new Bandages();
    private static final Vector3 tempVector = new Vector3();
    private static final Vector3 tempVectorBonePos = new Vector3();
    public final NetworkCharacter networkCharacter;
+   private static boolean useBallistics = true;
 
    public IsoGameCharacter(IsoCell var1, float var2, float var3, float var4) {
       super(var1, false);
@@ -585,20 +664,52 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.forceNullOverride = false;
       this.ulBeatenVehicle = new UpdateLimit(200L);
       this.m_momentumScalar = 0.0F;
-      this.m_stateUpdateLookup = new HashMap();
-      this.attackAnim = false;
+      this.m_aiStateMap = new HashMap();
+      this.m_isPerformingAttackAnim = false;
+      this.m_isPerformingShoveAnim = false;
+      this.m_isPerformingStompAnim = false;
       this.teleport = null;
+      this.wornItemsVisionModifier = 1.0F;
+      this.wornItemsHearingModifier = 1.0F;
+      this.corpseSicknessRate = 0.0F;
+      this.blurFactor = 0.0F;
+      this.blurFactorTarget = 0.0F;
+      this.usernameDisguised = false;
+      this.climbRopeTime = 0.0F;
       this.invRadioFreq = new ArrayList();
       this.m_bDebugVariablesRegistered = false;
       this.effectiveEdibleBuffTimer = 0.0F;
+      this.readLiterature = new HashMap();
+      this.lastHitCharacter = null;
+      this.m_fireMode = "";
+      this.ballisticsController = null;
+      this.ballisticsTarget = null;
+      this.m_isAnimatingBackwards = false;
+      this.m_animationTimeScale = 1.0F;
+      this.m_animationUpdatingThisFrame = true;
+      this.m_animationInvisibleFrameDelay = new FrameDelay(4);
+      this.muzzleFlashDuration = -1L;
+      this.lastAnimalPet = 0L;
+      this.m_animEventBroadcaster = new AnimEventBroadcaster();
+      this.vbdebugHitTarget = null;
+      this.m_hitDirEnum = "FRONT";
+      this.m_isGrappleThrowOutWindow = false;
+      this.m_recoil = new Recoil();
+      this.doRender = true;
+      this.usePhysicHitReaction = false;
       this.m_shadowFM = 0.0F;
       this.m_shadowBM = 0.0F;
       this.shadowTick = -1L;
-      this.m_muzzleFlash = -1L;
+      this.postUpdateInternal = PerformanceProbes.create("IsoGameCharacter.postUpdate", this, (Invokers.Params1.ICallback)(IsoGameCharacter::postUpdateInternal));
+      this.updateInternal = PerformanceProbes.create("IsoGameCharacter.update", this, (Invokers.Params1.ICallback)(IsoGameCharacter::updateInternal));
       this.networkCharacter = new NetworkCharacter();
       this.m_UID = String.format("%s-%s", this.getClass().getSimpleName(), UUID.randomUUID().toString());
+      this.m_grappleable = new BaseGrappleable(this);
+      this.getWrappedGrappleable().setOnGrappledEndCallback(this::onGrappleEnded);
       this.registerVariableCallbacks();
-      this.instancename = "Character" + IID;
+      this.registerAnimEventCallbacks();
+      String var10001 = this.getClass().getSimpleName();
+      this.instancename = var10001 + IID;
       ++IID;
       if (!(this instanceof IsoSurvivor)) {
          this.emitter = (BaseCharacterSoundEmitter)(!Core.SoundDisabled && !GameServer.bServer ? new CharacterSoundEmitter(this) : new DummyCharacterSoundEmitter(this));
@@ -618,24 +729,29 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.def = IsoSpriteInstance.get(this.sprite);
       }
 
-      if (this instanceof IsoPlayer) {
+      if (this instanceof IsoPlayer && !(this instanceof IsoAnimal)) {
          this.BodyDamage = new BodyDamage(this);
          this.Moodles = new Moodles(this);
          this.xp = new XP(this);
       } else {
-         this.BodyDamage = null;
+         if (this instanceof IsoAnimal) {
+            this.BodyDamage = new BodyDamage(this);
+         } else {
+            this.BodyDamage = null;
+         }
+
          this.Moodles = null;
          this.xp = null;
       }
 
       this.Patience = Rand.Next(this.PatienceMin, this.PatienceMax);
-      this.x = var2 + 0.5F;
-      this.y = var3 + 0.5F;
-      this.z = var4;
-      this.scriptnx = this.lx = this.nx = var2;
-      this.scriptny = this.ly = this.ny = var3;
+      this.setX(var2 + 0.5F);
+      this.setY(var3 + 0.5F);
+      this.setZ(var4);
+      this.setScriptNextX(this.setLastX(this.setNextX(var2)));
+      this.setScriptNextY(this.setLastY(this.setNextY(var3)));
       if (var1 != null) {
-         this.current = this.getCell().getGridSquare((int)var2, (int)var3, (int)var4);
+         this.current = this.getCell().getGridSquare(PZMath.fastfloor(var2), PZMath.fastfloor(var3), (int)PZMath.floor(var4));
       }
 
       this.offsetY = 0.0F;
@@ -645,14 +761,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.inventory.parent = this;
       this.inventory.setExplored(true);
       this.chatElement = new ChatElement(this, 1, "character");
-      if (GameClient.bClient || GameServer.bServer) {
-         this.namesPrefix.put("admin", "[col=255,0,0]Admin[/] ");
-         this.namesPrefix.put("moderator", "[col=0,128,47]Moderator[/] ");
-         this.namesPrefix.put("overseer", "[col=26,26,191]Overseer[/] ");
-         this.namesPrefix.put("gm", "[col=213,123,23]GM[/] ");
-         this.namesPrefix.put("observer", "[col=128,128,128]Observer[/] ");
-      }
-
       this.m_animationRecorder = new AnimationPlayerRecorder(this);
       this.advancedAnimator = new AdvancedAnimator();
       this.advancedAnimator.init(this);
@@ -668,10 +776,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.setVariable("collidetype", this::getCollideType, this::setCollideType);
       this.setVariable("footInjuryType", this::getFootInjuryType);
       this.setVariable("bumptype", this::getBumpType, this::setBumpType);
+      this.setVariable("onbed", this::isOnBed, this::setOnBed);
+      this.setVariable("sittingonfurniture", this::isSittingOnFurniture, this::setSittingOnFurniture);
       this.setVariable("sitonground", this::isSitOnGround, this::setSitOnGround);
       this.setVariable("canclimbdownrope", this::canClimbDownSheetRopeInCurrentSquare);
       this.setVariable("frombehind", this::isHitFromBehind, this::setHitFromBehind);
       this.setVariable("fallonfront", this::isFallOnFront, this::setFallOnFront);
+      this.setVariable("killedbyfall", this::isKilledByFall, this::setKilledByFall);
       this.setVariable("hashitreaction", this::hasHitReaction);
       this.setVariable("intrees", this::isInTreesNoBush);
       this.setVariable("bumped", this::isBumped);
@@ -692,6 +803,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.setVariable("maxTwist", this.m_maxTwist, this::getMaxTwist, this::setMaxTwist);
       this.setVariable("shoulderTwist", this::getShoulderTwist);
       this.setVariable("excessTwist", this::getExcessTwist);
+      this.setVariable("numTwistBones", this::getNumTwistBones);
       this.setVariable("angleStepDelta", this::getAnimAngleStepDelta);
       this.setVariable("angleTwistDelta", this::getAnimAngleTwistDelta);
       this.setVariable("isTurning", false, this::isTurning, this::setTurning);
@@ -702,6 +814,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.setVariable("previousState", this::getPreviousActionContextStateName);
       this.setVariable("momentumScalar", this::getMomentumScalar, this::setMomentumScalar);
       this.setVariable("hasTimedActions", this::hasTimedActions);
+      this.setVariable("isOverEncumbered", this::isOverEncumbered);
       if (DebugOptions.instance.Character.Debug.RegisterDebugVariables.getValue()) {
          this.registerDebugGameVariables();
       }
@@ -709,11 +822,124 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.setVariable("CriticalHit", this::isCriticalHit, this::setCriticalHit);
       this.setVariable("bKnockedDown", this::isKnockedDown, this::setKnockedDown);
       this.setVariable("bdead", this::isDead);
+      this.setVariable("fallTime", this::getFallTimeAdjusted);
+      this.setVariable("fallTimeAdjusted", this::getFallTimeAdjusted);
+      this.setVariable("lastFallSpeed", this::getLastFallSpeed);
+      this.setVariable("bHardFall", false);
+      this.setVariable("bHardFall2", false);
+      this.setVariable("bLandLight", false);
+      this.setVariable("bLandLightMask", false);
+      this.setVariable("bGetUpFromKnees", false);
+      this.setVariable("bGetUpFromProne", false);
+      this.setVariable("aim", this::isAiming);
+      this.setVariable("AttackAnim", this::isPerformingAttackAnimation, this::setPerformingAttackAnimation);
+      this.setVariable("ShoveAnim", this::isPerformingShoveAnimation, this::setPerformingShoveAnimation);
+      this.setVariable("StompAnim", this::isPerformingStompAnimation, this::setPerformingStompAnimation);
+      this.setVariable("PerformingHostileAnim", this::isPerformingHostileAnimation);
+      this.setVariable("FireMode", this::getFireMode);
+      this.setVariable("ShoutType", this::getShoutType);
+      this.setVariable("ShoutItemModel", this::getShoutItemModel);
+      this.setVariable("isAnimatingBackwards", this::isAnimatingBackwards, this::setAnimatingBackwards);
+      BaseGrappleable.RegisterGrappleVariables(this.getGameVariablesInternal(), this);
+      this.setVariable("GrappleThrowOutWindow", this::isGrappleThrowOutWindow, this::setGrappleThrowOutWindow);
+      this.setVariable("canRagdoll", this::canRagdoll);
+      this.setVariable("isEditingRagdoll", this::isEditingRagdoll, this::setEditingRagdoll);
+      this.setVariable("isRagdoll", this::isRagdoll, this::setIsRagdoll);
+      this.setVariable("isSimulationActive", this::isRagdollSimulationActive);
+      this.setVariable("isUpright", this::isUpright);
+      this.setVariable("isOnBack", this::isOnBack);
+      this.setVariable("isRagdollFall", this::isRagdollFall, this::setRagdollFall);
+      this.setVariable("isVehicleCollision", this::isVehicleCollision, this::setVehicleCollision);
+      this.setVariable("usePhysicHitReaction", this::usePhysicHitReaction, this::setUsePhysicHitReaction);
+      this.setVariable("useRagdollVehicleCollision", this::useRagdollVehicleCollision);
+      this.setVariable("hitforce", this::getHitForce);
+      this.setVariable("hitDir", this::getHitDirEnum);
+      this.setVariable("hitDir.x", () -> {
+         return this.getHitDir().x;
+      });
+      this.setVariable("hitDir.y", () -> {
+         return this.getHitDir().y;
+      });
+      this.setVariable("recoilVarX", this::getRecoilVarX, this::setRecoilVarX);
+      this.setVariable("recoilVarY", this::getRecoilVarY, this::setRecoilVarY);
+   }
+
+   private void registerAnimEventCallbacks() {
+      this.addAnimEventListener(this::OnAnimEvent_SetVariable);
+      this.addAnimEventListener("ClearVariable", this::OnAnimEvent_ClearVariable);
+      this.addAnimEventListener("PlaySound", this::OnAnimEvent_PlaySound);
+      this.addAnimEventListener("Footstep", this::OnAnimEvent_Footstep);
+      this.addAnimEventListener("DamageWhileInTrees", this::OnAnimEvent_DamageWhileInTrees);
+      this.addAnimEventListener("SetSharedGrappleType", this::OnAnimEvent_SetSharedGrappleType);
+      this.addAnimEventListener("GrapplerLetGo", this::OnAnimEvent_GrapplerLetGo);
+      this.addAnimEventListener("FallOnFront", this::OnAnimEvent_FallOnFront);
+      this.addAnimEventListener("SetOnFloor", this::OnAnimEvent_SetOnFloor);
+      this.addAnimEventListener("SetKnockedDown", this::OnAnimEvent_SetKnockedDown);
+      this.addAnimEventListener("IsAlmostUp", this::OnAnimEvent_IsAlmostUp);
+   }
+
+   private void OnAnimEvent_GrapplerLetGo(IsoGameCharacter var1, String var2) {
+      if (GameServer.bServer) {
+         DebugLog.Network.println("GrapplerLetGo.");
+      }
+
+      LuaEventManager.triggerEvent("GrapplerLetGo", var1, var2);
+      var1.LetGoOfGrappled(var2);
+   }
+
+   private void OnAnimEvent_FallOnFront(IsoGameCharacter var1, boolean var2) {
+      var1.setFallOnFront(var2);
+   }
+
+   private void OnAnimEvent_SetOnFloor(IsoGameCharacter var1, boolean var2) {
+      var1.setOnFloor(var2);
+   }
+
+   private void OnAnimEvent_SetKnockedDown(IsoGameCharacter var1, boolean var2) {
+      var1.setKnockedDown(var2);
+   }
+
+   protected void OnAnimEvent_IsAlmostUp(IsoGameCharacter var1) {
+      var1.setOnFloor(false);
+      var1.setKnockedDown(false);
+      var1.setSitOnGround(false);
+   }
+
+   public void setMuzzleFlashDuration(long var1) {
+      this.muzzleFlashDuration = var1;
+   }
+
+   private void onGrappleEnded() {
+      this.setGrappleThrowOutWindow(false);
+   }
+
+   public float getRecoilVarX() {
+      return this.m_recoil.m_recoilVarX;
+   }
+
+   public void setRecoilVarX(float var1) {
+      this.m_recoil.m_recoilVarX = var1;
+   }
+
+   public float getRecoilVarY() {
+      return this.m_recoil.m_recoilVarY;
+   }
+
+   public void setRecoilVarY(float var1) {
+      this.m_recoil.m_recoilVarY = var1;
+   }
+
+   public void setGrappleThrowOutWindow(boolean var1) {
+      this.m_isGrappleThrowOutWindow = var1;
+   }
+
+   public boolean isGrappleThrowOutWindow() {
+      return this.m_isGrappleThrowOutWindow;
    }
 
    public void updateRecoilVar() {
-      this.setVariable("recoilVarY", 0.0F);
-      this.setVariable("recoilVarX", 0.0F + (float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 10.0F);
+      this.setRecoilVarY(0.0F);
+      this.setRecoilVarX(0.0F + (float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 10.0F);
    }
 
    private void registerDebugGameVariables() {
@@ -764,12 +990,25 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public Vector2 getDeferredMovement(Vector2 var1) {
-      if (this.m_animPlayer == null) {
+      return this.getDeferredMovement(var1, false);
+   }
+
+   protected Vector2 getDeferredMovement(Vector2 var1, boolean var2) {
+      if (!this.hasAnimationPlayer()) {
          var1.set(0.0F, 0.0F);
          return var1;
       } else {
-         this.m_animPlayer.getDeferredMovement(var1);
+         this.m_animPlayer.getDeferredMovement(var1, var2);
          return var1;
+      }
+   }
+
+   public Vector2 getDeferredMovementFromRagdoll(Vector2 var1) {
+      if (!this.hasAnimationPlayer()) {
+         var1.set(0.0F, 0.0F);
+         return var1;
+      } else {
+         return this.m_animPlayer.getDeferredMovementFromRagdoll(var1);
       }
    }
 
@@ -779,6 +1018,40 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public float getDeferredRotationWeight() {
       return this.m_animPlayer == null ? 0.0F : this.m_animPlayer.getDeferredRotationWeight();
+   }
+
+   public zombie.core.math.Vector3 getTargetGrapplePos(zombie.core.math.Vector3 var1) {
+      if (this.m_animPlayer == null) {
+         var1.set(0.0F, 0.0F, 0.0F);
+         return var1;
+      } else {
+         return this.m_animPlayer.getTargetGrapplePos(var1);
+      }
+   }
+
+   public Vector3 getTargetGrapplePos(Vector3 var1) {
+      if (this.m_animPlayer == null) {
+         var1.set(0.0F, 0.0F, 0.0F);
+         return var1;
+      } else {
+         return this.m_animPlayer.getTargetGrapplePos(var1);
+      }
+   }
+
+   public void setTargetGrapplePos(float var1, float var2, float var3) {
+      if (this.m_animPlayer != null) {
+         this.m_animPlayer.setTargetGrapplePos(var1, var2, var3);
+      }
+
+   }
+
+   public Vector2 getTargetGrappleRotation(Vector2 var1) {
+      if (this.m_animPlayer == null) {
+         var1.set(1.0F, 0.0F);
+         return var1;
+      } else {
+         return this.m_animPlayer.getTargetGrappleRotation(var1);
+      }
    }
 
    public boolean isStrafing() {
@@ -815,12 +1088,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public String dbgGetAnimTrackName(int var1, int var2) {
       AnimationTrack var3 = this.dbgGetAnimTrack(var1, var2);
-      return var3 != null ? var3.name : "";
+      return var3 != null ? var3.getName() : "";
    }
 
    public float dbgGetAnimTrackTime(int var1, int var2) {
       AnimationTrack var3 = this.dbgGetAnimTrack(var1, var2);
-      return var3 != null ? var3.getCurrentTime() : 0.0F;
+      return var3 != null ? var3.getCurrentTrackTime() : 0.0F;
    }
 
    public float dbgGetAnimTrackWeight(int var1, int var2) {
@@ -846,6 +1119,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public float getExcessTwist() {
       return this.m_animPlayer != null ? 57.295776F * this.m_animPlayer.getExcessTwistAngle() : 0.0F;
+   }
+
+   public int getNumTwistBones() {
+      return this.m_animPlayer != null ? this.m_animPlayer.getNumTwistBones() : 0;
    }
 
    public float getAbsoluteExcessTwist() {
@@ -893,7 +1170,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
             String var4 = var2.getProperties().Val("Movement");
             if (!"HedgeLow".equalsIgnoreCase(var4) && !"HedgeHigh".equalsIgnoreCase(var4)) {
-               return !var1 && var2.getProperties().Is("Bush");
+               return !var1 && var2.hasBush();
             } else {
                return true;
             }
@@ -921,12 +1198,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return tempo;
    }
 
-   public static ColorInfo getInf() {
-      return inf;
+   public static Vector2 getTempo2() {
+      return tempo2;
    }
 
-   public GameCharacterAIBrain getBrain() {
-      return this.GameCharacterAIBrain;
+   public static ColorInfo getInf() {
+      return inf;
    }
 
    public boolean getIsNPC() {
@@ -945,11 +1222,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.getFMODParameters().update();
       if (IsoWorld.instance.emitterUpdate || this.emitter.hasSoundsToStart()) {
          if (this.isZombie() && this.isProne()) {
-            SwipeStatePlayer.getBoneWorldPos(this, "Bip01_Head", tempVectorBonePos);
-            this.emitter.set(tempVectorBonePos.x, tempVectorBonePos.y, this.z);
+            CombatManager.getBoneWorldPos(this, "Bip01_Head", tempVectorBonePos);
+            this.emitter.set(tempVectorBonePos.x, tempVectorBonePos.y, this.getZ());
             this.emitter.tick();
          } else {
-            this.emitter.set(this.x, this.y, this.z);
+            this.emitter.set(this.getX(), this.getY(), this.getZ());
             this.emitter.tick();
          }
       }
@@ -967,40 +1244,73 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
       }
 
-      AnimationPlayer var1 = this.getAnimationPlayer();
-      if (var1 != null) {
-         if (this.getPath2() != null && !this.isCurrentState(ClimbOverFenceState.instance()) && !this.isCurrentState(ClimbThroughWindowState.instance())) {
-            if (this.isCurrentState(WalkTowardState.instance())) {
-               DebugLog.General.warn("WalkTowardState but path2 != null");
-               this.setPath2((PolygonalMap2.Path)null);
-            }
+      if (this.hasAnimationPlayer()) {
+         if (this.isAnimationUpdatingThisFrame()) {
+            Vector2 var1 = tempo;
+            this.getDeferredMovement(var1, true);
+            if (this.getPath2() != null && !this.isCurrentState(ClimbOverFenceState.instance()) && !this.isCurrentState(ClimbThroughWindowState.instance())) {
+               if (this.isCurrentState(WalkTowardState.instance()) || this.isCurrentState(AnimalWalkState.instance())) {
+                  DebugLog.General.warn("WalkTowardState but path2 != null");
+                  this.setPath2((Path)null);
+               }
 
-         } else {
-            if (GameClient.bClient) {
-               if (this instanceof IsoZombie && ((IsoZombie)this).isRemoteZombie()) {
-                  if (this.getCurrentState() != ClimbOverFenceState.instance() && this.getCurrentState() != ClimbThroughWindowState.instance() && this.getCurrentState() != ClimbOverWallState.instance() && this.getCurrentState() != StaggerBackState.instance() && this.getCurrentState() != ZombieHitReactionState.instance() && this.getCurrentState() != ZombieFallDownState.instance() && this.getCurrentState() != ZombieFallingState.instance() && this.getCurrentState() != ZombieOnGroundState.instance() && this.getCurrentState() != AttackNetworkState.instance()) {
+            } else {
+               if (GameClient.bClient) {
+                  if (this instanceof IsoZombie && ((IsoZombie)this).isRemoteZombie()) {
+                     if (this.getCurrentState() != ClimbOverFenceState.instance() && this.getCurrentState() != ClimbThroughWindowState.instance() && this.getCurrentState() != ClimbOverWallState.instance() && this.getCurrentState() != StaggerBackState.instance() && this.getCurrentState() != ZombieHitReactionState.instance() && this.getCurrentState() != ZombieFallDownState.instance() && this.getCurrentState() != ZombieFallingState.instance() && this.getCurrentState() != ZombieOnGroundState.instance() && this.getCurrentState() != AttackNetworkState.instance()) {
+                        return;
+                     }
+                  } else if (this instanceof IsoAnimal && !((IsoAnimal)this).isLocalPlayer()) {
+                     if (!this.isCurrentState(AnimalIdleState.instance()) && !((IsoAnimal)this).isHappy()) {
+                        return;
+                     }
+                  } else if (this instanceof IsoPlayer && !((IsoPlayer)this).isLocalPlayer() && !this.isCurrentState(CollideWithWallState.instance()) && !this.isCurrentState(PlayerGetUpState.instance()) && !this.isCurrentState(BumpedState.instance())) {
                      return;
                   }
-               } else if (this instanceof IsoPlayer && !((IsoPlayer)this).isLocalPlayer() && !this.isCurrentState(CollideWithWallState.instance()) && !this.isCurrentState(PlayerGetUpState.instance()) && !this.isCurrentState(BumpedState.instance())) {
-                  return;
                }
-            }
 
-            Vector2 var2 = tempo;
-            this.getDeferredMovement(var2);
-            if (GameClient.bClient && this instanceof IsoZombie && this.isCurrentState(StaggerBackState.instance())) {
-               float var3 = var2.getLength();
-               var2.set(this.getHitDir());
-               var2.setLength(var3);
-            }
+               if (Core.bDebug && this instanceof IsoPlayer && DebugOptions.instance.Cheat.Player.FastMovement.getValue()) {
+                  var1.scale(4.0F);
+               }
 
-            this.MoveUnmodded(var2);
+               if (this.isGrappling() || this.isBeingGrappled()) {
+                  Vector3 var2 = new Vector3();
+                  this.getGrappleOffset(var2);
+                  var1.x += var2.x;
+                  var1.y += var2.y;
+               }
+
+               if (GameClient.bClient && this instanceof IsoZombie && this.isCurrentState(StaggerBackState.instance())) {
+                  float var3 = var1.getLength();
+                  var1.set(this.getHitDir());
+                  var1.setLength(var3);
+               }
+
+               if (this.isDeferredMovementEnabled()) {
+                  this.MoveUnmodded(var1);
+               }
+
+            }
+         }
+      }
+   }
+
+   protected void doDeferredMovementFromRagdoll() {
+      if (this.isRagdoll) {
+         if (this.hasAnimationPlayer()) {
+            if (this.isAnimationUpdatingThisFrame()) {
+               Vector2 var1 = tempo;
+               this.getDeferredMovementFromRagdoll(var1);
+               this.MoveUnmodded(var1);
+               this.setX(this.getNextX());
+               this.setY(this.getNextY());
+            }
          }
       }
    }
 
    public ActionContext getActionContext() {
-      return null;
+      return this.actionContext;
    }
 
    public String getPreviousActionContextStateName() {
@@ -1010,7 +1320,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public String getCurrentActionContextStateName() {
       ActionContext var1 = this.getActionContext();
-      return var1 == null ? "" : var1.getCurrentStateName();
+      return var1 != null && var1.getCurrentState() != null ? var1.getCurrentStateName() : "";
    }
 
    public boolean hasAnimationPlayer() {
@@ -1041,6 +1351,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    protected void onAnimPlayerCreated(AnimationPlayer var1) {
+      var1.setIsoGameCharacter(this);
       var1.setRecorder(this.m_animationRecorder);
       var1.setTwistBones("Bip01_Pelvis", "Bip01_Spine", "Bip01_Spine1", "Bip01_Neck", "Bip01_Head");
       var1.setCounterRotationBone("Bip01");
@@ -1053,12 +1364,28 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
 
          boolean var1 = IsoWorld.isAnimRecorderActive();
-         boolean var2 = var1 && !this.isSceneCulled();
-         if (var2) {
+         if (var1) {
+            this.m_animPlayerRecordingExclusive = false;
+         }
+
+         boolean var2 = this.m_animPlayerRecordingExclusive;
+         boolean var3 = (var2 || var1) && !this.isSceneCulled();
+         if (var3) {
             this.getAnimationPlayerRecorder().logCharacterPos();
          }
 
-         this.m_animPlayer.setRecording(var2);
+         this.m_animPlayer.setRecording(var3);
+      }
+   }
+
+   public boolean isAnimRecorderActive() {
+      return this.hasAnimationPlayer() && this.m_animPlayer.isRecording();
+   }
+
+   public void setAnimRecorderActive(boolean var1, boolean var2) {
+      if (this.hasAnimationPlayer()) {
+         this.m_animPlayer.setRecording(var1);
+         this.m_animPlayerRecordingExclusive = var2 && var1;
       }
    }
 
@@ -1093,6 +1420,19 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public String getTalkerType() {
       return this.chatElement.getTalkerType();
+   }
+
+   public void spinToZeroAllAnimNodes() {
+      AdvancedAnimator var1 = this.getAdvancedAnimator();
+      AnimLayer var2 = var1.getRootLayer();
+      List var3 = var2.getLiveAnimNodes();
+
+      for(int var4 = 0; var4 < var3.size(); ++var4) {
+         LiveAnimNode var5 = (LiveAnimNode)var3.get(var4);
+         var5.stopTransitionIn();
+         var5.setWeightsToZero();
+      }
+
    }
 
    public boolean isAnimForecasted() {
@@ -1145,9 +1485,26 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
       } else if (!StringUtils.isNullOrWhitespace(var1.clothingItemGUID)) {
          var2 = "game";
-         this.dressInClothingItem(var2 + "-" + var1.clothingItemGUID);
-         if (this instanceof IsoPlayer) {
-            LuaEventManager.triggerEvent("OnClothingUpdated", this);
+         String var7 = var2 + "-" + var1.clothingItemGUID;
+         Boolean var4 = OutfitManager.instance.getClothingItem(var7) != null;
+         if (!var4) {
+            Iterator var5 = ZomboidFileSystem.instance.getModIDs().iterator();
+
+            while(var5.hasNext()) {
+               String var6 = (String)var5.next();
+               var7 = var6 + "-" + var1.clothingItemGUID;
+               if (OutfitManager.instance.getClothingItem(var7) != null) {
+                  var4 = true;
+                  break;
+               }
+            }
+         }
+
+         if (var4) {
+            this.dressInClothingItem(var7);
+            if (this instanceof IsoPlayer) {
+               LuaEventManager.triggerEvent("OnClothingUpdated", this);
+            }
          }
       }
 
@@ -1180,7 +1537,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private void restoreAnimatorStateToActionContext() {
       if (this.actionContext.getCurrentState() != null) {
          this.advancedAnimator.SetState(this.actionContext.getCurrentStateName(), PZArrayUtil.listConvert(this.actionContext.getChildStates(), (var0) -> {
-            return var0.name;
+            return var0.getName();
          }));
       }
 
@@ -1206,6 +1563,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void reloadOutfit() {
       ModelManager.instance.Reset(this);
+   }
+
+   public void setDoRender(boolean var1) {
+      this.doRender = var1;
+   }
+
+   public boolean getDoRender() {
+      return this.doRender;
    }
 
    public boolean isSceneCulled() {
@@ -1255,10 +1620,23 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    }
 
+   public void dressInRandomNonSillyOutfit() {
+      DebugLog.Clothing.println("IsoGameCharacter.dressInRandomOutfit>");
+      Outfit var1 = OutfitManager.instance.GetRandomNonSillyOutfit(this.isFemale());
+      if (var1 != null) {
+         this.dressInNamedOutfit(var1.m_Name);
+      }
+
+   }
+
    public void dressInNamedOutfit(String var1) {
    }
 
    public void dressInPersistentOutfit(String var1) {
+      if (this.isZombie()) {
+         this.getDescriptor().setForename(SurvivorFactory.getRandomForename(this.isFemale()));
+      }
+
       int var2 = PersistentOutfits.instance.pickOutfit(var1, this.isFemale());
       this.dressInPersistentOutfitID(var2);
    }
@@ -1325,12 +1703,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             var5 = " (" + ((IsoPlayer)this).getSteamID() + ") ";
          }
 
-         LoggerManager.getLogger("pvp").write("user " + ((IsoPlayer)this.getAttackedBy()).username + var4 + " killed " + ((IsoPlayer)this).username + var5 + " " + LoggerManager.getPlayerCoords((IsoPlayer)this), "IMPORTANT");
-         if (ServerOptions.instance.AnnounceDeath.getValue()) {
-            ChatServer.getInstance().sendMessageToServerChat(((IsoPlayer)this.getAttackedBy()).username + " killed " + ((IsoPlayer)this).username + ".");
-         }
-
-         ChatServer.getInstance().sendMessageToAdminChat("user " + ((IsoPlayer)this.getAttackedBy()).username + " killed " + ((IsoPlayer)this).username);
+         PVPLogTool.logKill((IsoPlayer)this.getAttackedBy(), (IsoPlayer)this);
       } else {
          if (GameServer.bServer && this instanceof IsoPlayer) {
             ZLogger var10000 = LoggerManager.getLogger("user");
@@ -1343,148 +1716,158 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
       }
 
-      if (this.isDead()) {
-         float var9 = 0.5F;
-         if (this.isZombie() && (((IsoZombie)this).bCrawling || this.getCurrentState() == ZombieOnGroundState.instance())) {
-            var9 = 0.2F;
+      this.doDeathSplatterAndSounds(var1, var2, var3);
+   }
+
+   private void doDeathSplatterAndSounds(HandWeapon var1, IsoGameCharacter var2, boolean var3) {
+      if (this.onDeath_ShouldDoSplatterAndSounds(var1, var2, var3)) {
+         if (this.isDoDeathSound()) {
+            this.playDeadSound();
          }
 
-         if (GameServer.bServer && var3) {
-            boolean var10 = this.isOnFloor() && var2 instanceof IsoPlayer && var1 != null && "BareHands".equals(var1.getType());
-            GameServer.sendBloodSplatter(var1, this.getX(), this.getY(), this.getZ() + var9, this.getHitDir(), this.isCloseKilled(), var10);
-         }
-
-         int var6;
-         int var11;
-         if (var1 != null && SandboxOptions.instance.BloodLevel.getValue() > 1 && var3) {
-            var11 = var1.getSplatNumber();
-            if (var11 < 1) {
-               var11 = 1;
+         this.setDoDeathSound(false);
+         if (this.isDead()) {
+            float var4 = 0.5F;
+            if (this.isZombie() && (((IsoZombie)this).bCrawling || this.getCurrentState() == ZombieOnGroundState.instance())) {
+               var4 = 0.2F;
             }
 
-            if (Core.bLastStand) {
-               var11 *= 3;
+            if (GameServer.bServer && var3) {
+               boolean var5 = this.isOnFloor() && var2 instanceof IsoPlayer && var1 != null && "BareHands".equals(var1.getType());
+               GameServer.sendBloodSplatter(var1, this.getX(), this.getY(), this.getZ() + var4, this.getHitDir(), this.isCloseKilled(), var5);
             }
 
-            switch (SandboxOptions.instance.BloodLevel.getValue()) {
-               case 2:
-                  var11 /= 2;
-               case 3:
-               default:
-                  break;
-               case 4:
-                  var11 *= 2;
-                  break;
-               case 5:
-                  var11 *= 5;
+            int var6;
+            int var9;
+            if (var1 != null && SandboxOptions.instance.BloodLevel.getValue() > 1 && var3) {
+               var9 = var1.getSplatNumber();
+               if (var9 < 1) {
+                  var9 = 1;
+               }
+
+               if (Core.bLastStand) {
+                  var9 *= 3;
+               }
+
+               switch (SandboxOptions.instance.BloodLevel.getValue()) {
+                  case 2:
+                     var9 /= 2;
+                  case 3:
+                  default:
+                     break;
+                  case 4:
+                     var9 *= 2;
+                     break;
+                  case 5:
+                     var9 *= 5;
+               }
+
+               for(var6 = 0; var6 < var9; ++var6) {
+                  this.splatBlood(3, 0.3F);
+               }
             }
 
-            for(var6 = 0; var6 < var11; ++var6) {
-               this.splatBlood(3, 0.3F);
+            if (var1 != null && SandboxOptions.instance.BloodLevel.getValue() > 1 && var3) {
+               this.splatBloodFloorBig();
             }
-         }
 
-         if (var1 != null && SandboxOptions.instance.BloodLevel.getValue() > 1 && var3) {
-            this.splatBloodFloorBig();
-         }
+            if (var2 != null && var2.xp != null) {
+               var2.xp.AddXP(var1, 3);
+            }
 
-         if (var2 != null && var2.xp != null) {
-            var2.xp.AddXP(var1, 3);
-         }
+            if (SandboxOptions.instance.BloodLevel.getValue() > 1 && this.isOnFloor() && var2 instanceof IsoPlayer && var1 == ((IsoPlayer)var2).bareHands && var3) {
+               this.playBloodSplatterSound();
 
-         if (SandboxOptions.instance.BloodLevel.getValue() > 1 && this.isOnFloor() && var2 instanceof IsoPlayer && var1 == ((IsoPlayer)var2).bareHands && var3) {
-            this.playBloodSplatterSound();
+               for(var9 = -1; var9 <= 1; ++var9) {
+                  for(var6 = -1; var6 <= 1; ++var6) {
+                     if (var9 != 0 || var6 != 0) {
+                        new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, (float)var9 * Rand.Next(0.25F, 0.5F), (float)var6 * Rand.Next(0.25F, 0.5F));
+                     }
+                  }
+               }
 
-            for(var11 = -1; var11 <= 1; ++var11) {
-               for(var6 = -1; var6 <= 1; ++var6) {
-                  if (var11 != 0 || var6 != 0) {
-                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, (float)var11 * Rand.Next(0.25F, 0.5F), (float)var6 * Rand.Next(0.25F, 0.5F));
+               new IsoZombieGiblets(IsoZombieGiblets.GibletType.Eye, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 0.8F, this.getHitDir().y * 0.8F);
+            } else if (SandboxOptions.instance.BloodLevel.getValue() > 1 && var3) {
+               this.playBloodSplatterSound();
+               new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
+               tempo.x = this.getHitDir().x;
+               tempo.y = this.getHitDir().y;
+               byte var11 = 3;
+               byte var10 = 0;
+               byte var7 = 1;
+               switch (SandboxOptions.instance.BloodLevel.getValue()) {
+                  case 1:
+                     var7 = 0;
+                     break;
+                  case 2:
+                     var7 = 1;
+                     var11 = 5;
+                     var10 = 2;
+                  case 3:
+                  default:
+                     break;
+                  case 4:
+                     var7 = 3;
+                     var11 = 2;
+                     break;
+                  case 5:
+                     var7 = 10;
+                     var11 = 0;
+               }
+
+               for(int var8 = 0; var8 < var7; ++var8) {
+                  if (Rand.Next(this.isCloseKilled() ? 8 : var11) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 8 : var11) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 8 : var11) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 1.8F, this.getHitDir().y * 1.8F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 8 : var11) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 1.9F, this.getHitDir().y * 1.9F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 4 : var10) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 3.5F, this.getHitDir().y * 3.5F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 4 : var10) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 3.8F, this.getHitDir().y * 3.8F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 4 : var10) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 3.9F, this.getHitDir().y * 3.9F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 4 : var10) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 4 : var10) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 3.8F, this.getHitDir().y * 3.8F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 4 : var10) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 3.9F, this.getHitDir().y * 3.9F);
+                  }
+
+                  if (Rand.Next(this.isCloseKilled() ? 9 : 6) == 0) {
+                     new IsoZombieGiblets(IsoZombieGiblets.GibletType.Eye, this.getCell(), this.getX(), this.getY(), this.getZ() + var4, this.getHitDir().x * 0.8F, this.getHitDir().y * 0.8F);
                   }
                }
             }
 
-            new IsoZombieGiblets(IsoZombieGiblets.GibletType.Eye, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 0.8F, this.getHitDir().y * 0.8F);
-         } else if (SandboxOptions.instance.BloodLevel.getValue() > 1 && var3) {
-            this.playBloodSplatterSound();
-            new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
-            tempo.x = this.getHitDir().x;
-            tempo.y = this.getHitDir().y;
-            byte var13 = 3;
-            byte var12 = 0;
-            byte var7 = 1;
-            switch (SandboxOptions.instance.BloodLevel.getValue()) {
-               case 1:
-                  var7 = 0;
-                  break;
-               case 2:
-                  var7 = 1;
-                  var13 = 5;
-                  var12 = 2;
-               case 3:
-               default:
-                  break;
-               case 4:
-                  var7 = 3;
-                  var13 = 2;
-                  break;
-               case 5:
-                  var7 = 10;
-                  var13 = 0;
-            }
-
-            for(int var8 = 0; var8 < var7; ++var8) {
-               if (Rand.Next(this.isCloseKilled() ? 8 : var13) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 8 : var13) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 8 : var13) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 1.8F, this.getHitDir().y * 1.8F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 8 : var13) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 1.9F, this.getHitDir().y * 1.9F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 4 : var12) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 3.5F, this.getHitDir().y * 3.5F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 4 : var12) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 3.8F, this.getHitDir().y * 3.8F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 4 : var12) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 3.9F, this.getHitDir().y * 3.9F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 4 : var12) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 1.5F, this.getHitDir().y * 1.5F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 4 : var12) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 3.8F, this.getHitDir().y * 3.8F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 4 : var12) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.A, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 3.9F, this.getHitDir().y * 3.9F);
-               }
-
-               if (Rand.Next(this.isCloseKilled() ? 9 : 6) == 0) {
-                  new IsoZombieGiblets(IsoZombieGiblets.GibletType.Eye, this.getCell(), this.getX(), this.getY(), this.getZ() + var9, this.getHitDir().x * 0.8F, this.getHitDir().y * 0.8F);
-               }
-            }
          }
       }
+   }
 
-      if (this.isDoDeathSound()) {
-         this.playDeadSound();
-      }
-
-      this.setDoDeathSound(false);
+   public boolean onDeath_ShouldDoSplatterAndSounds(HandWeapon var1, IsoGameCharacter var2, boolean var3) {
+      return true;
    }
 
    private boolean TestIfSeen(int var1) {
@@ -1539,8 +1922,16 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    private void DoLand() {
-      if (!(this.fallTime < 20.0F) && !this.isClimbing()) {
+      if (!this.isClimbing() && !this.isRagdollFall()) {
+         byte var1 = 50;
+         byte var2 = 80;
+         byte var3 = 80;
+         boolean var4 = false;
+         boolean var5 = false;
+         boolean var6 = this.isAlive();
+         IsoPlayer var7;
          if (this instanceof IsoPlayer) {
+            var7 = (IsoPlayer)this;
             if (GameServer.bServer) {
                return;
             }
@@ -1549,95 +1940,175 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                return;
             }
 
-            if (((IsoPlayer)this).isGhostMode()) {
-               return;
+            if (this.fallTime > 20.0F) {
+               var7.stopPlayerVoiceSound("DeathFall");
+            }
+
+            if (this.fallTime >= (float)var2) {
+               this.setVariable("bHardFall2", true);
+               var4 = true;
+               var5 = true;
+            } else if (this.fallTime >= (float)var1) {
+               this.setVariable("bHardFall", true);
+               var4 = true;
+            } else {
+               this.setVariable("bLandLight", true);
+               if (!(this.fallTime < 20.0F)) {
+                  this.setVariable("bLandLightMask", true);
+               }
             }
          }
 
-         if (this.isZombie()) {
-            if (this.fallTime > 50.0F) {
-               this.hitDir.x = this.hitDir.y = 0.0F;
-               if (!((IsoZombie)this).bCrawling && (Rand.Next(100) < 80 || this.fallTime > 80.0F)) {
-                  this.setVariable("bHardFall", true);
-               }
+         if (!(this.fallTime < 20.0F) && !this.isClimbing()) {
+            if (this instanceof IsoZombie) {
+               if (this.fallTime > (float)var1) {
+                  this.hitDir.x = this.hitDir.y = 0.0F;
+                  this.playHurtSound();
+                  float var16 = (float)Rand.Next(150) / 1000.0F;
+                  var16 *= this.fallTime / (float)var1;
+                  if (((IsoZombie)this).bCrawling || !(this.fallTime >= (float)var2) && Rand.Next(100) >= 80) {
+                     this.playSound("LandLight");
+                  } else {
+                     this.setVariable("bHardFall", true);
+                     var4 = true;
+                     if ((float)Rand.Next(1000) < var16 * 1000.0F) {
+                        ((IsoZombie)this).setCrawler(true);
+                        ((IsoZombie)this).setCanWalk(false);
+                        ((IsoZombie)this).setCrawlerType(1);
+                        this.playSound("FirstAidFracture");
+                        this.splatBloodFloorBig();
+                     }
 
-               this.playHurtSound();
-               float var5 = (float)Rand.Next(150) / 1000.0F;
-               this.Health -= var5 * this.fallTime / 50.0F;
-               this.setAttackedBy((IsoGameCharacter)null);
-            }
-
-         } else {
-            boolean var1 = Rand.Next(80) == 0;
-            float var2 = this.fallTime;
-            var2 *= Math.min(1.8F, this.getInventory().getCapacityWeight() / this.getInventory().getMaxWeight());
-            if (this.getCurrentSquare().getFloor() != null && this.getCurrentSquare().getFloor().getSprite().getName() != null && this.getCurrentSquare().getFloor().getSprite().getName().startsWith("blends_natural")) {
-               var2 *= 0.8F;
-               if (!var1) {
-                  var1 = Rand.Next(65) == 0;
-               }
-            }
-
-            if (!var1) {
-               if (this.Traits.Obese.isSet() || this.Traits.Emaciated.isSet()) {
-                  var2 *= 1.4F;
-               }
-
-               if (this.Traits.Overweight.isSet() || this.Traits.VeryUnderweight.isSet()) {
-                  var2 *= 1.2F;
-               }
-
-               var2 *= Math.max(0.1F, 1.0F - (float)this.getPerkLevel(PerkFactory.Perks.Fitness) * 0.1F);
-               if (this.fallTime > 135.0F) {
-                  var2 = 1000.0F;
-               }
-
-               this.BodyDamage.ReduceGeneralHealth(var2);
-               LuaEventManager.triggerEvent("OnPlayerGetDamage", this, "FALLDOWN", var2);
-               if (this.fallTime > 70.0F) {
-                  int var3 = 100 - (int)((double)this.fallTime * 0.6);
-                  if (this.getInventory().getMaxWeight() - this.getInventory().getCapacityWeight() < 2.0F) {
-                     var3 = (int)((float)var3 - this.getInventory().getCapacityWeight() / this.getInventory().getMaxWeight() * 100.0F / 5.0F);
+                     this.splatBloodFloorBig();
+                     this.playSound("LandHeavy");
                   }
 
-                  if (this.Traits.Obese.isSet() || this.Traits.Emaciated.isSet()) {
-                     var3 -= 20;
-                  }
+                  var16 = (float)((double)var16 * SandboxOptions.instance.Lore.ZombiesFallDamage.getValue());
+                  CombatManager.getInstance().applyDamage(this, var16);
+                  this.setAttackedBy((IsoGameCharacter)null);
+                  this.helmetFall(var4);
+               }
 
+            } else {
+               var7 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+               if (var7 != null && this.fallTime >= (float)var1) {
+                  var7.getBodyDamage().setBoredomLevel(0.0F);
+               }
+
+               boolean var8 = Rand.NextBool(80 - this.getPerkLevel(PerkFactory.Perks.Nimble));
+               float var9 = this.fallTime;
+               float var10 = (float)((double)(Rand.Next(11) + 5) * 0.1);
+               var9 *= var10;
+               float var11 = this.getInventory().getCapacityWeight() / this.getInventory().getMaxWeight();
+               var11 = Math.min(1.8F, var11);
+               var9 *= var11;
+               if (this.getCurrentSquare().getFloor() != null && this.getCurrentSquare().getFloor().getSprite().getName() != null && this.getCurrentSquare().getFloor().getSprite().getName().startsWith("blends_natural")) {
+                  var9 *= 0.8F;
+                  if (!var8) {
+                     var8 = Rand.NextBool(65 - this.getPerkLevel(PerkFactory.Perks.Nimble));
+                  }
+               }
+
+               if (!this.Traits.Obese.isSet() && !this.Traits.Emaciated.isSet()) {
                   if (this.Traits.Overweight.isSet() || this.Traits.VeryUnderweight.isSet()) {
-                     var3 -= 10;
+                     var9 *= 1.2F;
                   }
+               } else {
+                  var9 *= 1.4F;
+               }
 
-                  if (this.getPerkLevel(PerkFactory.Perks.Fitness) > 4) {
-                     var3 += (this.getPerkLevel(PerkFactory.Perks.Fitness) - 4) * 3;
-                  }
-
-                  if (Rand.Next(100) >= var3) {
-                     if (!SandboxOptions.instance.BoneFracture.getValue()) {
-                        return;
-                     }
-
-                     float var4 = (float)Rand.Next(50, 80);
-                     if (this.Traits.FastHealer.isSet()) {
-                        var4 = (float)Rand.Next(30, 50);
-                     } else if (this.Traits.SlowHealer.isSet()) {
-                        var4 = (float)Rand.Next(80, 150);
-                     }
-
-                     switch (SandboxOptions.instance.InjurySeverity.getValue()) {
-                        case 1:
-                           var4 *= 0.5F;
-                           break;
-                        case 3:
-                           var4 *= 1.5F;
-                     }
-
-                     this.getBodyDamage().getBodyPart(BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.UpperLeg_L), BodyPartType.ToIndex(BodyPartType.Foot_R) + 1))).setFractureTime(var4);
-                  } else if (Rand.Next(100) >= var3 - 10) {
-                     this.getBodyDamage().getBodyPart(BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.UpperLeg_L), BodyPartType.ToIndex(BodyPartType.Foot_R) + 1))).generateDeepWound();
+               var9 *= Math.max(0.1F, 1.0F - (float)this.getPerkLevel(PerkFactory.Perks.Fitness) * 0.05F);
+               var9 *= Math.max(0.1F, 1.0F - (float)this.getPerkLevel(PerkFactory.Perks.Nimble) * 0.05F);
+               boolean var12 = false;
+               if (this.fallTime >= (float)var3) {
+                  if (!var8) {
+                     var12 = true;
+                     var9 = 1000.0F;
+                  } else {
+                     var9 = 0.0F;
+                     var8 = false;
+                     var4 = true;
+                     var5 = true;
                   }
                }
 
+               if (var4) {
+                  this.fallenOnKnees(true);
+                  this.dropHandItems();
+               } else {
+                  this.helmetFall(false);
+               }
+
+               if (!var8) {
+                  this.getBodyDamage().ReduceGeneralHealth(var9);
+                  if (var9 > 0.0F) {
+                     this.getBodyDamage().Update();
+                     this.setKilledByFall(var6 && this.isDead());
+                  }
+
+                  LuaEventManager.triggerEvent("OnPlayerGetDamage", this, "FALLDOWN", var9);
+                  if (var7 != null && var9 > 5.0F && this.isAlive()) {
+                     var7.playerVoiceSound(var4 ? "PainFromFallHigh" : " PainFromFallLow");
+                  }
+
+                  boolean var13 = var4 || (float)Rand.Next(100) < var9;
+                  if (var13) {
+                     int var14 = (int)((double)this.fallTime * 0.6);
+                     if (this.getInventory().getMaxWeight() - this.getInventory().getCapacityWeight() < 2.0F) {
+                        var14 = (int)((float)var14 + this.getInventory().getCapacityWeight() / this.getInventory().getMaxWeight() * 20.0F);
+                     }
+
+                     if (!this.Traits.Obese.isSet() && !this.Traits.Emaciated.isSet()) {
+                        if (this.Traits.Overweight.isSet() || this.Traits.VeryUnderweight.isSet()) {
+                           var14 += 10;
+                        }
+                     } else {
+                        var14 += 20;
+                     }
+
+                     if (this.getPerkLevel(PerkFactory.Perks.Fitness) > 4) {
+                        var14 = (int)((double)var14 - (double)(this.getPerkLevel(PerkFactory.Perks.Fitness) - 4) * 1.5);
+                     }
+
+                     var14 = (int)((double)var14 - (double)this.getPerkLevel(PerkFactory.Perks.Nimble) * 1.5);
+                     if (!SandboxOptions.instance.BoneFracture.getValue()) {
+                     }
+
+                     BodyPartType var15;
+                     if (!var5 && (!var4 || !Rand.NextBool(2))) {
+                        var15 = BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.UpperLeg_L), BodyPartType.ToIndex(BodyPartType.Foot_R) + 1));
+                     } else {
+                        var15 = BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.Hand_L), BodyPartType.ToIndex(BodyPartType.Foot_R) + 1));
+                     }
+
+                     if (Rand.Next(100) < var14 && SandboxOptions.instance.BoneFracture.getValue()) {
+                        this.getBodyDamage().getBodyPart(var15).generateFractureNew((float)Rand.Next(50, 80));
+                     } else if (Rand.Next(100) < var14 + 10) {
+                        this.getBodyDamage().getBodyPart(var15).generateDeepWound();
+                     } else {
+                        this.getBodyDamage().getBodyPart(var15).setStiffness(100.0F);
+                     }
+
+                     if (var5) {
+                        var15 = BodyPartType.FromIndex(Rand.Next(BodyPartType.ToIndex(BodyPartType.Hand_L), BodyPartType.ToIndex(BodyPartType.Foot_R) + 1));
+                        if (Rand.Next(100) < var14 && SandboxOptions.instance.BoneFracture.getValue()) {
+                           this.getBodyDamage().getBodyPart(var15).generateFractureNew((float)Rand.Next(50, 80));
+                        } else if (Rand.Next(100) < var14 + 10) {
+                           this.getBodyDamage().getBodyPart(var15).generateDeepWound();
+                        } else {
+                           this.getBodyDamage().getBodyPart(var15).setStiffness(100.0F);
+                        }
+                     }
+
+                     if (var12) {
+                        this.splatBloodFloorBig();
+                        this.splatBloodFloorBig();
+                        this.splatBloodFloorBig();
+                        this.splatBloodFloorBig();
+                     }
+                  }
+
+               }
             }
          }
       }
@@ -1885,10 +2356,24 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.m_forwardDirection;
    }
 
+   public Vector2 getForwardDirection(Vector2 var1) {
+      var1.x = this.m_forwardDirection.x;
+      var1.y = this.m_forwardDirection.y;
+      return var1;
+   }
+
    public void setForwardDirection(Vector2 var1) {
       if (var1 != null) {
          this.setForwardDirection(var1.x, var1.y);
       }
+   }
+
+   public void setTargetAndCurrentDirection(Vector2 var1) {
+      this.setForwardDirection(var1);
+      if (this.hasAnimationPlayer()) {
+         this.getAnimationPlayer().setTargetAndCurrentDirection(var1);
+      }
+
    }
 
    public void setForwardDirection(float var1, float var2) {
@@ -1922,7 +2407,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.m_animPlayer != null && this.m_animPlayer.isReady() && !this.m_animPlayer.isBoneTransformsNeedFirstFrame() ? this.m_animPlayer.getAngle() : this.m_forwardDirection.getDirection();
    }
 
+   /** @deprecated */
+   @Deprecated
    public Vector2 getAnimVector(Vector2 var1) {
+      return this.getAnimForwardDirection(var1);
+   }
+
+   public Vector2 getAnimForwardDirection(Vector2 var1) {
       return var1.setLengthAndDirection(this.getAnimAngleRadians(), 1.0F);
    }
 
@@ -1932,6 +2423,32 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public Vector2 getLookVector(Vector2 var1) {
       return var1.setLengthAndDirection(this.getLookAngleRadians(), 1.0F);
+   }
+
+   public boolean isAnimatingBackwards() {
+      return this.m_isAnimatingBackwards;
+   }
+
+   public void setAnimatingBackwards(boolean var1) {
+      this.m_isAnimatingBackwards = var1;
+   }
+
+   public boolean isDraggingCorpse() {
+      if (!this.isGrappling()) {
+         return false;
+      } else {
+         IGrappleable var1 = this.getGrapplingTarget();
+         IsoZombie var2 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+         return var2 == null ? false : var2.isReanimatedForGrappleOnly();
+      }
+   }
+
+   public UdpConnection getOwner() {
+      return null;
+   }
+
+   public IsoPlayer getOwnerPlayer() {
+      return null;
    }
 
    public float getDotWithForwardDirection(Vector3 var1) {
@@ -1954,12 +2471,24 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.Asleep = var1;
    }
 
+   public boolean isResting() {
+      return this.isResting;
+   }
+
+   public void setIsResting(boolean var1) {
+      this.isResting = var1;
+   }
+
    public int getZombieKills() {
       return this.ZombieKills;
    }
 
    public void setZombieKills(int var1) {
       this.ZombieKills = var1;
+      if (GameServer.bServer && this instanceof IsoPlayer) {
+         SteamGameServer.UpdatePlayer((IsoPlayer)this);
+      }
+
    }
 
    public int getLastZombieKills() {
@@ -1999,7 +2528,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public BodyDamage getBodyDamageRemote() {
       if (this.BodyDamageRemote == null) {
-         this.BodyDamageRemote = new BodyDamage((IsoGameCharacter)null);
+         this.BodyDamageRemote = new BodyDamage(this);
       }
 
       return this.BodyDamageRemote;
@@ -2074,7 +2603,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setHealth(float var1) {
-      this.Health = var1;
+      if (var1 != 0.0F || !this.isInvulnerable()) {
+         this.Health = var1;
+      }
    }
 
    public boolean isOnDeathDone() {
@@ -2146,30 +2677,56 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setPrimaryHandItem(InventoryItem var1) {
-      this.setEquipParent(this.leftHandItem, var1);
-      this.leftHandItem = var1;
-      if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-         GameClient.instance.equip((IsoPlayer)this, 0);
-      }
+      if (this.leftHandItem != var1) {
+         if (var1 == null && this.getPrimaryHandItem() instanceof AnimalInventoryItem) {
+            ((AnimalInventoryItem)this.getPrimaryHandItem()).getAnimal().heldBy = null;
+         }
 
-      LuaEventManager.triggerEvent("OnEquipPrimary", this, var1);
-      this.resetEquippedHandsModels();
-      this.setVariable("Weapon", WeaponType.getWeaponType(this).type);
-      if (var1 != null && var1 instanceof HandWeapon && !StringUtils.isNullOrEmpty(((HandWeapon)var1).getFireMode())) {
-         this.setVariable("FireMode", ((HandWeapon)var1).getFireMode());
-      } else {
-         this.clearVariable("FireMode");
-      }
+         if (this instanceof IsoPlayer && var1 == null && !((IsoPlayer)this).getAttachedAnimals().isEmpty() && this.getPrimaryHandItem() != null && this.getPrimaryHandItem().getType().equalsIgnoreCase("Rope")) {
+            ((IsoPlayer)this).removeAllAttachedAnimals();
+         }
 
+         if (var1 == this.getSecondaryHandItem()) {
+            this.setEquipParent(this.leftHandItem, var1, false);
+         } else {
+            this.setEquipParent(this.leftHandItem, var1);
+         }
+
+         this.leftHandItem = var1;
+         this.handItemShouldSendToClients = true;
+         LuaEventManager.triggerEvent("OnEquipPrimary", this, var1);
+         this.resetEquippedHandsModels();
+         this.setVariable("Weapon", WeaponType.getWeaponType(this).type);
+         if (var1 instanceof AnimalInventoryItem && this instanceof IsoPlayer) {
+            ((AnimalInventoryItem)var1).getAnimal().heldBy = (IsoPlayer)this;
+         }
+
+         if (var1 instanceof HandWeapon) {
+            this.setUseHandWeapon((HandWeapon)var1);
+            BallisticsController var2 = this.getBallisticsController();
+            if (var2 != null) {
+               var2.clearCacheTargets();
+            }
+         }
+
+      }
+   }
+
+   public HandWeapon getAttackingWeapon() {
+      return this.getUseHandWeapon();
    }
 
    protected void setEquipParent(InventoryItem var1, InventoryItem var2) {
+      this.setEquipParent(var1, var2, true);
+   }
+
+   protected void setEquipParent(InventoryItem var1, InventoryItem var2, boolean var3) {
       if (var1 != null) {
-         var1.setEquipParent((IsoGameCharacter)null);
+         var1.setEquipParent((IsoGameCharacter)null, var3);
       }
 
       if (var2 != null) {
-         var2.setEquipParent(this);
+         var2.setEquipParent(this, var3);
       }
 
    }
@@ -2224,13 +2781,22 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
          }
 
+         if (this.isoPlayer != null && this.isoPlayer.getHumanVisual().getHairModel().contains("Mohawk") && (Objects.equals(var1, "Hat") || Objects.equals(var1, "FullHat"))) {
+            this.isoPlayer.getHumanVisual().setHairModel("MohawkFlat");
+            this.resetModel();
+         }
+
          this.resetModelNextFrame();
          if (this.clothingWetness != null) {
             this.clothingWetness.changed = true;
          }
 
-         if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-            GameClient.instance.sendClothing((IsoPlayer)this, var1, var2);
+         if (this instanceof IsoPlayer) {
+            if (GameServer.bServer) {
+               INetworkPacket.sendToRelative(PacketTypes.PacketType.SyncClothing, this.getX(), this.getY(), this);
+            } else if (GameClient.bClient && GameClient.connection.isReady()) {
+               INetworkPacket.send(PacketTypes.PacketType.SyncClothing, this);
+            }
          }
 
          this.onWornItemsChanged();
@@ -2302,7 +2868,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
       this.resetEquippedHandsModels();
       IsoPlayer var6 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
-      if (GameClient.bClient && var6 != null && var6.isLocalPlayer()) {
+      if (GameClient.bClient && var6 != null && var6.isLocalPlayer() && !"bowtie".equals(var1) && !"head_hat".equals(var1)) {
          GameClient.instance.sendAttachedItem(var6, var1, var2);
       }
 
@@ -2411,6 +2977,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
 
       super.removeFromWorld();
+      this.releaseRagdollController();
+      this.releaseBallisticsController();
+      this.releaseBallisticsTarget();
+      if (this.m_animationRecorder != null) {
+         this.m_animationRecorder.close();
+      }
+
    }
 
    public int getPathIndex() {
@@ -2422,15 +2995,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public int getPathTargetX() {
-      return (int)this.getPathFindBehavior2().getTargetX();
+      return PZMath.fastfloor(this.getPathFindBehavior2().getTargetX());
    }
 
    public int getPathTargetY() {
-      return (int)this.getPathFindBehavior2().getTargetY();
+      return PZMath.fastfloor(this.getPathFindBehavior2().getTargetY());
    }
 
    public int getPathTargetZ() {
-      return (int)this.getPathFindBehavior2().getTargetZ();
+      return PZMath.fastfloor(this.getPathFindBehavior2().getTargetZ());
    }
 
    public InventoryItem getSecondaryHandItem() {
@@ -2438,15 +3011,19 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setSecondaryHandItem(InventoryItem var1) {
-      this.setEquipParent(this.rightHandItem, var1);
-      this.rightHandItem = var1;
-      if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-         GameClient.instance.equip((IsoPlayer)this, 1);
-      }
+      if (this.rightHandItem != var1) {
+         if (var1 == this.getPrimaryHandItem()) {
+            this.setEquipParent(this.rightHandItem, var1, false);
+         } else {
+            this.setEquipParent(this.rightHandItem, var1);
+         }
 
-      LuaEventManager.triggerEvent("OnEquipSecondary", this, var1);
-      this.resetEquippedHandsModels();
-      this.setVariable("Weapon", WeaponType.getWeaponType(this).type);
+         this.rightHandItem = var1;
+         this.handItemShouldSendToClients = true;
+         LuaEventManager.triggerEvent("OnEquipSecondary", this, var1);
+         this.resetEquippedHandsModels();
+         this.setVariable("Weapon", WeaponType.getWeaponType(this).type);
+      }
    }
 
    public boolean isHandItem(InventoryItem var1) {
@@ -2618,11 +3195,23 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.bloodSplat = var1;
    }
 
+   /** @deprecated */
+   @Deprecated
    public boolean isbOnBed() {
       return this.bOnBed;
    }
 
+   /** @deprecated */
+   @Deprecated
    public void setbOnBed(boolean var1) {
+      this.bOnBed = var1;
+   }
+
+   public boolean isOnBed() {
+      return this.bOnBed;
+   }
+
+   public void setOnBed(boolean var1) {
       this.bOnBed = var1;
    }
 
@@ -2756,22 +3345,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.LastHeardSound.z = var3;
    }
 
-   public float getLrx() {
-      return this.lrx;
-   }
-
-   public void setLrx(float var1) {
-      this.lrx = var1;
-   }
-
-   public float getLry() {
-      return this.lry;
-   }
-
-   public void setLry(float var1) {
-      this.lry = var1;
-   }
-
    public boolean isClimbing() {
       return this.bClimbing;
    }
@@ -2800,6 +3373,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.fallTime;
    }
 
+   public float getFallTimeAdjusted() {
+      return this.fallTime * 1.75F;
+   }
+
    public void setFallTime(float var1) {
       this.fallTime = var1;
    }
@@ -2813,7 +3390,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isbFalling() {
-      return this.bFalling;
+      return this.bFalling && !this.ragdollFall;
    }
 
    public void setbFalling(boolean var1) {
@@ -2850,32 +3427,53 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return 0.0F;
    }
 
+   public AnimEventBroadcaster getAnimEventBroadcaster() {
+      return this.m_animEventBroadcaster;
+   }
+
    public void OnAnimEvent(AnimLayer var1, AnimEvent var2) {
       if (var2.m_EventName != null) {
-         if (var2.m_EventName.equalsIgnoreCase("SetVariable") && var2.m_SetVariable1 != null) {
-            this.setVariable(var2.m_SetVariable1, var2.m_SetVariable2);
-         }
-
-         if (var2.m_EventName.equalsIgnoreCase("ClearVariable")) {
-            this.clearVariable(var2.m_ParameterValue);
-         }
-
-         if (var2.m_EventName.equalsIgnoreCase("PlaySound")) {
-            this.getEmitter().playSoundImpl(var2.m_ParameterValue, this);
-         }
-
-         if (var2.m_EventName.equalsIgnoreCase("Footstep")) {
-            this.DoFootstepSound(var2.m_ParameterValue);
-         }
-
-         if (var2.m_EventName.equalsIgnoreCase("DamageWhileInTrees")) {
-            this.damageWhileInTrees();
+         this.animEvent(this, var2);
+         if (Core.bDebug && DebugOptions.instance.Animation.AnimLayer.AllowAnimNodeOverride.getValue()) {
+            dbgOnGlobalAnimEvent(this, var2);
          }
 
          int var3 = var1.getDepth();
          this.actionContext.reportEvent(var3, var2.m_EventName);
          this.stateMachine.stateAnimEvent(var3, var2);
       }
+   }
+
+   private static void dbgOnGlobalAnimEvent(IsoGameCharacter var0, AnimEvent var1) {
+      if (Core.bDebug) {
+         SwipeStatePlayer.dbgOnGlobalAnimEvent(var0, var1);
+      }
+   }
+
+   private void OnAnimEvent_SetVariable(IsoGameCharacter var1, AnimationVariableReference var2, String var3) {
+      DebugLog.Animation.trace("SetVariable(%s, %s)", var2, var3);
+      var2.setVariable(var1, var3);
+   }
+
+   private void OnAnimEvent_ClearVariable(IsoGameCharacter var1, String var2) {
+      AnimationVariableReference var3 = AnimationVariableReference.fromRawVariableName(var2);
+      var3.clearVariable(var1);
+   }
+
+   private void OnAnimEvent_PlaySound(IsoGameCharacter var1, String var2) {
+      var1.getEmitter().playSoundImpl(var2, this);
+   }
+
+   private void OnAnimEvent_Footstep(IsoGameCharacter var1, String var2) {
+      var1.DoFootstepSound(var2);
+   }
+
+   private void OnAnimEvent_DamageWhileInTrees(IsoGameCharacter var1) {
+      var1.damageWhileInTrees();
+   }
+
+   private void OnAnimEvent_SetSharedGrappleType(IsoGameCharacter var1, String var2) {
+      var1.setSharedGrappleType(var2);
    }
 
    private void damageWhileInTrees() {
@@ -3406,6 +4004,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       PerkInfo var3 = this.getPerkInfo(var1);
       if (var3 != null) {
          var3.level = var2;
+      } else {
+         var3 = new PerkInfo();
+         var3.perk = var1;
+         var3.level = var2;
+         this.PerkList.add(var3);
       }
 
       if (GameClient.bClient && this instanceof IsoPlayer) {
@@ -3442,15 +4045,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          if (var4 != null) {
             ++var4.level;
             if (var3 != null && !"Tutorial".equals(Core.GameMode) && this.getHoursSurvived() > 0.016666666666666666) {
-               HaloTextHelper.addTextWithArrow(var3, "+1 " + var1.getName(), true, HaloTextHelper.getColorGreen());
+               HaloTextHelper.addTextWithArrow(var3, "+1 " + var1.getName(), true, HaloTextHelper.getGoodColor());
             }
 
             if (var4.level > 10) {
                var4.level = 10;
-            }
-
-            if (GameClient.bClient && var3 != null) {
-               GameClient.instance.sendSyncXp(var3);
             }
 
             LuaEventManager.triggerEventGarbage("LevelPerk", this, var1, var4.level, true);
@@ -3464,11 +4063,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             var4.level = 1;
             this.PerkList.add(var4);
             if (var3 != null && !"Tutorial".equals(Core.GameMode) && this.getHoursSurvived() > 0.016666666666666666) {
-               HaloTextHelper.addTextWithArrow(var3, "+1 " + var1.getName(), true, HaloTextHelper.getColorGreen());
-            }
-
-            if (GameClient.bClient && this instanceof IsoPlayer) {
-               GameClient.instance.sendSyncXp(var3);
+               HaloTextHelper.addTextWithArrow(var3, "+1 " + var1.getName(), true, HaloTextHelper.getGoodColor());
             }
 
             LuaEventManager.triggerEvent("LevelPerk", this, var1, var4.level, true);
@@ -3499,12 +4094,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       if (var1.getTeachedRecipes() != null) {
          for(int var2 = 0; var2 < var1.getTeachedRecipes().size(); ++var2) {
             if (!this.getKnownRecipes().contains(var1.getTeachedRecipes().get(var2))) {
-               this.getKnownRecipes().add((String)var1.getTeachedRecipes().get(var2));
+               this.learnRecipe((String)var1.getTeachedRecipes().get(var2));
             }
          }
       }
 
-      var1.Use();
+      if (var1.hasTag("ConsumeOnRead")) {
+         var1.Use();
+      }
+
    }
 
    public void OnDeath() {
@@ -3513,7 +4111,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void splatBloodFloorBig() {
       if (this.getCurrentSquare() != null && this.getCurrentSquare().getChunk() != null) {
-         this.getCurrentSquare().getChunk().addBloodSplat(this.x, this.y, this.z, Rand.Next(20));
+         this.getCurrentSquare().getChunk().addBloodSplat(this.getX(), this.getY(), this.getZ(), Rand.Next(20));
       }
 
    }
@@ -3522,15 +4120,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       if (this.getCurrentSquare() != null) {
          if (this.getCurrentSquare().getChunk() != null) {
             if (this.isDead() && Rand.Next(10) == 0) {
-               this.getCurrentSquare().getChunk().addBloodSplat(this.x, this.y, this.z, Rand.Next(20));
+               this.getCurrentSquare().getChunk().addBloodSplat(this.getX(), this.getY(), this.getZ(), Rand.Next(20));
             }
 
             if (Rand.Next(14) == 0) {
-               this.getCurrentSquare().getChunk().addBloodSplat(this.x, this.y, this.z, Rand.Next(8));
+               this.getCurrentSquare().getChunk().addBloodSplat(this.getX(), this.getY(), this.getZ(), Rand.Next(8));
             }
 
             if (Rand.Next(50) == 0) {
-               this.getCurrentSquare().getChunk().addBloodSplat(this.x, this.y, this.z, Rand.Next(20));
+               this.getCurrentSquare().getChunk().addBloodSplat(this.getX(), this.getY(), this.getZ(), Rand.Next(20));
             }
 
          }
@@ -3550,11 +4148,75 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isDead() {
-      return this.Health <= 0.0F || this.BodyDamage != null && this.BodyDamage.getHealth() <= 0.0F;
+      return this.Health <= 0.0F || this.getBodyDamage() != null && this.getBodyDamage().getHealth() <= 0.0F;
    }
 
    public boolean isAlive() {
       return !this.isDead();
+   }
+
+   public boolean isEditingRagdoll() {
+      return this.isEditingRagdoll;
+   }
+
+   public void setEditingRagdoll(boolean var1) {
+      this.isEditingRagdoll = var1;
+   }
+
+   public boolean isRagdoll() {
+      return this.isRagdoll;
+   }
+
+   public void setIsRagdoll(boolean var1) {
+      this.isRagdoll = var1;
+   }
+
+   public boolean canRagdoll() {
+      return this.useRagdoll;
+   }
+
+   public void setRagdollFall(boolean var1) {
+      this.ragdollFall = var1;
+   }
+
+   public boolean isRagdollFall() {
+      return this.ragdollFall;
+   }
+
+   public boolean isVehicleCollision() {
+      return this.vehicleCollision;
+   }
+
+   public void setVehicleCollision(boolean var1) {
+      this.vehicleCollision = var1;
+   }
+
+   public boolean useRagdollVehicleCollision() {
+      return this.useRagdoll && this.vehicleCollision;
+   }
+
+   public boolean isUpright() {
+      if (this.useRagdoll()) {
+         return this.getRagdollController() == null ? false : this.getRagdollController().isUpright();
+      } else {
+         return false;
+      }
+   }
+
+   public boolean isOnBack() {
+      return this.getRagdollController() == null ? false : this.getRagdollController().isOnBack();
+   }
+
+   public boolean usePhysicHitReaction() {
+      return this.usePhysicHitReaction;
+   }
+
+   public void setUsePhysicHitReaction(boolean var1) {
+      this.usePhysicHitReaction = var1;
+   }
+
+   public boolean isRagdollSimulationActive() {
+      return this.useRagdoll() && this.getRagdollController() != null ? this.getRagdollController().isSimulationActive() : false;
    }
 
    public void Seen(Stack<IsoMovingObject> var1) {
@@ -3565,7 +4227,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean CanSee(IsoMovingObject var1) {
-      return LosUtil.lineClear(this.getCell(), (int)this.getX(), (int)this.getY(), (int)this.getZ(), (int)var1.getX(), (int)var1.getY(), (int)var1.getZ(), false) != LosUtil.TestResults.Blocked;
+      return LosUtil.lineClear(this.getCell(), PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), PZMath.fastfloor(var1.getX()), PZMath.fastfloor(var1.getY()), PZMath.fastfloor(var1.getZ()), false) != LosUtil.TestResults.Blocked;
    }
 
    public IsoGridSquare getLowDangerInVicinity(int var1, int var2) {
@@ -3576,7 +4238,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          float var6 = 0.0F;
          int var7 = Rand.Next(-var2, var2);
          int var8 = Rand.Next(-var2, var2);
-         IsoGridSquare var9 = this.getCell().getGridSquare((int)this.getX() + var7, (int)this.getY() + var8, (int)this.getZ());
+         IsoGridSquare var9 = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()) + var7, PZMath.fastfloor(this.getY()) + var8, PZMath.fastfloor(this.getZ()));
          if (var9 != null && var9.isFree(true)) {
             float var10 = (float)var9.getMovingObjects().size();
             if (var9.getE() != null) {
@@ -3613,7 +4275,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
 
       var1 = (int)((float)var1 * (this.stats.getStress() + 1.0F));
-      var1 = (int)((float)var1 * (this.BodyDamage.getUnhappynessLevel() / 100.0F + 1.0F));
+      var1 = (int)((float)var1 * (this.getBodyDamage().getUnhappynessLevel() / 100.0F + 1.0F));
       Stats var10000 = this.stats;
       var10000.Anger += (float)var1 / 100.0F;
    }
@@ -3636,6 +4298,17 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       } else {
          return this.rightHandItem != null && this.rightHandItem.hasTag(var1);
       }
+   }
+
+   public boolean hasWornTag(String var1) {
+      for(int var2 = 0; var2 < this.getWornItems().size(); ++var2) {
+         InventoryItem var3 = this.getWornItems().getItemByIndex(var2);
+         if (var3.hasTag(var1)) {
+            return true;
+         }
+      }
+
+      return false;
    }
 
    public void setDir(IsoDirections var1) {
@@ -3679,25 +4352,29 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       int var6;
       if (!this.isZombie()) {
          this.stats.load(var1, var2);
-         this.BodyDamage.load(var1, var2);
+         this.getBodyDamage().load(var1, var2);
          this.xp.load(var1, var2);
-         ArrayList var9 = this.inventory.IncludingObsoleteItems;
+         ArrayList var12 = this.inventory.IncludingObsoleteItems;
          var6 = var1.getInt();
-         if (var6 >= 0 && var6 < var9.size()) {
-            this.leftHandItem = (InventoryItem)var9.get(var6);
+         if (var6 >= 0 && var6 < var12.size()) {
+            this.leftHandItem = (InventoryItem)var12.get(var6);
          }
 
          var6 = var1.getInt();
-         if (var6 >= 0 && var6 < var9.size()) {
-            this.rightHandItem = (InventoryItem)var9.get(var6);
+         if (var6 >= 0 && var6 < var12.size()) {
+            this.rightHandItem = (InventoryItem)var12.get(var6);
          }
 
          this.setEquipParent((InventoryItem)null, this.leftHandItem);
-         this.setEquipParent((InventoryItem)null, this.rightHandItem);
+         if (this.rightHandItem == this.leftHandItem) {
+            this.setEquipParent((InventoryItem)null, this.rightHandItem, false);
+         } else {
+            this.setEquipParent((InventoryItem)null, this.rightHandItem);
+         }
       }
 
-      boolean var10 = var1.get() == 1;
-      if (var10) {
+      boolean var13 = var1.get() == 1;
+      if (var13) {
          this.SetOnFire();
       }
 
@@ -3722,7 +4399,8 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.reduceInfectionPower = var1.getFloat();
       var7 = var1.getInt();
 
-      for(int var11 = 0; var11 < var7; ++var11) {
+      int var14;
+      for(var14 = 0; var14 < var7; ++var14) {
          this.knownRecipes.add(GameWindow.ReadString(var1));
       }
 
@@ -3734,21 +4412,49 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.setBuildCheat(var1.get() == 1);
       this.setHealthCheat(var1.get() == 1);
       this.setMechanicsCheat(var1.get() == 1);
-      if (var2 >= 176) {
-         this.setMovablesCheat(var1.get() == 1);
-         this.setFarmingCheat(var1.get() == 1);
-         this.setTimedActionInstantCheat(var1.get() == 1);
-         this.setUnlimitedEndurance(var1.get() == 1);
+      this.setMovablesCheat(var1.get() == 1);
+      this.setFarmingCheat(var1.get() == 1);
+      if (var2 >= 202) {
+         this.setFishingCheat(var1.get() == 1);
       }
 
-      if (var2 >= 161) {
-         this.setSneaking(var1.get() == 1);
-         this.setDeathDragDown(var1.get() == 1);
+      if (var2 >= 217) {
+         this.setCanUseBrushTool(var1.get() == 1);
+         this.setFastMoveCheat(var1.get() == 1);
       }
 
+      this.setTimedActionInstantCheat(var1.get() == 1);
+      this.setUnlimitedEndurance(var1.get() == 1);
+      this.setSneaking(var1.get() == 1);
+      this.setDeathDragDown(var1.get() == 1);
+      var14 = var1.getInt();
+
+      for(int var9 = 0; var9 < var14; ++var9) {
+         String var10 = GameWindow.ReadString(var1);
+         int var11 = var1.getInt();
+         this.addReadLiterature(var10, var11);
+      }
+
+      this.lastAnimalPet = var1.getLong();
+   }
+
+   public String getDescription(String var1) {
+      String var10000 = this.getClass().getSimpleName();
+      String var2 = var10000 + " [" + var1;
+      var2 = var2 + "isDead=" + this.isDead() + " | " + var1;
+      var2 = var2 + super.getDescription(var1 + "    ") + " | " + var1;
+      var2 = var2 + "inventory=";
+
+      for(int var3 = 0; var3 < this.inventory.Items.size() - 1; ++var3) {
+         var2 = var2 + this.inventory.Items.get(var3) + ", ";
+      }
+
+      var2 = var2 + " ] ";
+      return var2;
    }
 
    public void save(ByteBuffer var1, boolean var2) throws IOException {
+      DebugLog.Saving.trace("Saving: %s", this);
       super.save(var1, var2);
       if (this.descriptor == null) {
          var1.put((byte)0);
@@ -3770,7 +4476,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       var1.putFloat(this.ForceWakeUpTime);
       if (!this.isZombie()) {
          this.stats.save(var1);
-         this.BodyDamage.save(var1);
+         this.getBodyDamage().save(var1);
          this.xp.save(var1);
          if (this.leftHandItem != null) {
             var1.putInt(this.inventory.getItems().indexOf(this.leftHandItem));
@@ -3820,10 +4526,23 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       var1.put((byte)(this.isMechanicsCheat() ? 1 : 0));
       var1.put((byte)(this.isMovablesCheat() ? 1 : 0));
       var1.put((byte)(this.isFarmingCheat() ? 1 : 0));
+      var1.put((byte)(this.isFishingCheat() ? 1 : 0));
+      var1.put((byte)(this.isCanUseBrushTool() ? 1 : 0));
+      var1.put((byte)(this.isFastMoveCheat() ? 1 : 0));
       var1.put((byte)(this.isTimedActionInstantCheat() ? 1 : 0));
       var1.put((byte)(this.isUnlimitedEndurance() ? 1 : 0));
       var1.put((byte)(this.isSneaking() ? 1 : 0));
       var1.put((byte)(this.isDeathDragDown() ? 1 : 0));
+      var1.putInt(this.readLiterature.size());
+      Iterator var8 = this.getReadLiterature().entrySet().iterator();
+
+      while(var8.hasNext()) {
+         Map.Entry var7 = (Map.Entry)var8.next();
+         GameWindow.WriteString(var1, (String)var7.getKey());
+         var1.putInt((Integer)var7.getValue());
+      }
+
+      var1.putLong(this.lastAnimalPet);
    }
 
    public ChatElement getChatElement() {
@@ -3875,7 +4594,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void StopAllActionQueueAiming() {
-      if (this.CharacterActions.size() != 0) {
+      if (!this.CharacterActions.isEmpty()) {
          BaseAction var1 = (BaseAction)this.CharacterActions.get(0);
          if (var1.StopOnAim) {
             if (var1.bStarted) {
@@ -3892,7 +4611,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void StopAllActionQueueWalking() {
-      if (this.CharacterActions.size() != 0) {
+      if (!this.CharacterActions.isEmpty()) {
          BaseAction var1 = (BaseAction)this.CharacterActions.get(0);
          if (var1.StopOnWalk) {
             if (var1.bStarted) {
@@ -3941,9 +4660,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void InitSpriteParts(SurvivorDesc var1) {
-      this.sprite.AnimMap.clear();
-      this.sprite.AnimStack.clear();
-      this.sprite.CurrentAnim = null;
+      this.sprite.disposeAnimation();
       this.legsSprite = this.sprite;
       this.legsSprite.name = var1.torso;
       this.bUseParts = true;
@@ -3979,6 +4696,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             this.onWornItemsChanged();
          }
       }
+   }
+
+   public void setPathSpeed(float var1) {
    }
 
    public void PlayAnim(String var1) {
@@ -4073,7 +4793,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   }
 
                   if (Rand.Next(var5) == 0) {
-                     WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), var4, var4, false, 0.0F, 1.0F, false, false, false);
+                     WorldSoundManager.instance.addSound(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), var4, var4, false, 0.0F, 1.0F, false, false, false);
                   }
                }
 
@@ -4083,126 +4803,140 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean Eat(InventoryItem var1, float var2) {
+      return this.Eat(var1, var2, false);
+   }
+
+   public boolean EatOnClient(InventoryItem var1, float var2) {
       Food var3 = (Food)Type.tryCastTo(var1, Food.class);
       if (var3 == null) {
          return false;
       } else {
-         var2 = PZMath.clamp(var2, 0.0F, 1.0F);
-         if (var3.getRequireInHandOrInventory() != null) {
-            InventoryItem var4 = null;
-
-            for(int var5 = 0; var5 < var3.getRequireInHandOrInventory().size(); ++var5) {
-               String var6 = (String)var3.getRequireInHandOrInventory().get(var5);
-               var4 = this.getInventory().FindAndReturn(var6);
-               if (var4 != null) {
-                  var4.Use();
-                  break;
-               }
+         if (var3.getOnEat() != null) {
+            Object var4 = LuaManager.getFunctionObject(var3.getOnEat());
+            if (var4 != null) {
+               LuaManager.caller.pcallvoid(LuaManager.thread, var4, var1, this, BoxedStaticValues.toDouble((double)var2));
             }
          }
 
-         float var11 = var2;
-         float var14;
-         if (var3.getBaseHunger() != 0.0F && var3.getHungChange() != 0.0F) {
-            float var12 = var3.getBaseHunger() * var2;
-            var14 = var12 / var3.getHungChange();
-            var14 = PZMath.clamp(var14, 0.0F, 1.0F);
-            var2 = var14;
+         return true;
+      }
+   }
+
+   public boolean Eat(InventoryItem var1, float var2, boolean var3) {
+      Food var4 = (Food)Type.tryCastTo(var1, Food.class);
+      if (var4 == null) {
+         return false;
+      } else {
+         var2 = PZMath.clamp(var2, 0.0F, 1.0F);
+         float var5 = var2;
+         float var7;
+         if (var4.getBaseHunger() != 0.0F && var4.getHungChange() != 0.0F) {
+            float var6 = var4.getBaseHunger() * var2;
+            var7 = var6 / var4.getHungChange();
+            var7 = PZMath.clamp(var7, 0.0F, 1.0F);
+            var2 = var7;
          }
 
-         if (var3.getHungChange() < 0.0F && var3.getHungChange() * (1.0F - var2) > -0.01F) {
+         if (var4.getHungChange() < 0.0F && var4.getHungChange() * (1.0F - var2) > -0.01F) {
             var2 = 1.0F;
          }
 
-         if (var3.getHungChange() == 0.0F && var3.getThirstChange() < 0.0F && var3.getThirstChange() * (1.0F - var2) > -0.01F) {
+         if (var4.getHungChange() == 0.0F && var4.getThirstChange() < 0.0F && var4.getThirstChange() * (1.0F - var2) > -0.01F) {
             var2 = 1.0F;
          }
 
          Stats var10000 = this.stats;
-         var10000.thirst += var3.getThirstChange() * var2;
+         var10000.thirst += var4.getThirstChange() * var2;
          if (this.stats.thirst < 0.0F) {
             this.stats.thirst = 0.0F;
          }
 
          var10000 = this.stats;
-         var10000.hunger += var3.getHungerChange() * var2;
+         var10000.hunger += var4.getHungerChange() * var2;
          var10000 = this.stats;
-         var10000.endurance += var3.getEnduranceChange() * var2;
+         var10000.endurance += var4.getEnduranceChange() * var2;
          var10000 = this.stats;
-         var10000.stress += var3.getStressChange() * var2;
+         var10000.stress += var4.getStressChange() * var2;
          var10000 = this.stats;
-         var10000.fatigue += var3.getFatigueChange() * var2;
-         IsoPlayer var13 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
-         if (var13 != null) {
-            Nutrition var15 = var13.getNutrition();
-            var15.setCalories(var15.getCalories() + var3.getCalories() * var2);
-            var15.setCarbohydrates(var15.getCarbohydrates() + var3.getCarbohydrates() * var2);
-            var15.setProteins(var15.getProteins() + var3.getProteins() * var2);
-            var15.setLipids(var15.getLipids() + var3.getLipids() * var2);
+         var10000.fatigue += var4.getFatigueChange() * var2;
+         IsoPlayer var12 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+         Nutrition var13;
+         if (var12 != null && !var4.isBurnt()) {
+            var13 = var12.getNutrition();
+            var13.setCalories(var13.getCalories() + var4.getCalories() * var2);
+            var13.setCarbohydrates(var13.getCarbohydrates() + var4.getCarbohydrates() * var2);
+            var13.setProteins(var13.getProteins() + var4.getProteins() * var2);
+            var13.setLipids(var13.getLipids() + var4.getLipids() * var2);
+         } else if (var12 != null && var4.isBurnt()) {
+            var13 = var12.getNutrition();
+            var13.setCalories(var13.getCalories() + var4.getCalories() * var2 / 5.0F);
+            var13.setCarbohydrates(var13.getCarbohydrates() + var4.getCarbohydrates() * var2 / 5.0F);
+            var13.setProteins(var13.getProteins() + var4.getProteins() * var2 / 5.0F);
+            var13.setLipids(var13.getLipids() + var4.getLipids() * var2 / 5.0F);
          }
 
-         this.BodyDamage.setPainReduction(this.BodyDamage.getPainReduction() + var3.getPainReduction() * var2);
-         this.BodyDamage.setColdReduction(this.BodyDamage.getColdReduction() + (float)var3.getFluReduction() * var2);
-         float var7;
-         if (this.BodyDamage.getFoodSicknessLevel() > 0.0F && (float)var3.getReduceFoodSickness() > 0.0F && this.effectiveEdibleBuffTimer <= 0.0F) {
-            var14 = this.BodyDamage.getFoodSicknessLevel();
-            this.BodyDamage.setFoodSicknessLevel(this.BodyDamage.getFoodSicknessLevel() - (float)var3.getReduceFoodSickness() * var2);
-            if (this.BodyDamage.getFoodSicknessLevel() < 0.0F) {
-               this.BodyDamage.setFoodSicknessLevel(0.0F);
+         this.getBodyDamage().setPainReduction(this.getBodyDamage().getPainReduction() + var4.getPainReduction() * var2);
+         this.getBodyDamage().setColdReduction(this.getBodyDamage().getColdReduction() + (float)var4.getFluReduction() * var2);
+         float var8;
+         if (this.getBodyDamage().getFoodSicknessLevel() > 0.0F && (float)var4.getReduceFoodSickness() > 0.0F && this.effectiveEdibleBuffTimer <= 0.0F) {
+            var7 = this.getBodyDamage().getFoodSicknessLevel();
+            this.getBodyDamage().setFoodSicknessLevel(this.getBodyDamage().getFoodSicknessLevel() - (float)var4.getReduceFoodSickness() * var2);
+            if (this.getBodyDamage().getFoodSicknessLevel() < 0.0F) {
+               this.getBodyDamage().setFoodSicknessLevel(0.0F);
             }
 
-            var7 = this.BodyDamage.getPoisonLevel();
-            this.BodyDamage.setPoisonLevel(this.BodyDamage.getPoisonLevel() - (float)var3.getReduceFoodSickness() * var2);
-            if (this.BodyDamage.getPoisonLevel() < 0.0F) {
-               this.BodyDamage.setPoisonLevel(0.0F);
+            var8 = this.getBodyDamage().getPoisonLevel();
+            this.getBodyDamage().setPoisonLevel(this.getBodyDamage().getPoisonLevel() - (float)var4.getReduceFoodSickness() * var2);
+            if (this.getBodyDamage().getPoisonLevel() < 0.0F) {
+               this.getBodyDamage().setPoisonLevel(0.0F);
             }
 
             if (this.Traits.IronGut.isSet()) {
                this.effectiveEdibleBuffTimer = Rand.Next(80.0F, 150.0F);
             } else if (this.Traits.WeakStomach.isSet()) {
-               this.effectiveEdibleBuffTimer = Rand.Next(120.0F, 230.0F);
-            } else {
                this.effectiveEdibleBuffTimer = Rand.Next(200.0F, 280.0F);
+            } else {
+               this.effectiveEdibleBuffTimer = Rand.Next(120.0F, 230.0F);
             }
          }
 
-         this.BodyDamage.JustAteFood(var3, var2);
-         if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-            GameClient.instance.eatFood((IsoPlayer)this, var3, var2);
+         this.getBodyDamage().JustAteFood(var4, var2, var3);
+         if (GameServer.bServer && this instanceof IsoPlayer) {
+            INetworkPacket.send((IsoPlayer)this, PacketTypes.PacketType.SyncPlayerStats, this, 20566);
+            GameServer.sendSyncPlayerFields((IsoPlayer)this, (byte)8);
+            INetworkPacket.send((IsoPlayer)this, PacketTypes.PacketType.EatFood, this, var4, var2);
          }
 
-         if (var3.getOnEat() != null) {
-            Object var16 = LuaManager.getFunctionObject(var3.getOnEat());
-            if (var16 != null) {
-               LuaManager.caller.pcallvoid(LuaManager.thread, var16, var1, this, BoxedStaticValues.toDouble((double)var2));
+         if (var4.getOnEat() != null) {
+            Object var14 = LuaManager.getFunctionObject(var4.getOnEat());
+            if (var14 != null) {
+               LuaManager.caller.pcallvoid(LuaManager.thread, var14, var1, this, BoxedStaticValues.toDouble((double)var2));
             }
          }
 
          if (var2 == 1.0F) {
-            var3.setHungChange(0.0F);
-            var3.UseItem();
+            var4.setHungChange(0.0F);
+            var4.UseAndSync();
          } else {
-            var14 = var3.getHungChange();
-            var7 = var3.getThirstChange();
-            var3.multiplyFoodValues(1.0F - var2);
-            if (var14 < 0.0F && (double)var3.getHungerChange() > -0.00999) {
-            }
-
-            if (var14 == 0.0F && var7 < 0.0F && var3.getThirstChange() > -0.01F) {
-               var3.setHungChange(0.0F);
-               var3.UseItem();
+            var7 = var4.getHungChange();
+            var8 = var4.getThirstChange();
+            var4.multiplyFoodValues(1.0F - var2);
+            if (var7 == 0.0F && var8 < 0.0F && var4.getThirstChange() > -0.01F) {
+               var4.setHungChange(0.0F);
+               var4.UseAndSync();
                return true;
             }
 
-            float var8 = 0.0F;
-            if (var3.isCustomWeight()) {
-               String var9 = var3.getReplaceOnUseFullType();
-               Item var10 = var9 == null ? null : ScriptManager.instance.getItem(var9);
-               if (var10 != null) {
-                  var8 = var10.getActualWeight();
+            float var9 = 0.0F;
+            if (var4.isCustomWeight()) {
+               String var10 = var4.getReplaceOnUseFullType();
+               Item var11 = var10 == null ? null : ScriptManager.instance.getItem(var10);
+               if (var11 != null) {
+                  var9 = var11.getActualWeight();
                }
 
-               var3.setWeight(var3.getWeight() - var8 - var11 * (var3.getWeight() - var8) + var8);
+               var4.setWeight(var4.getWeight() - var9 - var5 * (var4.getWeight() - var9) + var9);
+               var4.syncItemFields();
             }
          }
 
@@ -4214,6 +4948,75 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.Eat(var1, 1.0F);
    }
 
+   public boolean DrinkFluid(InventoryItem var1, float var2) {
+      return this.DrinkFluid(var1, var2, false);
+   }
+
+   public boolean DrinkFluid(InventoryItem var1, float var2, boolean var3) {
+      if (!var1.hasComponent(ComponentType.FluidContainer)) {
+         return false;
+      } else {
+         FluidContainer var4 = var1.getFluidContainer();
+         FluidConsume var5 = var4.removeFluid(var4.getAmount() * var2, true);
+         Stats var10000 = this.stats;
+         var10000.thirst += var5.getThirstChange();
+         var10000 = this.stats;
+         var10000.hunger += var5.getHungerChange();
+         var10000 = this.stats;
+         var10000.endurance += var5.getEnduranceChange();
+         var10000 = this.stats;
+         var10000.stress += var5.getStressChange();
+         var10000 = this.stats;
+         var10000.fatigue += var5.getFatigueChange();
+         var10000 = this.stats;
+         var10000.Boredom += var5.getUnhappyChange();
+         IsoPlayer var6 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+         if (var6 != null) {
+            Nutrition var7 = var6.getNutrition();
+            var7.setCalories(var7.getCalories() + var4.getProperties().getCalories() * var2);
+            var7.setCarbohydrates(var7.getCarbohydrates() + var4.getProperties().getCarbohydrates() * var2);
+            var7.setProteins(var7.getProteins() + var4.getProperties().getProteins() * var2);
+            var7.setLipids(var7.getLipids() + var4.getProperties().getLipids() * var2);
+         }
+
+         this.getBodyDamage().JustDrankBoozeFluid(var5.getAlcohol());
+         this.getBodyDamage().setPainReduction(this.getBodyDamage().getPainReduction() + var5.getPainReduction());
+         this.getBodyDamage().setColdReduction(this.getBodyDamage().getColdReduction() + var5.getFluReduction());
+         this.getBodyDamage().setPoisonLevel(this.getBodyDamage().getPoisonLevel() + (float)var5.getPoisonEffect().getPlayerEffect());
+         if (this.getBodyDamage().getFoodSicknessLevel() > 0.0F && var5.getFoodSicknessReduction() > 0.0F && this.effectiveEdibleBuffTimer <= 0.0F) {
+            float var9 = this.getBodyDamage().getFoodSicknessLevel();
+            this.getBodyDamage().setFoodSicknessLevel(this.getBodyDamage().getFoodSicknessLevel() - var5.getFoodSicknessReduction());
+            if (this.getBodyDamage().getFoodSicknessLevel() < 0.0F) {
+               this.getBodyDamage().setFoodSicknessLevel(0.0F);
+            }
+
+            float var8 = this.getBodyDamage().getPoisonLevel();
+            this.getBodyDamage().setPoisonLevel(this.getBodyDamage().getPoisonLevel() - var5.getFoodSicknessReduction());
+            if (this.getBodyDamage().getPoisonLevel() < 0.0F) {
+               this.getBodyDamage().setPoisonLevel(0.0F);
+            }
+
+            if (this.Traits.IronGut.isSet()) {
+               this.effectiveEdibleBuffTimer = Rand.Next(80.0F, 150.0F);
+            } else if (this.Traits.WeakStomach.isSet()) {
+               this.effectiveEdibleBuffTimer = Rand.Next(200.0F, 280.0F);
+            } else {
+               this.effectiveEdibleBuffTimer = Rand.Next(120.0F, 230.0F);
+            }
+         }
+
+         if (GameServer.bServer && this instanceof IsoPlayer) {
+            INetworkPacket.send((IsoPlayer)this, PacketTypes.PacketType.SyncPlayerStats, this, 26710);
+         }
+
+         return true;
+      }
+   }
+
+   public boolean DrinkFluid(InventoryItem var1) {
+      return this.DrinkFluid(var1, 1.0F);
+   }
+
    public void FireCheck() {
       if (!this.OnFire) {
          if (!GameServer.bServer || !(this instanceof IsoPlayer)) {
@@ -4222,15 +5025,17 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   DebugLog.log(DebugType.Zombie, "FireCheck running on REUSABLE ZOMBIE - IGNORED " + this);
                } else if (this.getVehicle() == null) {
                   if (this.square != null && !GameServer.bServer && (!GameClient.bClient || this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer() || this instanceof IsoZombie && !((IsoZombie)this).isRemoteZombie()) && this.square.getProperties().Is(IsoFlagType.burning)) {
-                     if ((!(this instanceof IsoPlayer) || Rand.Next(Rand.AdjustForFramerate(70)) != 0) && !this.isZombie()) {
+                     if ((!(this instanceof IsoPlayer) || Rand.Next(Rand.AdjustForFramerate(70)) != 0) && !this.isZombie() && !(this instanceof IsoAnimal)) {
+                        float var1;
                         if (!(this instanceof IsoPlayer)) {
-                           this.Health -= this.FireKillRate * GameTime.instance.getMultiplier() / 2.0F;
+                           var1 = this.FireKillRate * GameTime.instance.getMultiplier() / 2.0F;
+                           CombatManager.getInstance().applyDamage(this, var1);
                            this.setAttackedBy((IsoGameCharacter)null);
                         } else {
-                           float var1 = this.FireKillRate * GameTime.instance.getMultiplier() * GameTime.instance.getMinutesPerDay() / 1.6F / 2.0F;
-                           this.BodyDamage.ReduceGeneralHealth(var1);
+                           var1 = this.FireKillRate * GameTime.instance.getThirtyFPSMultiplier() * 60.0F / 2.0F;
+                           this.getBodyDamage().ReduceGeneralHealth(var1);
                            LuaEventManager.triggerEvent("OnPlayerGetDamage", this, "FIRE", var1);
-                           this.BodyDamage.OnFire(true);
+                           this.getBodyDamage().OnFire(true);
                            this.forceAwake();
                         }
 
@@ -4262,9 +5067,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.getCurrentState() != ClimbOverFenceState.instance() && this.getCurrentState() != ClimbThroughWindowState.instance() && this.getCurrentState() != ClimbOverWallState.instance() ? super.getGlobalMovementMod(var1) : 1.0F;
    }
 
-   public float getMoveSpeed() {
-      tempo2.x = this.getX() - this.getLx();
-      tempo2.y = this.getY() - this.getLy();
+   public float getMovementSpeed() {
+      tempo2.x = this.getX() - this.getLastX();
+      tempo2.y = this.getY() - this.getLastY();
       return tempo2.getLength();
    }
 
@@ -4320,7 +5125,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
          }
 
-         if (var2 instanceof IsoPlayer && ((IsoPlayer)var2).bDoShove && !((IsoPlayer)var2).isAimAtFloor()) {
+         if (var2 instanceof IsoPlayer && ((IsoPlayer)var2).isDoShove() && !((IsoPlayer)var2).isAimAtFloor()) {
             var4 = true;
             var5 *= 1.5F;
          }
@@ -4342,8 +5147,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                this.EnemyList.add(var2);
             }
 
-            this.staggerTimeMod = var1.getPushBackMod() * var1.getKnockbackMod(var2) * var2.getShovingMod();
-            if (this.isZombie() && Rand.Next(3) == 0 && GameServer.bServer) {
+            if (this.isZombie() && var1.getCategories().contains("SmallBlade")) {
+               this.staggerTimeMod = 0.0F;
+            } else {
+               this.staggerTimeMod = var1.getPushBackMod() * var1.getKnockbackMod(var2) * var2.getShovingMod();
             }
 
             var2.addWorldSoundUnlessInvisible(5, 1, false);
@@ -4371,7 +5178,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
 
             float var9 = (var1.getWeight() * 0.28F * var1.getFatigueMod(var2) * this.getFatigueMod() * var1.getEnduranceMod() * 0.3F + var8) * 0.04F;
-            if (var2 instanceof IsoPlayer && var2.isAimAtFloor() && ((IsoPlayer)var2).bDoShove) {
+            if (var2 instanceof IsoPlayer && var2.isAimAtFloor() && ((IsoPlayer)var2).isDoShove()) {
                var9 *= 2.0F;
             }
 
@@ -4464,7 +5271,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.setHitForce(this.getHitForce() * 2.0F);
       }
 
-      if (var2 instanceof IsoPlayer && !((IsoPlayer)var2).bDoShove) {
+      if (var2 instanceof IsoPlayer && !((IsoPlayer)var2).isDoShove()) {
          Vector2 var11 = tempVector2_1.set(this.getX(), this.getY());
          Vector2 var12 = tempVector2_2.set(var2.getX(), var2.getY());
          var11.x -= var12.x;
@@ -4522,7 +5329,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             var6 *= 1.3F;
       }
 
-      if (var2 instanceof IsoPlayer && var2.isAimAtFloor() && !var4 && !((IsoPlayer)var2).bDoShove) {
+      if (var2 instanceof IsoPlayer && var2.isAimAtFloor() && !var4 && !((IsoPlayer)var2).isDoShove()) {
          var6 *= Math.max(5.0F, var1.getCritDmgMultiplier());
       }
 
@@ -4540,10 +5347,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    public void hitConsequences(HandWeapon var1, IsoGameCharacter var2, boolean var3, float var4, boolean var5) {
       if (!var3) {
          if (var1.isAimedFirearm()) {
-            this.Health -= var4 * 0.7F;
+            var4 *= 0.7F;
          } else {
-            this.Health -= var4 * 0.15F;
+            var4 *= 0.15F;
          }
+
+         CombatManager.getInstance().applyDamage(this, var4);
       }
 
       if (this.isDead()) {
@@ -4560,8 +5369,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             this.splatBlood(2, 0.2F);
          }
 
-         if (var1.isKnockBackOnNoDeath() && var2.xp != null) {
-            var2.xp.AddXP(PerkFactory.Perks.Strength, 2.0F);
+         if (var1.isKnockBackOnNoDeath()) {
+            if (GameServer.bServer) {
+               if (var2.xp != null) {
+                  GameServer.addXp((IsoPlayer)var2, PerkFactory.Perks.Strength, 2.0F);
+               }
+            } else if (!GameClient.bClient && var2.xp != null) {
+               var2.xp.AddXP(PerkFactory.Perks.Strength, 2.0F);
+            }
          }
 
       }
@@ -4599,7 +5414,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          } else {
             float var6 = var1.getMaxRange(this);
             var6 *= var1.getRangeMod(this);
-            float var7 = IsoUtils.DistanceToSquared(this.x, this.y, var3.x, var3.y);
+            float var7 = IsoUtils.DistanceToSquared(this.getX(), this.getY(), var3.x, var3.y);
             if (var4) {
                IsoZombie var8 = (IsoZombie)Type.tryCastTo(var2, IsoZombie.class);
                if (var8 != null && var7 < 4.0F && var8.target == this && (var8.isCurrentState(LungeState.instance()) || var8.isCurrentState(LungeNetworkState.instance()))) {
@@ -4616,36 +5431,44 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.chatElement.IsSpeaking();
    }
 
+   public boolean IsSpeakingNPC() {
+      return this.chatElement.IsSpeakingNPC();
+   }
+
    public void MoveForward(float var1, float var2, float var3, float var4) {
       if (!this.isCurrentState(SwipeStatePlayer.instance())) {
+         this.reqMovement.x = var2;
+         this.reqMovement.y = var3;
+         this.reqMovement.normalize();
          float var5 = GameTime.instance.getMultiplier();
-         this.setNx(this.getNx() + var2 * var1 * var5);
-         this.setNy(this.getNy() + var3 * var1 * var5);
+         this.setNextX(this.getNextX() + var2 * var1 * var5);
+         this.setNextY(this.getNextY() + var3 * var1 * var5);
          this.DoFootstepSound(var1);
-         if (!this.isZombie()) {
-         }
-
       }
    }
 
-   private void pathToAux(float var1, float var2, float var3) {
+   protected void pathToAux(float var1, float var2, float var3) {
       boolean var4 = true;
-      if ((int)var3 == (int)this.getZ() && IsoUtils.DistanceManhatten(var1, var2, this.x, this.y) <= 30.0F) {
-         int var5 = (int)var1 / 10;
-         int var6 = (int)var2 / 10;
-         IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var5, var6) : IsoWorld.instance.CurrentCell.getChunkForGridSquare((int)var1, (int)var2, (int)var3);
+      if (PZMath.fastfloor(var3) == PZMath.fastfloor(this.getZ()) && IsoUtils.DistanceManhatten(var1, var2, this.getX(), this.getY()) <= 30.0F) {
+         int var5 = PZMath.fastfloor(var1) / 8;
+         int var6 = PZMath.fastfloor(var2) / 8;
+         IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var5, var6) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3));
          if (var7 != null) {
             int var8 = 1;
+            if (this instanceof IsoAnimal) {
+               var8 &= -2;
+            }
+
             var8 |= 2;
             if (!this.isZombie()) {
                var8 |= 4;
             }
 
-            var4 = !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1, var2, (int)var3, this.getPathFindBehavior2().getTargetChar(), var8);
+            var4 = !PolygonalMap2.instance.lineClearCollide(this.getX(), this.getY(), var1, var2, PZMath.fastfloor(var3), this.getPathFindBehavior2().getTargetChar(), var8);
          }
       }
 
-      if (var4 && this.current != null && this.current.HasStairs() && !this.current.isSameStaircase((int)var1, (int)var2, (int)var3)) {
+      if (var4 && this.current != null && this.current.HasStairs() && !this.current.isSameStaircase(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3))) {
          var4 = false;
       }
 
@@ -4680,7 +5503,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean CanAttack() {
-      if (!this.isAttackAnim() && !this.getVariableBoolean("IsRacking") && !this.getVariableBoolean("IsUnloading") && StringUtils.isNullOrEmpty(this.getVariableString("RackWeapon"))) {
+      if (!this.isPerformingAttackAnimation() && !this.getVariableBoolean("IsRacking") && !this.getVariableBoolean("IsUnloading") && StringUtils.isNullOrEmpty(this.getVariableString("RackWeapon"))) {
          if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer() && (this.isCurrentState(PlayerHitReactionState.instance()) || this.isCurrentState(PlayerHitReactionPVPState.instance()))) {
             return false;
          } else if (this.isSitOnGround()) {
@@ -4688,13 +5511,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          } else {
             InventoryItem var1 = this.leftHandItem;
             if (var1 instanceof HandWeapon && var1.getSwingAnim() != null) {
-               this.useHandWeapon = (HandWeapon)var1;
+               this.setUseHandWeapon((HandWeapon)var1);
             }
 
             if (this.useHandWeapon == null) {
                return true;
             } else if (this.useHandWeapon.getCondition() <= 0) {
-               this.useHandWeapon = null;
+               this.setUseHandWeapon((HandWeapon)null);
                if (this.rightHandItem == this.leftHandItem) {
                   this.setSecondaryHandItem((InventoryItem)null);
                }
@@ -4723,18 +5546,23 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          } else if (!GameClient.bClient || !this.isZombie() || !(this instanceof IsoZombie) || !((IsoZombie)this).isRemoteZombie()) {
             if (!GameClient.bClient || !(this instanceof IsoPlayer) || !((IsoPlayer)this).bRemote) {
                if (this.isAlive()) {
-                  if (!(this instanceof IsoPlayer)) {
-                     if (this.isZombie()) {
-                        this.Health -= this.FireKillRate / 20.0F * GameTime.instance.getMultiplier();
-                        this.setAttackedBy((IsoGameCharacter)null);
-                     } else {
-                        this.Health -= this.FireKillRate * GameTime.instance.getMultiplier();
-                     }
-                  } else {
-                     float var1 = this.FireKillRate * GameTime.instance.getMultiplier() * GameTime.instance.getMinutesPerDay() / 1.6F;
-                     this.BodyDamage.ReduceGeneralHealth(var1);
+                  float var1;
+                  if (this instanceof IsoPlayer && !(this instanceof IsoAnimal)) {
+                     var1 = this.FireKillRate * GameTime.instance.getThirtyFPSMultiplier() * 60.0F;
+                     this.getBodyDamage().ReduceGeneralHealth(var1);
                      LuaEventManager.triggerEvent("OnPlayerGetDamage", this, "FIRE", var1);
-                     this.BodyDamage.OnFire(true);
+                     this.getBodyDamage().OnFire(true);
+                  } else if (this.isZombie()) {
+                     var1 = this.FireKillRate / 20.0F * GameTime.instance.getMultiplier();
+                     CombatManager.getInstance().applyDamage(this, var1);
+                     this.setAttackedBy((IsoGameCharacter)null);
+                  } else {
+                     var1 = this.FireKillRate * GameTime.instance.getMultiplier();
+                     if (this instanceof IsoAnimal) {
+                        var1 -= this.FireKillRate / 10.0F * GameTime.instance.getMultiplier();
+                     }
+
+                     CombatManager.getInstance().applyDamage(this, var1);
                   }
 
                   if (this.isDead()) {
@@ -4748,7 +5576,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   }
                }
 
-               if (this instanceof IsoPlayer && Rand.Next(Rand.AdjustForFramerate(((IsoPlayer)this).IsRunning() ? 150 : 400)) == 0) {
+               if (this instanceof IsoPlayer && !(this instanceof IsoAnimal) && Rand.Next(Rand.AdjustForFramerate(((IsoPlayer)this).IsRunning() ? 150 : 400)) == 0) {
                   this.StopBurning();
                }
 
@@ -4757,34 +5585,46 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
+   /** @deprecated */
+   @Deprecated
    public void DrawSneezeText() {
-      if (this.BodyDamage.IsSneezingCoughing() > 0) {
-         String var1 = null;
-         if (this.BodyDamage.IsSneezingCoughing() == 1) {
-            var1 = Translator.getText("IGUI_PlayerText_Sneeze");
+      if (this.getBodyDamage().IsSneezingCoughing() > 0) {
+         IsoPlayer var1 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+         String var2 = null;
+         if (this.getBodyDamage().IsSneezingCoughing() == 1) {
+            var2 = Translator.getText("IGUI_PlayerText_Sneeze");
+            if (var1 != null) {
+               var1.playerVoiceSound("SneezeHeavy");
+            }
          }
 
-         if (this.BodyDamage.IsSneezingCoughing() == 2) {
-            var1 = Translator.getText("IGUI_PlayerText_Cough");
+         if (this.getBodyDamage().IsSneezingCoughing() == 2) {
+            var2 = Translator.getText("IGUI_PlayerText_Cough");
+            if (var1 != null) {
+               var1.playerVoiceSound("Cough");
+            }
          }
 
-         if (this.BodyDamage.IsSneezingCoughing() == 3) {
-            var1 = Translator.getText("IGUI_PlayerText_SneezeMuffled");
+         if (this.getBodyDamage().IsSneezingCoughing() == 3) {
+            var2 = Translator.getText("IGUI_PlayerText_SneezeMuffled");
+            if (var1 != null) {
+               var1.playerVoiceSound("SneezeLight");
+            }
          }
 
-         if (this.BodyDamage.IsSneezingCoughing() == 4) {
-            var1 = Translator.getText("IGUI_PlayerText_CoughMuffled");
+         if (this.getBodyDamage().IsSneezingCoughing() == 4) {
+            var2 = Translator.getText("IGUI_PlayerText_CoughMuffled");
          }
 
-         float var2 = this.sx;
-         float var3 = this.sy;
-         var2 = (float)((int)var2);
+         float var3 = this.sx;
+         float var4 = this.sy;
          var3 = (float)((int)var3);
-         var2 -= (float)((int)IsoCamera.getOffX());
-         var3 -= (float)((int)IsoCamera.getOffY());
-         var3 -= 48.0F;
-         if (var1 != null) {
-            TextManager.instance.DrawStringCentre(UIFont.Dialogue, (double)((int)var2), (double)((int)var3), var1, (double)this.SpeakColour.r, (double)this.SpeakColour.g, (double)this.SpeakColour.b, (double)this.SpeakColour.a);
+         var4 = (float)((int)var4);
+         var3 -= (float)((int)IsoCamera.getOffX());
+         var4 -= (float)((int)IsoCamera.getOffY());
+         var4 -= 48.0F;
+         if (var2 != null) {
+            TextManager.instance.DrawStringCentre(UIFont.Dialogue, (double)((int)var3), (double)((int)var4), var2, (double)this.SpeakColour.r, (double)this.SpeakColour.g, (double)this.SpeakColour.b, (double)this.SpeakColour.a);
          }
       }
 
@@ -4799,95 +5639,105 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
-      if (!this.isAlphaAndTargetZero()) {
-         if (!this.isSeatedInVehicle() || this.getVehicle().showPassenger(this)) {
-            if (!this.isSpriteInvisible()) {
-               if (!this.isAlphaZero()) {
-                  if (!this.bUseParts && this.def == null) {
-                     this.def = new IsoSpriteInstance(this.sprite);
-                  }
-
-                  SpriteRenderer.instance.glDepthMask(true);
-                  IsoGridSquare var8;
-                  if (this.bDoDefer && var3 - (float)((int)var3) > 0.2F) {
-                     var8 = this.getCell().getGridSquare((int)var1, (int)var2, (int)var3 + 1);
-                     if (var8 != null) {
-                        var8.addDeferredCharacter(this);
+      if (this.doRender) {
+         if (!this.isAlphaAndTargetZero()) {
+            if (!this.isSeatedInVehicle() || this.getVehicle().showPassenger(this)) {
+               if (!this.isSpriteInvisible()) {
+                  if (!this.isAlphaZero()) {
+                     if (!this.bUseParts && this.def == null) {
+                        this.def = new IsoSpriteInstance(this.sprite);
                      }
-                  }
 
-                  var8 = this.getCurrentSquare();
-                  if (PerformanceSettings.LightingFrameSkip < 3 && var8 != null) {
-                     var8.interpolateLight(inf, var1 - (float)var8.getX(), var2 - (float)var8.getY());
-                  } else {
-                     inf.r = var4.r;
-                     inf.g = var4.g;
-                     inf.b = var4.b;
-                     inf.a = var4.a;
-                  }
+                     IndieGL.glDepthMask(true);
+                     IsoGridSquare var8;
+                     if (!PerformanceSettings.FBORenderChunk && this.bDoDefer && var3 - (float)PZMath.fastfloor(var3) > 0.2F) {
+                        var8 = this.getCell().getGridSquare(PZMath.fastfloor(var1), PZMath.fastfloor(var2), PZMath.fastfloor(var3) + 1);
+                        if (var8 != null) {
+                           var8.addDeferredCharacter(this);
+                        }
+                     }
 
-                  if (Core.bDebug && DebugOptions.instance.PathfindRenderWaiting.getValue() && this.hasActiveModel()) {
-                     if (this.getCurrentState() == PathFindState.instance() && this.finder.progress == AStarPathFinder.PathFindProgress.notyetfound) {
-                        this.legsSprite.modelSlot.model.tintR = 1.0F;
-                        this.legsSprite.modelSlot.model.tintG = 0.0F;
-                        this.legsSprite.modelSlot.model.tintB = 0.0F;
+                     var8 = this.getCurrentSquare();
+                     if (PerformanceSettings.LightingFrameSkip < 3 && var8 != null) {
+                        var8.interpolateLight(inf, var1 - (float)var8.getX(), var2 - (float)var8.getY());
                      } else {
-                        this.legsSprite.modelSlot.model.tintR = 1.0F;
-                        this.legsSprite.modelSlot.model.tintG = 1.0F;
-                        this.legsSprite.modelSlot.model.tintB = 1.0F;
+                        inf.r = var4.r;
+                        inf.g = var4.g;
+                        inf.b = var4.b;
+                        inf.a = var4.a;
                      }
-                  }
 
-                  if (this.dir == IsoDirections.Max) {
-                     this.dir = IsoDirections.N;
-                  }
-
-                  if (this.sprite != null && !this.legsSprite.hasActiveModel()) {
-                     this.checkDrawWeaponPre(var1, var2, var3, var4);
-                  }
-
-                  lastRenderedRendered = lastRendered;
-                  lastRendered = this;
-                  this.checkUpdateModelTextures();
-                  float var9 = (float)Core.TileScale;
-                  float var10 = this.offsetX + 1.0F * var9;
-                  float var11 = this.offsetY + -89.0F * var9;
-                  if (this.sprite != null) {
-                     this.def.setScale(var9, var9);
-                     if (!this.bUseParts) {
-                        this.sprite.render(this.def, this, var1, var2, var3, this.dir, var10, var11, inf, true);
-                     } else if (this.legsSprite.hasActiveModel()) {
-                        this.legsSprite.renderActiveModel();
-                     } else if (!this.renderTextureInsteadOfModel(var1, var2)) {
-                        this.def.Flip = false;
-                        inf.r = 1.0F;
-                        inf.g = 1.0F;
-                        inf.b = 1.0F;
-                        inf.a = this.def.alpha * 0.4F;
-                        this.legsSprite.renderCurrentAnim(this.def, this, var1, var2, var3, this.dir, var10, var11, inf, false, (Consumer)null);
+                     if (Core.bDebug && DebugOptions.instance.PathfindRenderWaiting.getValue() && this.hasActiveModel()) {
+                        if (this.getCurrentState() == PathFindState.instance() && this.finder.progress == AStarPathFinder.PathFindProgress.notyetfound) {
+                           this.legsSprite.modelSlot.model.tintR = 1.0F;
+                           this.legsSprite.modelSlot.model.tintG = 0.0F;
+                           this.legsSprite.modelSlot.model.tintB = 0.0F;
+                        } else {
+                           this.legsSprite.modelSlot.model.tintR = 1.0F;
+                           this.legsSprite.modelSlot.model.tintG = 1.0F;
+                           this.legsSprite.modelSlot.model.tintB = 1.0F;
+                        }
                      }
-                  }
 
-                  int var12;
-                  if (this.AttachedAnimSprite != null) {
-                     for(var12 = 0; var12 < this.AttachedAnimSprite.size(); ++var12) {
-                        IsoSpriteInstance var13 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var12);
-                        var13.update();
-                        float var14 = inf.a;
-                        inf.a = var13.alpha;
-                        var13.SetTargetAlpha(this.getTargetAlpha());
-                        var13.render(this, var1, var2, var3, this.dir, var10, var11, inf);
-                        inf.a = var14;
+                     if (this.dir == IsoDirections.Max) {
+                        this.dir = IsoDirections.N;
                      }
-                  }
 
-                  for(var12 = 0; var12 < this.inventory.Items.size(); ++var12) {
-                     InventoryItem var15 = (InventoryItem)this.inventory.Items.get(var12);
-                     if (var15 instanceof IUpdater) {
-                        ((IUpdater)var15).render();
+                     lastRenderedRendered = lastRendered;
+                     lastRendered = this;
+                     this.checkUpdateModelTextures();
+                     float var9 = (float)Core.TileScale;
+                     float var10 = this.offsetX + 1.0F * var9;
+                     float var11 = this.offsetY + -89.0F * var9;
+                     if (this.sprite != null) {
+                        this.def.setScale(var9, var9);
+                        if (!this.bUseParts) {
+                           this.sprite.render(this.def, this, var1, var2, var3, this.dir, var10, var11, inf, true);
+                        } else if (this.legsSprite.hasActiveModel()) {
+                           this.legsSprite.renderActiveModel();
+                        } else if (!this.renderTextureInsteadOfModel(var1, var2)) {
+                           this.def.Flip = false;
+                           inf.r = 1.0F;
+                           inf.g = 1.0F;
+                           inf.b = 1.0F;
+                           inf.a = this.def.alpha * 0.4F;
+                           this.legsSprite.renderCurrentAnim(this.def, this, var1, var2, var3, this.dir, var10, var11, inf, false, (Consumer)null);
+                        }
                      }
-                  }
 
+                     int var12;
+                     if (this.AttachedAnimSprite != null) {
+                        for(var12 = 0; var12 < this.AttachedAnimSprite.size(); ++var12) {
+                           IsoSpriteInstance var13 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var12);
+                           var13.update();
+                           float var14 = inf.a;
+                           inf.a = var13.alpha;
+                           var13.SetTargetAlpha(this.getTargetAlpha());
+                           var13.render(this, var1, var2, var3, this.dir, var10, var11, inf);
+                           inf.a = var14;
+                        }
+                     }
+
+                     for(var12 = 0; var12 < this.inventory.Items.size(); ++var12) {
+                        InventoryItem var15 = (InventoryItem)this.inventory.Items.get(var12);
+                        if (var15 instanceof IUpdater) {
+                           ((IUpdater)var15).render();
+                        }
+                     }
+
+                     if (this.useRagdoll() && this.getRagdollController() != null) {
+                        this.getRagdollController().debugRender();
+                     }
+
+                     if (this.ballisticsController != null) {
+                        this.ballisticsController.debugRender();
+                     }
+
+                     if (this.ballisticsTarget != null) {
+                        this.ballisticsTarget.debugRender();
+                     }
+
+                  }
                }
             }
          }
@@ -4915,17 +5765,17 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          inf.b = 1.0F;
          inf.a = this.def.alpha * 0.4F;
          if (!this.isbUseParts()) {
-            this.sprite.render(this.def, this, this.x, this.y, this.z, this.dir, var2, var3, inf, true);
+            this.sprite.render(this.def, this, this.getX(), this.getY(), this.getZ(), this.dir, var2, var3, inf, true);
          } else {
             this.def.Flip = false;
-            this.legsSprite.render(this.def, this, this.x, this.y, this.z, this.dir, var2, var3, inf, true);
+            this.legsSprite.render(this.def, this, this.getX(), this.getY(), this.getZ(), this.dir, var2, var3, inf, true);
          }
       }
 
       if (Core.bDebug && this.hasActiveModel()) {
          if (this instanceof IsoZombie) {
-            int var4 = (int)IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-            int var5 = (int)IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
+            int var4 = (int)IsoUtils.XToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+            int var5 = (int)IsoUtils.YToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
             TextManager.instance.DrawString((double)var4, (double)var5, "ID: " + this.getOnlineID());
             TextManager.instance.DrawString((double)var4, (double)(var5 + 10), "State: " + this.getCurrentStateName());
             TextManager.instance.DrawString((double)var4, (double)(var5 + 20), "Health: " + this.getHealth());
@@ -4940,11 +5790,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    protected float getAlphaUpdateRateMul() {
       float var1 = super.getAlphaUpdateRateMul();
-      if (IsoCamera.CamCharacter.Traits.ShortSighted.isSet()) {
+      IsoGameCharacter var2 = IsoCamera.getCameraCharacter();
+      if (var2.Traits.ShortSighted.isSet()) {
          var1 /= 2.0F;
       }
 
-      if (IsoCamera.CamCharacter.Traits.EagleEyed.isSet()) {
+      if (var2.Traits.EagleEyed.isSet()) {
          var1 *= 1.5F;
       }
 
@@ -4991,96 +5842,157 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return var12.set((float)var23, (float)var25);
    }
 
+   public ShadowParams calculateShadowParams(ShadowParams var1) {
+      if (!this.hasAnimationPlayer()) {
+         return var1.set(0.45F, 1.4F, 1.125F);
+      } else {
+         float var10000;
+         if (this instanceof IsoAnimal) {
+            IsoAnimal var3 = (IsoAnimal)this;
+            var10000 = var3.getAnimalSize();
+         } else {
+            var10000 = 1.0F;
+         }
+
+         float var2 = var10000;
+         return calculateShadowParams(this.getAnimationPlayer(), var2, false, var1);
+      }
+   }
+
+   public static ShadowParams calculateShadowParams(AnimationPlayer var0, float var1, boolean var2, ShadowParams var3) {
+      float var4 = 0.45F;
+      float var5 = 1.4F;
+      float var6 = 1.125F;
+      if (var0 != null && var0.isReady()) {
+         float var7 = 0.0F;
+         float var8 = 0.0F;
+         float var9 = 0.0F;
+         Vector3 var10 = IsoGameCharacter.L_renderShadow.vector3;
+         Model.BoneToWorldCoords(var0, var7, var8, var9, var1, var0.getSkinningBoneIndex("Bip01_Head", -1), var10);
+         float var11 = var10.x;
+         float var12 = var10.y;
+         Model.BoneToWorldCoords(var0, var7, var8, var9, var1, var0.getSkinningBoneIndex("Bip01_L_Foot", -1), var10);
+         float var13 = var10.x;
+         float var14 = var10.y;
+         Model.BoneToWorldCoords(var0, var7, var8, var9, var1, var0.getSkinningBoneIndex("Bip01_R_Foot", -1), var10);
+         float var15 = var10.x;
+         float var16 = var10.y;
+         if (var2) {
+            Model.BoneToWorldCoords(var0, var7, var8, var9, var1, var0.getSkinningBoneIndex("Bip01_Pelvis", -1), var10);
+            var11 -= var10.x;
+            var12 -= var10.y;
+            var13 -= var10.x;
+            var14 -= var10.y;
+            var15 -= var10.x;
+            var16 -= var10.y;
+         }
+
+         Vector3f var17 = IsoGameCharacter.L_renderShadow.vector3f;
+         float var18 = 0.0F;
+         float var19 = 0.0F;
+         Vector3f var20 = IsoGameCharacter.L_renderShadow.forward;
+         Vector2 var21 = IsoGameCharacter.L_renderShadow.vector2_1.setLengthAndDirection(var0.getAngle(), 1.0F);
+         var20.set(var21.x, var21.y, 0.0F);
+         Vector2 var22 = closestpointonline((double)var7, (double)var8, (double)(var7 + var20.x), (double)(var8 + var20.y), (double)var11, (double)var12, IsoGameCharacter.L_renderShadow.vector2_2);
+         float var23 = var22.x;
+         float var24 = var22.y;
+         float var25 = var22.set(var23 - var7, var24 - var8).getLength();
+         if (var25 > 0.001F) {
+            var17.set(var23 - var7, var24 - var8, 0.0F).normalize();
+            if (var20.dot(var17) > 0.0F) {
+               var18 = Math.max(var18, var25);
+            } else {
+               var19 = Math.max(var19, var25);
+            }
+         }
+
+         var22 = closestpointonline((double)var7, (double)var8, (double)(var7 + var20.x), (double)(var8 + var20.y), (double)var13, (double)var14, IsoGameCharacter.L_renderShadow.vector2_2);
+         var23 = var22.x;
+         var24 = var22.y;
+         var25 = var22.set(var23 - var7, var24 - var8).getLength();
+         if (var25 > 0.001F) {
+            var17.set(var23 - var7, var24 - var8, 0.0F).normalize();
+            if (var20.dot(var17) > 0.0F) {
+               var18 = Math.max(var18, var25);
+            } else {
+               var19 = Math.max(var19, var25);
+            }
+         }
+
+         var22 = closestpointonline((double)var7, (double)var8, (double)(var7 + var20.x), (double)(var8 + var20.y), (double)var15, (double)var16, IsoGameCharacter.L_renderShadow.vector2_2);
+         var23 = var22.x;
+         var24 = var22.y;
+         var25 = var22.set(var23 - var7, var24 - var8).getLength();
+         if (var25 > 0.001F) {
+            var17.set(var23 - var7, var24 - var8, 0.0F).normalize();
+            if (var20.dot(var17) > 0.0F) {
+               var18 = Math.max(var18, var25);
+            } else {
+               var19 = Math.max(var19, var25);
+            }
+         }
+
+         var5 = (var18 + 0.35F) * 1.35F;
+         var6 = (var19 + 0.35F) * 1.35F;
+      }
+
+      return var3.set(var4, var5, var6);
+   }
+
    public void renderShadow(float var1, float var2, float var3) {
-      if (this.doRenderShadow) {
+      if (Core.getInstance().displayPlayerModel || this.isAnimal() || this.isZombie()) {
          if (!this.isAlphaAndTargetZero()) {
             if (!this.isSeatedInVehicle()) {
                IsoGridSquare var4 = this.getCurrentSquare();
                if (var4 != null) {
-                  int var5 = IsoCamera.frameState.playerIndex;
-                  Vector3f var6 = IsoGameCharacter.L_renderShadow.forward;
-                  Vector2 var7 = this.getAnimVector(tempo2);
-                  var6.set(var7.x, var7.y, 0.0F);
-                  float var8 = 0.45F;
-                  float var9 = 1.4F;
-                  float var10 = 1.125F;
-                  float var11 = this.getAlpha(var5);
-                  if (this.hasActiveModel() && this.hasAnimationPlayer() && this.getAnimationPlayer().isReady()) {
-                     AnimationPlayer var12 = this.getAnimationPlayer();
-                     Vector3 var13 = IsoGameCharacter.L_renderShadow.v1;
-                     Model.BoneToWorldCoords(this, var12.getSkinningBoneIndex("Bip01_Head", -1), var13);
-                     float var14 = var13.x;
-                     float var15 = var13.y;
-                     Model.BoneToWorldCoords(this, var12.getSkinningBoneIndex("Bip01_L_Foot", -1), var13);
-                     float var16 = var13.x;
-                     float var17 = var13.y;
-                     Model.BoneToWorldCoords(this, var12.getSkinningBoneIndex("Bip01_R_Foot", -1), var13);
-                     float var18 = var13.x;
-                     float var19 = var13.y;
-                     Vector3f var20 = IsoGameCharacter.L_renderShadow.v3;
-                     float var21 = 0.0F;
-                     float var22 = 0.0F;
-                     Vector2 var23 = closestpointonline((double)var1, (double)var2, (double)(var1 + var6.x), (double)(var2 + var6.y), (double)var14, (double)var15, tempo);
-                     float var24 = var23.x;
-                     float var25 = var23.y;
-                     float var26 = var23.set(var24 - var1, var25 - var2).getLength();
-                     if (var26 > 0.001F) {
-                        var20.set(var24 - var1, var25 - var2, 0.0F).normalize();
-                        if (var6.dot(var20) > 0.0F) {
-                           var21 = Math.max(var21, var26);
-                        } else {
-                           var22 = Math.max(var22, var26);
+                  float var5 = this.getHeightAboveFloor();
+                  if (!(var5 > 0.5F)) {
+                     int var6 = IsoCamera.frameState.playerIndex;
+                     ShadowParams var7 = this.calculateShadowParams(IsoGameCharacter.L_renderShadow.shadowParams);
+                     float var8 = var7.w;
+                     float var9 = var7.fm;
+                     float var10 = var7.bm;
+                     float var11 = this.getAlpha(var6);
+                     if (var5 > 0.0F) {
+                        var11 *= 1.0F - var5 / 0.5F;
+                     }
+
+                     if (this.hasActiveModel() && this.hasAnimationPlayer() && this.getAnimationPlayer().isReady()) {
+                        float var12 = 0.1F * GameTime.getInstance().getThirtyFPSMultiplier();
+                        var12 = PZMath.clamp(var12, 0.0F, 1.0F);
+                        if (this.shadowTick != IngameState.instance.numberTicks - 1L) {
+                           this.m_shadowFM = var9;
+                           this.m_shadowBM = var10;
+                        }
+
+                        this.shadowTick = IngameState.instance.numberTicks;
+                        this.m_shadowFM = PZMath.lerp(this.m_shadowFM, var9, var12);
+                        var9 = this.m_shadowFM;
+                        this.m_shadowBM = PZMath.lerp(this.m_shadowBM, var10, var12);
+                        var10 = this.m_shadowBM;
+                     } else if (this.isZombie() && this.isCurrentState(FakeDeadZombieState.instance())) {
+                        var11 = 1.0F;
+                     } else if (this.isSceneCulled()) {
+                        return;
+                     }
+
+                     Vector2 var15 = this.getAnimVector(IsoGameCharacter.L_renderShadow.vector2_1);
+                     Vector3f var13 = IsoGameCharacter.L_renderShadow.forward.set(var15.x, var15.y, 0.0F);
+                     if (this.getRagdollController() != null) {
+                        RagdollStateData var14 = this.getRagdollController().getRagdollStateData();
+                        if (var14 != null && var14.isCalculated) {
+                           var13.x = var14.simulationDirection.x;
+                           var13.y = var14.simulationDirection.y;
                         }
                      }
 
-                     var23 = closestpointonline((double)var1, (double)var2, (double)(var1 + var6.x), (double)(var2 + var6.y), (double)var16, (double)var17, tempo);
-                     var24 = var23.x;
-                     var25 = var23.y;
-                     var26 = var23.set(var24 - var1, var25 - var2).getLength();
-                     if (var26 > 0.001F) {
-                        var20.set(var24 - var1, var25 - var2, 0.0F).normalize();
-                        if (var6.dot(var20) > 0.0F) {
-                           var21 = Math.max(var21, var26);
-                        } else {
-                           var22 = Math.max(var22, var26);
-                        }
+                     ColorInfo var16 = var4.lighting[var6].lightInfo();
+                     if (PerformanceSettings.FBORenderChunk) {
+                        FBORenderShadows.getInstance().addShadow(var1, var2, var3 - var5, var13, var8, var9, var10, var16.r, var16.g, var16.b, var11, false);
+                     } else {
+                        IsoDeadBody.renderShadow(var1, var2, var3 - var5, var13, var8, var9, var10, var16, var11);
                      }
-
-                     var23 = closestpointonline((double)var1, (double)var2, (double)(var1 + var6.x), (double)(var2 + var6.y), (double)var18, (double)var19, tempo);
-                     var24 = var23.x;
-                     var25 = var23.y;
-                     var26 = var23.set(var24 - var1, var25 - var2).getLength();
-                     if (var26 > 0.001F) {
-                        var20.set(var24 - var1, var25 - var2, 0.0F).normalize();
-                        if (var6.dot(var20) > 0.0F) {
-                           var21 = Math.max(var21, var26);
-                        } else {
-                           var22 = Math.max(var22, var26);
-                        }
-                     }
-
-                     var9 = (var21 + 0.35F) * 1.35F;
-                     var10 = (var22 + 0.35F) * 1.35F;
-                     float var27 = 0.1F * (GameTime.getInstance().getMultiplier() / 1.6F);
-                     var27 = PZMath.clamp(var27, 0.0F, 1.0F);
-                     if (this.shadowTick != IngameState.instance.numberTicks - 1L) {
-                        this.m_shadowFM = var9;
-                        this.m_shadowBM = var10;
-                     }
-
-                     this.shadowTick = IngameState.instance.numberTicks;
-                     this.m_shadowFM = PZMath.lerp(this.m_shadowFM, var9, var27);
-                     var9 = this.m_shadowFM;
-                     this.m_shadowBM = PZMath.lerp(this.m_shadowBM, var10, var27);
-                     var10 = this.m_shadowBM;
-                  } else if (this.isZombie() && this.isCurrentState(FakeDeadZombieState.instance())) {
-                     var11 = 1.0F;
-                  } else if (this.isSceneCulled()) {
-                     return;
                   }
-
-                  ColorInfo var28 = var4.lighting[var5].lightInfo();
-                  IsoDeadBody.renderShadow(var1, var2, var3, var6, var8, var9, var10, var28, var11);
                }
             }
          }
@@ -5138,37 +6050,50 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void DoSneezeText() {
-      if (this.BodyDamage != null) {
-         if (this.BodyDamage.IsSneezingCoughing() > 0) {
-            String var1 = null;
-            int var2 = 0;
-            if (this.BodyDamage.IsSneezingCoughing() == 1) {
-               var1 = Translator.getText("IGUI_PlayerText_Sneeze");
-               var2 = Rand.Next(2) + 1;
-               this.setVariable("Ext", "Sneeze" + var2);
+      if (this.getBodyDamage() != null) {
+         if (this.getBodyDamage().IsSneezingCoughing() > 0) {
+            IsoPlayer var1 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+            String var2 = null;
+            int var3 = 0;
+            if (this.getBodyDamage().IsSneezingCoughing() == 1) {
+               var2 = Translator.getText("IGUI_PlayerText_Sneeze");
+               var3 = Rand.Next(2) + 1;
+               this.setVariable("Ext", "Sneeze" + var3);
+               if (var1 != null) {
+                  var1.playerVoiceSound("SneezeHeavy");
+               }
             }
 
-            if (this.BodyDamage.IsSneezingCoughing() == 2) {
-               var1 = Translator.getText("IGUI_PlayerText_Cough");
+            if (this.getBodyDamage().IsSneezingCoughing() == 2) {
+               var2 = Translator.getText("IGUI_PlayerText_Cough");
                this.setVariable("Ext", "Cough");
+               if (var1 != null) {
+                  var1.playerVoiceSound("Cough");
+               }
             }
 
-            if (this.BodyDamage.IsSneezingCoughing() == 3) {
-               var1 = Translator.getText("IGUI_PlayerText_SneezeMuffled");
-               var2 = Rand.Next(2) + 1;
-               this.setVariable("Ext", "Sneeze" + var2);
+            if (this.getBodyDamage().IsSneezingCoughing() == 3) {
+               var2 = Translator.getText("IGUI_PlayerText_SneezeMuffled");
+               var3 = Rand.Next(2) + 1;
+               this.setVariable("Ext", "Sneeze" + var3);
+               if (var1 != null) {
+                  var1.playerVoiceSound("SneezeLight");
+               }
             }
 
-            if (this.BodyDamage.IsSneezingCoughing() == 4) {
-               var1 = Translator.getText("IGUI_PlayerText_CoughMuffled");
+            if (this.getBodyDamage().IsSneezingCoughing() == 4) {
+               var2 = Translator.getText("IGUI_PlayerText_CoughMuffled");
                this.setVariable("Ext", "Cough");
+               if (var1 != null) {
+                  var1.playerVoiceSound("Cough");
+               }
             }
 
-            if (var1 != null) {
-               this.Say(var1);
+            if (var2 != null) {
+               this.Say(var2);
                this.reportEvent("EventDoExt");
                if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-                  GameClient.sendSneezingCoughing(this.getOnlineID(), this.BodyDamage.IsSneezingCoughing(), (byte)var2);
+                  GameClient.sendSneezingCoughing((IsoPlayer)this, this.getBodyDamage().IsSneezingCoughing(), (byte)var3);
                }
             }
          }
@@ -5313,8 +6238,8 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.hasInitTextObjects = true;
       if (this instanceof IsoPlayer) {
          this.chatElement.setMaxChatLines(5);
-         if (IsoPlayer.getInstance() != null) {
-            System.out.println("FirstNAME:" + IsoPlayer.getInstance().username);
+         if (IsoPlayer.getInstance() != null && !(this instanceof IsoAnimal)) {
+            DebugLog.DetailedInfo.trace("FirstNAME:" + IsoPlayer.getInstance().username);
          }
 
          this.isoPlayer = (IsoPlayer)this;
@@ -5341,8 +6266,8 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    protected void updateUserName() {
       if (this.userName != null && this.isoPlayer != null) {
-         String var1 = this.isoPlayer.getUsername(true);
-         if (this != IsoPlayer.getInstance() && this.isInvisible() && IsoPlayer.getInstance() != null && IsoPlayer.getInstance().accessLevel.equals("") && (!Core.bDebug || !DebugOptions.instance.CheatPlayerSeeEveryone.getValue())) {
+         String var1 = this.isoPlayer.getUsername(true, true);
+         if (this != IsoPlayer.getInstance() && this.isInvisible() && IsoPlayer.getInstance() != null && !IsoPlayer.getInstance().role.haveCapability(Capability.CanSeePlayersStats) && (!Core.bDebug || !DebugOptions.instance.Cheat.Player.SeeEveryone.getValue())) {
             this.userName.ReadString("");
             return;
          }
@@ -5361,34 +6286,34 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             this.isoPlayer.tagPrefix = "";
          }
 
-         boolean var3 = this.isoPlayer != null && this.isoPlayer.bRemote || Core.getInstance().isShowYourUsername();
-         boolean var10000;
-         if (IsoCamera.CamCharacter instanceof IsoPlayer && !((IsoPlayer)IsoCamera.CamCharacter).accessLevel.equals("")) {
-            var10000 = true;
-         } else {
-            var10000 = false;
+         IsoGameCharacter var3 = IsoCamera.getCameraCharacter();
+         boolean var4 = this.isoPlayer != null && this.isoPlayer.bRemote || Core.getInstance().isShowYourUsername();
+         boolean var5 = GameClient.bClient && var3 instanceof IsoPlayer && ((IsoPlayer)var3).role.haveCapability(Capability.CanSeePlayersStats);
+         boolean var6 = var3 instanceof IsoPlayer && ((IsoPlayer)var3).canSeeAll;
+         if (!ServerOptions.instance.DisplayUserName.getValue() && !ServerOptions.instance.ShowFirstAndLastName.getValue() && !var6) {
+            var4 = false;
          }
 
-         boolean var5 = IsoCamera.CamCharacter instanceof IsoPlayer && ((IsoPlayer)IsoCamera.CamCharacter).canSeeAll;
-         if (!ServerOptions.instance.DisplayUserName.getValue() && !ServerOptions.instance.ShowFirstAndLastName.getValue() && !var5) {
-            var3 = false;
-         }
-
-         if (!var3) {
+         if (!var4) {
             var1 = "";
          }
 
-         if (var3 && this.isoPlayer.tagPrefix != null && !this.isoPlayer.tagPrefix.equals("")) {
-            var1 = "[col=" + (new Float(this.isoPlayer.getTagColor().r * 255.0F)).intValue() + "," + (new Float(this.isoPlayer.getTagColor().g * 255.0F)).intValue() + "," + (new Float(this.isoPlayer.getTagColor().b * 255.0F)).intValue() + "][" + this.isoPlayer.tagPrefix + "][/] " + var1;
+         if (var4 && this.isoPlayer.tagPrefix != null && !this.isoPlayer.tagPrefix.equals("") && (!this.isDisguised() || var5)) {
+            var1 = "[col=" + (int)(this.isoPlayer.getTagColor().r * 255.0F) + "," + (int)(this.isoPlayer.getTagColor().g * 255.0F) + "," + (int)(this.isoPlayer.getTagColor().b * 255.0F) + "][" + this.isoPlayer.tagPrefix + "][/] " + var1;
          }
 
-         if (var3 && !this.isoPlayer.accessLevel.equals("") && this.isoPlayer.isShowAdminTag()) {
-            String var8 = (String)this.namesPrefix.get(this.isoPlayer.accessLevel);
-            var1 = var8 + var1;
+         if (var4 && this.isoPlayer.role != null && this.isoPlayer.role.haveCapability(Capability.CanSeePlayersStats) && this.isoPlayer.isShowAdminTag()) {
+            String var10000 = String.format("[col=%d,%d,%d]%s[/] ", (int)(this.isoPlayer.role.getColor().getR() * 255.0F), (int)(this.isoPlayer.role.getColor().getG() * 255.0F), (int)(this.isoPlayer.role.getColor().getB() * 255.0F), this.isoPlayer.role.getName());
+            var1 = var10000 + var1;
          }
 
-         if (var3 && !this.isoPlayer.getSafety().isEnabled() && ServerOptions.instance.ShowSafety.getValue() && NonPvpZone.getNonPvpZone(PZMath.fastfloor(this.isoPlayer.x), PZMath.fastfloor(this.isoPlayer.y)) == null) {
-            var1 = var1 + " [img=media/ui/Skull.png]";
+         if (var4 && this.checkPVP()) {
+            String var7 = " [img=media/ui/Skull1.png]";
+            if (this.isoPlayer.getSafety().getToggle() == 0.0F) {
+               var7 = " [img=media/ui/Skull2.png]";
+            }
+
+            var1 = var1 + var7;
          }
 
          if (this.isoPlayer.isSpeek && !this.isoPlayer.isVoiceMute) {
@@ -5399,11 +6324,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             var1 = "[img=media/ui/voicemuted.png] " + var1;
          }
 
-         BaseVehicle var6 = IsoCamera.CamCharacter == this.isoPlayer ? this.isoPlayer.getNearVehicle() : null;
-         if (this.getVehicle() == null && var6 != null && (this.isoPlayer.getInventory().haveThisKeyId(var6.getKeyId()) != null || var6.isHotwired() || SandboxOptions.getInstance().VehicleEasyUse.getValue())) {
-            Color var7 = Color.HSBtoRGB(var6.colorHue, var6.colorSaturation * 0.5F, var6.colorValue);
-            int var9 = var7.getRedByte();
-            var1 = " [img=media/ui/CarKey.png," + var9 + "," + var7.getGreenByte() + "," + var7.getBlueByte() + "]" + var1;
+         BaseVehicle var9 = var3 == this.isoPlayer ? this.isoPlayer.getNearVehicle() : null;
+         if (this.getVehicle() == null && var9 != null && (this.isoPlayer.getInventory().haveThisKeyId(var9.getKeyId()) != null || var9.isHotwired() || SandboxOptions.getInstance().VehicleEasyUse.getValue())) {
+            Color var8 = Color.HSBtoRGB(var9.colorHue, var9.colorSaturation * 0.5F, var9.colorValue);
+            int var10 = var8.getRedByte();
+            var1 = " [img=media/ui/CarKey.png," + var10 + "," + var8.getGreenByte() + "," + var8.getBlueByte() + "]" + var1;
          }
 
          if (!var1.equals(this.userName.getOriginal())) {
@@ -5411,6 +6336,18 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
       }
 
+   }
+
+   private boolean checkPVP() {
+      if (this.isoPlayer.getSafety().isEnabled()) {
+         return false;
+      } else if (!ServerOptions.instance.ShowSafety.getValue()) {
+         return false;
+      } else if (NonPvpZone.getNonPvpZone(PZMath.fastfloor(this.isoPlayer.getX()), PZMath.fastfloor(this.isoPlayer.getY())) != null) {
+         return false;
+      } else {
+         return IsoPlayer.getInstance() != this.isoPlayer && Faction.isInSameFaction(IsoPlayer.getInstance(), this.isoPlayer) ? this.isoPlayer.isFactionPvp() : true;
+      }
    }
 
    public void updateTextObjects() {
@@ -5451,11 +6388,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    public void renderlast() {
       super.renderlast();
       int var1 = IsoCamera.frameState.playerIndex;
-      float var2 = this.x;
-      float var3 = this.y;
+      float var2 = this.getX();
+      float var3 = this.getY();
       if (this.sx == 0.0F && this.def != null) {
-         this.sx = IsoUtils.XToScreen(var2 + this.def.offX, var3 + this.def.offY, this.z + this.def.offZ, 0);
-         this.sy = IsoUtils.YToScreen(var2 + this.def.offX, var3 + this.def.offY, this.z + this.def.offZ, 0);
+         this.sx = IsoUtils.XToScreen(var2 + this.def.offX, var3 + this.def.offY, this.getZ() + this.def.offZ, 0);
+         this.sy = IsoUtils.YToScreen(var2 + this.def.offX, var3 + this.def.offY, this.getZ() + this.def.offZ, 0);
          this.sx -= this.offsetX - 8.0F;
          this.sy -= this.offsetY - 60.0F;
       }
@@ -5463,8 +6400,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       float var4;
       float var5;
       float var6;
-      float var22;
-      Color var28;
+      float var24;
       if (this.hasInitTextObjects && this.isoPlayer != null || this.chatElement.getHasChatToDisplay()) {
          var4 = IsoUtils.XToScreen(var2, var3, this.getZ(), 0);
          var5 = IsoUtils.YToScreen(var2, var3, this.getZ(), 0);
@@ -5474,6 +6410,8 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          var6 = Core.getInstance().getZoom(var1);
          var4 /= var6;
          var5 /= var6;
+         var4 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsX;
+         var5 += IsoCamera.cameras[IsoCamera.frameState.playerIndex].fixJigglyModelsY;
          this.canSeeCurrent = true;
          this.drawUserName = false;
          if (this.isoPlayer != null && (this == IsoCamera.frameState.CamCharacter || this.getCurrentSquare() != null && this.getCurrentSquare().getCanSee(var1)) || IsoPlayer.getInstance().isCanSeeAll()) {
@@ -5481,7 +6419,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                this.canSeeCurrent = true;
             }
 
-            if (GameClient.bClient && this.userName != null && this.doRenderShadow) {
+            if (GameClient.bClient && this.userName != null && !(this instanceof IsoAnimal)) {
                this.drawUserName = false;
                if (ServerOptions.getInstance().MouseOverToSeeDisplayName.getValue() && this != IsoPlayer.getInstance() && !IsoPlayer.getInstance().isCanSeeAll()) {
                   IsoObjectPicker.ClickObject var7 = IsoObjectPicker.Instance.ContextPick(Mouse.getXA(), Mouse.getYA());
@@ -5518,17 +6456,17 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                }
             }
 
-            if (!GameClient.bClient && this.isoPlayer != null && this.isoPlayer.getVehicle() == null) {
-               String var16 = "";
-               BaseVehicle var21 = this.isoPlayer.getNearVehicle();
-               if (this.getVehicle() == null && var21 != null && var21.getPartById("Engine") != null && (this.isoPlayer.getInventory().haveThisKeyId(var21.getKeyId()) != null || var21.isHotwired() || SandboxOptions.getInstance().VehicleEasyUse.getValue()) && UIManager.VisibleAllUI) {
-                  var28 = Color.HSBtoRGB(var21.colorHue, var21.colorSaturation * 0.5F, var21.colorValue, IsoGameCharacter.L_renderLast.color);
-                  int var10000 = var28.getRedByte();
-                  var16 = " [img=media/ui/CarKey.png," + var10000 + "," + var28.getGreenByte() + "," + var28.getBlueByte() + "]";
+            if (!GameClient.bClient && this.isoPlayer != null && !this.isAnimal() && this.isoPlayer.getVehicle() == null) {
+               String var20 = "";
+               BaseVehicle var23 = this.isoPlayer.getNearVehicle();
+               if (this.getVehicle() == null && var23 != null && var23.getPartById("Engine") != null && (this.isoPlayer.getInventory().haveThisKeyId(var23.getKeyId()) != null || var23.isHotwired() || SandboxOptions.getInstance().VehicleEasyUse.getValue()) && UIManager.VisibleAllUI) {
+                  Color var29 = Color.HSBtoRGB(var23.colorHue, var23.colorSaturation * 0.5F, var23.colorValue, IsoGameCharacter.L_renderLast.color);
+                  int var10000 = var29.getRedByte();
+                  var20 = " [img=media/ui/CarKey.png," + var10000 + "," + var29.getGreenByte() + "," + var29.getBlueByte() + "]";
                }
 
-               if (!var16.equals("")) {
-                  this.userName.ReadString(var16);
+               if (!var20.equals("")) {
+                  this.userName.ReadString(var20);
                   this.drawUserName = true;
                }
             }
@@ -5541,63 +6479,69 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
 
             if (this.playerIsSelf()) {
-               ActionProgressBar var20 = UIManager.getProgressBar((double)var1);
-               if (var20 != null && var20.isVisible()) {
-                  var5 -= (float)(var20.getHeight().intValue() + 2);
+               ActionProgressBar var21 = UIManager.getProgressBar((double)var1);
+               if (var21 != null && var21.isVisible()) {
+                  var5 -= (float)(var21.getHeight().intValue() + 2);
                }
             }
 
             if (this.playerIsSelf() && this.haloNote != null && this.haloNote.getInternalClock() > 0.0F) {
-               var22 = this.haloNote.getInternalClock() / (this.haloDispTime / 4.0F);
-               var22 = PZMath.min(var22, 1.0F);
+               var24 = this.haloNote.getInternalClock() / (this.haloDispTime / 4.0F);
+               var24 = PZMath.min(var24, 1.0F);
                var5 -= (float)(this.haloNote.getHeight() + 2);
-               this.haloNote.AddBatchedDraw((double)((int)var4), (double)((int)var5), true, var22);
+               this.haloNote.AddBatchedDraw((double)((int)var4), (double)((int)var5), true, var24);
             }
          }
 
-         boolean var25 = false;
+         boolean var26 = false;
          if (IsoPlayer.getInstance() != this && this.equipedRadio != null && this.equipedRadio.getDeviceData() != null && this.equipedRadio.getDeviceData().getHeadphoneType() >= 0) {
-            var25 = true;
+            var26 = true;
          }
 
          if (this.equipedRadio != null && this.equipedRadio.getDeviceData() != null && !this.equipedRadio.getDeviceData().getIsTurnedOn()) {
-            var25 = true;
+            var26 = true;
          }
 
-         boolean var24 = GameClient.bClient && IsoCamera.CamCharacter instanceof IsoPlayer && !((IsoPlayer)IsoCamera.CamCharacter).accessLevel.equals("");
-         if (!this.m_invisible || this == IsoCamera.frameState.CamCharacter || var24) {
-            this.chatElement.renderBatched(IsoPlayer.getPlayerIndex(), (int)var4, (int)var5, var25);
+         IsoGameCharacter var25 = IsoCamera.getCameraCharacter();
+         boolean var30 = GameClient.bClient && var25 instanceof IsoPlayer && ((IsoPlayer)var25).role.haveCapability(Capability.CanSeePlayersStats);
+         if (!this.m_cheats.m_invisible || this == IsoCamera.frameState.CamCharacter || var30) {
+            this.chatElement.renderBatched(IsoPlayer.getPlayerIndex(), (int)var4, (int)var5, var26);
          }
       }
 
-      Vector2 var13;
-      AnimationPlayer var19;
+      Vector2 var18;
+      AnimationPlayer var22;
       if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.Angle.getValue() && this.hasActiveModel()) {
-         var13 = tempo;
-         var19 = this.getAnimationPlayer();
-         var13.set(this.dir.ToVector());
-         this.drawDirectionLine(var13, 2.4F, 0.0F, 1.0F, 0.0F);
-         var13.setLengthAndDirection(this.getLookAngleRadians(), 1.0F);
-         this.drawDirectionLine(var13, 2.0F, 1.0F, 1.0F, 1.0F);
-         var13.setLengthAndDirection(this.getAnimAngleRadians(), 1.0F);
-         this.drawDirectionLine(var13, 2.0F, 1.0F, 1.0F, 0.0F);
+         var18 = tempo;
+         var22 = this.getAnimationPlayer();
+         var18.set(this.dir.ToVector());
+         this.drawDirectionLine(var18, 2.4F, 0.0F, 1.0F, 0.0F);
+         var18.setLengthAndDirection(this.getLookAngleRadians(), 1.0F);
+         this.drawDirectionLine(var18, 2.0F, 1.0F, 1.0F, 1.0F);
+         var18.setLengthAndDirection(this.getAnimAngleRadians(), 1.0F);
+         this.drawDirectionLine(var18, 2.0F, 1.0F, 1.0F, 0.0F);
          var6 = this.getForwardDirection().getDirection();
-         var13.setLengthAndDirection(var6, 1.0F);
-         this.drawDirectionLine(var13, 2.0F, 0.0F, 0.0F, 1.0F);
+         var18.setLengthAndDirection(var6, 1.0F);
+         this.drawDirectionLine(var18, 2.0F, 0.0F, 0.0F, 1.0F);
       }
 
       if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.DeferredMovement.getValue() && this.hasActiveModel()) {
-         var13 = tempo;
-         var19 = this.getAnimationPlayer();
-         this.getDeferredMovement(var13);
-         this.drawDirectionLine(var13, 1000.0F * var13.getLength() / GameTime.instance.getMultiplier() * 2.0F, 1.0F, 0.5F, 0.5F);
+         var18 = tempo;
+         this.getDeferredMovement(var18);
+         this.drawDirectionLine(var18, 1000.0F * var18.getLength() / GameTime.instance.getMultiplier() * 2.0F, 1.0F, 0.5F, 0.5F);
+      }
+
+      if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.DeferredMovement.getValue() && this.hasActiveModel()) {
+         var18 = tempo;
+         this.getDeferredMovementFromRagdoll(var18);
+         this.drawDirectionLine(var18, 1000.0F * var18.getLength() / GameTime.instance.getMultiplier() * 2.0F, 0.0F, 1.0F, 0.5F);
       }
 
       if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.DeferredAngles.getValue() && this.hasActiveModel()) {
-         var13 = tempo;
-         var19 = this.getAnimationPlayer();
-         this.getDeferredMovement(var13);
-         this.drawDirectionLine(var13, 1000.0F * var13.getLength() / GameTime.instance.getMultiplier() * 2.0F, 1.0F, 0.5F, 0.5F);
+         var18 = tempo;
+         var22 = this.getAnimationPlayer();
+         this.getDeferredMovement(var18);
+         this.drawDirectionLine(var18, 1000.0F * var18.getLength() / GameTime.instance.getMultiplier() * 2.0F, 1.0F, 0.5F, 0.5F);
       }
 
       if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.AimCone.getValue()) {
@@ -5613,205 +6557,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
 
       if (Core.bDebug) {
-         IsoZombie var14;
-         Color var26;
-         if (DebugOptions.instance.MultiplayerShowZombieMultiplier.getValue() && this instanceof IsoZombie) {
-            var14 = (IsoZombie)this;
-            byte var15 = var14.canHaveMultipleHits();
-            if (var15 == 0) {
-               var26 = Colors.Green;
-            } else if (var15 == 1) {
-               var26 = Colors.Yellow;
-            } else {
-               var26 = Colors.Red;
-            }
-
-            LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.45F, 4, var26.r, var26.g, var26.b, 0.5F);
-            TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)IsoUtils.XToScreenExact(this.x + 0.4F, this.y + 0.4F, this.z, 0), (double)IsoUtils.YToScreenExact(this.x + 0.4F, this.y - 1.4F, this.z, 0), String.valueOf(var14.OnlineID), (double)var26.r, (double)var26.g, (double)var26.b, (double)var26.a);
-         }
-
-         if (DebugOptions.instance.MultiplayerShowZombieOwner.getValue() && this instanceof IsoZombie) {
-            var14 = (IsoZombie)this;
-            if (var14.isDead()) {
-               var26 = Colors.Yellow;
-            } else if (var14.isRemoteZombie()) {
-               var26 = Colors.OrangeRed;
-            } else {
-               var26 = Colors.Chartreuse;
-            }
-
-            LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.45F, 4, var26.r, var26.g, var26.b, 0.5F);
-            TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)IsoUtils.XToScreenExact(this.x + 0.4F, this.y + 0.4F, this.z, 0), (double)IsoUtils.YToScreenExact(this.x + 0.4F, this.y - 1.4F, this.z, 0), String.valueOf(var14.OnlineID), (double)var26.r, (double)var26.g, (double)var26.b, (double)var26.a);
-         }
-
-         if (DebugOptions.instance.MultiplayerShowZombiePrediction.getValue() && this instanceof IsoZombie) {
-            var14 = (IsoZombie)this;
-            LineDrawer.DrawIsoTransform(this.realx, this.realy, this.z, this.realdir.ToVector().x, this.realdir.ToVector().y, 0.35F, 16, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, 0.35F, 1);
-            if (var14.networkAI.DebugInterfaceActive) {
-               LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.4F, 4, 1.0F, 0.1F, 0.1F, 0.35F);
-            } else if (!var14.isRemoteZombie()) {
-               LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.3F, 3, Colors.Magenta.r, Colors.Magenta.g, Colors.Magenta.b, 0.35F);
-            } else {
-               LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.3F, 5, Colors.Magenta.r, Colors.Magenta.g, Colors.Magenta.b, 0.35F);
-            }
-
-            LineDrawer.DrawIsoTransform(var14.networkAI.targetX, var14.networkAI.targetY, this.z, 1.0F, 0.0F, 0.4F, 16, Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, 0.35F, 1);
-            LineDrawer.DrawIsoLine(this.x, this.y, this.z, var14.networkAI.targetX, var14.networkAI.targetY, this.z, Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, 0.35F, 1);
-            if (IsoUtils.DistanceToSquared(this.x, this.y, this.realx, this.realy) > 4.5F) {
-               LineDrawer.DrawIsoLine(this.realx, this.realy, this.z, this.x, this.y, this.z, Colors.Magenta.r, Colors.Magenta.g, Colors.Magenta.b, 0.35F, 1);
-            } else {
-               LineDrawer.DrawIsoLine(this.realx, this.realy, this.z, this.x, this.y, this.z, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, 0.35F, 1);
-            }
-         }
-
-         if (DebugOptions.instance.MultiplayerShowZombieDesync.getValue() && this instanceof IsoZombie) {
-            var14 = (IsoZombie)this;
-            var5 = IsoUtils.DistanceTo(this.getX(), this.getY(), this.realx, this.realy);
-            if (var14.isRemoteZombie() && var5 > 1.0F) {
-               LineDrawer.DrawIsoLine(this.realx, this.realy, this.z, this.x, this.y, this.z, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, 0.9F, 1);
-               LineDrawer.DrawIsoTransform(this.realx, this.realy, this.z, this.realdir.ToVector().x, this.realdir.ToVector().y, 0.35F, 16, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, 0.9F, 1);
-               LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.4F, 4, 1.0F, 1.0F, 1.0F, 0.9F);
-               var6 = IsoUtils.DistanceTo(this.realx, this.realy, var14.networkAI.targetX, var14.networkAI.targetY);
-               var22 = IsoUtils.DistanceTo(this.x, this.y, var14.networkAI.targetX, var14.networkAI.targetY) / var6;
-               float var27 = IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-               float var30 = IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
-               TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)var27, (double)var30, String.format("dist:%f scale1:%f", var5, var22), (double)Colors.NavajoWhite.r, (double)Colors.NavajoWhite.g, (double)Colors.NavajoWhite.b, 0.8999999761581421);
-            }
-         }
-
-         if (DebugOptions.instance.MultiplayerShowHit.getValue() && this.getHitReactionNetworkAI() != null && this.getHitReactionNetworkAI().isSetup()) {
-            LineDrawer.DrawIsoLine(this.x, this.y, this.z, this.x + this.getHitDir().getX(), this.y + this.getHitDir().getY(), this.z, Colors.BlueViolet.r, Colors.BlueViolet.g, Colors.BlueViolet.b, 0.8F, 1);
-            LineDrawer.DrawIsoLine(this.getHitReactionNetworkAI().startPosition.x, this.getHitReactionNetworkAI().startPosition.y, this.z, this.getHitReactionNetworkAI().finalPosition.x, this.getHitReactionNetworkAI().finalPosition.y, this.z, Colors.Salmon.r, Colors.Salmon.g, Colors.Salmon.b, 0.8F, 1);
-            float var10007 = Colors.Salmon.r - 0.2F;
-            float var10008 = Colors.Salmon.g + 0.2F;
-            LineDrawer.DrawIsoTransform(this.getHitReactionNetworkAI().startPosition.x, this.getHitReactionNetworkAI().startPosition.y, this.z, this.getHitReactionNetworkAI().startDirection.x, this.getHitReactionNetworkAI().startDirection.y, 0.4F, 16, var10007, var10008, Colors.Salmon.b, 0.8F, 1);
-            var10008 = Colors.Salmon.g - 0.2F;
-            LineDrawer.DrawIsoTransform(this.getHitReactionNetworkAI().finalPosition.x, this.getHitReactionNetworkAI().finalPosition.y, this.z, this.getHitReactionNetworkAI().finalDirection.x, this.getHitReactionNetworkAI().finalDirection.y, 0.4F, 16, Colors.Salmon.r, var10008, Colors.Salmon.b, 0.8F, 1);
-         }
-
-         if (DebugOptions.instance.MultiplayerShowPlayerPrediction.getValue() && this instanceof IsoPlayer) {
-            if (this.isoPlayer != null && this.isoPlayer.networkAI != null && this.isoPlayer.networkAI.footstepSoundRadius != 0) {
-               LineDrawer.DrawIsoCircle(this.x, this.y, this.z, (float)this.isoPlayer.networkAI.footstepSoundRadius, 32, Colors.Violet.r, Colors.Violet.g, Colors.Violet.b, 0.5F);
-            }
-
-            if (this.isoPlayer != null && this.isoPlayer.bRemote) {
-               LineDrawer.DrawIsoCircle(this.x, this.y, this.z, 0.3F, 16, Colors.OrangeRed.r, Colors.OrangeRed.g, Colors.OrangeRed.b, 0.5F);
-               tempo.set(this.realdir.ToVector());
-               LineDrawer.DrawIsoTransform(this.realx, this.realy, this.z, tempo.x, tempo.y, 0.35F, 16, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, 0.5F, 1);
-               LineDrawer.DrawIsoLine(this.realx, this.realy, this.z, this.x, this.y, this.z, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, 0.5F, 1);
-               tempo.set(((IsoPlayer)this).networkAI.targetX, ((IsoPlayer)this).networkAI.targetY);
-               LineDrawer.DrawIsoTransform(tempo.x, tempo.y, this.z, 1.0F, 0.0F, 0.4F, 16, Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, 0.5F, 1);
-               LineDrawer.DrawIsoLine(this.x, this.y, this.z, tempo.x, tempo.y, this.z, Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, 0.5F, 1);
-            }
-         }
-
-         if (DebugOptions.instance.MultiplayerShowTeleport.getValue() && this.getNetworkCharacterAI() != null) {
-            NetworkTeleport.NetworkTeleportDebug var17 = this.getNetworkCharacterAI().getTeleportDebug();
-            if (var17 != null) {
-               LineDrawer.DrawIsoLine(var17.lx, var17.ly, var17.lz, var17.nx, var17.ny, var17.nz, Colors.NavajoWhite.r, Colors.NavajoWhite.g, Colors.NavajoWhite.b, 0.7F, 3);
-               LineDrawer.DrawIsoCircle(var17.nx, var17.ny, var17.nz, 0.2F, 16, Colors.NavajoWhite.r, Colors.NavajoWhite.g, Colors.NavajoWhite.b, 0.7F);
-               var5 = IsoUtils.XToScreenExact(var17.lx, var17.ly, var17.lz, 0);
-               var6 = IsoUtils.YToScreenExact(var17.lx, var17.ly, var17.lz, 0);
-               TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)var5, (double)var6, String.format("%s id=%d", this instanceof IsoPlayer ? ((IsoPlayer)this).getUsername() : this.getClass().getSimpleName(), var17.id), (double)Colors.NavajoWhite.r, (double)Colors.NavajoWhite.g, (double)Colors.NavajoWhite.b, 0.699999988079071);
-               TextManager.instance.DrawStringCentre(UIFont.DebugConsole, (double)var5, (double)(var6 + 10.0F), var17.type.name(), (double)Colors.NavajoWhite.r, (double)Colors.NavajoWhite.g, (double)Colors.NavajoWhite.b, 0.699999988079071);
-            }
-         } else if (this.getNetworkCharacterAI() != null) {
-            this.getNetworkCharacterAI().clearTeleportDebug();
-         }
-
-         if (DebugOptions.instance.MultiplayerShowZombieStatus.getValue() && this instanceof IsoZombie || DebugOptions.instance.MultiplayerShowPlayerStatus.getValue() && this instanceof IsoPlayer && !((IsoPlayer)this).isGodMod()) {
-            TextManager var37 = TextManager.instance;
-            Objects.requireNonNull(var37);
-            TextManager.StringDrawer var18 = var37::DrawString;
-            if (this instanceof IsoPlayer && this.isLocal()) {
-               var37 = TextManager.instance;
-               Objects.requireNonNull(var37);
-               var18 = var37::DrawStringRight;
-            }
-
-            var5 = IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-            var6 = IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
-            var22 = 10.0F;
-            Color var29 = Colors.GreenYellow;
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("%d %s : %.03f / %.03f", this.getOnlineID(), this.isFemale() ? "F" : "M", this.getHealth(), this instanceof IsoZombie ? 0.0F : this.getBodyDamage().getOverallBodyHealth()), (double)var29.r, (double)var29.g, (double)var29.b, (double)var29.a);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("x=%09.3f ", this.x) + String.format("y=%09.3f ", this.y) + String.format("z=%d", (byte)((int)this.z)), (double)var29.r, (double)var29.g, (double)var29.b, (double)var29.a);
-            if (this instanceof IsoPlayer) {
-               IsoPlayer var31 = (IsoPlayer)this;
-               var28 = Colors.NavajoWhite;
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 18.0F)), String.format("IdleSpeed: %s , targetDist: %s ", var31.getVariableString("IdleSpeed"), var31.getVariableString("targetDist")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("WalkInjury: %s , WalkSpeed: %s", var31.getVariableString("WalkInjury"), var31.getVariableString("WalkSpeed")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("DeltaX: %s , DeltaY: %s", var31.getVariableString("DeltaX"), var31.getVariableString("DeltaY")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("AttackVariationX: %s , AttackVariationY: %s", var31.getVariableString("AttackVariationX"), var31.getVariableString("AttackVariationY")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("autoShootVarX: %s , autoShootVarY: %s", var31.getVariableString("autoShootVarX"), var31.getVariableString("autoShootVarY")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("recoilVarX: %s , recoilVarY: %s", var31.getVariableString("recoilVarX"), var31.getVariableString("recoilVarY")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("ShoveAimX: %s , ShoveAimY: %s", var31.getVariableString("ShoveAimX"), var31.getVariableString("ShoveAimY")), (double)var28.r, (double)var28.g, (double)var28.b, 1.0);
-            }
-
-            var29 = Colors.Yellow;
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 18.0F)), String.format("isHitFromBehind=%b/%b", this.isHitFromBehind(), this.getVariableBoolean("frombehind")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("bKnockedDown=%b/%b", this.isKnockedDown(), this.getVariableBoolean("bknockeddown")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("isFallOnFront=%b/%b", this.isFallOnFront(), this.getVariableBoolean("fallonfront")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("isOnFloor=%b/%b", this.isOnFloor(), this.getVariableBoolean("bonfloor")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("isDead=%b/%b", this.isDead(), this.getVariableBoolean("bdead")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            if (this instanceof IsoZombie) {
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("bThump=%b", this.getVariableString("bThump")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("ThumpType=%s", this.getVariableString("ThumpType")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("onknees=%b", this.getVariableBoolean("onknees")), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            } else {
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("isBumped=%b/%s", this.isBumped(), this.getBumpType()), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            }
-
-            var29 = Colors.OrangeRed;
-            if (this.getReanimateTimer() <= 0.0F) {
-               var29 = Colors.LimeGreen;
-            } else if (this.isBeingSteppedOn()) {
-               var29 = Colors.Blue;
-            }
-
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 18.0F)), "Reanimate: " + this.getReanimateTimer(), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            if (this.advancedAnimator.getRootLayer() != null) {
-               var29 = Colors.Pink;
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 18.0F)), "Animation set: " + this.advancedAnimator.animSet.m_Name, (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), "Animation state: " + this.advancedAnimator.getCurrentStateName(), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), "Animation node: " + this.advancedAnimator.getRootLayer().getDebugNodeName(), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            }
-
-            var29 = Colors.LightBlue;
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("Previous state: %s ( %s )", this.getPreviousStateName(), this.getPreviousActionContextStateName()), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("Current state: %s ( %s )", this.getCurrentStateName(), this.getCurrentActionContextStateName()), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("Child state: %s", this.getActionContext() != null && this.getActionContext().getChildStates() != null && this.getActionContext().getChildStates().size() > 0 && this.getActionContext().getChildStateAt(0) != null ? this.getActionContext().getChildStateAt(0).getName() : "\"\""), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-            if (this.CharacterActions != null) {
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("Character actions: %d", this.CharacterActions.size()), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               Iterator var33 = this.CharacterActions.iterator();
-
-               while(var33.hasNext()) {
-                  BaseAction var32 = (BaseAction)var33.next();
-                  if (var32 instanceof LuaTimedActionNew) {
-                     var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("Action: %s", ((LuaTimedActionNew)var32).getMetaType()), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-                  }
-               }
-            }
-
-            if (this instanceof IsoZombie) {
-               var29 = Colors.GreenYellow;
-               IsoZombie var34 = (IsoZombie)this;
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 18.0F)), "Prediction: " + this.getNetworkCharacterAI().predictionType, (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), String.format("Real state: %s", var34.realState), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               if (var34.target instanceof IsoPlayer) {
-                  var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), "Target: " + ((IsoPlayer)var34.target).username + "  =" + var34.vectorToTarget.getLength(), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               } else {
-                  var18.draw(UIFont.DebugConsole, (double)var5, (double)(var6 + (var22 += 11.0F)), "Target: " + var34.target + "  =" + var34.vectorToTarget.getLength(), (double)var29.r, (double)var29.g, (double)var29.b, 1.0);
-               }
-            }
-         }
+         this.renderDebugData();
       }
 
       if (this.inventory != null) {
-         int var23;
-         for(var23 = 0; var23 < this.inventory.Items.size(); ++var23) {
-            InventoryItem var35 = (InventoryItem)this.inventory.Items.get(var23);
-            if (var35 instanceof IUpdater) {
-               ((IUpdater)var35).renderlast();
+         int var19;
+         for(var19 = 0; var19 < this.inventory.Items.size(); ++var19) {
+            InventoryItem var27 = (InventoryItem)this.inventory.Items.get(var19);
+            if (var27 instanceof IUpdater) {
+               ((IUpdater)var27).renderlast();
             }
          }
 
@@ -5819,35 +6573,198 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             this.pfb2.render();
          }
 
-         if (Core.bDebug && DebugOptions.instance.CollideWithObstaclesRenderRadius.getValue()) {
+         if (Core.bDebug && DebugOptions.instance.CollideWithObstacles.Render.Radius.getValue()) {
             var4 = 0.3F;
             var5 = 1.0F;
             var6 = 1.0F;
-            var22 = 1.0F;
+            var24 = 1.0F;
             if (!this.isCollidable()) {
-               var22 = 0.0F;
+               var24 = 0.0F;
             }
 
-            if ((int)this.z != (int)IsoCamera.frameState.CamCharacterZ) {
-               var22 = 0.5F;
+            if (PZMath.fastfloor(this.getZ()) != PZMath.fastfloor(IsoCamera.frameState.CamCharacterZ)) {
+               var24 = 0.5F;
                var6 = 0.5F;
                var5 = 0.5F;
             }
 
-            LineDrawer.DrawIsoCircle(this.x, this.y, this.z, var4, 16, var5, var6, var22, 1.0F);
+            LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), var4, 16, var5, var6, var24, 1.0F);
          }
 
-         if (DebugOptions.instance.Animation.Debug.getValue() && this.hasActiveModel()) {
-            var23 = (int)IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-            int var36 = (int)IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
-            TextManager.instance.DrawString((double)var23, (double)var36, this.getAnimationDebug());
+         IndieGL.glBlendFunc(770, 771);
+         if (DebugOptions.instance.Animation.Debug.getValue() && this.hasActiveModel() && !(this instanceof IsoAnimal)) {
+            IndieGL.disableDepthTest();
+            IndieGL.StartShader(0);
+            var19 = (int)IsoUtils.XToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+            int var33 = (int)IsoUtils.YToScreenExact(this.getX(), this.getY(), this.getZ() + 1.0F, 0);
+            TextManager.instance.DrawString(UIFont.Dialogue, (double)var19, (double)var33, 1.0, this.getAnimationDebug(), 1.0, 1.0, 1.0, 1.0);
          }
 
-         if (this.getIsNPC() && this.GameCharacterAIBrain != null) {
-            this.GameCharacterAIBrain.renderlast();
+         if (this.getIsNPC() && this.ai.brain != null) {
+            this.ai.brain.renderlast();
+         }
+
+         if (this instanceof IsoPlayer) {
+            IsoBulletTracerEffects.getInstance().render();
+         }
+
+         if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.CarStopDebug.getValue() && this.hasActiveModel()) {
+            var18 = tempo;
+            var5 = 0.0F;
+            if (this.vehicle != null && this.vbdebugHitTarget != null) {
+               var6 = 0.3F;
+               var24 = 6.0F;
+               Vector2 var28 = this.calcCarForwardVector();
+               Vector2 var31 = this.calcCarSpeedVector();
+               boolean var32 = this.carMovingBackward(var31);
+               Vector2 var34 = this.calcCarPositionOffset(var32);
+               Vector2 var35 = this.calcCarToPlayerVector(this.vbdebugHitTarget, var34);
+               var31 = this.calcCarSpeedVector(var34);
+               float var13 = this.calcLengthMultiplier(var31, var32);
+               float var14 = this.calcConeAngleMultiplier(this.vbdebugHitTarget, var32);
+               float var15 = this.calcConeAngleOffset(this.vbdebugHitTarget, var32);
+               var24 += var13;
+               var6 *= var14;
+               var5 = var31.getDirection();
+               var5 -= var15;
+               var18.setLengthAndDirection(var5, var24);
+               Vector2 var16 = new Vector2();
+               var16.x = this.vehicle.getX() + var34.x;
+               var16.y = this.vehicle.getY() + var34.y;
+               this.drawLine(var16, var18, 2.0F, 1.0F, 0.0F, 1.0F);
+               float var17 = (float)Math.cos((double)var6) * var24;
+               var18.setLengthAndDirection(var5 + var6, var17);
+               this.drawLine(var16, var18, 2.0F, 1.0F, 0.0F, 0.0F);
+               var18.setLengthAndDirection(var5 - var6, var17);
+               this.drawLine(var16, var18, 2.0F, 1.0F, 0.0F, 0.0F);
+               var5 = var35.getDirection();
+               var18.setLengthAndDirection(var5, var35.getLength() / 2.0F);
+               this.drawLine(var16, var18, 2.0F, 0.0F, 0.0F, 1.0F);
+            }
+         }
+
+         if (Core.bDebug && DebugOptions.instance.Character.Debug.Render.AimVector.getValue() && this.ballisticsController != null) {
+            this.ballisticsController.renderlast();
          }
 
       }
+   }
+
+   public void drawLine(Vector2 var1, Vector2 var2, float var3, float var4, float var5, float var6) {
+      float var7 = var1.x + var2.x * var3;
+      float var8 = var1.y + var2.y * var3;
+      float var9 = IsoUtils.XToScreenExact(var1.x, var1.y, this.getZ(), 0);
+      float var10 = IsoUtils.YToScreenExact(var1.x, var1.y, this.getZ(), 0);
+      float var11 = IsoUtils.XToScreenExact(var7, var8, this.getZ(), 0);
+      float var12 = IsoUtils.YToScreenExact(var7, var8, this.getZ(), 0);
+      LineDrawer.drawLine(var9, var10, var11, var12, var4, var5, var6, 0.5F, 1);
+   }
+
+   public Vector2 calcCarForwardVector() {
+      Vector3f var1 = new Vector3f();
+      this.vehicle.getForwardVector(var1);
+      Vector2 var2 = new Vector2();
+      var2.x = var1.x;
+      var2.y = var1.z;
+      return var2;
+   }
+
+   public boolean carMovingBackward(Vector2 var1) {
+      return this.calcCarForwardVector().dot(var1) < 0.0F;
+   }
+
+   public Vector2 calcCarPositionOffset(boolean var1) {
+      new Vector2();
+      Vector2 var2;
+      if (!var1) {
+         var2 = this.calcCarForwardVector().setLength(1.0F);
+         var2.x *= -1.0F;
+         var2.y *= -1.0F;
+      } else {
+         var2 = this.calcCarForwardVector().setLength(2.0F);
+      }
+
+      return var2;
+   }
+
+   public float calcLengthMultiplier(Vector2 var1, boolean var2) {
+      float var3 = 0.0F;
+      if (var2) {
+         var3 = var1.getLength();
+      } else {
+         var3 = var1.getLength();
+      }
+
+      if (var3 < 1.0F) {
+         var3 = 1.0F;
+      }
+
+      return var3;
+   }
+
+   public Vector2 calcCarSpeedVector(Vector2 var1) {
+      Vector2 var2 = this.calcCarSpeedVector();
+      var2.x -= var1.x;
+      var2.y -= var1.y;
+      return var2;
+   }
+
+   public Vector2 calcCarSpeedVector() {
+      Vector2 var1 = new Vector2();
+      Vector3f var2 = new Vector3f();
+      var1.x = this.vehicle.getLinearVelocity(var2).x;
+      var1.y = this.vehicle.getLinearVelocity(var2).z;
+      return var1;
+   }
+
+   public Vector2 calcCarToPlayerVector(IsoGameCharacter var1, Vector2 var2) {
+      Vector2 var3 = new Vector2();
+      var3.x = var1.getX() - this.vehicle.getX();
+      var3.y = var1.getY() - this.vehicle.getY();
+      var3.x -= var2.x;
+      var3.y -= var2.y;
+      return var3;
+   }
+
+   public Vector2 calcCarToPlayerVector(IsoGameCharacter var1) {
+      Vector2 var2 = new Vector2();
+      var2.x = var1.getX() - this.vehicle.getX();
+      var2.y = var1.getY() - this.vehicle.getY();
+      return var2;
+   }
+
+   public float calcConeAngleOffset(IsoGameCharacter var1, boolean var2) {
+      float var3 = 0.0F;
+      if (var2 && (this.vehicle.getCurrentSteering() > 0.1F || this.vehicle.getCurrentSteering() < -0.1F)) {
+         var3 = this.vehicle.getCurrentSteering() * 0.3F;
+      }
+
+      if (!var2 && (this.vehicle.getCurrentSteering() > 0.1F || this.vehicle.getCurrentSteering() < -0.1F)) {
+         var3 = this.vehicle.getCurrentSteering() * 0.3F;
+      }
+
+      return var3;
+   }
+
+   public float calcConeAngleMultiplier(IsoGameCharacter var1, boolean var2) {
+      float var3 = 0.0F;
+      if (var2 && (this.vehicle.getCurrentSteering() > 0.1F || this.vehicle.getCurrentSteering() < -0.1F)) {
+         var3 = this.vehicle.getCurrentSteering() * 3.0F;
+      }
+
+      if (!var2 && (this.vehicle.getCurrentSteering() > 0.1F || this.vehicle.getCurrentSteering() < -0.1F)) {
+         var3 = this.vehicle.getCurrentSteering() * 2.0F;
+      }
+
+      if (this.vehicle.getCurrentSteering() < 0.0F) {
+         var3 *= -1.0F;
+      }
+
+      if (var3 < 1.0F) {
+         var3 = 1.0F;
+      }
+
+      return var3;
    }
 
    protected boolean renderTextureInsteadOfModel(float var1, float var2) {
@@ -5855,23 +6772,28 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void drawDirectionLine(Vector2 var1, float var2, float var3, float var4, float var5) {
-      float var6 = this.x + var1.x * var2;
-      float var7 = this.y + var1.y * var2;
-      float var8 = IsoUtils.XToScreenExact(this.x, this.y, this.z, 0);
-      float var9 = IsoUtils.YToScreenExact(this.x, this.y, this.z, 0);
-      float var10 = IsoUtils.XToScreenExact(var6, var7, this.z, 0);
-      float var11 = IsoUtils.YToScreenExact(var6, var7, this.z, 0);
+      float var6 = this.getX() + var1.x * var2;
+      float var7 = this.getY() + var1.y * var2;
+      float var8 = IsoUtils.XToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+      float var9 = IsoUtils.YToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+      float var10 = IsoUtils.XToScreenExact(var6, var7, this.getZ(), 0);
+      float var11 = IsoUtils.YToScreenExact(var6, var7, this.getZ(), 0);
+      SpriteRenderer.instance.StartShader(0, IsoCamera.frameState.playerIndex);
+      IndieGL.disableDepthTest();
       LineDrawer.drawLine(var8, var9, var10, var11, var3, var4, var5, 0.5F, 1);
    }
 
    public void drawDebugTextBelow(String var1) {
       int var2 = TextManager.instance.MeasureStringX(UIFont.Small, var1) + 32;
-      int var3 = TextManager.instance.getFontHeight(UIFont.Small);
+      int var3 = TextManager.instance.MeasureStringY(UIFont.Small, var1);
       int var4 = (int)Math.ceil((double)var3 * 1.25);
       float var5 = IsoUtils.XToScreenExact(this.getX() + 0.25F, this.getY() + 0.25F, this.getZ(), 0);
       float var6 = IsoUtils.YToScreenExact(this.getX() + 0.25F, this.getY() + 0.25F, this.getZ(), 0);
+      IndieGL.glBlendFunc(770, 771);
+      SpriteRenderer.instance.StartShader(0, IsoCamera.frameState.playerIndex);
       SpriteRenderer.instance.renderi((Texture)null, (int)(var5 - (float)(var2 / 2)), (int)(var6 - (float)((var4 - var3) / 2)), var2, var4, 0.0F, 0.0F, 0.0F, 0.5F, (Consumer)null);
       TextManager.instance.DrawStringCentre(UIFont.Small, (double)var5, (double)var6, var1, 1.0, 1.0, 1.0, 1.0);
+      SpriteRenderer.instance.EndShader();
    }
 
    public Radio getEquipedRadio() {
@@ -5883,7 +6805,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.leftHandCache = this.leftHandItem;
          if (this.leftHandItem != null && (this.equipedRadio == null || this.equipedRadio != this.rightHandItem) && this.leftHandItem instanceof Radio) {
             this.equipedRadio = (Radio)this.leftHandItem;
-         } else if (this.equipedRadio != null && this.equipedRadio != this.rightHandItem) {
+         } else if (this.equipedRadio != null && this.equipedRadio != this.rightHandItem && this.equipedRadio != this.getClothingItem_Back()) {
             if (this.equipedRadio.getDeviceData() != null) {
                this.equipedRadio.getDeviceData().cleanSoundsAndEmitter();
             }
@@ -5896,7 +6818,20 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.rightHandCache = this.rightHandItem;
          if (this.rightHandItem != null && this.rightHandItem instanceof Radio) {
             this.equipedRadio = (Radio)this.rightHandItem;
-         } else if (this.equipedRadio != null && this.equipedRadio != this.leftHandItem) {
+         } else if (this.equipedRadio != null && this.equipedRadio != this.leftHandItem && this.equipedRadio != this.getClothingItem_Back()) {
+            if (this.equipedRadio.getDeviceData() != null) {
+               this.equipedRadio.getDeviceData().cleanSoundsAndEmitter();
+            }
+
+            this.equipedRadio = null;
+         }
+      }
+
+      if (this.getClothingItem_Back() != this.backCache) {
+         this.backCache = this.getClothingItem_Back();
+         if (this.getClothingItem_Back() != null && this.getClothingItem_Back() instanceof Radio) {
+            this.equipedRadio = (Radio)this.getClothingItem_Back();
+         } else if (this.equipedRadio != null && this.equipedRadio != this.leftHandItem && this.equipedRadio != this.rightHandItem) {
             if (this.equipedRadio.getDeviceData() != null) {
                this.equipedRadio.getDeviceData().cleanSoundsAndEmitter();
             }
@@ -5908,8 +6843,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    private void debugAim() {
-      if (this == IsoPlayer.getInstance()) {
-         IsoPlayer var1 = (IsoPlayer)this;
+      if (this instanceof IsoPlayer var1) {
          if (var1.IsAiming()) {
             HandWeapon var2 = (HandWeapon)Type.tryCastTo(this.getPrimaryHandItem(), HandWeapon.class);
             if (var2 == null) {
@@ -5917,72 +6851,93 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
 
             float var3 = var2.getMaxRange(var1) * var2.getRangeMod(var1);
-            float var4 = this.getLookAngleRadians();
-            LineDrawer.drawDirectionLine(this.x, this.y, this.z, var3, var4, 1.0F, 1.0F, 1.0F, 0.5F, 1);
-            float var5 = var2.getMinAngle();
-            var5 -= var2.getAimingPerkMinAngleModifier() * ((float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 2.0F);
-            LineDrawer.drawDotLines(this.x, this.y, this.z, var3, var4, var5, 1.0F, 1.0F, 1.0F, 0.5F, 1);
-            float var6 = var2.getMinRange();
-            LineDrawer.drawArc(this.x, this.y, this.z, var6, var4, var5, 6, 1.0F, 1.0F, 1.0F, 0.5F);
-            if (var6 != var3) {
-               LineDrawer.drawArc(this.x, this.y, this.z, var3, var4, var5, 6, 1.0F, 1.0F, 1.0F, 0.5F);
-            }
-
-            float var7 = PZMath.min(var3 + 1.0F, 2.0F);
-            LineDrawer.drawArc(this.x, this.y, this.z, var7, var4, var5, 6, 0.75F, 0.75F, 0.75F, 0.5F);
-            float var8 = Core.getInstance().getIgnoreProneZombieRange();
-            if (var8 > 0.0F) {
-               LineDrawer.drawArc(this.x, this.y, this.z, var8, var4, 0.0F, 12, 0.0F, 0.0F, 1.0F, 0.25F);
-               LineDrawer.drawDotLines(this.x, this.y, this.z, var8, var4, 0.0F, 0.0F, 0.0F, 1.0F, 0.25F, 1);
-            }
-
-            AttackVars var9 = new AttackVars();
-            ArrayList var10 = new ArrayList();
-            SwipeStatePlayer.instance().CalcAttackVars((IsoLivingCharacter)this, var9);
-            SwipeStatePlayer.instance().CalcHitList(this, false, var9, var10);
-            HitInfo var11;
-            if (var9.targetOnGround.getMovingObject() != null) {
-               var11 = (HitInfo)var9.targetsProne.get(0);
-               LineDrawer.DrawIsoCircle(var11.x, var11.y, var11.z, 0.1F, 8, 1.0F, 1.0F, 0.0F, 1.0F);
-            } else if (var9.targetsStanding.size() > 0) {
-               var11 = (HitInfo)var9.targetsStanding.get(0);
-               LineDrawer.DrawIsoCircle(var11.x, var11.y, var11.z, 0.1F, 8, 1.0F, 1.0F, 0.0F, 1.0F);
-            }
-
-            for(int var29 = 0; var29 < var10.size(); ++var29) {
-               HitInfo var12 = (HitInfo)var10.get(var29);
-               IsoMovingObject var13 = var12.getObject();
-               if (var13 != null) {
-                  int var14 = var12.chance;
-                  float var15 = 1.0F - (float)var14 / 100.0F;
-                  float var16 = 1.0F - var15;
-                  float var17 = Math.max(0.2F, (float)var14 / 100.0F) / 2.0F;
-                  float var18 = IsoUtils.XToScreenExact(var13.x - var17, var13.y + var17, var13.z, 0);
-                  float var19 = IsoUtils.YToScreenExact(var13.x - var17, var13.y + var17, var13.z, 0);
-                  float var20 = IsoUtils.XToScreenExact(var13.x - var17, var13.y - var17, var13.z, 0);
-                  float var21 = IsoUtils.YToScreenExact(var13.x - var17, var13.y - var17, var13.z, 0);
-                  float var22 = IsoUtils.XToScreenExact(var13.x + var17, var13.y - var17, var13.z, 0);
-                  float var23 = IsoUtils.YToScreenExact(var13.x + var17, var13.y - var17, var13.z, 0);
-                  float var24 = IsoUtils.XToScreenExact(var13.x + var17, var13.y + var17, var13.z, 0);
-                  float var25 = IsoUtils.YToScreenExact(var13.x + var17, var13.y + var17, var13.z, 0);
-                  SpriteRenderer.instance.renderPoly(var18, var19, var20, var21, var22, var23, var24, var25, var15, var16, 0.0F, 0.5F);
-                  UIFont var26 = UIFont.DebugConsole;
-                  TextManager.instance.DrawStringCentre(var26, (double)var24, (double)var25, String.valueOf(var12.dot), 1.0, 1.0, 1.0, 1.0);
-                  TextManager.instance.DrawStringCentre(var26, (double)var24, (double)(var25 + (float)TextManager.instance.getFontHeight(var26)), var12.chance + "%", 1.0, 1.0, 1.0, 1.0);
-                  var15 = 1.0F;
-                  var16 = 1.0F;
-                  float var27 = 1.0F;
-                  float var28 = PZMath.sqrt(var12.distSq);
-                  if (var28 < var2.getMinRange()) {
-                     var27 = 0.0F;
-                     var15 = 0.0F;
-                  }
-
-                  TextManager.instance.DrawStringCentre(var26, (double)var24, (double)(var25 + (float)(TextManager.instance.getFontHeight(var26) * 2)), "DIST: " + var28, (double)var15, (double)var16, (double)var27, 1.0);
+            float var4 = var2.getMinRange();
+            float var5 = PZMath.min(var3 + 1.0F, 2.0F);
+            float var6 = this.getLookAngleRadians();
+            IndieGL.disableDepthTest();
+            IndieGL.StartShader(0);
+            float var13;
+            if (this.ballisticsController != null) {
+               Color var7 = Color.white;
+               Vector3 var8 = this.ballisticsController.getMuzzlePosition();
+               float var9 = var8.x + (float)Math.cos((double)var6) * var3;
+               float var10 = var8.y + (float)Math.sin((double)var6) * var3;
+               float var11 = (float)Math.cos((double)var6);
+               float var12 = (float)Math.sin((double)var6);
+               var13 = this.getZ();
+               GeometryUtils.perpendicular(var11, var12, var13, tempVector3f00, tempVector3f01);
+               tempVector3f00.mul(CombatManager.BallisticsControllerDistanceThreshold);
+               LineDrawer.DrawIsoLine(var8.x, var8.y, var8.z, var9, var10, var8.z, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.drawDirectionLine(var8.x + tempVector3f00.x, var8.y + tempVector3f00.y, var8.z + tempVector3f00.z, var3, var6, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.drawDirectionLine(var8.x - tempVector3f00.x, var8.y - tempVector3f00.y, var8.z - tempVector3f00.z, var3, var6, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.DrawIsoLine(var8.x - tempVector3f00.x, var8.y - tempVector3f00.y, var8.z - tempVector3f00.z, var8.x + tempVector3f00.x, var8.y + tempVector3f00.y, var8.z + tempVector3f00.z, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.DrawIsoLine(var9 - tempVector3f00.x, var10 - tempVector3f00.y, var8.z - tempVector3f00.z, var9 + tempVector3f00.x, var10 + tempVector3f00.y, var8.z + tempVector3f00.z, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.DrawIsoLine(var8.x, var8.y, var13, var9, var10, var13, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.drawDirectionLine(var8.x + tempVector3f00.x, var8.y + tempVector3f00.y, var13 + tempVector3f00.z, var3, var6, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.drawDirectionLine(var8.x - tempVector3f00.x, var8.y - tempVector3f00.y, var13 - tempVector3f00.z, var3, var6, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.DrawIsoLine(var8.x - tempVector3f00.x, var8.y - tempVector3f00.y, var13 - tempVector3f00.z, var8.x + tempVector3f00.x, var8.y + tempVector3f00.y, var13 + tempVector3f00.z, var7.r, var7.g, var7.b, 1.0F, 1);
+               LineDrawer.DrawIsoLine(var9 - tempVector3f00.x, var10 - tempVector3f00.y, var13 - tempVector3f00.z, var9 + tempVector3f00.x, var10 + tempVector3f00.y, var13 + tempVector3f00.z, var7.r, var7.g, var7.b, 1.0F, 1);
+            } else {
+               float var27 = var2.getMinAngle();
+               var27 -= var2.getAimingPerkMinAngleModifier() * ((float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 2.0F);
+               LineDrawer.drawDirectionLine(this.getX(), this.getY(), this.getZ(), var3, var6, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+               LineDrawer.drawDotLines(this.getX(), this.getY(), this.getZ(), var3, var6, var27, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+               LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), var4, var6, var27, 6, 1.0F, 1.0F, 1.0F, 0.5F);
+               if (var4 != var3) {
+                  LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), var3, var6, var27, 6, 1.0F, 1.0F, 1.0F, 0.5F);
                }
 
-               if (var12.window.getObject() != null) {
-                  var12.window.getObject().setHighlighted(true);
+               LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), var5, var6, var27, 6, 0.75F, 0.75F, 0.75F, 0.5F);
+               float var28 = Core.getInstance().getIgnoreProneZombieRange();
+               if (var28 > 0.0F) {
+                  LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), var28, var6, 0.0F, 12, 0.0F, 0.0F, 1.0F, 0.25F);
+                  LineDrawer.drawDotLines(this.getX(), this.getY(), this.getZ(), var28, var6, 0.0F, 0.0F, 0.0F, 1.0F, 0.25F, 1);
+               }
+
+               HitInfo var29;
+               if (this.attackVars.targetOnGround.getMovingObject() != null) {
+                  var29 = (HitInfo)this.attackVars.targetsProne.get(0);
+                  LineDrawer.DrawIsoCircle(var29.x, var29.y, var29.z, 0.1F, 8, 1.0F, 1.0F, 0.0F, 1.0F);
+               } else if (!this.attackVars.targetsStanding.isEmpty()) {
+                  var29 = (HitInfo)this.attackVars.targetsStanding.get(0);
+                  LineDrawer.DrawIsoCircle(var29.x, var29.y, var29.z, 0.1F, 8, 1.0F, 1.0F, 0.0F, 1.0F);
+               }
+
+               for(int var30 = 0; var30 < this.hitInfoList.size(); ++var30) {
+                  HitInfo var31 = (HitInfo)this.hitInfoList.get(var30);
+                  IsoMovingObject var32 = var31.getObject();
+                  if (var32 != null) {
+                     int var33 = var31.chance;
+                     var13 = 1.0F - (float)var33 / 100.0F;
+                     float var14 = 1.0F - var13;
+                     float var15 = Math.max(0.2F, (float)var33 / 100.0F) / 2.0F;
+                     float var16 = IsoUtils.XToScreenExact(var32.getX() - var15, var32.getY() + var15, var32.getZ(), 0);
+                     float var17 = IsoUtils.YToScreenExact(var32.getX() - var15, var32.getY() + var15, var32.getZ(), 0);
+                     float var18 = IsoUtils.XToScreenExact(var32.getX() - var15, var32.getY() - var15, var32.getZ(), 0);
+                     float var19 = IsoUtils.YToScreenExact(var32.getX() - var15, var32.getY() - var15, var32.getZ(), 0);
+                     float var20 = IsoUtils.XToScreenExact(var32.getX() + var15, var32.getY() - var15, var32.getZ(), 0);
+                     float var21 = IsoUtils.YToScreenExact(var32.getX() + var15, var32.getY() - var15, var32.getZ(), 0);
+                     float var22 = IsoUtils.XToScreenExact(var32.getX() + var15, var32.getY() + var15, var32.getZ(), 0);
+                     float var23 = IsoUtils.YToScreenExact(var32.getX() + var15, var32.getY() + var15, var32.getZ(), 0);
+                     SpriteRenderer.instance.renderPoly(var16, var17, var18, var19, var20, var21, var22, var23, var13, var14, 0.0F, 0.5F);
+                     UIFont var24 = UIFont.Dialogue;
+                     TextManager.instance.DrawStringCentre(var24, (double)var22, (double)var23, String.valueOf(var31.dot), 1.0, 1.0, 1.0, 1.0);
+                     TextManager.instance.DrawStringCentre(var24, (double)var22, (double)(var23 + (float)TextManager.instance.getFontHeight(var24)), var31.chance + "%", 1.0, 1.0, 1.0, 1.0);
+                     var13 = 1.0F;
+                     var14 = 1.0F;
+                     float var25 = 1.0F;
+                     float var26 = PZMath.sqrt(var31.distSq);
+                     if (var26 < var2.getMinRange()) {
+                        var25 = 0.0F;
+                        var13 = 0.0F;
+                     }
+
+                     TextManager.instance.DrawStringCentre(var24, (double)var22, (double)(var23 + (float)(TextManager.instance.getFontHeight(var24) * 2)), "DIST: " + var26, (double)var13, (double)var14, (double)var25, 1.0);
+                  }
+
+                  if (var31.window.getObject() != null) {
+                     var31.window.getObject().setHighlighted(true);
+                  }
                }
             }
 
@@ -5995,28 +6950,28 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          float var1 = this.getLookAngleRadians();
          float var2 = 2.0F;
          float var3 = 0.7F;
-         LineDrawer.drawDotLines(this.x, this.y, this.z, var2, var1, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+         LineDrawer.drawDotLines(this.getX(), this.getY(), this.getZ(), var2, var1, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
          var3 = -0.5F;
-         LineDrawer.drawDotLines(this.x, this.y, this.z, var2, var1, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
-         LineDrawer.drawArc(this.x, this.y, this.z, var2, var1, -1.0F, 16, 1.0F, 1.0F, 1.0F, 0.5F);
+         LineDrawer.drawDotLines(this.getX(), this.getY(), this.getZ(), var2, var1, var3, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+         LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), var2, var1, -1.0F, 16, 1.0F, 1.0F, 1.0F, 0.5F);
          ArrayList var4 = this.getCell().getZombieList();
 
          for(int var5 = 0; var5 < var4.size(); ++var5) {
             IsoMovingObject var6 = (IsoMovingObject)var4.get(var5);
             if (this.DistToSquared(var6) < var2 * var2) {
-               LineDrawer.DrawIsoCircle(var6.x, var6.y, var6.z, 0.3F, 1.0F, 1.0F, 1.0F, 1.0F);
+               LineDrawer.DrawIsoCircle(var6.getX(), var6.getY(), var6.getZ(), 0.3F, 1.0F, 1.0F, 1.0F, 1.0F);
                float var7 = 0.2F;
-               float var8 = IsoUtils.XToScreenExact(var6.x + var7, var6.y + var7, var6.z, 0);
-               float var9 = IsoUtils.YToScreenExact(var6.x + var7, var6.y + var7, var6.z, 0);
+               float var8 = IsoUtils.XToScreenExact(var6.getX() + var7, var6.getY() + var7, var6.getZ(), 0);
+               float var9 = IsoUtils.YToScreenExact(var6.getX() + var7, var6.getY() + var7, var6.getZ(), 0);
                UIFont var10 = UIFont.DebugConsole;
                int var11 = TextManager.instance.getFontHeight(var10);
                TextManager.instance.DrawStringCentre(var10, (double)var8, (double)(var9 + (float)var11), "SIDE: " + this.testDotSide(var6), 1.0, 1.0, 1.0, 1.0);
                Vector2 var12 = this.getLookVector(tempo2);
-               Vector2 var13 = tempo.set(var6.x - this.x, var6.y - this.y);
+               Vector2 var13 = tempo.set(var6.getX() - this.getX(), var6.getY() - this.getY());
                var13.normalize();
                float var14 = PZMath.wrap(var13.getDirection() - var12.getDirection(), 0.0F, 6.2831855F);
                TextManager.instance.DrawStringCentre(var10, (double)var8, (double)(var9 + (float)(var11 * 2)), "ANGLE (0-360): " + PZMath.radToDeg(var14), 1.0, 1.0, 1.0, 1.0);
-               var14 = (float)Math.acos((double)this.getDotWithForwardDirection(var6.x, var6.y));
+               var14 = (float)Math.acos((double)this.getDotWithForwardDirection(var6.getX(), var6.getY()));
                TextManager.instance.DrawStringCentre(var10, (double)var8, (double)(var9 + (float)(var11 * 3)), "ANGLE (0-180): " + PZMath.radToDeg(var14), 1.0, 1.0, 1.0, 1.0);
             }
          }
@@ -6027,10 +6982,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    private void debugVision() {
       if (this == IsoPlayer.getInstance()) {
          float var1 = LightingJNI.calculateVisionCone(this);
-         LineDrawer.drawDotLines(this.x, this.y, this.z, GameTime.getInstance().getViewDist(), this.getLookAngleRadians(), -var1, 1.0F, 1.0F, 1.0F, 0.5F, 1);
-         LineDrawer.drawArc(this.x, this.y, this.z, GameTime.getInstance().getViewDist(), this.getLookAngleRadians(), -var1, 16, 1.0F, 1.0F, 1.0F, 0.5F);
-         float var2 = 3.5F - this.stats.getFatigue();
-         LineDrawer.drawArc(this.x, this.y, this.z, var2, this.getLookAngleRadians(), -1.0F, 32, 1.0F, 1.0F, 1.0F, 0.5F);
+         LineDrawer.drawDotLines(this.getX(), this.getY(), this.getZ(), GameTime.getInstance().getViewDist(), this.getLookAngleRadians(), -var1, 1.0F, 1.0F, 1.0F, 0.5F, 1);
+         LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), GameTime.getInstance().getViewDist(), this.getLookAngleRadians(), -var1, 16, 1.0F, 1.0F, 1.0F, 0.5F);
+         float var2 = LightingJNI.calculateRearZombieDistance(this);
+         LineDrawer.drawArc(this.getX(), this.getY(), this.getZ(), var2, this.getLookAngleRadians(), -1.0F, 32, 1.0F, 1.0F, 1.0F, 0.5F);
       }
    }
 
@@ -6073,28 +7028,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
-   public void sendStopBurning() {
-      if (GameClient.bClient) {
-         if (this instanceof IsoPlayer) {
-            IsoPlayer var1 = (IsoPlayer)this;
-            if (var1.isLocalPlayer()) {
-               this.StopBurning();
-            } else {
-               GameClient.sendStopFire((IsoGameCharacter)var1);
-            }
-         }
-
-         if (this.isZombie()) {
-            IsoZombie var2 = (IsoZombie)this;
-            GameClient.sendStopFire((IsoGameCharacter)var2);
-         }
-      }
-
-   }
-
    public void SpreadFireMP() {
       if (this.OnFire && GameServer.bServer && SandboxOptions.instance.FireSpread.getValue()) {
-         IsoGridSquare var1 = ServerMap.instance.getGridSquare((int)this.x, (int)this.y, (int)this.z);
+         IsoGridSquare var1 = ServerMap.instance.getGridSquare((int)this.getX(), (int)this.getY(), (int)this.getZ());
          if (var1 != null && !var1.getProperties().Is(IsoFlagType.burning) && Rand.Next(Rand.AdjustForFramerate(3000)) < this.FireSpreadProbability) {
             IsoFireManager.StartFire(this.getCell(), var1, false, 80);
          }
@@ -6145,129 +7081,90 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          new IsoMolotovCocktail(this.getCell(), this.getX(), this.getY(), this.getZ() + 0.6F, var5 * 0.4F, var3 * 0.4F, var1, this);
       }
 
+      this.setPrimaryHandItem((InventoryItem)null);
       if (this instanceof IsoPlayer) {
          ((IsoPlayer)this).setAttackAnimThrowTimer(0L);
       }
 
    }
 
-   public void serverRemoveItemFromZombie(String var1) {
-      if (GameServer.bServer) {
-         IsoZombie var2 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
-         this.getItemVisuals(tempItemVisuals);
-
-         for(int var3 = 0; var3 < tempItemVisuals.size(); ++var3) {
-            ItemVisual var4 = (ItemVisual)tempItemVisuals.get(var3);
-            Item var5 = var4.getScriptItem();
-            if (var5 != null && var5.name.equals(var1)) {
-               tempItemVisuals.remove(var3--);
-               var2.itemVisuals.clear();
-               var2.itemVisuals.addAll(tempItemVisuals);
-            }
-         }
-
-      }
-   }
-
    public boolean helmetFall(boolean var1) {
-      return this.helmetFall(var1, (String)null);
-   }
+      if (GameClient.bClient) {
+         return false;
+      } else if (GameServer.bServer) {
+         return GameServer.helmetFall(this, var1);
+      } else {
+         IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+         boolean var3 = false;
+         IsoZombie var4 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
+         int var5;
+         if (var4 != null && !var4.isUsingWornItems()) {
+            this.getItemVisuals(tempItemVisuals);
 
-   public boolean helmetFall(boolean var1, String var2) {
-      IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
-      boolean var4 = false;
-      InventoryItem var5 = null;
-      IsoZombie var6 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
-      int var7;
-      IsoFallingClothing var12;
-      if (var6 != null && !var6.isUsingWornItems()) {
-         this.getItemVisuals(tempItemVisuals);
+            for(var5 = 0; var5 < tempItemVisuals.size(); ++var5) {
+               ItemVisual var11 = (ItemVisual)tempItemVisuals.get(var5);
+               Item var12 = var11.getScriptItem();
+               if (var12 != null && var12.getType() == Item.Type.Clothing && var12.getChanceToFall() > 0) {
+                  int var13 = var12.getChanceToFall();
+                  if (var1) {
+                     var13 += 40;
+                  }
 
-         for(var7 = 0; var7 < tempItemVisuals.size(); ++var7) {
-            ItemVisual var13 = (ItemVisual)tempItemVisuals.get(var7);
-            Item var14 = var13.getScriptItem();
-            if (var14 != null && var14.getType() == Item.Type.Clothing && var14.getChanceToFall() > 0) {
-               int var15 = var14.getChanceToFall();
-               if (var1) {
-                  var15 += 40;
-               }
+                  if (Rand.Next(100) > var13) {
+                     InventoryItem var14 = InventoryItemFactory.CreateItem(var12.getFullName());
+                     if (var14 != null) {
+                        if (var14.getVisual() != null) {
+                           var14.getVisual().copyFrom(var11);
+                           var14.synchWithVisual();
+                        }
 
-               if (var14.name.equals(var2)) {
-                  var15 = 100;
-               }
-
-               if (Rand.Next(100) > var15) {
-                  InventoryItem var16 = InventoryItemFactory.CreateItem(var14.getFullName());
-                  if (var16 != null) {
-                     if (var16.getVisual() != null) {
-                        var16.getVisual().copyFrom(var13);
-                        var16.synchWithVisual();
+                        new IsoFallingClothing(this.getCell(), this.getX(), this.getY(), PZMath.min(this.getZ() + 0.4F, (float)PZMath.fastfloor(this.getZ()) + 0.95F), 0.2F, 0.2F, var14);
+                        tempItemVisuals.remove(var5--);
+                        var4.itemVisuals.clear();
+                        var4.itemVisuals.addAll(tempItemVisuals);
+                        this.resetModelNextFrame();
+                        this.onWornItemsChanged();
+                        var3 = true;
                      }
+                  }
+               }
+            }
+         } else if (this.getWornItems() != null && !this.getWornItems().isEmpty()) {
+            for(var5 = 0; var5 < this.getWornItems().size(); ++var5) {
+               WornItem var6 = this.getWornItems().get(var5);
+               InventoryItem var7 = var6.getItem();
+               String var8 = var6.getLocation();
+               if (var7 instanceof Clothing) {
+                  int var9 = ((Clothing)var7).getChanceToFall();
+                  if (var1) {
+                     var9 += 40;
+                  }
 
-                     var12 = new IsoFallingClothing(this.getCell(), this.getX(), this.getY(), PZMath.min(this.getZ() + 0.4F, (float)((int)this.getZ()) + 0.95F), 0.2F, 0.2F, var16);
-                     if (!StringUtils.isNullOrEmpty(var2)) {
-                        var12.addWorldItem = false;
-                     }
-
-                     tempItemVisuals.remove(var7--);
-                     var6.itemVisuals.clear();
-                     var6.itemVisuals.addAll(tempItemVisuals);
+                  if (((Clothing)var7).getChanceToFall() > 0 && Rand.Next(100) <= var9) {
+                     new IsoFallingClothing(this.getCell(), this.getX(), this.getY(), PZMath.min(this.getZ() + 0.4F, (float)((int)this.getZ()) + 0.95F), Rand.Next(-0.2F, 0.2F), Rand.Next(-0.2F, 0.2F), var7);
+                     this.getInventory().Remove(var7);
+                     this.getWornItems().remove(var7);
                      this.resetModelNextFrame();
                      this.onWornItemsChanged();
-                     var4 = true;
-                     var5 = var16;
+                     var3 = true;
+                     if (GameClient.bClient && var2 != null && var2.isLocalPlayer()) {
+                        INetworkPacket.send(PacketTypes.PacketType.SyncClothing, var2);
+                     }
                   }
                }
             }
          }
-      } else if (this.getWornItems() != null && !this.getWornItems().isEmpty()) {
-         for(var7 = 0; var7 < this.getWornItems().size(); ++var7) {
-            WornItem var8 = this.getWornItems().get(var7);
-            InventoryItem var9 = var8.getItem();
-            String var10 = var8.getLocation();
-            if (var9 instanceof Clothing) {
-               int var11 = ((Clothing)var9).getChanceToFall();
-               if (var1) {
-                  var11 += 40;
-               }
 
-               if (var9.getType().equals(var2)) {
-                  var11 = 100;
-               }
-
-               if (((Clothing)var9).getChanceToFall() > 0 && Rand.Next(100) <= var11) {
-                  var12 = new IsoFallingClothing(this.getCell(), this.getX(), this.getY(), PZMath.min(this.getZ() + 0.4F, (float)((int)this.getZ()) + 0.95F), Rand.Next(-0.2F, 0.2F), Rand.Next(-0.2F, 0.2F), var9);
-                  if (!StringUtils.isNullOrEmpty(var2)) {
-                     var12.addWorldItem = false;
-                  }
-
-                  this.getInventory().Remove(var9);
-                  this.getWornItems().remove(var9);
-                  var5 = var9;
-                  this.resetModelNextFrame();
-                  this.onWornItemsChanged();
-                  var4 = true;
-                  if (GameClient.bClient && var3 != null && var3.isLocalPlayer() && StringUtils.isNullOrEmpty(var2)) {
-                     GameClient.instance.sendClothing(var3, var10, (InventoryItem)null);
-                  }
-               }
-            }
+         if (var3 && var2 != null && var2.isLocalPlayer()) {
+            LuaEventManager.triggerEvent("OnClothingUpdated", this);
          }
-      }
 
-      if (var4 && GameClient.bClient && StringUtils.isNullOrEmpty(var2) && IsoPlayer.getInstance().isLocalPlayer()) {
-         GameClient.sendZombieHelmetFall(IsoPlayer.getInstance(), this, var5);
-      }
+         if (var3 && this.isZombie()) {
+            PersistentOutfits.instance.setFallenHat(this, true);
+         }
 
-      if (var4 && var3 != null && var3.isLocalPlayer()) {
-         LuaEventManager.triggerEvent("OnClothingUpdated", this);
+         return var3;
       }
-
-      if (var4 && this.isZombie()) {
-         PersistentOutfits.instance.setFallenHat(this, true);
-      }
-
-      return var4;
    }
 
    public void smashCarWindow(VehiclePart var1) {
@@ -6309,20 +7206,21 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void climbThroughWindow(IsoWindow var1) {
       if (var1.canClimbThrough(this)) {
-         float var2 = this.x - (float)((int)this.x);
-         float var3 = this.y - (float)((int)this.y);
+         this.dropHeavyItems();
+         float var2 = this.getX() - (float)PZMath.fastfloor(this.getX());
+         float var3 = this.getY() - (float)PZMath.fastfloor(this.getY());
          byte var4 = 0;
          byte var5 = 0;
-         if (var1.getX() > this.x && !var1.north) {
+         if (var1.getX() > this.getX() && !var1.north) {
             var4 = -1;
          }
 
-         if (var1.getY() > this.y && var1.north) {
+         if (var1.getY() > this.getY() && var1.north) {
             var5 = -1;
          }
 
-         this.x = var1.getX() + var2 + (float)var4;
-         this.y = var1.getY() + var3 + (float)var5;
+         this.setX(var1.getX() + var2 + (float)var4);
+         this.setY(var1.getY() + var3 + (float)var5);
          ClimbThroughWindowState.instance().setParams(this, var1);
          this.actionContext.reportEvent("EventClimbWindow");
       }
@@ -6331,6 +7229,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void climbThroughWindow(IsoWindow var1, Integer var2) {
       if (var1.canClimbThrough(this)) {
+         this.dropHeavyItems();
          ClimbThroughWindowState.instance().setParams(this, var1);
          this.actionContext.reportEvent("EventClimbWindow");
       }
@@ -6359,8 +7258,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
-   public void climbThroughWindowFrame(IsoObject var1) {
-      if (IsoWindowFrame.canClimbThrough(var1, this)) {
+   public void climbThroughWindowFrame(IsoWindowFrame var1) {
+      if (var1.canClimbThrough(this)) {
+         this.dropHeavyItems();
          ClimbThroughWindowState.instance().setParams(this, var1);
          this.actionContext.reportEvent("EventClimbWindow");
       }
@@ -6369,6 +7269,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void climbSheetRope() {
       if (this.canClimbSheetRope(this.current)) {
+         this.dropHeavyItems();
          HashMap var1 = this.getStateMachineParams(ClimbSheetRopeState.instance());
          var1.clear();
          this.actionContext.reportEvent("EventClimbRope");
@@ -6438,20 +7339,21 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void climbThroughWindow(IsoThumpable var1) {
       if (var1.canClimbThrough(this)) {
-         float var2 = this.x - (float)((int)this.x);
-         float var3 = this.y - (float)((int)this.y);
+         this.dropHeavyItems();
+         float var2 = this.getX() - (float)PZMath.fastfloor(this.getX());
+         float var3 = this.getY() - (float)PZMath.fastfloor(this.getY());
          byte var4 = 0;
          byte var5 = 0;
-         if (var1.getX() > this.x && !var1.north) {
+         if (var1.getX() > this.getX() && !var1.north) {
             var4 = -1;
          }
 
-         if (var1.getY() > this.y && var1.north) {
+         if (var1.getY() > this.getY() && var1.north) {
             var5 = -1;
          }
 
-         this.x = var1.getX() + var2 + (float)var4;
-         this.y = var1.getY() + var3 + (float)var5;
+         this.setX(var1.getX() + var2 + (float)var4);
+         this.setY(var1.getY() + var3 + (float)var5);
          ClimbThroughWindowState.instance().setParams(this, var1);
          this.actionContext.reportEvent("EventClimbWindow");
       }
@@ -6460,6 +7362,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void climbThroughWindow(IsoThumpable var1, Integer var2) {
       if (var1.canClimbThrough(this)) {
+         this.dropHeavyItems();
          ClimbThroughWindowState.instance().setParams(this, var1);
          this.actionContext.reportEvent("EventClimbWindow");
       }
@@ -6477,30 +7380,155 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isAboveTopOfStairs() {
-      if (this.z != 0.0F && !((double)(this.z - (float)((int)this.z)) > 0.01) && (this.current == null || !this.current.TreatAsSolidFloor())) {
-         IsoGridSquare var1 = this.getCell().getGridSquare((double)this.x, (double)this.y, (double)(this.z - 1.0F));
+      if (this.getZ() != 0.0F && !((double)(this.getZ() - (float)PZMath.fastfloor(this.getZ())) > 0.01) && (this.current == null || !this.current.TreatAsSolidFloor())) {
+         IsoGridSquare var1 = this.getCell().getGridSquare((double)this.getX(), (double)this.getY(), (double)(this.getZ() - 1.0F));
          return var1 != null && (var1.Has(IsoObjectType.stairsTN) || var1.Has(IsoObjectType.stairsTW));
       } else {
          return false;
       }
    }
 
+   public void throwGrappledTargetOutWindow(IsoObject var1) {
+      DebugType.Grapple.debugln("Attempting to throw out window: %s", var1);
+      if (!this.isGrappling()) {
+         DebugLog.Grapple.warn("Not currently grapling anything. Nothing to throw out the window, windowObject:%s", var1);
+      } else {
+         IGrappleable var2 = this.getGrapplingTarget();
+         IsoGameCharacter var3 = (IsoGameCharacter)Type.tryCastTo(var2, IsoGameCharacter.class);
+         if (var3 != null) {
+            ClimbThroughWindowPositioningParams var4 = ClimbThroughWindowPositioningParams.alloc();
+            ClimbThroughWindowState.getClimbThroughWindowPositioningParams(this, var1, var4);
+            if (!var4.canClimb) {
+               DebugType.Grapple.error("Cannot climb through, cannot throw out through.");
+               var4.release();
+            } else {
+               this.setDoGrapple(false);
+               this.setDoGrappleLetGo();
+               this.setDir(var4.climbDir.Rot180());
+               ClimbThroughWindowState.slideCharacterToWindowOpening(this, var4);
+               GrappledThrownOutWindowState.instance().setParams(var3, var4.windowObject);
+               this.actionContext.reportEvent("GrappleThrowOutWindow");
+               this.setGrappleThrowOutWindow(true);
+               var4.release();
+            }
+         }
+      }
+   }
+
+   public void pickUpCorpse(IsoDeadBody var1) {
+      DebugType.Grapple.debugln("Attempting to pick up corpse: %s", var1);
+      if (var1 == null) {
+         DebugType.Grapple.error("Body is null.");
+      } else {
+         this.setDoGrapple(true);
+         float var2 = this.calculateGrappleEffectivenessFromTraits();
+         var1.Grappled(this, this.getAttackingWeapon(), var2, "BwdDrag");
+         this.setDoGrapple(false);
+      }
+   }
+
+   public float calculateGrappleEffectivenessFromTraits() {
+      float var1 = 1.0F;
+      if (this.Traits.Underweight.isSet()) {
+         var1 *= 0.8F;
+      }
+
+      if (this.Traits.VeryUnderweight.isSet()) {
+         var1 *= 0.6F;
+      }
+
+      if (this.Traits.Emaciated.isSet()) {
+         var1 *= 0.4F;
+      }
+
+      if (this.Traits.Overweight.isSet()) {
+         var1 *= 1.1F;
+      }
+
+      if (this.Traits.Obese.isSet()) {
+         var1 *= 1.05F;
+      }
+
+      if (this.Traits.Strong.isSet()) {
+         var1 *= 1.25F;
+      }
+
+      if (this.Traits.Athletic.isSet()) {
+         var1 *= 1.25F;
+      }
+
+      if (this.Traits.PlaysFootball.isSet()) {
+         var1 *= 1.3F;
+      }
+
+      if (this.Traits.Lucky.isSet()) {
+         var1 *= 1.1F;
+      }
+
+      if (this.Traits.Brave.isSet()) {
+         var1 *= 1.1F;
+      }
+
+      if (this.Traits.Cowardly.isSet()) {
+         var1 *= 0.9F;
+      }
+
+      if (this.Traits.SpeedDemon.isSet()) {
+         var1 *= 1.15F;
+      }
+
+      return var1;
+   }
+
    public void preupdate() {
       super.preupdate();
+      this.updateAnimationTimeDelta();
       if (!this.m_bDebugVariablesRegistered && DebugOptions.instance.Character.Debug.RegisterDebugVariables.getValue()) {
          this.registerDebugGameVariables();
       }
 
       this.updateAnimationRecorderState();
-      if (this.isAnimationRecorderActive()) {
+      if (this.m_animationRecorder != null && (this.m_animationRecorder.isRecording() || this.m_animationRecorder.hasActiveLine())) {
          int var1 = IsoWorld.instance.getFrameNo();
-         this.m_animationRecorder.beginLine(var1);
+         this.m_animationRecorder.newFrame(var1);
       }
 
+      if (GameServer.bServer && this.handItemShouldSendToClients) {
+         if (GameServer.bServer) {
+            INetworkPacket.send((IsoPlayer)this, PacketTypes.PacketType.Equip, this);
+         }
+
+         this.handItemShouldSendToClients = false;
+      }
+
+   }
+
+   private void updateAnimationTimeDelta() {
+      this.m_animationTimeScale = 1.0F;
+      this.m_animationUpdatingThisFrame = true;
+      if (DebugOptions.instance.ZombieAnimationDelay.getValue()) {
+         if (this.getAlpha(IsoCamera.frameState.playerIndex) < 0.03F) {
+            this.m_animationUpdatingThisFrame = this.m_animationInvisibleFrameDelay.update();
+            if (this.m_animationUpdatingThisFrame) {
+               if (GameClient.bClient && this instanceof IsoZombie && ((IsoZombie)this).isRemoteZombie()) {
+                  this.m_animationTimeScale = 1.0F;
+               } else {
+                  this.m_animationTimeScale = (float)(this.m_animationInvisibleFrameDelay.delay + 1);
+               }
+            }
+         }
+
+      }
+   }
+
+   public void updateHandEquips() {
       if (GameServer.bServer) {
-         this.getXp().update();
+         INetworkPacket.send((IsoPlayer)this, PacketTypes.PacketType.Equip, this);
+      } else {
+         INetworkPacket.send(PacketTypes.PacketType.Equip, this);
       }
 
+      this.handItemShouldSendToClients = false;
    }
 
    public void setTeleport(NetworkTeleport var1) {
@@ -6516,7 +7544,49 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void update() {
-      IsoGameCharacter.s_performance.update.invokeAndMeasure(this, IsoGameCharacter::updateInternal);
+      this.updateInternal.invoke();
+   }
+
+   public boolean isPushedByForSeparate(IsoMovingObject var1) {
+      if (var1 instanceof IGrappleable var2) {
+         if (this.isGrapplingTarget(var2)) {
+            return false;
+         }
+
+         if (this.isBeingGrappledBy(var2)) {
+            return false;
+         }
+      }
+
+      return super.isPushedByForSeparate(var1);
+   }
+
+   public void setHitDir(Vector2 var1) {
+      super.setHitDir(var1);
+      this.setHitDirEnum(this.determineHitDirEnum(var1));
+   }
+
+   private void setHitDirEnum(String var1) {
+      this.m_hitDirEnum = var1;
+   }
+
+   public String getHitDirEnum() {
+      return this.m_hitDirEnum;
+   }
+
+   private String determineHitDirEnum(Vector2 var1) {
+      Vector2 var2 = this.getLookVector(IsoGameCharacter.l_testDotSide.v1);
+      Vector2 var3 = IsoGameCharacter.l_testDotSide.v3.set(var1);
+      var3.normalize();
+      float var4 = Vector2.dot(var3.x, var3.y, var2.x, var2.y);
+      if ((double)var4 < -0.5) {
+         return "FRONT";
+      } else if ((double)var4 > 0.5) {
+         return "BEHIND";
+      } else {
+         float var5 = var3.x * var2.y - var3.y * var2.x;
+         return var5 > 0.0F ? "RIGHT" : "LEFT";
+      }
    }
 
    private void updateInternal() {
@@ -6526,25 +7596,27 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
 
          this.updateAlpha();
-         if (this.isNPC) {
-            if (this.GameCharacterAIBrain == null) {
-               this.GameCharacterAIBrain = new GameCharacterAIBrain(this);
-            }
+         if (!this.isAnimal()) {
+            this.updateBallisticsTarget();
+         }
 
-            this.GameCharacterAIBrain.update();
+         if (this.isNPC) {
+            this.ai.update();
          }
 
          if (this.sprite != null) {
             this.legsSprite = this.sprite;
          }
 
-         if (!this.isDead() || this.current != null && this.current.getMovingObjects().contains(this)) {
-            if (!GameClient.bClient && !this.m_invisible && this.getCurrentSquare().getTrapPositionX() > -1 && this.getCurrentSquare().getTrapPositionY() > -1 && this.getCurrentSquare().getTrapPositionZ() > -1) {
-               this.getCurrentSquare().explodeTrap();
-            }
+         if (this.isGrappling() && !this.isPerformingAnyGrappleAnimation() && !this.isInGrapplerState()) {
+            this.LetGoOfGrappled("Aborted");
+         }
 
-            if (this.getBodyDamage() != null && this.getCurrentBuilding() != null && this.getCurrentBuilding().isToxic()) {
-               float var1 = GameTime.getInstance().getMultiplier() / 1.6F;
+         if (!this.isDead() || this.current != null && this.current.getMovingObjects().contains(this)) {
+            this.checkSCBADrain();
+            float var1;
+            if (this.getBodyDamage() != null && this.getCurrentBuilding() != null && this.getCurrentBuilding().isToxic() && !this.isProtectedFromToxic(true)) {
+               var1 = GameTime.getInstance().getThirtyFPSMultiplier();
                if (this.getStats().getFatigue() < 1.0F) {
                   this.getStats().setFatigue(this.getStats().getFatigue() + 1.0E-4F * var1);
                }
@@ -6557,7 +7629,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
 
             if (this.lungeFallTimer > 0.0F) {
-               this.lungeFallTimer -= GameTime.getInstance().getMultiplier() / 1.6F;
+               this.lungeFallTimer -= GameTime.getInstance().getThirtyFPSMultiplier();
             }
 
             if (this.getMeleeDelay() > 0.0F) {
@@ -6570,23 +7642,27 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
             this.sx = 0.0F;
             this.sy = 0.0F;
-            if (this.current.getRoom() != null && this.current.getRoom().building.def.bAlarmed && (!this.isZombie() || Core.bTutorial) && !GameClient.bClient) {
+            if (this.current.getRoom() != null && this.current.getRoom().building.def.isAlarmed() && (!this.isZombie() || Core.bTutorial) && !GameClient.bClient) {
                boolean var5 = false;
                if (this instanceof IsoPlayer && (((IsoPlayer)this).isInvisible() || ((IsoPlayer)this).isGhostMode())) {
                   var5 = true;
                }
 
-               if (!var5) {
+               if (!var5 && !this.isAnimal()) {
                   AmbientStreamManager.instance.doAlarm(this.current.getRoom().def);
                }
             }
 
             this.updateSeenVisibility();
-            this.llx = this.getLx();
-            this.lly = this.getLy();
-            this.setLx(this.getX());
-            this.setLy(this.getY());
-            this.setLz(this.getZ());
+            this.llx = this.getLastX();
+            this.lly = this.getLastY();
+            if (this.getClimbRopeTime() != 0.0F && !this.isClimbingRope()) {
+               this.setClimbRopeTime(0.0F);
+            }
+
+            this.setLastX(this.getX());
+            this.setLastY(this.getY());
+            this.setLastZ(this.getZ());
             this.updateBeardAndHair();
             this.updateFalling();
             if (this.descriptor != null) {
@@ -6596,29 +7672,42 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             int var6;
             int var8;
             if (!this.isZombie()) {
+               if (this.Traits.PoorPassenger.isSet() && this.getVehicle() != null && !this.getVehicle().isDriver(this) && this.getVehicle().getCurrentSpeedKmHour() > 50.0F) {
+                  var1 = 0.1F + (this.getVehicle().getCurrentSpeedKmHour() - 50.0F) / 100.0F;
+                  if (this.getVehicle().skidding) {
+                     var1 *= 2.0F;
+                  }
+
+                  if ((double)this.stats.getSickness() < 0.3) {
+                     this.stats.setSickness(this.stats.getSickness() + var1);
+                  }
+               }
+
                Stats var10000;
                if (this.Traits.Agoraphobic.isSet() && !this.getCurrentSquare().isInARoom()) {
                   var10000 = this.stats;
-                  var10000.Panic += 0.5F * (GameTime.getInstance().getMultiplier() / 1.6F);
+                  var10000.Panic += 0.5F * GameTime.getInstance().getThirtyFPSMultiplier();
                }
 
                if (this.Traits.Claustophobic.isSet() && this.getCurrentSquare().isInARoom()) {
                   var6 = this.getCurrentSquare().getRoomSize();
-                  if (var6 > 0) {
+                  if (var6 > 0 && var6 < 70) {
                      float var2 = 1.0F;
                      var2 = 1.0F - (float)var6 / 70.0F;
                      if (var2 < 0.0F) {
                         var2 = 0.0F;
                      }
 
-                     float var3 = 0.6F * var2 * (GameTime.getInstance().getMultiplier() / 1.6F);
-                     if (var3 > 0.6F) {
-                        var3 = 0.6F;
-                     }
-
+                     float var3 = 0.6F * var2 * GameTime.getInstance().getThirtyFPSMultiplier();
                      var10000 = this.stats;
                      var10000.Panic += var3;
                   }
+               }
+
+               if (this.getBodyDamage().getNumPartsBleeding() > 0) {
+                  var1 = (1.0F - this.getBodyDamage().getOverallBodyHealth() / 100.0F) * (float)this.getBodyDamage().getNumPartsBleeding();
+                  var10000 = this.stats;
+                  var10000.Panic += (this.Traits.Hemophobic.isSet() ? 0.4F : 0.2F) * var1 * GameTime.getInstance().getThirtyFPSMultiplier();
                }
 
                if (this.Moodles != null) {
@@ -6632,9 +7721,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                }
 
                if (this.BetaEffect > 0.0F) {
-                  this.BetaEffect -= GameTime.getInstance().getMultiplier() / 1.6F;
+                  this.BetaEffect -= GameTime.getInstance().getThirtyFPSMultiplier();
                   var10000 = this.stats;
-                  var10000.Panic -= 0.6F * (GameTime.getInstance().getMultiplier() / 1.6F);
+                  var10000.Panic -= 0.6F * GameTime.getInstance().getThirtyFPSMultiplier();
                   if (this.stats.Panic < 0.0F) {
                      this.stats.Panic = 0.0F;
                   }
@@ -6643,11 +7732,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                }
 
                if (this.DepressFirstTakeTime > 0.0F || this.DepressEffect > 0.0F) {
-                  this.DepressFirstTakeTime -= GameTime.getInstance().getMultiplier() / 1.6F;
+                  this.DepressFirstTakeTime -= GameTime.getInstance().getThirtyFPSMultiplier();
                   if (this.DepressFirstTakeTime < 0.0F) {
                      this.DepressFirstTakeTime = -1.0F;
-                     this.DepressEffect -= GameTime.getInstance().getMultiplier() / 1.6F;
-                     this.getBodyDamage().setUnhappynessLevel(this.getBodyDamage().getUnhappynessLevel() - 0.03F * (GameTime.getInstance().getMultiplier() / 1.6F));
+                     this.DepressEffect -= GameTime.getInstance().getThirtyFPSMultiplier();
+                     this.getBodyDamage().setUnhappynessLevel(this.getBodyDamage().getUnhappynessLevel() - 0.03F * GameTime.getInstance().getThirtyFPSMultiplier());
                      if (this.getBodyDamage().getUnhappynessLevel() < 0.0F) {
                         this.getBodyDamage().setUnhappynessLevel(0.0F);
                      }
@@ -6659,92 +7748,90 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                }
 
                if (this.SleepingTabletEffect > 0.0F) {
-                  this.SleepingTabletEffect -= GameTime.getInstance().getMultiplier() / 1.6F;
+                  this.SleepingTabletEffect -= GameTime.getInstance().getThirtyFPSMultiplier();
                   var10000 = this.stats;
-                  var10000.fatigue += 0.0016666667F * this.SleepingTabletDelta * (GameTime.getInstance().getMultiplier() / 1.6F);
+                  var10000.fatigue += 0.0016666667F * this.SleepingTabletDelta * GameTime.getInstance().getThirtyFPSMultiplier();
                } else {
                   this.SleepingTabletDelta = 0.0F;
                }
 
-               var6 = this.Moodles.getMoodleLevel(MoodleType.Panic);
-               if (var6 == 2) {
-                  var10000 = this.stats;
-                  var10000.Sanity -= 3.2E-7F;
-               } else if (var6 == 3) {
-                  var10000 = this.stats;
-                  var10000.Sanity -= 4.8000004E-7F;
-               } else if (var6 == 4) {
-                  var10000 = this.stats;
-                  var10000.Sanity -= 8.0E-7F;
-               } else if (var6 == 0) {
-                  var10000 = this.stats;
-                  var10000.Sanity += 1.0E-7F;
-               }
+               if (this.Moodles != null) {
+                  var6 = this.Moodles.getMoodleLevel(MoodleType.Panic);
+                  if (var6 == 2) {
+                     var10000 = this.stats;
+                     var10000.Sanity -= 3.2E-7F;
+                  } else if (var6 == 3) {
+                     var10000 = this.stats;
+                     var10000.Sanity -= 4.8000004E-7F;
+                  } else if (var6 == 4) {
+                     var10000 = this.stats;
+                     var10000.Sanity -= 8.0E-7F;
+                  } else if (var6 == 0) {
+                     var10000 = this.stats;
+                     var10000.Sanity += 1.0E-7F;
+                  }
 
-               var8 = this.Moodles.getMoodleLevel(MoodleType.Tired);
-               if (var8 == 4) {
-                  var10000 = this.stats;
-                  var10000.Sanity -= 2.0E-6F;
-               }
+                  var8 = this.Moodles.getMoodleLevel(MoodleType.Tired);
+                  if (var8 == 4) {
+                     var10000 = this.stats;
+                     var10000.Sanity -= 2.0E-6F;
+                  }
 
-               if (this.stats.Sanity < 0.0F) {
-                  this.stats.Sanity = 0.0F;
-               }
+                  if (this.stats.Sanity < 0.0F) {
+                     this.stats.Sanity = 0.0F;
+                  }
 
-               if (this.stats.Sanity > 1.0F) {
-                  this.stats.Sanity = 1.0F;
+                  if (this.stats.Sanity > 1.0F) {
+                     this.stats.Sanity = 1.0F;
+                  }
                }
             }
 
             if (!this.CharacterActions.isEmpty()) {
-               BaseAction var7 = (BaseAction)this.CharacterActions.get(0);
-               boolean var9 = var7.valid();
-               if (var9 && !var7.bStarted) {
-                  var7.waitToStart();
-               } else if (var9 && !var7.finished() && !var7.forceComplete && !var7.forceStop) {
-                  var7.update();
+               BaseAction var10 = (BaseAction)this.CharacterActions.get(0);
+               boolean var9 = var10.valid();
+               if (var9 && !var10.bStarted) {
+                  var10.waitToStart();
+               } else if (var9 && !var10.finished() && !var10.forceComplete && !var10.forceStop) {
+                  var10.update();
                }
 
-               if (!var9 || var7.finished() || var7.forceComplete || var7.forceStop) {
-                  if (var7.finished() || var7.forceComplete) {
-                     var7.perform();
+               if (!var9 || var10.finished() || var10.forceComplete || var10.forceStop) {
+                  if (var10.finished() || var10.forceComplete) {
+                     var10.perform();
+                     if (!GameClient.bClient) {
+                        var10.complete();
+                     }
+
                      var9 = true;
                   }
 
-                  if (var7.finished() && !var7.loopAction || var7.forceComplete || var7.forceStop || !var9) {
-                     if (var7.bStarted && (var7.forceStop || !var9)) {
-                        var7.stop();
+                  if ((var10.finished() || var10.forceComplete) && !var10.loopAction || var10.forceStop || !var9) {
+                     if (var10.bStarted && (var10.forceStop || !var9)) {
+                        var10.stop();
                      }
 
-                     this.CharacterActions.removeElement(var7);
+                     this.CharacterActions.removeElement(var10);
                      if (this == IsoPlayer.players[0] || this == IsoPlayer.players[1] || this == IsoPlayer.players[2] || this == IsoPlayer.players[3]) {
                         UIManager.getProgressBar((double)((IsoPlayer)this).getPlayerNum()).setValue(0.0F);
                      }
                   }
+
+                  var10.forceComplete = false;
                }
 
-               for(int var10 = 0; var10 < this.EnemyList.size(); ++var10) {
-                  IsoGameCharacter var4 = (IsoGameCharacter)this.EnemyList.get(var10);
+               for(int var7 = 0; var7 < this.EnemyList.size(); ++var7) {
+                  IsoGameCharacter var4 = (IsoGameCharacter)this.EnemyList.get(var7);
                   if (var4.isDead()) {
                      this.EnemyList.remove(var4);
-                     --var10;
+                     --var7;
                   }
                }
             }
 
-            if (SystemDisabler.doCharacterStats && this.BodyDamage != null) {
-               this.BodyDamage.Update();
+            if (SystemDisabler.doCharacterStats && this.getBodyDamage() != null) {
+               this.getBodyDamage().Update();
                this.updateBandages();
-            }
-
-            if (this == IsoPlayer.getInstance()) {
-               if (this.leftHandItem != null && this.leftHandItem.getUses() <= 0) {
-                  this.leftHandItem = null;
-               }
-
-               if (this.rightHandItem != null && this.rightHandItem.getUses() <= 0) {
-                  this.rightHandItem = null;
-               }
             }
 
             if (SystemDisabler.doCharacterStats) {
@@ -6754,9 +7841,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             this.moveForwardVec.x = 0.0F;
             this.moveForwardVec.y = 0.0F;
             if (!this.Asleep || !(this instanceof IsoPlayer)) {
-               this.setLx(this.getX());
-               this.setLy(this.getY());
-               this.setLz(this.getZ());
+               this.setLastX(this.getX());
+               this.setLastY(this.getY());
+               this.setLastZ(this.getZ());
                this.square = this.getCurrentSquare();
                if (this.sprite != null) {
                   if (!this.bUseParts) {
@@ -6766,7 +7853,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   }
                }
 
-               this.setStateEventDelayTimer(this.getStateEventDelayTimer() - GameTime.getInstance().getMultiplier() / 1.6F);
+               this.setStateEventDelayTimer(this.getStateEventDelayTimer() - GameTime.getInstance().getThirtyFPSMultiplier());
             }
 
             this.stateMachine.update();
@@ -6809,9 +7896,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                      IsoSpriteInstance var12 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var8);
                      IsoSprite var11 = var12.parentSprite;
                      var12.update();
-                     var12.Frame += var12.AnimFrameIncrease * GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
-                     if ((int)var12.Frame >= var11.CurrentAnim.Frames.size() && var11.Loop && var12.Looped) {
-                        var12.Frame = 0.0F;
+                     if (var11.hasAnimation()) {
+                        var12.Frame += var12.AnimFrameIncrease * GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
+                        if ((int)var12.Frame >= var11.CurrentAnim.Frames.size() && var11.Loop && var12.Looped) {
+                           var12.Frame = 0.0F;
+                        }
                      }
                   }
                }
@@ -6819,8 +7908,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                if (this.isGodMod()) {
                   this.getStats().setFatigue(0.0F);
                   this.getStats().setEndurance(1.0F);
-                  this.getBodyDamage().setTemperature(37.0F);
+                  BodyDamage var13 = this.getBodyDamage();
+                  if (var13 != null) {
+                     var13.setTemperature(37.0F);
+                  }
+
                   this.getStats().setHunger(0.0F);
+                  if (this instanceof IsoPlayer) {
+                     ((IsoPlayer)this).resetSleepingPillsTaken();
+                  }
                }
 
                this.updateMovementMomentum();
@@ -6831,12 +7927,29 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   }
                }
 
-               if (!GameServer.bServer || GameClient.bClient) {
+               if (!GameServer.bServer || GameClient.bClient || !GameClient.bClient) {
                   this.updateDirt();
+               }
+
+               if (this.useHandWeapon != null && this.useHandWeapon.isAimedFirearm() && this.isAiming()) {
+                  if (this instanceof IsoPlayer && this.isLocal()) {
+                     ((IsoPlayer)this).setAngleFromAim();
+                  }
+
+                  this.updateBallistics();
                }
 
             }
          }
+      }
+   }
+
+   private boolean isInGrapplerState() {
+      if (this.actionContext == null) {
+         return false;
+      } else {
+         ActionState var1 = this.actionContext.getCurrentState();
+         return var1 == null ? false : var1.isGrapplerState();
       }
    }
 
@@ -6908,19 +8021,24 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             ++var1;
          }
 
-         float var2 = this.square == null ? 0.0F : this.square.getPuddlesInGround();
-         if (this.isMoving() && var2 > 0.09F && Rand.NextBool(Rand.AdjustForFramerate(1500))) {
-            ++var1;
-         }
+         IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+         if (var2 != null && var2.isPlayerMoving() || var2 == null && this.isMoving()) {
+            float var3 = this.square == null ? 0.0F : this.square.getPuddlesInGround();
+            boolean var4 = this.square != null && this.isOutside() && this.square.hasNaturalFloor() && IsoPuddles.getInstance().getWetGroundFinalValue() > 0.5F;
+            if (var3 > 0.09F && Rand.NextBool(Rand.AdjustForFramerate(1500))) {
+               ++var1;
+            } else if (var4 && Rand.NextBool(Rand.AdjustForFramerate(3000))) {
+               ++var1;
+            }
 
-         if (var1 > 0) {
-            this.addDirt((BloodBodyPartType)null, var1, true);
-         }
+            if (var1 > 0) {
+               this.addDirt((BloodBodyPartType)null, var1, true);
+            }
 
-         IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
-         if (var3 != null && var3.isPlayerMoving() || var3 == null && this.isMoving()) {
             var1 = 0;
-            if (var2 > 0.09F && Rand.NextBool(Rand.AdjustForFramerate(1500))) {
+            if (var3 > 0.09F && Rand.NextBool(Rand.AdjustForFramerate(1500))) {
+               ++var1;
+            } else if (var4 && Rand.NextBool(Rand.AdjustForFramerate(3000))) {
                ++var1;
             }
 
@@ -6971,7 +8089,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    private void updateBeardAndHair() {
-      if (!this.isZombie()) {
+      if (!this.isZombie() && !this.isAnimal()) {
          if (!(this instanceof IsoPlayer) || ((IsoPlayer)this).isLocalPlayer()) {
             float var1 = (float)this.getHoursSurvived();
             if (this.beardGrowTiming < 0.0F || this.beardGrowTiming > var1) {
@@ -7051,137 +8169,127 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          IsoRoofFixer.FixRoofsAt(this.current);
       }
 
-      if (this.isSeatedInVehicle()) {
+      if (!this.shouldBeFalling()) {
          this.fallTime = 0.0F;
          this.lastFallSpeed = 0.0F;
          this.bFalling = false;
          this.wasOnStairs = false;
       } else {
-         if (this.z > 0.0F) {
-            IsoDirections var1 = IsoDirections.Max;
-            if (!this.isZombie() && this.isClimbing()) {
-               if (this.current.Is(IsoFlagType.climbSheetW) || this.current.Is(IsoFlagType.climbSheetTopW)) {
-                  var1 = IsoDirections.W;
-               }
-
-               if (this.current.Is(IsoFlagType.climbSheetE) || this.current.Is(IsoFlagType.climbSheetTopE)) {
-                  var1 = IsoDirections.E;
-               }
-
-               if (this.current.Is(IsoFlagType.climbSheetN) || this.current.Is(IsoFlagType.climbSheetTopN)) {
-                  var1 = IsoDirections.N;
-               }
-
-               if (this.current.Is(IsoFlagType.climbSheetS) || this.current.Is(IsoFlagType.climbSheetTopS)) {
-                  var1 = IsoDirections.S;
-               }
+         float var1 = 0.125F * GameTime.getInstance().getThirtyFPSMultiplier();
+         var1 = (float)((double)var1 * 1.75);
+         this.lastFallSpeed = var1;
+         float var2;
+         float var3;
+         if (!this.current.TreatAsSolidFloor()) {
+            var2 = 6.0F * GameTime.getInstance().getThirtyFPSMultiplier();
+            var3 = this.getHeightAboveFloor();
+            if (var1 > var3) {
+               var2 *= var3 / var1;
             }
 
-            float var2 = 0.125F * (GameTime.getInstance().getMultiplier() / 1.6F);
-            if (this.bClimbing) {
-               var2 = 0.0F;
-            }
-
-            if (this.getCurrentState() == ClimbOverFenceState.instance() || this.getCurrentState() == ClimbThroughWindowState.instance()) {
+            this.fallTime += var2;
+            if (this.fallTime < 20.0F && var3 < 0.2F) {
                this.fallTime = 0.0F;
-               var2 = 0.0F;
             }
 
-            this.lastFallSpeed = var2;
-            float var3;
-            float var4;
-            if (!this.current.TreatAsSolidFloor()) {
-               if (var1 != IsoDirections.Max) {
-                  this.dir = var1;
+            this.setZ(this.getZ() - Math.min(var1, var3));
+         } else if (!(this.getZ() > (float)PZMath.fastfloor(this.getZ())) && !(var1 < 0.0F)) {
+            this.DoLand();
+            this.fallTime = 0.0F;
+            this.bFalling = false;
+         } else if (!this.current.HasStairs() && !this.current.hasSlopedSurface()) {
+            if (!this.wasOnStairs) {
+               var2 = 6.0F * GameTime.getInstance().getThirtyFPSMultiplier();
+               var3 = this.getHeightAboveFloor();
+               if (var1 > var3) {
+                  var2 *= var3 / var1;
                }
 
-               var3 = 6.0F * (GameTime.getInstance().getMultiplier() / 1.6F);
-               var4 = this.getHeightAboveFloor();
-               if (var2 > var4) {
-                  var3 *= var4 / var2;
-               }
-
-               this.fallTime += var3;
-               if (var1 != IsoDirections.Max) {
-                  this.fallTime = 0.0F;
-               }
-
-               if (this.fallTime < 20.0F && var4 < 0.2F) {
-                  this.fallTime = 0.0F;
-               }
-
-               this.setZ(this.getZ() - var2);
-            } else if (!(this.getZ() > (float)((int)this.getZ())) && !(var2 < 0.0F)) {
-               this.DoLand();
-               this.fallTime = 0.0F;
-               this.bFalling = false;
-            } else {
-               if (var1 != IsoDirections.Max) {
-                  this.dir = var1;
-               }
-
-               if (!this.current.HasStairs()) {
-                  if (!this.wasOnStairs) {
-                     var3 = 6.0F * (GameTime.getInstance().getMultiplier() / 1.6F);
-                     var4 = this.getHeightAboveFloor();
-                     if (var2 > var4) {
-                        var3 *= var4 / var2;
-                     }
-
-                     this.fallTime += var3;
-                     if (var1 != IsoDirections.Max) {
-                        this.fallTime = 0.0F;
-                     }
-
-                     this.setZ(this.getZ() - var2);
-                     if (this.z < (float)((int)this.llz)) {
-                        this.z = (float)((int)this.llz);
-                        this.DoLand();
-                        this.fallTime = 0.0F;
-                        this.bFalling = false;
-                     }
-                  } else {
-                     this.wasOnStairs = false;
-                  }
-               } else {
+               this.fallTime += var2;
+               this.setZ(this.getZ() - var1);
+               if (this.getZ() < (float)PZMath.fastfloor(this.llz)) {
+                  this.setZ((float)PZMath.fastfloor(this.llz));
+                  this.DoLand();
                   this.fallTime = 0.0F;
                   this.bFalling = false;
-                  this.wasOnStairs = true;
                }
+            } else {
+               this.wasOnStairs = false;
             }
          } else {
             this.DoLand();
             this.fallTime = 0.0F;
             this.bFalling = false;
+            this.wasOnStairs = true;
          }
 
-         this.llz = this.lz;
+         this.llz = this.getLastZ();
       }
    }
 
-   private float getHeightAboveFloor() {
+   public boolean shouldBeFalling() {
+      if (this instanceof IsoAnimal && ((IsoAnimal)this).isOnHook()) {
+         return false;
+      } else if (this.isSeatedInVehicle()) {
+         return false;
+      } else if (this.isClimbing()) {
+         return false;
+      } else if (this.isRagdollFall()) {
+         return false;
+      } else if (this.isCurrentState(ClimbOverFenceState.instance())) {
+         return false;
+      } else {
+         return !this.isCurrentState(ClimbThroughWindowState.instance());
+      }
+   }
+
+   public float getHeightAboveFloor() {
       if (this.current == null) {
          return 1.0F;
       } else {
+         float var1;
          if (this.current.HasStairs()) {
-            float var1 = this.current.getApparentZ(this.x - (float)((int)this.x), this.y - (float)((int)this.y));
+            var1 = this.current.getApparentZ(this.getX() - (float)PZMath.fastfloor(this.getX()), this.getY() - (float)PZMath.fastfloor(this.getY()));
+            if (this.getZ() >= var1) {
+               return this.getZ() - var1;
+            }
+         }
+
+         if (this.current.hasSlopedSurface()) {
+            var1 = this.current.getApparentZ(this.getX() - (float)PZMath.fastfloor(this.getX()), this.getY() - (float)PZMath.fastfloor(this.getY()));
             if (this.getZ() >= var1) {
                return this.getZ() - var1;
             }
          }
 
          if (this.current.TreatAsSolidFloor()) {
-            return this.getZ() - (float)((int)this.getZ());
-         } else if (this.current.z == 0) {
+            return this.getZ() - (float)PZMath.fastfloor(this.getZ());
+         } else if (this.current.chunk == null) {
+            return this.getZ();
+         } else if (this.current.z == this.current.chunk.minLevel) {
             return this.getZ();
          } else {
-            IsoGridSquare var3 = this.getCell().getGridSquare(this.current.x, this.current.y, this.current.z - 1);
-            if (var3 != null && var3.HasStairs()) {
-               float var2 = var3.getApparentZ(this.x - (float)((int)this.x), this.y - (float)((int)this.y));
-               return this.getZ() - var2;
-            } else {
-               return 1.0F;
+            for(int var4 = this.current.z; var4 >= this.current.chunk.minLevel; --var4) {
+               IsoGridSquare var2 = this.getCell().getGridSquare(this.current.x, this.current.y, var4);
+               if (var2 != null) {
+                  float var3;
+                  if (var2.HasStairs()) {
+                     var3 = var2.getApparentZ(this.getX() - (float)PZMath.fastfloor(this.getX()), this.getY() - (float)PZMath.fastfloor(this.getY()));
+                     return this.getZ() - var3;
+                  }
+
+                  if (var2.hasSlopedSurface()) {
+                     var3 = var2.getApparentZ(this.getX() - (float)PZMath.fastfloor(this.getX()), this.getY() - (float)PZMath.fastfloor(this.getY()));
+                     return this.getZ() - var3;
+                  }
+
+                  if (var2.TreatAsSolidFloor()) {
+                     return this.getZ() - (float)var2.getZ();
+                  }
+               }
             }
+
+            return 1.0F;
          }
       }
    }
@@ -7239,6 +8347,16 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          var2 += this.calcRunSpeedModByBag((InventoryContainer)this.getSecondaryHandItem());
       }
 
+      if (this.isOutside()) {
+         if (this.getCurrentSquare().hasNaturalFloor()) {
+            var1 -= IsoPuddles.getInstance().getWetGroundFinalValue() * 0.25F;
+         }
+
+         if (this.getCurrentSquare().hasSand()) {
+            var1 -= 0.05F;
+         }
+      }
+
       this.fullSpeedMod = this.runSpeedModifier + (var2 - 1.0F);
       return var1 * (1.0F - Math.abs(1.0F - this.fullSpeedMod) / 2.0F);
    }
@@ -7274,7 +8392,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return var2;
    }
 
-   protected float calculateCombatSpeed() {
+   public float calculateCombatSpeed() {
       boolean var1 = true;
       float var2 = 1.0F;
       HandWeapon var3 = null;
@@ -7425,50 +8543,57 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    protected void calculateWalkSpeed() {
       if (!(this instanceof IsoPlayer) || ((IsoPlayer)this).isLocalPlayer()) {
-         float var1 = 0.0F;
-         float var2 = this.getFootInjurySpeedModifier();
-         this.setVariable("WalkInjury", var2);
-         var1 = this.calculateBaseSpeed();
-         if (!this.bRunning && !this.bSprinting) {
-            var1 *= this.walkSpeedModifier;
+         float var1;
+         if (this instanceof IsoPlayer && !((IsoPlayer)this).getAttachedAnimals().isEmpty()) {
+            var1 = this.getFootInjurySpeedModifier();
+            this.setVariable("WalkInjury", var1);
+            this.setVariable("WalkSpeed", 0.0F * GameTime.getAnimSpeedFix());
          } else {
-            var1 -= 0.15F;
-            var1 *= this.fullSpeedMod;
-            var1 += (float)this.getPerkLevel(PerkFactory.Perks.Sprinting) / 20.0F;
-            var1 = (float)((double)var1 - Math.abs((double)var2 / 1.5));
-            if ("Tutorial".equals(Core.GameMode)) {
-               var1 = Math.max(1.0F, var1);
-            }
-         }
-
-         if (this.getSlowFactor() > 0.0F) {
-            var1 *= 0.05F;
-         }
-
-         var1 = Math.min(1.0F, var1);
-         if (this.getBodyDamage() != null && this.getBodyDamage().getThermoregulator() != null) {
-            var1 *= this.getBodyDamage().getThermoregulator().getMovementModifier();
-         }
-
-         if (this.isAiming()) {
-            float var3 = Math.min(0.9F + (float)this.getPerkLevel(PerkFactory.Perks.Nimble) / 10.0F, 1.5F);
-            float var4 = Math.min(var1 * 2.5F, 1.0F);
-            var3 *= var4;
-            var3 = Math.max(var3, 0.6F);
-            this.setVariable("StrafeSpeed", var3 * GameTime.getAnimSpeedFix());
-         }
-
-         if (this.isInTreesNoBush()) {
-            IsoGridSquare var5 = this.getCurrentSquare();
-            if (var5 != null && var5.Has(IsoObjectType.tree)) {
-               IsoTree var6 = var5.getTree();
-               if (var6 != null) {
-                  var1 *= var6.getSlowFactor(this);
+            var1 = 0.0F;
+            float var2 = this.getFootInjurySpeedModifier();
+            this.setVariable("WalkInjury", var2);
+            var1 = this.calculateBaseSpeed();
+            if (!this.bRunning && !this.bSprinting) {
+               var1 *= this.walkSpeedModifier;
+            } else {
+               var1 -= 0.15F;
+               var1 *= this.fullSpeedMod;
+               var1 += (float)this.getPerkLevel(PerkFactory.Perks.Sprinting) / 20.0F;
+               var1 = (float)((double)var1 - Math.abs((double)var2 / 1.5));
+               if ("Tutorial".equals(Core.GameMode)) {
+                  var1 = Math.max(1.0F, var1);
                }
             }
-         }
 
-         this.setVariable("WalkSpeed", var1 * GameTime.getAnimSpeedFix());
+            if (this.getSlowFactor() > 0.0F) {
+               var1 *= 0.05F;
+            }
+
+            var1 = Math.min(1.0F, var1);
+            if (this.getBodyDamage() != null && this.getBodyDamage().getThermoregulator() != null) {
+               var1 *= this.getBodyDamage().getThermoregulator().getMovementModifier();
+            }
+
+            if (this.isAiming()) {
+               float var3 = Math.min(0.9F + (float)this.getPerkLevel(PerkFactory.Perks.Nimble) / 10.0F, 1.5F);
+               float var4 = Math.min(var1 * 2.5F, 1.0F);
+               var3 *= var4;
+               var3 = Math.max(var3, 0.6F);
+               this.setVariable("StrafeSpeed", var3 * GameTime.getAnimSpeedFix());
+            }
+
+            if (this.isInTreesNoBush()) {
+               IsoGridSquare var5 = this.getCurrentSquare();
+               if (var5 != null && var5.Has(IsoObjectType.tree)) {
+                  IsoTree var6 = var5.getTree();
+                  if (var6 != null) {
+                     var1 *= var6.getSlowFactor(this);
+                  }
+               }
+            }
+
+            this.setVariable("WalkSpeed", var1 * GameTime.getAnimSpeedFix());
+         }
       }
    }
 
@@ -7496,6 +8621,23 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.walkSpeedModifier *= 0.85F;
       }
 
+   }
+
+   public void updateDiscomfortModifiers() {
+      this.clothingDiscomfortModifier = 0.0F;
+
+      for(int var1 = 0; var1 < this.getWornItems().size(); ++var1) {
+         InventoryItem var2 = this.getWornItems().getItemByIndex(var1);
+         if (var2 instanceof Clothing var3) {
+            this.clothingDiscomfortModifier += var3.getDiscomfortModifier();
+         }
+
+         if (var2 instanceof InventoryContainer var4) {
+            this.clothingDiscomfortModifier += var4.getScriptItem().discomfortModifier;
+         }
+      }
+
+      this.clothingDiscomfortModifier = Math.max(this.clothingDiscomfortModifier, 0.0F);
    }
 
    public void DoFloorSplat(IsoGridSquare var1, String var2, boolean var3, float var4, float var5) {
@@ -7542,42 +8684,46 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean onMouseLeftClick(int var1, int var2) {
-      if (IsoCamera.CamCharacter != IsoPlayer.getInstance() && Core.bDebug) {
-         IsoCamera.CamCharacter = this;
+      if (IsoCamera.getCameraCharacter() != IsoPlayer.getInstance() && Core.bDebug) {
+         IsoCamera.setCameraCharacter(this);
       }
 
       return super.onMouseLeftClick(var1, var2);
    }
 
    protected void calculateStats() {
-      if (GameServer.bServer) {
-         this.stats.fatigue = 0.0F;
-      } else if (GameClient.bClient && (!ServerOptions.instance.SleepAllowed.getValue() || !ServerOptions.instance.SleepNeeded.getValue())) {
-         this.stats.fatigue = 0.0F;
-      }
+      if (!this.isAnimal()) {
+         if (GameServer.bServer) {
+            this.stats.fatigue = 0.0F;
+         } else if (GameClient.bClient && (!ServerOptions.instance.SleepAllowed.getValue() || !ServerOptions.instance.SleepNeeded.getValue())) {
+            this.stats.fatigue = 0.0F;
+         }
 
-      if (!LuaHookManager.TriggerHook("CalculateStats", this)) {
-         this.updateEndurance();
-         this.updateTripping();
-         this.updateThirst();
-         this.updateStress();
-         this.updateStats_WakeState();
-         this.stats.endurance = PZMath.clamp(this.stats.endurance, 0.0F, 1.0F);
-         this.stats.hunger = PZMath.clamp(this.stats.hunger, 0.0F, 1.0F);
-         this.stats.stress = PZMath.clamp(this.stats.stress, 0.0F, 1.0F);
-         this.stats.fatigue = PZMath.clamp(this.stats.fatigue, 0.0F, 1.0F);
-         this.updateMorale();
-         this.updateFitness();
+         if (!LuaHookManager.TriggerHook("CalculateStats", this)) {
+            this.updateEndurance();
+            this.updateTripping();
+            this.updateThirst();
+            this.updateStress();
+            this.updateStats_WakeState();
+            this.stats.endurance = PZMath.clamp(this.stats.endurance, 0.0F, 1.0F);
+            this.stats.hunger = PZMath.clamp(this.stats.hunger, 0.0F, 1.0F);
+            this.stats.stress = PZMath.clamp(this.stats.stress, 0.0F, 1.0F);
+            this.stats.fatigue = PZMath.clamp(this.stats.fatigue, 0.0F, 1.0F);
+            this.updateMorale();
+            this.updateFitness();
+         }
       }
    }
 
    protected void updateStats_WakeState() {
-      if (IsoPlayer.getInstance() == this && this.Asleep) {
-         this.updateStats_Sleeping();
-      } else {
-         this.updateStats_Awake();
-      }
+      if (!this.isAnimal()) {
+         if (IsoPlayer.getInstance() == this && this.Asleep) {
+            this.updateStats_Sleeping();
+         } else {
+            this.updateStats_Awake();
+         }
 
+      }
    }
 
    protected void updateStats_Sleeping() {
@@ -7605,23 +8751,28 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          var3 = 1.0;
       }
 
+      float var5 = 1.0F;
+      if (this.isSitOnGround() || this.isSittingOnFurniture() || this.isResting()) {
+         var5 = 1.5F;
+      }
+
       var10000 = this.stats;
-      var10000.fatigue = (float)((double)var10000.fatigue + ZomboidGlobals.FatigueIncrease * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var1 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * (double)var2 * this.getFatiqueMultiplier());
-      float var5 = this.getAppetiteMultiplier();
+      var10000.fatigue = (float)((double)var10000.fatigue + ZomboidGlobals.FatigueIncrease * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var1 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * (double)var2 * this.getFatiqueMultiplier() / (double)var5);
+      float var6 = this.getAppetiteMultiplier();
       if ((!(this instanceof IsoPlayer) || !((IsoPlayer)this).IsRunning() || !this.isPlayerMoving()) && !this.isCurrentState(SwipeStatePlayer.instance())) {
          if (this.Moodles.getMoodleLevel(MoodleType.FoodEaten) == 0) {
             var10000 = this.stats;
-            var10000.hunger = (float)((double)var10000.hunger + ZomboidGlobals.HungerIncrease * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var5 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
+            var10000.hunger = (float)((double)var10000.hunger + ZomboidGlobals.HungerIncrease * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var6 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
          } else {
             var10000 = this.stats;
             var10000.hunger = (float)((double)var10000.hunger + (double)((float)ZomboidGlobals.HungerIncreaseWhenWellFed) * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
          }
       } else if (this.Moodles.getMoodleLevel(MoodleType.FoodEaten) == 0) {
          var10000 = this.stats;
-         var10000.hunger = (float)((double)var10000.hunger + ZomboidGlobals.HungerIncreaseWhenExercise / 3.0 * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var5 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
+         var10000.hunger = (float)((double)var10000.hunger + ZomboidGlobals.HungerIncreaseWhenExercise / 3.0 * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var6 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
       } else {
          var10000 = this.stats;
-         var10000.hunger = (float)((double)var10000.hunger + ZomboidGlobals.HungerIncreaseWhenExercise * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var5 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
+         var10000.hunger = (float)((double)var10000.hunger + ZomboidGlobals.HungerIncreaseWhenExercise * SandboxOptions.instance.getStatsDecreaseMultiplier() * (double)var6 * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay() * this.getHungerMultiplier());
       }
 
       if (this.getCurrentSquare() == this.getLastSquare() && !this.isReading()) {
@@ -7690,50 +8841,52 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    private void updateStress() {
-      float var1 = 1.0F;
-      if (this.Traits.Cowardly.isSet()) {
-         var1 = 2.0F;
-      }
+      if (!this.isAnimal()) {
+         float var1 = 1.0F;
+         if (this.Traits.Cowardly.isSet()) {
+            var1 = 2.0F;
+         }
 
-      if (this.Traits.Brave.isSet()) {
-         var1 = 0.3F;
-      }
+         if (this.Traits.Brave.isSet()) {
+            var1 = 0.3F;
+         }
 
-      if (this.stats.Panic > 100.0F) {
-         this.stats.Panic = 100.0F;
-      }
+         if (this.stats.Panic > 100.0F) {
+            this.stats.Panic = 100.0F;
+         }
 
-      Stats var10000 = this.stats;
-      var10000.stress = (float)((double)var10000.stress + (double)WorldSoundManager.instance.getStressFromSounds((int)this.getX(), (int)this.getY(), (int)this.getZ()) * ZomboidGlobals.StressFromSoundsMultiplier);
-      if (this.BodyDamage.getNumPartsBitten() > 0) {
-         var10000 = this.stats;
-         var10000.stress = (float)((double)var10000.stress + ZomboidGlobals.StressFromBiteOrScratch * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
-      }
+         Stats var10000 = this.stats;
+         var10000.stress = (float)((double)var10000.stress + (double)WorldSoundManager.instance.getStressFromSounds(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ())) * ZomboidGlobals.StressFromSoundsMultiplier);
+         if (this.getBodyDamage().getNumPartsBitten() > 0) {
+            var10000 = this.stats;
+            var10000.stress = (float)((double)var10000.stress + ZomboidGlobals.StressFromBiteOrScratch * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
+         }
 
-      if (this.BodyDamage.getNumPartsScratched() > 0) {
-         var10000 = this.stats;
-         var10000.stress = (float)((double)var10000.stress + ZomboidGlobals.StressFromBiteOrScratch * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
-      }
+         if (this.getBodyDamage().getNumPartsScratched() > 0) {
+            var10000 = this.stats;
+            var10000.stress = (float)((double)var10000.stress + ZomboidGlobals.StressFromBiteOrScratch * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
+         }
 
-      if (this.BodyDamage.IsInfected() || this.BodyDamage.IsFakeInfected()) {
-         var10000 = this.stats;
-         var10000.stress = (float)((double)var10000.stress + ZomboidGlobals.StressFromBiteOrScratch * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
-      }
+         if (this.getBodyDamage().IsInfected() || this.getBodyDamage().IsFakeInfected()) {
+            var10000 = this.stats;
+            var10000.stress = (float)((double)var10000.stress + ZomboidGlobals.StressFromBiteOrScratch * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
+         }
 
-      if (this.Traits.Hemophobic.isSet()) {
-         var10000 = this.stats;
-         var10000.stress = (float)((double)var10000.stress + (double)this.getTotalBlood() * ZomboidGlobals.StressFromHemophobic * (double)(GameTime.instance.getMultiplier() / 0.8F) * (double)GameTime.instance.getDeltaMinutesPerDay());
-      }
+         if (this.Traits.Hemophobic.isSet()) {
+            var10000 = this.stats;
+            var10000.stress = (float)((double)var10000.stress + (double)this.getTotalBlood() * ZomboidGlobals.StressFromHemophobic * (double)(GameTime.instance.getMultiplier() / 0.8F) * (double)GameTime.instance.getDeltaMinutesPerDay());
+         }
 
-      if (this.Traits.Brooding.isSet()) {
-         var10000 = this.stats;
-         var10000.Anger = (float)((double)var10000.Anger - ZomboidGlobals.AngerDecrease * ZomboidGlobals.BroodingAngerDecreaseMultiplier * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
-      } else {
-         var10000 = this.stats;
-         var10000.Anger = (float)((double)var10000.Anger - ZomboidGlobals.AngerDecrease * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
-      }
+         if (this.Traits.Brooding.isSet()) {
+            var10000 = this.stats;
+            var10000.Anger = (float)((double)var10000.Anger - ZomboidGlobals.AngerDecrease * ZomboidGlobals.BroodingAngerDecreaseMultiplier * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
+         } else {
+            var10000 = this.stats;
+            var10000.Anger = (float)((double)var10000.Anger - ZomboidGlobals.AngerDecrease * (double)GameTime.instance.getMultiplier() * (double)GameTime.instance.getDeltaMinutesPerDay());
+         }
 
-      this.stats.Anger = PZMath.clamp(this.stats.Anger, 0.0F, 1.0F);
+         this.stats.Anger = PZMath.clamp(this.stats.Anger, 0.0F, 1.0F);
+      }
    }
 
    private void updateEndurance() {
@@ -7777,6 +8930,16 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this == IsoPlayer.getInstance() && IsoPlayer.getInstance().IsRunning() ? 1.2 : 1.0;
    }
 
+   public void faceDirection(IsoDirections var1) {
+      this.dir = var1;
+      this.getVectorFromDirection(this.m_forwardDirection);
+      AnimationPlayer var2 = this.getAnimationPlayer();
+      if (var2 != null && var2.isReady()) {
+         var2.updateForwardDirection(this);
+      }
+
+   }
+
    public void faceLocation(float var1, float var2) {
       tempo.x = var1 + 0.5F;
       tempo.y = var2 + 0.5F;
@@ -7788,7 +8951,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.getVectorFromDirection(this.m_forwardDirection);
       AnimationPlayer var3 = this.getAnimationPlayer();
       if (var3 != null && var3.isReady()) {
-         var3.UpdateDir(this);
+         var3.updateForwardDirection(this);
       }
 
    }
@@ -7806,7 +8969,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.m_forwardDirection.set(tempo.x, tempo.y);
          AnimationPlayer var3 = this.getAnimationPlayer();
          if (var3 != null && var3.isReady()) {
-            var3.UpdateDir(this);
+            var3.updateForwardDirection(this);
          }
 
       }
@@ -7828,20 +8991,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       boolean var4 = this.isFacingLocation(var3.x, var3.y, var2);
       BaseVehicle.releaseVector2(var3);
       return var4;
-   }
-
-   private void checkDrawWeaponPre(float var1, float var2, float var3, ColorInfo var4) {
-      if (this.sprite != null) {
-         if (this.sprite.CurrentAnim != null) {
-            if (this.sprite.CurrentAnim.name != null) {
-               if (this.dir != IsoDirections.S && this.dir != IsoDirections.SE && this.dir != IsoDirections.E && this.dir != IsoDirections.NE && this.dir != IsoDirections.SW) {
-                  if (this.sprite.CurrentAnim.name.contains("Attack_")) {
-                     ;
-                  }
-               }
-            }
-         }
-      }
    }
 
    public void splatBlood(int var1, float var2) {
@@ -7948,13 +9097,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             var1.getFacingPosition(var2);
             var2.x -= this.getX();
             var2.y -= this.getY();
+            var2.normalize();
             this.DirectionFromVector(var2);
-            this.getVectorFromDirection(this.m_forwardDirection);
+            this.m_forwardDirection.set(var2);
          }
 
          AnimationPlayer var5 = this.getAnimationPlayer();
          if (var5 != null && var5.isReady()) {
-            var5.UpdateDir(this);
+            var5.updateForwardDirection(this);
          }
 
       }
@@ -7971,7 +9121,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.getVectorFromDirection(this.m_forwardDirection);
       AnimationPlayer var3 = this.getAnimationPlayer();
       if (var3 != null && var3.isReady()) {
-         var3.UpdateDir(this);
+         var3.updateForwardDirection(this);
       }
 
    }
@@ -7987,7 +9137,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          this.getVectorFromDirection(this.m_forwardDirection);
          AnimationPlayer var2 = this.getAnimationPlayer();
          if (var2 != null && var2.isReady()) {
-            var2.UpdateDir(this);
+            var2.updateForwardDirection(this);
          }
 
       }
@@ -7997,84 +9147,55 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.legsSprite.Animate = true;
    }
 
-   public void playHurtSound() {
-      this.getEmitter().playVocals(this.getHurtSound());
+   public long playHurtSound() {
+      return this.getEmitter().playVocals(this.getHurtSound());
    }
 
    public void playDeadSound() {
-      if (this.isCloseKilled()) {
-         this.getEmitter().playSoundImpl("HeadStab", this);
-      } else {
-         this.getEmitter().playSoundImpl("HeadSmash", this);
-      }
+      if (!(this instanceof IsoAnimal)) {
+         if (this.isCloseKilled()) {
+            this.getEmitter().playSoundImpl("HeadStab", this);
+         } else if (this.isKilledBySlicingWeapon()) {
+            this.getEmitter().playSoundImpl("HeadSlice", this);
+         } else if (this instanceof IsoZombie) {
+            this.getEmitter().playSoundImpl("HeadSmash", this);
+         } else if (this instanceof IsoPlayer) {
+            IsoPlayer var1 = (IsoPlayer)this;
+            if (!this.isDeathDragDown() && !this.isKilledByFall()) {
+               var1.playerVoiceSound("DeathAlone");
+            }
+         }
 
-      if (this.isZombie()) {
-         ((IsoZombie)this).parameterZombieState.setState(ParameterZombieState.State.Death);
-      }
+         if (this.isZombie()) {
+            ((IsoZombie)this).parameterZombieState.setState(ParameterZombieState.State.Death);
+         }
 
+      }
    }
 
    public void saveChange(String var1, KahluaTable var2, ByteBuffer var3) {
       super.saveChange(var1, var2, var3);
       if ("addItem".equals(var1)) {
-         if (var2 != null && var2.rawget("item") instanceof InventoryItem) {
-            InventoryItem var4 = (InventoryItem)var2.rawget("item");
-
-            try {
-               var4.saveWithSize(var3, false);
-            } catch (Exception var6) {
-               var6.printStackTrace();
-            }
-         }
+         DebugLog.General.warn("The addItem change type in the IsoGameCharacter.saveChange function  was disabled. The server should create item and sent it using the sendAddItemToContainer function.");
       } else if ("addItemOfType".equals(var1)) {
-         if (var2 != null && var2.rawget("type") instanceof String) {
-            GameWindow.WriteStringUTF(var3, (String)var2.rawget("type"));
-            if (var2.rawget("count") instanceof Double) {
-               var3.putShort(((Double)var2.rawget("count")).shortValue());
-            } else {
-               var3.putShort((short)1);
-            }
-         }
+         DebugLog.General.warn("The addItemOfType change type in the IsoGameCharacter.saveChange function  was disabled. The server should create item and sent it using the sendAddItemToContainer function.");
       } else if ("AddRandomDamageFromZombie".equals(var1)) {
          if (var2 != null && var2.rawget("zombie") instanceof Double) {
             var3.putShort(((Double)var2.rawget("zombie")).shortValue());
          }
       } else if (!"AddZombieKill".equals(var1)) {
-         if ("DamageFromWeapon".equals(var1)) {
-            if (var2 != null && var2.rawget("weapon") instanceof String) {
-               GameWindow.WriteStringUTF(var3, (String)var2.rawget("weapon"));
-            }
-         } else if ("removeItem".equals(var1)) {
-            if (var2 != null && var2.rawget("item") instanceof Double) {
-               var3.putInt(((Double)var2.rawget("item")).intValue());
-            }
+         if ("removeItem".equals(var1)) {
+            DebugLog.General.warn("The removeItem change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
          } else if ("removeItemID".equals(var1)) {
-            if (var2 != null && var2.rawget("id") instanceof Double) {
-               var3.putInt(((Double)var2.rawget("id")).intValue());
-            }
-
-            if (var2 != null && var2.rawget("type") instanceof String) {
-               GameWindow.WriteStringUTF(var3, (String)var2.rawget("type"));
-            } else {
-               GameWindow.WriteStringUTF(var3, (String)null);
-            }
+            DebugLog.General.warn("The removeItemID change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
          } else if ("removeItemType".equals(var1)) {
-            if (var2 != null && var2.rawget("type") instanceof String) {
-               GameWindow.WriteStringUTF(var3, (String)var2.rawget("type"));
-               if (var2.rawget("count") instanceof Double) {
-                  var3.putShort(((Double)var2.rawget("count")).shortValue());
-               } else {
-                  var3.putShort((short)1);
-               }
-            }
+            DebugLog.General.warn("The removeItemType change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
          } else if ("removeOneOf".equals(var1)) {
-            if (var2 != null && var2.rawget("type") instanceof String) {
-               GameWindow.WriteStringUTF(var3, (String)var2.rawget("type"));
-            }
+            DebugLog.General.warn("The removeOneOf change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
          } else if ("reanimatedID".equals(var1)) {
             if (var2 != null && var2.rawget("ID") instanceof Double) {
-               int var7 = ((Double)var2.rawget("ID")).intValue();
-               var3.putInt(var7);
+               int var4 = ((Double)var2.rawget("ID")).intValue();
+               var3.putInt(var4);
             }
          } else if ("Shove".equals(var1)) {
             if (var2 != null && var2.rawget("hitDirX") instanceof Double && var2.rawget("hitDirY") instanceof Double && var2.rawget("force") instanceof Double) {
@@ -8082,19 +9203,8 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                var3.putFloat(((Double)var2.rawget("hitDirY")).floatValue());
                var3.putFloat(((Double)var2.rawget("force")).floatValue());
             }
-         } else if ("addXp".equals(var1)) {
-            if (var2 != null && var2.rawget("perk") instanceof Double && var2.rawget("xp") instanceof Double) {
-               var3.putInt(((Double)var2.rawget("perk")).intValue());
-               var3.putInt(((Double)var2.rawget("xp")).intValue());
-               Object var8 = var2.rawget("noMultiplier");
-               var3.put((byte)(Boolean.TRUE.equals(var8) ? 1 : 0));
-            }
          } else if (!"wakeUp".equals(var1) && "mechanicActionDone".equals(var1) && var2 != null) {
             var3.put((byte)((Boolean)var2.rawget("success") ? 1 : 0));
-            var3.putInt(((Double)var2.rawget("vehicleId")).intValue());
-            GameWindow.WriteString(var3, (String)var2.rawget("partId"));
-            var3.put((byte)((Boolean)var2.rawget("installing") ? 1 : 0));
-            var3.putLong(((Double)var2.rawget("itemId")).longValue());
          }
       }
 
@@ -8103,119 +9213,60 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    public void loadChange(String var1, ByteBuffer var2) {
       super.loadChange(var1, var2);
       if ("addItem".equals(var1)) {
-         try {
-            InventoryItem var3 = InventoryItem.loadItem(var2, 195);
-            if (var3 != null) {
-               this.getInventory().AddItem(var3);
+         DebugLog.General.warn("The addItem change type in the IsoGameCharacter.saveChange function  was disabled. The server should create item and sent it using the sendAddItemToContainer function.");
+      } else if ("addItemOfType".equals(var1)) {
+         DebugLog.General.warn("The addItemOfType change type in the IsoGameCharacter.saveChange function  was disabled. The server should create item and sent it using the sendAddItemToContainer function.");
+      } else if ("AddRandomDamageFromZombie".equals(var1)) {
+         short var3 = var2.getShort();
+         IsoZombie var4 = GameClient.getZombie(var3);
+         if (var4 != null && !this.isDead()) {
+            this.getBodyDamage().AddRandomDamageFromZombie(var4, (String)null);
+            this.getBodyDamage().Update();
+            if (this.isDead()) {
+               if (this.isFemale()) {
+                  var4.getEmitter().playSound("FemaleBeingEatenDeath");
+               } else {
+                  var4.getEmitter().playSound("MaleBeingEatenDeath");
+               }
             }
-         } catch (Exception var9) {
-            var9.printStackTrace();
          }
-      } else {
-         int var4;
-         int var5;
-         String var10;
-         if ("addItemOfType".equals(var1)) {
-            var10 = GameWindow.ReadStringUTF(var2);
-            var4 = var2.getShort();
-
-            for(var5 = 0; var5 < var4; ++var5) {
-               this.getInventory().AddItem(var10);
-            }
-         } else {
-            int var11;
-            if ("AddRandomDamageFromZombie".equals(var1)) {
-               var11 = var2.getShort();
-               IsoZombie var12 = GameClient.getZombie((short)var11);
-               if (var12 != null && !this.isDead()) {
-                  this.getBodyDamage().AddRandomDamageFromZombie(var12, (String)null);
-                  this.getBodyDamage().Update();
-                  if (this.isDead()) {
-                     if (this.isFemale()) {
-                        var12.getEmitter().playSound("FemaleBeingEatenDeath");
-                     } else {
-                        var12.getEmitter().playSound("MaleBeingEatenDeath");
-                     }
-                  }
-               }
-            } else if ("AddZombieKill".equals(var1)) {
-               this.setZombieKills(this.getZombieKills() + 1);
-            } else {
-               InventoryItem var14;
-               if ("DamageFromWeapon".equals(var1)) {
-                  var10 = GameWindow.ReadStringUTF(var2);
-                  var14 = InventoryItemFactory.CreateItem(var10);
-                  if (var14 instanceof HandWeapon) {
-                     this.getBodyDamage().DamageFromWeapon((HandWeapon)var14);
-                  }
-               } else if ("exitVehicle".equals(var1)) {
-                  BaseVehicle var13 = this.getVehicle();
-                  if (var13 != null) {
-                     var13.exit(this);
-                     this.setVehicle((BaseVehicle)null);
-                  }
-               } else if ("removeItem".equals(var1)) {
-                  var11 = var2.getInt();
-                  if (var11 >= 0 && var11 < this.getInventory().getItems().size()) {
-                     var14 = (InventoryItem)this.getInventory().getItems().get(var11);
-                     this.removeFromHands(var14);
-                     this.getInventory().Remove(var14);
-                  }
-               } else if ("removeItemID".equals(var1)) {
-                  var11 = var2.getInt();
-                  String var15 = GameWindow.ReadStringUTF(var2);
-                  InventoryItem var16 = this.getInventory().getItemWithID(var11);
-                  if (var16 != null && var16.getFullType().equals(var15)) {
-                     this.removeFromHands(var16);
-                     this.getInventory().Remove(var16);
-                  }
-               } else if ("removeItemType".equals(var1)) {
-                  var10 = GameWindow.ReadStringUTF(var2);
-                  var4 = var2.getShort();
-
-                  for(var5 = 0; var5 < var4; ++var5) {
-                     this.getInventory().RemoveOneOf(var10);
-                  }
-               } else if ("removeOneOf".equals(var1)) {
-                  var10 = GameWindow.ReadStringUTF(var2);
-                  this.getInventory().RemoveOneOf(var10);
-               } else if ("reanimatedID".equals(var1)) {
-                  this.ReanimatedCorpseID = var2.getInt();
-               } else if (!"Shove".equals(var1)) {
-                  if ("StopBurning".equals(var1)) {
-                     this.StopBurning();
-                  } else if ("addXp".equals(var1)) {
-                     PerkFactory.Perk var17 = PerkFactory.Perks.fromIndex(var2.getInt());
-                     var4 = var2.getInt();
-                     boolean var19 = var2.get() == 1;
-                     if (var19) {
-                        this.getXp().AddXPNoMultiplier(var17, (float)var4);
-                     } else {
-                        this.getXp().AddXP(var17, (float)var4);
-                     }
-                  } else if ("wakeUp".equals(var1)) {
-                     if (this.isAsleep()) {
-                        this.Asleep = false;
-                        this.ForceWakeUpTime = -1.0F;
-                        TutorialManager.instance.StealControl = false;
-                        if (this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-                           UIManager.setFadeBeforeUI(((IsoPlayer)this).getPlayerNum(), true);
-                           UIManager.FadeIn((double)((IsoPlayer)this).getPlayerNum(), 2.0);
-                           GameClient.instance.sendPlayer((IsoPlayer)this);
-                        }
-                     }
-                  } else if ("mechanicActionDone".equals(var1)) {
-                     boolean var18 = var2.get() == 1;
-                     var4 = var2.getInt();
-                     String var20 = GameWindow.ReadString(var2);
-                     boolean var6 = var2.get() == 1;
-                     long var7 = var2.getLong();
-                     LuaEventManager.triggerEvent("OnMechanicActionDone", this, var18, var4, var20, var7, var6);
-                  } else if ("vehicleNoKey".equals(var1)) {
-                     this.SayDebug(" [img=media/ui/CarKey_none.png]");
-                  }
+      } else if ("AddZombieKill".equals(var1)) {
+         this.setZombieKills(this.getZombieKills() + 1);
+      } else if ("exitVehicle".equals(var1)) {
+         BaseVehicle var5 = this.getVehicle();
+         if (var5 != null) {
+            var5.exit(this);
+            this.setVehicle((BaseVehicle)null);
+         }
+      } else if ("removeItem".equals(var1)) {
+         DebugLog.General.warn("The removeItem change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
+      } else if ("removeItemID".equals(var1)) {
+         DebugLog.General.warn("The removeItemID change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
+      } else if ("removeItemType".equals(var1)) {
+         DebugLog.General.warn("The removeItemType change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
+      } else if ("removeOneOf".equals(var1)) {
+         DebugLog.General.warn("The removeOneOf change type in the IsoGameCharacter.saveChange function  was disabled. The server must use the sendRemoveItemFromContainer function.");
+      } else if ("reanimatedID".equals(var1)) {
+         this.ReanimatedCorpseID = var2.getInt();
+      } else if (!"Shove".equals(var1)) {
+         if ("StopBurning".equals(var1)) {
+            this.StopBurning();
+         } else if ("wakeUp".equals(var1)) {
+            if (this.isAsleep()) {
+               this.Asleep = false;
+               this.ForceWakeUpTime = -1.0F;
+               TutorialManager.instance.StealControl = false;
+               if (this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
+                  UIManager.setFadeBeforeUI(((IsoPlayer)this).getPlayerNum(), true);
+                  UIManager.FadeIn((double)((IsoPlayer)this).getPlayerNum(), 2.0);
+                  GameClient.instance.sendPlayer((IsoPlayer)this);
                }
             }
+         } else if ("mechanicActionDone".equals(var1)) {
+            boolean var6 = var2.get() == 1;
+            LuaEventManager.triggerEvent("OnMechanicActionDone", this, var6);
+         } else if ("vehicleNoKey".equals(var1)) {
+            this.SayDebug(" [img=media/ui/CarKey_none.png]");
          }
       }
 
@@ -8253,11 +9304,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             synchronized(this.lightInfo) {
                this.lightInfo.square = this.movingSq;
                if (this.lightInfo.square == null) {
-                  this.lightInfo.square = this.getCell().getGridSquare((int)this.x, (int)this.y, (int)this.z);
+                  this.lightInfo.square = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
                }
 
                if (this.ReanimatedCorpse != null) {
-                  this.lightInfo.square = this.getCell().getGridSquare((int)this.x, (int)this.y, (int)this.z);
+                  this.lightInfo.square = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
                }
 
                this.lightInfo.x = this.getX();
@@ -8288,109 +9339,169 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void postupdate() {
-      IsoGameCharacter.s_performance.postUpdate.invokeAndMeasure(this, IsoGameCharacter::postUpdateInternal);
+      this.postUpdateInternal.invoke();
+   }
+
+   public float getAnimationTimeDelta() {
+      float var1 = GameTime.instance.getTimeDelta() * this.m_animationTimeScale;
+      return var1;
    }
 
    private void postUpdateInternal() {
       super.postupdate();
-      AnimationPlayer var1 = this.getAnimationPlayer();
-      var1.UpdateDir(this);
-      boolean var2 = this.shouldBeTurning();
-      this.setTurning(var2);
-      boolean var3 = this.shouldBeTurning90();
-      this.setTurning90(var3);
-      boolean var4 = this.shouldBeTurningAround();
-      this.setTurningAround(var4);
-      this.actionContext.update();
-      if (this.getCurrentSquare() != null) {
-         this.advancedAnimator.update();
+      this.clearHitInfo();
+      this.clearAttackVars();
+      if (this.useBallistics() && this.ballisticsController != null) {
+         this.ballisticsController.postUpdate();
       }
 
-      this.actionContext.clearEvent("ActiveAnimFinished");
-      this.actionContext.clearEvent("ActiveAnimFinishing");
-      this.actionContext.clearEvent("ActiveAnimLooped");
-      var1 = this.getAnimationPlayer();
-      if (var1 != null) {
-         MoveDeltaModifiers var15 = IsoGameCharacter.L_postUpdate.moveDeltas;
-         var15.moveDelta = this.getMoveDelta();
-         var15.turnDelta = this.getTurnDelta();
-         var3 = this.hasPath();
-         var4 = this instanceof IsoPlayer;
-         if (var4 && var3 && this.isRunning()) {
-            var15.turnDelta = Math.max(var15.turnDelta, 2.0F);
+      if (this.isAnimationUpdatingThisFrame()) {
+         AnimationPlayer var1 = this.getAnimationPlayer();
+         var1.updateForwardDirection(this);
+         boolean var2 = this.shouldBeTurning();
+         this.setTurning(var2);
+         boolean var3 = this.shouldBeTurning90();
+         this.setTurning90(var3);
+         boolean var4 = this.shouldBeTurningAround();
+         this.setTurningAround(var4);
+         this.actionContext.update();
+         if (this.getCurrentSquare() != null) {
+            float var5 = this.getAnimationTimeDelta();
+            this.advancedAnimator.update(var5);
          }
 
-         State var5 = this.getCurrentState();
-         if (var5 != null) {
-            var5.getDeltaModifiers(this, var15);
+         this.actionContext.clearEvent("ActiveAnimFinished");
+         this.actionContext.clearEvent("ActiveAnimFinishing");
+         this.actionContext.clearEvent("ActiveAnimLooped");
+         GameProfiler.getInstance().invokeAndMeasure("Deltas", this, var1, IsoGameCharacter::applyDeltas);
+         if (!this.hasActiveModel()) {
+            GameProfiler.getInstance().invokeAndMeasure("Anim Player", this, var1, IsoGameCharacter::updateAnimPlayer);
          }
 
-         if (var15.twistDelta == -1.0F) {
-            var15.twistDelta = var15.turnDelta * 1.8F;
+         if (this.isAnimationRecorderActive()) {
+            for(int var6 = 0; var6 < var1.getNumTwistBones(); ++var6) {
+               AnimatorsBoneTransform var7 = var1.getTwistBoneAt(var6);
+               this.setVariable("twistBone_" + var6 + "_Name", var1.getTwistBoneNameAt(var6));
+               this.setVariable("twistBone_" + var6 + "_Twist", 57.295776F * var7.Twist);
+               this.setVariable("twistBone_" + var6 + "_BlendWeight", var7.BlendWeight);
+            }
+
+            this.m_animationRecorder.logVariables(this);
          }
 
-         if (!this.isTurning()) {
-            var15.turnDelta = 0.0F;
+         if (this.hasActiveModel()) {
+            GameProfiler.getInstance().invokeAndMeasure("Model Slot", this, IsoGameCharacter::updateModelSlot);
          }
 
-         float var6 = Math.max(1.0F - var15.moveDelta / 2.0F, 0.0F);
-         var1.angleStepDelta = var6 * var15.turnDelta;
-         var1.angleTwistDelta = var6 * var15.twistDelta;
-         var1.setMaxTwistAngle(0.017453292F * this.getMaxTwist());
+         this.doDeferredMovementFromRagdoll();
+         this.updateLightInfo();
       }
+   }
 
-      if (this.hasActiveModel()) {
-         try {
-            ModelManager.ModelSlot var14 = this.legsSprite.modelSlot;
-            var14.Update();
-         } catch (Throwable var13) {
-            ExceptionLogger.logException(var13);
-         }
-      } else {
-         var1 = this.getAnimationPlayer();
-         var1.bUpdateBones = false;
-         var2 = PerformanceSettings.InterpolateAnims;
-         PerformanceSettings.InterpolateAnims = false;
+   public boolean isAnimationUpdatingThisFrame() {
+      return this.m_animationUpdatingThisFrame;
+   }
 
-         try {
-            var1.UpdateDir(this);
-            var1.Update();
-         } catch (Throwable var11) {
-            ExceptionLogger.logException(var11);
-         } finally {
-            var1.bUpdateBones = true;
-            PerformanceSettings.InterpolateAnims = var2;
-         }
-      }
+   private void clearHitInfo() {
+      this.hitInfoList.clear();
+   }
 
-      this.updateLightInfo();
-      if (this.isAnimationRecorderActive()) {
-         this.m_animationRecorder.logVariables(this);
-         this.m_animationRecorder.endLine();
+   private void clearAttackVars() {
+      this.attackVars.clear();
+   }
+
+   private void updateAnimPlayer(AnimationPlayer var1) {
+      var1.bUpdateBones = false;
+      boolean var2 = PerformanceSettings.InterpolateAnims;
+      PerformanceSettings.InterpolateAnims = false;
+
+      try {
+         var1.updateForwardDirection(this);
+         float var3 = this.getAnimationTimeDelta();
+         var1.Update(var3);
+      } catch (Throwable var7) {
+         ExceptionLogger.logException(var7);
+      } finally {
+         var1.bUpdateBones = true;
+         PerformanceSettings.InterpolateAnims = var2;
       }
 
    }
 
+   private void updateModelSlot() {
+      try {
+         ModelManager.ModelSlot var1 = this.legsSprite.modelSlot;
+         float var2 = this.getAnimationTimeDelta();
+         var1.Update(var2);
+      } catch (Throwable var3) {
+         ExceptionLogger.logException(var3);
+      }
+
+   }
+
+   private void applyDeltas(AnimationPlayer var1) {
+      MoveDeltaModifiers var2 = IsoGameCharacter.L_postUpdate.moveDeltas;
+      var2.moveDelta = this.getMoveDelta();
+      var2.turnDelta = this.getTurnDelta();
+      boolean var3 = this.hasPath();
+      boolean var4 = this instanceof IsoPlayer;
+      if (var4 && var3 && this.isRunning()) {
+         var2.turnDelta = Math.max(var2.turnDelta, 2.0F);
+      }
+
+      State var5 = this.getCurrentState();
+      if (var5 != null) {
+         var5.getDeltaModifiers(this, var2);
+      }
+
+      if (this.hasPath() && this.getPathFindBehavior2().isTurningToObstacle()) {
+         var2.setMaxTurnDelta(2.0F);
+      }
+
+      this.getCurrentTimedActionDeltaModifiers(var2);
+      if (var2.twistDelta == -1.0F) {
+         var2.twistDelta = var2.turnDelta * 1.8F;
+      }
+
+      if (!this.isTurning()) {
+         var2.turnDelta = 0.0F;
+      }
+
+      float var6 = Math.max(1.0F - var2.moveDelta / 2.0F, 0.0F);
+      var1.angleStepDelta = var6 * var2.turnDelta;
+      var1.angleTwistDelta = var6 * var2.twistDelta;
+      var1.setMaxTwistAngle(0.017453292F * this.getMaxTwist());
+   }
+
+   private void getCurrentTimedActionDeltaModifiers(MoveDeltaModifiers var1) {
+      if (!this.getCharacterActions().isEmpty()) {
+         BaseAction var2 = (BaseAction)this.getCharacterActions().get(0);
+         if (var2 != null) {
+            if (!var2.finished()) {
+               var2.getDeltaModifiers(var1);
+            }
+         }
+      }
+   }
+
    public boolean shouldBeTurning() {
-      float var1 = this.getTargetTwist();
-      float var2 = PZMath.abs(var1);
-      boolean var3 = var2 > 1.0F;
+      boolean var1 = this.isTwisting();
       if (this.isZombie() && this.getCurrentState() == ZombieFallDownState.instance()) {
          return false;
       } else if (this.blockTurning) {
          return false;
       } else if (this.isBehaviourMoving()) {
-         return var3;
+         return var1;
       } else if (this.isPlayerMoving()) {
-         return var3;
+         return var1;
       } else if (this.isAttacking()) {
          return !this.bAimAtFloor;
       } else {
-         float var4 = this.getAbsoluteExcessTwist();
-         if (var4 > 1.0F) {
+         float var2 = this.getAbsoluteExcessTwist();
+         if (var2 > 1.0F) {
             return true;
          } else {
-            return this.isTurning() ? var3 : false;
+            return this.isTurning() ? var1 : false;
          }
       }
    }
@@ -8419,7 +9530,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
-   private boolean isTurning() {
+   public boolean isTurning() {
       return this.m_isTurning;
    }
 
@@ -8427,7 +9538,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.m_isTurning = var1;
    }
 
-   private boolean isTurningAround() {
+   public boolean isTurningAround() {
       return this.m_isTurningAround;
    }
 
@@ -8435,7 +9546,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.m_isTurningAround = var1;
    }
 
-   private boolean isTurning90() {
+   public boolean isTurning90() {
       return this.m_isTurning90;
    }
 
@@ -8468,11 +9579,41 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setRecoilDelay(float var1) {
-      if (var1 < 0.0F) {
-         var1 = 0.0F;
+      this.RecoilDelay = PZMath.max(0.0F, var1);
+   }
+
+   public float getAimingDelay() {
+      return this.AimingDelay;
+   }
+
+   public void setAimingDelay(float var1) {
+      float var2 = this.getPrimaryHandItem() instanceof HandWeapon ? (float)((HandWeapon)this.getPrimaryHandItem()).getAimingTime() : 0.0F;
+      this.AimingDelay = PZMath.clamp(var1, 0.0F, var2);
+   }
+
+   public void resetAimingDelay() {
+      if (!(this.getPrimaryHandItem() instanceof HandWeapon)) {
+         this.AimingDelay = 0.0F;
+      } else {
+         this.AimingDelay = (float)((HandWeapon)this.getPrimaryHandItem()).getAimingTime();
+         this.AimingDelay *= this.Traits.Dextrous.isSet() ? 0.8F : (this.Traits.AllThumbs.isSet() ? 1.2F : 1.0F);
+         this.AimingDelay *= this.getVehicle() != null ? 1.5F : 1.0F;
       }
 
-      this.RecoilDelay = var1;
+   }
+
+   public void updateAimingDelay() {
+      float var1 = 0.0F;
+      if (this.getPrimaryHandItem() instanceof HandWeapon) {
+         var1 = (float)((HandWeapon)this.getPrimaryHandItem()).getRecoilDelay(this) * ((float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 30.0F);
+      }
+
+      if (this.isAiming() && this.getRecoilDelay() <= 0.0F + var1 && !this.getVariableBoolean("isracking")) {
+         this.AimingDelay = PZMath.max(this.AimingDelay - 0.625F * GameTime.getInstance().getMultiplier() * (1.0F + 0.05F * (float)this.getPerkLevel(PerkFactory.Perks.Aiming) + (this.Traits.Marksman.isSet() ? 0.1F : 0.0F)), 0.0F);
+      } else if (!this.isAiming()) {
+         this.resetAimingDelay();
+      }
+
    }
 
    public float getBeenMovingFor() {
@@ -8480,15 +9621,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setBeenMovingFor(float var1) {
-      if (var1 < 0.0F) {
-         var1 = 0.0F;
-      }
-
-      if (var1 > 70.0F) {
-         var1 = 70.0F;
-      }
-
-      this.BeenMovingFor = var1;
+      this.BeenMovingFor = PZMath.clamp(var1, 0.0F, 70.0F);
    }
 
    public boolean isForceShove() {
@@ -8528,46 +9661,62 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       } else if (var1 == 9) {
          return 6;
       } else {
-         return var1 == 10 ? 7 : -5;
+         return var1 >= 10 ? 7 : -5;
       }
    }
 
    public int getWeaponLevel() {
-      WeaponType var1 = WeaponType.getWeaponType(this);
-      int var2 = -1;
-      if (var1 != null && var1 != WeaponType.barehand) {
+      return this.getWeaponLevel((HandWeapon)null);
+   }
+
+   public int getWeaponLevel(HandWeapon var1) {
+      WeaponType var2 = WeaponType.getWeaponType(this);
+      if (var1 != null) {
+         var2 = WeaponType.getWeaponType(this);
+      }
+
+      if (var1 == null) {
+         var1 = (HandWeapon)Type.tryCastTo(this.getPrimaryHandItem(), HandWeapon.class);
+      }
+
+      int var3 = -1;
+      if (var2 != null && var2 != WeaponType.barehand && var1 != null) {
          if (((HandWeapon)this.getPrimaryHandItem()).getCategories().contains("Axe")) {
-            var2 = this.getPerkLevel(PerkFactory.Perks.Axe);
+            var3 = this.getPerkLevel(PerkFactory.Perks.Axe);
          }
 
          if (((HandWeapon)this.getPrimaryHandItem()).getCategories().contains("Spear")) {
-            var2 += this.getPerkLevel(PerkFactory.Perks.Spear);
+            var3 += this.getPerkLevel(PerkFactory.Perks.Spear);
          }
 
          if (((HandWeapon)this.getPrimaryHandItem()).getCategories().contains("SmallBlade")) {
-            var2 += this.getPerkLevel(PerkFactory.Perks.SmallBlade);
+            var3 += this.getPerkLevel(PerkFactory.Perks.SmallBlade);
          }
 
          if (((HandWeapon)this.getPrimaryHandItem()).getCategories().contains("LongBlade")) {
-            var2 += this.getPerkLevel(PerkFactory.Perks.LongBlade);
+            var3 += this.getPerkLevel(PerkFactory.Perks.LongBlade);
          }
 
          if (((HandWeapon)this.getPrimaryHandItem()).getCategories().contains("Blunt")) {
-            var2 += this.getPerkLevel(PerkFactory.Perks.Blunt);
+            var3 += this.getPerkLevel(PerkFactory.Perks.Blunt);
          }
 
          if (((HandWeapon)this.getPrimaryHandItem()).getCategories().contains("SmallBlunt")) {
-            var2 += this.getPerkLevel(PerkFactory.Perks.SmallBlunt);
+            var3 += this.getPerkLevel(PerkFactory.Perks.SmallBlunt);
          }
       }
 
-      return var2 == -1 ? 0 : var2;
+      if (var3 > 10) {
+         var3 = 10;
+      }
+
+      return var3 == -1 ? 0 : var3;
    }
 
    public int getMaintenanceMod() {
       int var1 = this.getPerkLevel(PerkFactory.Perks.Maintenance);
       var1 += this.getWeaponLevel() / 2;
-      return var1 / 2;
+      return var1;
    }
 
    public BaseVehicle getVehicle() {
@@ -8579,21 +9728,25 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isUnderVehicle() {
-      int var1 = ((int)this.x - 4) / 10;
-      int var2 = ((int)this.y - 4) / 10;
-      int var3 = (int)Math.ceil((double)((this.x + 4.0F) / 10.0F));
-      int var4 = (int)Math.ceil((double)((this.y + 4.0F) / 10.0F));
-      Vector2 var5 = (Vector2)((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).alloc();
+      return this.isUnderVehicleRadius(0.3F);
+   }
 
-      for(int var6 = var2; var6 < var4; ++var6) {
-         for(int var7 = var1; var7 < var3; ++var7) {
-            IsoChunk var8 = GameServer.bServer ? ServerMap.instance.getChunk(var7, var6) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var7 * 10, var6 * 10, 0);
-            if (var8 != null) {
-               for(int var9 = 0; var9 < var8.vehicles.size(); ++var9) {
-                  BaseVehicle var10 = (BaseVehicle)var8.vehicles.get(var9);
-                  Vector2 var11 = var10.testCollisionWithCharacter(this, 0.3F, var5);
-                  if (var11 != null && var11.x != -1.0F) {
-                     ((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).release(var5);
+   public boolean isUnderVehicleRadius(float var1) {
+      int var2 = (PZMath.fastfloor(this.getX()) - 4) / 8;
+      int var3 = (PZMath.fastfloor(this.getY()) - 4) / 8;
+      int var4 = (int)Math.ceil((double)((this.getX() + 4.0F) / 8.0F));
+      int var5 = (int)Math.ceil((double)((this.getY() + 4.0F) / 8.0F));
+      Vector2 var6 = (Vector2)((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).alloc();
+
+      for(int var7 = var3; var7 < var5; ++var7) {
+         for(int var8 = var2; var8 < var4; ++var8) {
+            IsoChunk var9 = GameServer.bServer ? ServerMap.instance.getChunk(var8, var7) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var8 * 8, var7 * 8, 0);
+            if (var9 != null) {
+               for(int var10 = 0; var10 < var9.vehicles.size(); ++var10) {
+                  BaseVehicle var11 = (BaseVehicle)var9.vehicles.get(var10);
+                  Vector2 var12 = var11.testCollisionWithCharacter(this, var1, var6);
+                  if (var12 != null && var12.x != -1.0F) {
+                     ((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).release(var6);
                      return true;
                   }
                }
@@ -8601,7 +9754,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
       }
 
-      ((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).release(var5);
+      ((BaseVehicle.Vector2ObjectPool)BaseVehicle.TL_vector2_pool.get()).release(var6);
       return false;
    }
 
@@ -8615,7 +9768,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       } else {
          for(int var1 = -1; var1 <= 1; ++var1) {
             for(int var2 = -1; var2 <= 1; ++var2) {
-               IsoGridSquare var3 = this.getCell().getGridSquare((int)this.x + var2, (int)this.y + var1, (int)this.z);
+               IsoGridSquare var3 = this.getCell().getGridSquare(PZMath.fastfloor(this.getX()) + var2, PZMath.fastfloor(this.getY()) + var1, PZMath.fastfloor(this.getZ()));
                if (var3 != null) {
                   ArrayList var4 = var3.getMovingObjects();
 
@@ -8699,6 +9852,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                         var1.AddWorldInventoryItem(var2, var4, var5, var6);
                         LuaEventManager.triggerEvent("OnContainerUpdate");
                         LuaEventManager.triggerEvent("onItemFall", var2);
+                        this.playDropItemSound(var2);
                      }
 
                      if (var3 != null) {
@@ -8708,6 +9862,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                            var1.AddWorldInventoryItem(var3, var4, var5, var6);
                            LuaEventManager.triggerEvent("OnContainerUpdate");
                            LuaEventManager.triggerEvent("onItemFall", var3);
+                           this.playDropItemSound(var3);
                         }
                      }
 
@@ -8721,13 +9876,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public boolean shouldBecomeZombieAfterDeath() {
       float var10000;
-      BodyDamage var10001;
       boolean var1;
       switch (SandboxOptions.instance.Lore.Transmission.getValue()) {
          case 1:
             if (!this.getBodyDamage().IsFakeInfected()) {
                var10000 = this.getBodyDamage().getInfectionLevel();
-               var10001 = this.BodyDamage;
+               this.getBodyDamage();
                if (var10000 >= 0.001F) {
                   var1 = true;
                   return var1;
@@ -8739,7 +9893,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          case 2:
             if (!this.getBodyDamage().IsFakeInfected()) {
                var10000 = this.getBodyDamage().getInfectionLevel();
-               var10001 = this.BodyDamage;
+               this.getBodyDamage();
                if (var10000 >= 0.001F) {
                   var1 = true;
                   return var1;
@@ -8828,20 +9982,38 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
-   public void createKeyRing() {
-      InventoryItem var1 = this.getInventory().AddItem("Base.KeyRing");
-      if (var1 != null && var1 instanceof InventoryContainer var2) {
-         var2.setName(Translator.getText("IGUI_KeyRingName", this.getDescriptor().getForename(), this.getDescriptor().getSurname()));
+   public InventoryItem createKeyRing() {
+      String var1 = "Base.KeyRing";
+      if (this.Traits.Lucky.isSet() && Rand.NextBool(100)) {
+         var1 = "Base.KeyRing_RabbitFoot";
+         if (Rand.NextBool(2)) {
+            var1 = "Base.KeyRing_Clover";
+         }
+      }
+
+      return this.createKeyRing(var1);
+   }
+
+   public InventoryItem createKeyRing(String var1) {
+      if (var1 == null) {
+         var1 = "Base.KeyRing";
+      }
+
+      InventoryItem var2 = this.getInventory().AddItem(var1);
+      if (var2 != null && var2 instanceof InventoryContainer var3) {
+         var3.setName(Translator.getText("IGUI_KeyRingName", this.getDescriptor().getForename(), this.getDescriptor().getSurname()));
          if (Rand.Next(100) < 40) {
-            RoomDef var3 = IsoWorld.instance.MetaGrid.getRoomAt((int)this.getX(), (int)this.getY(), (int)this.getZ());
-            if (var3 != null && var3.getBuilding() != null) {
-               int var10000 = Rand.Next(5);
-               String var4 = "Base.Key" + (var10000 + 1);
-               InventoryItem var5 = var2.getInventory().AddItem(var4);
-               var5.setKeyId(var3.getBuilding().getKeyId());
+            RoomDef var4 = IsoWorld.instance.MetaGrid.getRoomAt(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()));
+            if (var4 != null && var4.getBuilding() != null) {
+               String var5 = "Base.Key1";
+               InventoryItem var6 = var3.getInventory().AddItem(var5);
+               var6.setKeyId(var4.getBuilding().getKeyId());
             }
          }
 
+         return var2;
+      } else {
+         return null;
       }
    }
 
@@ -8849,19 +10021,44 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       if (!GameServer.bServer) {
          if (!GameClient.bClient || ((IsoPlayer)this).isLocalPlayer()) {
             if (Core.getInstance().getOptionAutoDrink()) {
-               if (!LuaHookManager.TriggerHook("AutoDrink", this)) {
-                  if (!(this.stats.thirst <= 0.1F)) {
-                     InventoryItem var1 = this.getWaterSource(this.getInventory().getItems());
-                     if (var1 != null) {
-                        Stats var10000 = this.stats;
-                        var10000.thirst -= 0.1F;
-                        if (GameClient.bClient) {
-                           GameClient.instance.drink((IsoPlayer)this, 0.1F);
+               if (!this.isAsleep() && !this.isPerformingGrappleAnimation() && !this.isKnockedDown() && !this.isbFalling() && !this.isAiming() && !this.isClimbing()) {
+                  if (!LuaHookManager.TriggerHook("AutoDrink", this)) {
+                     if (!(this.stats.thirst <= 0.1F)) {
+                        InventoryItem var1 = this.getWaterSource(this.getInventory().getItems());
+                        if (var1 != null) {
+                           Stats var10000 = this.stats;
+                           var10000.thirst -= 0.1F;
+                           if (GameClient.bClient) {
+                              GameClient.instance.drink((IsoPlayer)this, 0.1F);
+                           }
+
+                           if (var1.hasComponent(ComponentType.FluidContainer) && (var1.getFluidContainer().getPrimaryFluid() == Fluid.Water || var1.getFluidContainer().getPrimaryFluid() == Fluid.CarbonatedWater)) {
+                              float var2 = var1.getFluidContainer().getAmount() - 0.12F;
+                              var1.getFluidContainer().adjustAmount(var2);
+                           }
+
+                           if (var1.getFluidContainer().getPrimaryFluid() == Fluid.TaintedWater) {
+                              BodyDamage var6 = this.getBodyDamage();
+                              Stats var3 = this.getStats();
+                              if (var6.getPoisonLevel() < 20.0F && (double)var3.getSickness() < 0.3) {
+                                 float var4 = 10.0F;
+                                 if (this.Traits.IronGut.isSet()) {
+                                    var4 = 5.0F;
+                                 } else if (this.Traits.WeakStomach.isSet()) {
+                                    var4 = 15.0F;
+                                 }
+
+                                 float var5 = var6.getPoisonLevel() + var4;
+                                 if (var5 < 5.0F) {
+                                    var5 = 5.0F;
+                                 }
+
+                                 var6.setPoisonLevel(var5);
+                              }
+                           }
                         }
 
-                        var1.Use();
                      }
-
                   }
                }
             }
@@ -8875,13 +10072,24 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
       for(int var4 = 0; var4 < var1.size(); ++var4) {
          InventoryItem var5 = (InventoryItem)var1.get(var4);
-         if (var5.isWaterSource() && !var5.isBeingFilled() && !var5.isTaintedWater()) {
-            if (var5 instanceof Drainable) {
-               if (((Drainable)var5).getUsedDelta() > 0.0F) {
-                  var2 = var5;
-                  break;
-               }
-            } else if (!(var5 instanceof InventoryContainer)) {
+         boolean var6 = false;
+         boolean var7 = true;
+         if (var5.isWaterSource() || var5.isBeingFilled()) {
+            var6 = true;
+            var7 = !var5.getFluidContainer().isCategory(FluidCategory.Hazardous) || !SandboxOptions.instance.EnableTaintedWaterText.getValue();
+         }
+
+         if (var5.hasComponent(ComponentType.FluidContainer) && !var5.getFluidContainer().isEmpty() && (var5.getFluidContainer().getPrimaryFluid() == Fluid.Water || var5.getFluidContainer().getPrimaryFluid() == Fluid.CarbonatedWater)) {
+            var6 = true;
+         }
+
+         if (var6 && var7) {
+            if (var5.hasComponent(ComponentType.FluidContainer) && (double)var5.getFluidContainer().getAmount() >= 0.12) {
+               var2 = var5;
+               break;
+            }
+
+            if (!(var5 instanceof InventoryContainer)) {
                var2 = var5;
                break;
             }
@@ -8896,25 +10104,53 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isRecipeKnown(Recipe var1) {
-      if (DebugOptions.instance.CheatRecipeKnowAll.getValue()) {
-         return true;
+      return !DebugOptions.instance.Cheat.Recipe.KnowAll.getValue() && !SandboxOptions.instance.SeeNotLearntRecipe.getValue() ? this.getKnownRecipes().contains(var1.getOriginalname()) : true;
+   }
+
+   public boolean isRecipeKnown(CraftRecipe var1) {
+      return this.isRecipeKnown(var1, false);
+   }
+
+   public boolean isRecipeKnown(CraftRecipe var1, boolean var2) {
+      if ((var2 || !SandboxOptions.instance.SeeNotLearntRecipe.getValue()) && !DebugOptions.instance.Cheat.Recipe.KnowAll.getValue()) {
+         return !var1.needToBeLearn() || this.getKnownRecipes().contains(var1.getName()) || this.getKnownRecipes().contains(var1.getMetaRecipe()) || this.getKnownRecipes().contains(var1.getTranslationName());
       } else {
-         return !var1.needToBeLearn() || this.getKnownRecipes().contains(var1.getOriginalname());
+         return true;
       }
    }
 
    public boolean isRecipeKnown(String var1) {
-      Recipe var2 = ScriptManager.instance.getRecipe(var1);
-      if (var2 == null) {
-         return DebugOptions.instance.CheatRecipeKnowAll.getValue() ? true : this.getKnownRecipes().contains(var1);
+      return this.isRecipeKnown(var1, false);
+   }
+
+   public boolean isRecipeKnown(String var1, boolean var2) {
+      Recipe var3 = ScriptManager.instance.getRecipe(var1);
+      if (var3 != null) {
+         return this.isRecipeKnown(var3);
       } else {
-         return this.isRecipeKnown(var2);
+         return (var2 || !SandboxOptions.instance.SeeNotLearntRecipe.getValue()) && !DebugOptions.instance.Cheat.Recipe.KnowAll.getValue() ? this.getKnownRecipes().contains(var1) : true;
       }
    }
 
+   public boolean isRecipeActuallyKnown(CraftRecipe var1) {
+      return this.isRecipeKnown(var1, true);
+   }
+
+   public boolean isRecipeActuallyKnown(String var1) {
+      return this.isRecipeKnown(var1, true);
+   }
+
    public boolean learnRecipe(String var1) {
-      if (!this.isRecipeKnown(var1)) {
+      return this.learnRecipe(var1, true);
+   }
+
+   public boolean learnRecipe(String var1, boolean var2) {
+      if (!this.isRecipeKnown(var1, true)) {
          this.getKnownRecipes().add(var1);
+         if (var2) {
+            ScriptManager.instance.checkMetaRecipe(this, var1);
+         }
+
          return true;
       } else {
          return false;
@@ -9045,9 +10281,22 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.getEmitter().stopOrTriggerSound(var1);
    }
 
+   public long playDropItemSound(InventoryItem var1) {
+      if (var1 == null) {
+         return 0L;
+      } else {
+         String var2 = var1.getDropSound();
+         if (var2 == null && var1 instanceof InventoryContainer) {
+            var2 = "DropBag";
+         }
+
+         return var2 == null ? 0L : this.playSound(var2);
+      }
+   }
+
    public void addWorldSoundUnlessInvisible(int var1, int var2, boolean var3) {
       if (!this.isInvisible()) {
-         WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), var1, var2, var3);
+         WorldSoundManager.instance.addSound(this, PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), var1, var2, var3);
       }
    }
 
@@ -9059,11 +10308,27 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          if (var2.getPoisonPower() <= 0) {
             return false;
          } else if (var2.getHerbalistType() != null && !var2.getHerbalistType().isEmpty()) {
-            return this.isRecipeKnown("Herbalist");
+            return this.isRecipeActuallyKnown("Herbalist");
          } else if (var2.getPoisonDetectionLevel() >= 0 && this.getPerkLevel(PerkFactory.Perks.Cooking) >= 10 - var2.getPoisonDetectionLevel()) {
             return true;
          } else {
             return var2.getPoisonLevelForRecipe() != null;
+         }
+      } else {
+         return false;
+      }
+   }
+
+   public boolean isKnownPoison(Item var1) {
+      if (var1.getType() == Item.Type.Food) {
+         if (var1.PoisonPower <= 0) {
+            return false;
+         } else if (var1.HerbalistType != null && !var1.HerbalistType.isEmpty()) {
+            return this.isRecipeActuallyKnown("Herbalist");
+         } else if (var1.PoisonDetectionLevel >= 0 && this.getPerkLevel(PerkFactory.Perks.Cooking) >= 10 - var1.PoisonDetectionLevel) {
+            return true;
+         } else {
+            return var1.PoisonDetectionLevel != null;
          }
       } else {
          return false;
@@ -9130,11 +10395,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.getHealth();
    }
 
-   public PolygonalMap2.Path getPath2() {
+   public Path getPath2() {
       return this.path2;
    }
 
-   public void setPath2(PolygonalMap2.Path var1) {
+   public void setPath2(Path var1) {
       this.path2 = var1;
    }
 
@@ -9147,7 +10412,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public IsoObject getBed() {
-      return this.isAsleep() ? this.bed : null;
+      return !this.isAsleep() && !this.isResting() ? null : this.bed;
    }
 
    public void setBed(IsoObject var1) {
@@ -9179,11 +10444,27 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isInvisible() {
-      return this.m_invisible;
+      return this.m_cheats.m_invisible;
    }
 
    public void setInvisible(boolean var1) {
-      this.m_invisible = var1;
+      if (!Role.haveCapability(this, Capability.ToggleInvisibleHimself)) {
+         this.m_cheats.m_invisible = false;
+      } else {
+         this.m_cheats.m_invisible = var1;
+      }
+   }
+
+   public boolean isCanUseBrushTool() {
+      return this.m_cheats.m_canUseBrushTool;
+   }
+
+   public void setCanUseBrushTool(boolean var1) {
+      if (!Role.haveCapability(this, Capability.UseBrushToolManager)) {
+         this.m_cheats.m_canUseBrushTool = false;
+      } else {
+         this.m_cheats.m_canUseBrushTool = var1;
+      }
    }
 
    public boolean isDriving() {
@@ -9195,79 +10476,143 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isGodMod() {
-      return this.m_godMod;
+      return this.m_cheats.m_godMod;
+   }
+
+   public boolean isInvulnerable() {
+      return this.m_cheats.m_invulnerable;
+   }
+
+   public void setInvulnerable(boolean var1) {
+      this.m_cheats.m_invulnerable = var1;
    }
 
    public void setGodMod(boolean var1) {
-      if (!this.isDead()) {
-         this.m_godMod = var1;
-         if (this instanceof IsoPlayer && GameClient.bClient && ((IsoPlayer)this).isLocalPlayer()) {
-            this.updateMovementRates();
-            GameClient.sendPlayerInjuries((IsoPlayer)this);
-            GameClient.sendPlayerDamage((IsoPlayer)this);
+      if (!Role.haveCapability(this, Capability.ToggleGodModHimself)) {
+         this.m_cheats.m_godMod = false;
+      } else {
+         if (!this.isDead()) {
+            this.m_cheats.m_godMod = var1;
+            if (this instanceof IsoPlayer && GameClient.bClient && ((IsoPlayer)this).isLocalPlayer() && GameWindow.states.current == IngameState.instance) {
+               this.updateMovementRates();
+               GameClient.sendPlayerInjuries((IsoPlayer)this);
+               GameClient.sendPlayerDamage((IsoPlayer)this);
+            }
          }
-      }
 
+      }
    }
 
    public boolean isUnlimitedCarry() {
-      return this.unlimitedCarry;
+      return this.m_cheats.m_unlimitedCarry;
    }
 
    public void setUnlimitedCarry(boolean var1) {
-      this.unlimitedCarry = var1;
+      if (!Role.haveCapability(this, Capability.ToggleUnlimitedCarry)) {
+         this.m_cheats.m_unlimitedCarry = false;
+      } else {
+         this.m_cheats.m_unlimitedCarry = var1;
+      }
    }
 
    public boolean isBuildCheat() {
-      return this.buildCheat;
+      return this.m_cheats.m_buildCheat;
    }
 
    public void setBuildCheat(boolean var1) {
-      this.buildCheat = var1;
+      if (!Role.haveCapability(this, Capability.UseBuildCheat)) {
+         this.m_cheats.m_buildCheat = false;
+      } else {
+         this.m_cheats.m_buildCheat = var1;
+      }
    }
 
    public boolean isFarmingCheat() {
-      return this.farmingCheat;
+      return this.m_cheats.m_farmingCheat;
    }
 
    public void setFarmingCheat(boolean var1) {
-      this.farmingCheat = var1;
+      if (!Role.haveCapability(this, Capability.UseFarmingCheat)) {
+         this.m_cheats.m_farmingCheat = false;
+      } else {
+         this.m_cheats.m_farmingCheat = var1;
+      }
+   }
+
+   public boolean isFishingCheat() {
+      return this.m_cheats.m_fishingCheat;
+   }
+
+   public void setFishingCheat(boolean var1) {
+      if (!Role.haveCapability(this, Capability.UseFishingCheat)) {
+         this.m_cheats.m_fishingCheat = false;
+      } else {
+         this.m_cheats.m_fishingCheat = var1;
+      }
    }
 
    public boolean isHealthCheat() {
-      return this.healthCheat;
+      return this.m_cheats.m_healthCheat;
    }
 
    public void setHealthCheat(boolean var1) {
-      this.healthCheat = var1;
+      if (!Role.haveCapability(this, Capability.UseHealthCheat)) {
+         this.m_cheats.m_healthCheat = false;
+      } else {
+         this.m_cheats.m_healthCheat = var1;
+      }
    }
 
    public boolean isMechanicsCheat() {
-      return this.mechanicsCheat;
+      return this.m_cheats.m_mechanicsCheat;
    }
 
    public void setMechanicsCheat(boolean var1) {
-      this.mechanicsCheat = var1;
+      if (!Role.haveCapability(this, Capability.UseMechanicsCheat)) {
+         this.m_cheats.m_mechanicsCheat = false;
+      } else {
+         this.m_cheats.m_mechanicsCheat = var1;
+      }
+   }
+
+   public boolean isFastMoveCheat() {
+      return this.m_cheats.m_fastMoveCheat;
+   }
+
+   public void setFastMoveCheat(boolean var1) {
+      if (!Role.haveCapability(this, Capability.UseFastMoveCheat)) {
+         this.m_cheats.m_fastMoveCheat = false;
+      } else {
+         this.m_cheats.m_fastMoveCheat = var1;
+      }
    }
 
    public boolean isMovablesCheat() {
-      return this.movablesCheat;
+      return this.m_cheats.m_movablesCheat;
    }
 
    public void setMovablesCheat(boolean var1) {
-      this.movablesCheat = var1;
+      if (!Role.haveCapability(this, Capability.UseMovablesCheat)) {
+         this.m_cheats.m_movablesCheat = false;
+      } else {
+         this.m_cheats.m_movablesCheat = var1;
+      }
    }
 
    public boolean isTimedActionInstantCheat() {
-      return this.timedActionInstantCheat;
+      return this.m_cheats.m_timedActionInstantCheat;
    }
 
    public void setTimedActionInstantCheat(boolean var1) {
-      this.timedActionInstantCheat = var1;
+      if (!Role.haveCapability(this, Capability.UseTimedActionInstantCheat)) {
+         this.m_cheats.m_timedActionInstantCheat = false;
+      } else {
+         this.m_cheats.m_timedActionInstantCheat = var1;
+      }
    }
 
    public boolean isTimedActionInstant() {
-      return Core.bDebug && DebugOptions.instance.CheatTimedActionInstant.getValue() ? true : this.isTimedActionInstantCheat();
+      return Core.bDebug && DebugOptions.instance.Cheat.TimedAction.Instant.getValue() ? true : this.isTimedActionInstantCheat();
    }
 
    public boolean isShowAdminTag() {
@@ -9286,55 +10631,63 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       return this.getGameVariablesInternal().getVariable(var1);
    }
 
-   public IAnimationVariableSlot getOrCreateVariable(String var1) {
-      return this.getGameVariablesInternal().getOrCreateVariable(var1);
-   }
-
    public void setVariable(IAnimationVariableSlot var1) {
       this.getGameVariablesInternal().setVariable(var1);
    }
 
    public void setVariable(String var1, String var2) {
+      if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer() && VariableSyncPacket.syncedVariables.contains(var1)) {
+         INetworkPacket.send(PacketTypes.PacketType.VariableSync, this, var1, var2);
+      }
+
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
    public void setVariable(String var1, boolean var2) {
+      if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer() && VariableSyncPacket.syncedVariables.contains(var1)) {
+         INetworkPacket.send(PacketTypes.PacketType.VariableSync, this, var1, var2);
+      }
+
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
    public void setVariable(String var1, float var2) {
+      if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer() && VariableSyncPacket.syncedVariables.contains(var1)) {
+         INetworkPacket.send(PacketTypes.PacketType.VariableSync, this, var1, var2);
+      }
+
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackBool.CallbackGetStrongTyped var2) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackBool.CallbackGetStrongTyped var2) {
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackBool.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackBool.CallbackSetStrongTyped var3) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackBool.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackBool.CallbackSetStrongTyped var3) {
       this.getGameVariablesInternal().setVariable(var1, var2, var3);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackString.CallbackGetStrongTyped var2) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackString.CallbackGetStrongTyped var2) {
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackString.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackString.CallbackSetStrongTyped var3) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackString.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackString.CallbackSetStrongTyped var3) {
       this.getGameVariablesInternal().setVariable(var1, var2, var3);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackFloat.CallbackGetStrongTyped var2) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackFloat.CallbackGetStrongTyped var2) {
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackFloat.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackFloat.CallbackSetStrongTyped var3) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackFloat.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackFloat.CallbackSetStrongTyped var3) {
       this.getGameVariablesInternal().setVariable(var1, var2, var3);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackInt.CallbackGetStrongTyped var2) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackInt.CallbackGetStrongTyped var2) {
       this.getGameVariablesInternal().setVariable(var1, var2);
    }
 
-   protected void setVariable(String var1, AnimationVariableSlotCallbackInt.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackInt.CallbackSetStrongTyped var3) {
+   public void setVariable(String var1, AnimationVariableSlotCallbackInt.CallbackGetStrongTyped var2, AnimationVariableSlotCallbackInt.CallbackSetStrongTyped var3) {
       this.getGameVariablesInternal().setVariable(var1, var2, var3);
    }
 
@@ -9419,7 +10772,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean getVariableBoolean(String var1, boolean var2) {
-      return this.getGameVariablesInternal().getVariableBoolean(this.name, var2);
+      return this.getGameVariablesInternal().getVariableBoolean(var1, var2);
    }
 
    public boolean isVariable(String var1, String var2) {
@@ -9428,6 +10781,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public boolean containsVariable(String var1) {
       return this.getGameVariablesInternal().containsVariable(var1);
+   }
+
+   public IAnimationVariableSource getSubVariableSource(String var1) {
+      if (var1.equals("GrappledTarget")) {
+         return IGrappleable.getAnimatable(this.getGrapplingTarget());
+      } else {
+         return var1.equals("GrappledBy") ? IGrappleable.getAnimatable(this.getGrappledBy()) : null;
+      }
    }
 
    public Iterable<IAnimationVariableSlot> getGameVariables() {
@@ -9501,24 +10862,33 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void actionStateChanged(ActionContext var1) {
-      ArrayList var2 = IsoGameCharacter.L_actionStateChanged.stateNames;
-      PZArrayUtil.listConvert(var1.getChildStates(), var2, (var0) -> {
-         return var0.name;
+      for(int var2 = 0; var2 < IsoGameCharacter.L_actionStateChanged.stateNames.size(); ++var2) {
+         DebugLog.AnimationDetailed.debugln("************* stateNames: %s", IsoGameCharacter.L_actionStateChanged.stateNames.get(var2));
+      }
+
+      ArrayList var8 = IsoGameCharacter.L_actionStateChanged.stateNames;
+      PZArrayUtil.listConvert(var1.getChildStates(), var8, (var0) -> {
+         return var0.getName();
       });
-      this.advancedAnimator.SetState(var1.getCurrentStateName(), var2);
+
+      for(int var3 = 0; var3 < IsoGameCharacter.L_actionStateChanged.stateNames.size(); ++var3) {
+         DebugLog.AnimationDetailed.debugln("************* stateNames: %s", IsoGameCharacter.L_actionStateChanged.stateNames.get(var3));
+      }
+
+      this.advancedAnimator.SetState(var1.getCurrentStateName(), var8);
 
       try {
          ++this.stateMachine.activeStateChanged;
-         State var3 = (State)this.m_stateUpdateLookup.get(var1.getCurrentStateName().toLowerCase());
-         if (var3 == null) {
-            var3 = this.defaultState;
+         State var9 = this.tryGetAIState(var1.getCurrentStateName());
+         if (var9 == null) {
+            var9 = this.defaultState;
          }
 
          ArrayList var4 = IsoGameCharacter.L_actionStateChanged.states;
-         PZArrayUtil.listConvert(var1.getChildStates(), var4, this.m_stateUpdateLookup, (var0, var1x) -> {
-            return (State)var1x.get(var0.name.toLowerCase());
+         PZArrayUtil.listConvert(var1.getChildStates(), var4, this.m_aiStateMap, (var0, var1x) -> {
+            return (State)var1x.get(var0.getName().toLowerCase());
          });
-         this.stateMachine.changeState(var3, var4);
+         this.stateMachine.changeState(var9, var4);
       } finally {
          --this.stateMachine.activeStateChanged;
       }
@@ -9539,6 +10909,20 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void setHitFromBehind(boolean var1) {
       this.hitFromBehind = var1;
+   }
+
+   public boolean isKilledBySlicingWeapon() {
+      IsoGameCharacter var1 = this.getAttackedBy();
+      if (var1 == null) {
+         return false;
+      } else {
+         HandWeapon var2 = var1.getAttackingWeapon();
+         if (var2 == null) {
+            return false;
+         } else {
+            return var2.getCategories().contains("LongBlade");
+         }
+      }
    }
 
    public void reportEvent(String var1) {
@@ -9573,7 +10957,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setHitReaction(String var1) {
-      this.hitReaction = var1;
+      if (!StringUtils.equals(this.hitReaction, var1)) {
+         this.hitReaction = var1;
+      }
+
    }
 
    public void CacheEquipped() {
@@ -9630,10 +11017,18 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.bAimAtFloor = var1;
    }
 
+   public boolean isDeferredMovementEnabled() {
+      return this.m_deferredMovementEnabled;
+   }
+
+   public void setDeferredMovementEnabled(boolean var1) {
+      this.m_deferredMovementEnabled = var1;
+   }
+
    public String testDotSide(IsoMovingObject var1) {
       Vector2 var2 = this.getLookVector(IsoGameCharacter.l_testDotSide.v1);
       Vector2 var3 = IsoGameCharacter.l_testDotSide.v2.set(this.getX(), this.getY());
-      Vector2 var4 = IsoGameCharacter.l_testDotSide.v3.set(var1.x - var3.x, var1.y - var3.y);
+      Vector2 var4 = IsoGameCharacter.l_testDotSide.v3.set(var1.getX() - var3.x, var1.getY() - var3.y);
       var4.normalize();
       float var5 = Vector2.dot(var4.x, var4.y, var2.x, var2.y);
       if ((double)var5 > 0.7) {
@@ -9641,8 +11036,8 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       } else if (var5 < 0.0F && (double)var5 < -0.5) {
          return "BEHIND";
       } else {
-         float var6 = var1.x;
-         float var7 = var1.y;
+         float var6 = var1.getX();
+         float var7 = var1.getY();
          float var8 = var3.x;
          float var9 = var3.y;
          float var10 = var3.x + var2.x;
@@ -9689,7 +11084,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          if (!GameServer.bServer && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
             LuaEventManager.triggerEvent("OnClothingUpdated", this);
             if (GameClient.bClient) {
-               GameClient.instance.sendClothing((IsoPlayer)this, "", (InventoryItem)null);
+               INetworkPacket.send(PacketTypes.PacketType.SyncInventory, this);
+               INetworkPacket.send(PacketTypes.PacketType.SyncClothing, this);
+               INetworkPacket.send(PacketTypes.PacketType.SyncVisuals, this);
             }
          }
 
@@ -9698,83 +11095,157 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void addDirt(BloodBodyPartType var1, Integer var2, boolean var3) {
-      HumanVisual var4 = ((IHumanVisual)this).getHumanVisual();
-      if (var2 == null) {
-         var2 = OutfitRNG.Next(5, 10);
-      }
-
-      boolean var5 = false;
-      if (var1 == null) {
-         var5 = true;
-      }
-
-      this.getItemVisuals(tempItemVisuals);
-
-      for(int var6 = 0; var6 < var2; ++var6) {
-         if (var5) {
-            var1 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
+      if (!(this instanceof IsoAnimal)) {
+         HumanVisual var4 = ((IHumanVisual)this).getHumanVisual();
+         if (var2 == null) {
+            var2 = OutfitRNG.Next(5, 10);
          }
 
-         BloodClothingType.addDirt(var1, var4, tempItemVisuals, var3);
-      }
+         boolean var5 = false;
+         if (var1 == null) {
+            var5 = true;
+         }
 
-      this.bUpdateModelTextures = true;
-      if (!GameServer.bServer && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-         LuaEventManager.triggerEvent("OnClothingUpdated", this);
-      }
+         this.getItemVisuals(tempItemVisuals);
 
+         for(int var6 = 0; var6 < var2; ++var6) {
+            if (var5) {
+               var1 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
+            }
+
+            BloodClothingType.addDirt(var1, var4, tempItemVisuals, var3);
+         }
+
+         this.bUpdateModelTextures = true;
+         if (!GameServer.bServer && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
+            LuaEventManager.triggerEvent("OnClothingUpdated", this);
+         }
+
+      }
+   }
+
+   public void addLotsOfDirt(BloodBodyPartType var1, Integer var2, boolean var3) {
+      if (!(this instanceof IsoAnimal)) {
+         HumanVisual var4 = ((IHumanVisual)this).getHumanVisual();
+         if (var2 == null) {
+            var2 = OutfitRNG.Next(5, 10);
+         }
+
+         boolean var5 = false;
+         if (var1 == null) {
+            var5 = true;
+         }
+
+         this.getItemVisuals(tempItemVisuals);
+
+         for(int var6 = 0; var6 < var2; ++var6) {
+            if (var5) {
+               var1 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
+            }
+
+            BloodClothingType.addDirt(var1, Rand.Next(0.01F, 1.0F), var4, tempItemVisuals, var3);
+         }
+
+         this.bUpdateModelTextures = true;
+         if (!GameServer.bServer && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
+            LuaEventManager.triggerEvent("OnClothingUpdated", this);
+         }
+
+      }
    }
 
    public void addBlood(BloodBodyPartType var1, boolean var2, boolean var3, boolean var4) {
-      HumanVisual var5 = ((IHumanVisual)this).getHumanVisual();
-      int var6 = 1;
-      boolean var7 = false;
-      if (var1 == null) {
-         var7 = true;
-      }
-
-      if (this.getPrimaryHandItem() instanceof HandWeapon) {
-         var6 = ((HandWeapon)this.getPrimaryHandItem()).getSplatNumber();
-         if (OutfitRNG.Next(15) < this.getWeaponLevel()) {
-            --var6;
+      if (!(this instanceof IsoAnimal)) {
+         HumanVisual var5 = ((IHumanVisual)this).getHumanVisual();
+         int var6 = 1;
+         boolean var7 = false;
+         if (var1 == null) {
+            var7 = true;
          }
-      }
 
-      if (var3) {
-         var6 = 20;
-      }
-
-      if (var2) {
-         var6 = 5;
-      }
-
-      if (this.isZombie()) {
-         var6 += 8;
-      }
-
-      this.getItemVisuals(tempItemVisuals);
-
-      for(int var8 = 0; var8 < var6; ++var8) {
-         if (var7) {
-            var1 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
-            if (this.getPrimaryHandItem() != null && this.getPrimaryHandItem() instanceof HandWeapon) {
-               HandWeapon var9 = (HandWeapon)this.getPrimaryHandItem();
-               if (var9.getBloodLevel() < 1.0F) {
-                  float var10 = var9.getBloodLevel() + 0.02F;
-                  var9.setBloodLevel(var10);
-                  this.bUpdateEquippedTextures = true;
-               }
+         if (this.getPrimaryHandItem() instanceof HandWeapon) {
+            var6 = ((HandWeapon)this.getPrimaryHandItem()).getSplatNumber();
+            if (OutfitRNG.Next(15) < this.getWeaponLevel()) {
+               --var6;
             }
          }
 
-         BloodClothingType.addBlood(var1, var5, tempItemVisuals, var4);
+         if (var3) {
+            var6 = 20;
+         }
+
+         if (var2) {
+            var6 = 5;
+         }
+
+         if (this.isZombie()) {
+            var6 += 8;
+         }
+
+         this.getItemVisuals(tempItemVisuals);
+
+         for(int var8 = 0; var8 < var6; ++var8) {
+            if (var7) {
+               var1 = BloodBodyPartType.FromIndex(OutfitRNG.Next(0, BloodBodyPartType.MAX.index()));
+               if (this.getPrimaryHandItem() != null && this.getPrimaryHandItem() instanceof HandWeapon) {
+                  HandWeapon var9 = (HandWeapon)this.getPrimaryHandItem();
+                  if (var9.getBloodLevel() < 1.0F) {
+                     float var10 = var9.getBloodLevel() + 0.02F;
+                     var9.setBloodLevel(var10);
+                     this.bUpdateEquippedTextures = true;
+                  }
+               }
+            }
+
+            BloodClothingType.addBlood(var1, var5, tempItemVisuals, var4);
+         }
+
+         this.bUpdateModelTextures = true;
+         if (!GameServer.bServer && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
+            LuaEventManager.triggerEvent("OnClothingUpdated", this);
+         }
+
+      }
+   }
+
+   public boolean bodyPartHasTag(Integer var1, String var2) {
+      this.getItemVisuals(tempItemVisuals);
+
+      for(int var3 = tempItemVisuals.size() - 1; var3 >= 0; --var3) {
+         ItemVisual var4 = (ItemVisual)tempItemVisuals.get(var3);
+         Item var5 = var4.getScriptItem();
+         if (var5 != null) {
+            ArrayList var6 = var5.getBloodClothingType();
+            if (var6 != null) {
+               ArrayList var7 = BloodClothingType.getCoveredParts(var6);
+               if (var7 != null) {
+                  InventoryItem var8 = var4.getInventoryItem();
+                  if (var8 == null) {
+                     var8 = InventoryItemFactory.CreateItem(var4.getItemType());
+                     if (var8 == null) {
+                        continue;
+                     }
+                  }
+
+                  for(int var9 = 0; var9 < var7.size(); ++var9) {
+                     if (var8 instanceof Clothing && ((BloodBodyPartType)var7.get(var9)).index() == var1 && var4.getHole((BloodBodyPartType)var7.get(var9)) == 0.0F && var8.hasTag(var2)) {
+                        return true;
+                     }
+                  }
+               }
+            }
+         }
       }
 
-      this.bUpdateModelTextures = true;
-      if (!GameServer.bServer && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer()) {
-         LuaEventManager.triggerEvent("OnClothingUpdated", this);
-      }
+      return false;
+   }
 
+   public boolean bodyPartIsSpiked(Integer var1) {
+      return this.bodyPartHasTag(var1, "Spiked");
+   }
+
+   public boolean bodyPartIsSpikedBehind(Integer var1) {
+      return this.bodyPartHasTag(var1, "Spiked");
    }
 
    public float getBodyPartClothingDefense(Integer var1, boolean var2, boolean var3) {
@@ -9891,12 +11362,71 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.sitOnGround = var1;
    }
 
+   public boolean isSittingOnFurniture() {
+      return this.m_isSitOnFurniture;
+   }
+
+   public void setSittingOnFurniture(boolean var1) {
+      this.m_isSitOnFurniture = var1;
+   }
+
+   public IsoObject getSitOnFurnitureObject() {
+      return this.m_sitOnFurnitureObject;
+   }
+
+   public void setSitOnFurnitureObject(IsoObject var1) {
+      this.m_sitOnFurnitureObject = var1;
+   }
+
+   public IsoDirections getSitOnFurnitureDirection() {
+      return this.m_sitOnFurnitureDirection;
+   }
+
+   public void setSitOnFurnitureDirection(IsoDirections var1) {
+      this.m_sitOnFurnitureDirection = var1;
+   }
+
+   public boolean isSitOnFurnitureObject(IsoObject var1) {
+      IsoObject var2 = this.getSitOnFurnitureObject();
+      if (var2 == null) {
+         return false;
+      } else {
+         return var1 == var2 ? true : var2.isConnectedSpriteGridObject(var1);
+      }
+   }
+
+   public boolean shouldIgnoreCollisionWithSquare(IsoGridSquare var1) {
+      if (this.getSitOnFurnitureObject() != null && this.getSitOnFurnitureObject().getSquare() == var1) {
+         return true;
+      } else {
+         return this.hasPath() && this.getPathFindBehavior2().shouldIgnoreCollisionWithSquare(var1);
+      }
+   }
+
+   public boolean canStandAt(float var1, float var2, float var3) {
+      int var4 = 17;
+      boolean var5 = false;
+      if (var5) {
+         var4 |= 2;
+      }
+
+      return PolygonalMap2.instance.canStandAt(var1, var2, (int)var3, (BaseVehicle)null, var4);
+   }
+
    public String getUID() {
       return this.m_UID;
    }
 
-   protected HashMap<String, State> getStateUpdateLookup() {
-      return this.m_stateUpdateLookup;
+   protected void clearAIStateMap() {
+      this.m_aiStateMap.clear();
+   }
+
+   protected void registerAIState(String var1, State var2) {
+      this.m_aiStateMap.put(var1.toLowerCase(Locale.ENGLISH), var2);
+   }
+
+   public State tryGetAIState(String var1) {
+      return (State)this.m_aiStateMap.get(var1.toLowerCase(Locale.ENGLISH));
    }
 
    public boolean isRunning() {
@@ -9992,7 +11522,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public GameCharacterAIBrain getGameCharacterAIBrain() {
-      return this.GameCharacterAIBrain;
+      return this.ai.brain;
    }
 
    public float getMoveDelta() {
@@ -10033,6 +11563,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          var2 -= this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 2;
          var2 -= this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 2;
          var2 -= this.getMoodles().getMoodleLevel(MoodleType.Tired) * 3;
+         var2 -= this.getMoodles().getMoodleLevel(MoodleType.Drunk) * 2;
          if (SandboxOptions.instance.Lore.Strength.getValue() == 1) {
             var2 -= 7;
          }
@@ -10054,55 +11585,74 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public int getSurroundingAttackingZombies() {
+      return this.getSurroundingAttackingZombies(false);
+   }
+
+   public int getSurroundingAttackingZombies(boolean var1) {
       movingStatic.clear();
-      IsoGridSquare var1 = this.getCurrentSquare();
-      if (var1 == null) {
+      IsoGridSquare var2 = this.getCurrentSquare();
+      if (var2 == null) {
          return 0;
       } else {
-         movingStatic.addAll(var1.getMovingObjects());
-         if (var1.n != null) {
-            movingStatic.addAll(var1.n.getMovingObjects());
+         movingStatic.addAll(var2.getMovingObjects());
+         if (var2.n != null) {
+            movingStatic.addAll(var2.n.getMovingObjects());
          }
 
-         if (var1.s != null) {
-            movingStatic.addAll(var1.s.getMovingObjects());
+         if (var2.s != null) {
+            movingStatic.addAll(var2.s.getMovingObjects());
          }
 
-         if (var1.e != null) {
-            movingStatic.addAll(var1.e.getMovingObjects());
+         if (var2.e != null) {
+            movingStatic.addAll(var2.e.getMovingObjects());
          }
 
-         if (var1.w != null) {
-            movingStatic.addAll(var1.w.getMovingObjects());
+         if (var2.w != null) {
+            movingStatic.addAll(var2.w.getMovingObjects());
          }
 
-         if (var1.nw != null) {
-            movingStatic.addAll(var1.nw.getMovingObjects());
+         if (var2.nw != null) {
+            movingStatic.addAll(var2.nw.getMovingObjects());
          }
 
-         if (var1.sw != null) {
-            movingStatic.addAll(var1.sw.getMovingObjects());
+         if (var2.sw != null) {
+            movingStatic.addAll(var2.sw.getMovingObjects());
          }
 
-         if (var1.se != null) {
-            movingStatic.addAll(var1.se.getMovingObjects());
+         if (var2.se != null) {
+            movingStatic.addAll(var2.se.getMovingObjects());
          }
 
-         if (var1.ne != null) {
-            movingStatic.addAll(var1.ne.getMovingObjects());
+         if (var2.ne != null) {
+            movingStatic.addAll(var2.ne.getMovingObjects());
          }
 
-         int var2 = 0;
+         int var3 = 0;
 
-         for(int var3 = 0; var3 < movingStatic.size(); ++var3) {
-            IsoZombie var4 = (IsoZombie)Type.tryCastTo((IsoMovingObject)movingStatic.get(var3), IsoZombie.class);
-            if (var4 != null && var4.target == this && !(this.DistToSquared(var4) >= 0.80999994F) && (var4.isCurrentState(AttackState.instance()) || var4.isCurrentState(AttackNetworkState.instance()) || var4.isCurrentState(LungeState.instance()) || var4.isCurrentState(LungeNetworkState.instance()))) {
-               ++var2;
+         for(int var4 = 0; var4 < movingStatic.size(); ++var4) {
+            IsoZombie var5 = (IsoZombie)Type.tryCastTo((IsoMovingObject)movingStatic.get(var4), IsoZombie.class);
+            if (var5 != null && var5.target == this && !(this.DistToSquared(var5) >= 0.80999994F) && (!var5.isCrawling() || var1) && (var5.isCurrentState(AttackState.instance()) || var5.isCurrentState(AttackNetworkState.instance()) || var5.isCurrentState(LungeState.instance()) || var5.isCurrentState(LungeNetworkState.instance()))) {
+               ++var3;
             }
          }
 
-         return var2;
+         return var3;
       }
+   }
+
+   public boolean checkIsNearVehicle() {
+      for(int var1 = 0; var1 < IsoWorld.instance.CurrentCell.getVehicles().size(); ++var1) {
+         BaseVehicle var2 = (BaseVehicle)IsoWorld.instance.CurrentCell.getVehicles().get(var1);
+         if (var2.DistTo(this) < 3.5F) {
+            if (this.bSneaking) {
+               this.setVariable("nearWallCrouching", true);
+            }
+
+            return true;
+         }
+      }
+
+      return false;
    }
 
    public float checkIsNearWall() {
@@ -10194,22 +11744,56 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setIsAiming(boolean var1) {
-      if (this.ignoreAimingInput) {
-         var1 = false;
+      this.m_isAiming = var1;
+   }
+
+   /** @deprecated */
+   @Deprecated
+   public boolean IsAiming() {
+      return this.isAiming();
+   }
+
+   public void setFireMode(String var1) {
+   }
+
+   public String getFireMode() {
+      InventoryItem var2 = this.leftHandItem;
+      String var10000;
+      if (var2 instanceof HandWeapon var1) {
+         var10000 = var1.getFireMode();
+      } else {
+         var10000 = "";
       }
 
-      if (this instanceof IsoPlayer && !((IsoPlayer)this).isAttackAnimThrowTimeOut() || this.isAttackAnim() || this.getVariableBoolean("ShoveAnim")) {
-         var1 = true;
-      }
-
-      this.isAiming = var1;
+      return var10000;
    }
 
    public boolean isAiming() {
-      if (GameClient.bClient && this instanceof IsoPlayer && ((IsoPlayer)this).isLocalPlayer() && DebugOptions.instance.MultiplayerAttackPlayer.getValue()) {
-         return false;
+      if (this.isNPC) {
+         return this.NPCGetAiming();
+      } else if (this.isPerformingHostileAnimation()) {
+         return true;
       } else {
-         return this.isNPC ? this.NPCGetAiming() : this.isAiming;
+         return this.isIgnoringAimingInput() ? false : this.m_isAiming;
+      }
+   }
+
+   public boolean isTwisting() {
+      float var1 = this.getTargetTwist();
+      float var2 = PZMath.abs(var1);
+      boolean var3 = var2 > 1.0F;
+      return var3;
+   }
+
+   public boolean allowsTwist() {
+      return false;
+   }
+
+   public float getShoulderTwistWeight() {
+      if (this.isAiming()) {
+         return 1.0F;
+      } else {
+         return this.isSneaking() ? 0.6F : 0.75F;
       }
    }
 
@@ -10230,35 +11814,46 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void fallenOnKnees() {
+      this.fallenOnKnees(false);
+   }
+
+   public void fallenOnKnees(boolean var1) {
       if (!(this instanceof IsoPlayer) || ((IsoPlayer)this).isLocalPlayer()) {
          if (!this.isInvincible()) {
-            this.helmetFall(false);
-            BloodBodyPartType var1 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.Hand_L.index(), BloodBodyPartType.Torso_Upper.index()));
+            this.helmetFall(var1);
+            BloodBodyPartType var2 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.Hand_L.index(), BloodBodyPartType.Torso_Upper.index()));
             if (Rand.NextBool(2)) {
-               var1 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.UpperLeg_L.index(), BloodBodyPartType.Back.index()));
+               var2 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.UpperLeg_L.index(), BloodBodyPartType.Back.index()));
             }
 
-            for(int var2 = 0; var2 < 4; ++var2) {
-               BloodBodyPartType var3 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.Hand_L.index(), BloodBodyPartType.Torso_Upper.index()));
+            for(int var3 = 0; var3 < 4; ++var3) {
+               BloodBodyPartType var4 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.Hand_L.index(), BloodBodyPartType.Torso_Upper.index()));
                if (Rand.NextBool(2)) {
-                  var3 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.UpperLeg_L.index(), BloodBodyPartType.Back.index()));
+                  var4 = BloodBodyPartType.FromIndex(Rand.Next(BloodBodyPartType.UpperLeg_L.index(), BloodBodyPartType.Back.index()));
                }
 
-               this.addDirt(var3, Rand.Next(2, 6), false);
+               this.addDirt(var4, Rand.Next(2, 6), false);
             }
 
-            if (Rand.NextBool(2)) {
+            if (DebugOptions.instance.Character.Debug.AlwaysTripOverFence.getValue()) {
+               this.dropHandItems();
+            }
+
+            if (Rand.NextBool(4 + this.getPerkLevel(PerkFactory.Perks.Nimble))) {
                if (Rand.NextBool(4)) {
                   this.dropHandItems();
                }
 
-               this.addHole(var1);
-               this.addBlood(var1, true, false, false);
-               BodyPart var4 = this.getBodyDamage().getBodyPart(BodyPartType.FromIndex(var1.index()));
-               if (var4.scratched()) {
-                  var4.generateDeepWound();
-               } else {
-                  var4.setScratched(true, true);
+               this.addHole(var2);
+               this.addBlood(var2, true, false, false);
+               BodyPart var5 = this.getBodyDamage().getBodyPart(BodyPartType.FromIndex(var2.index()));
+               float var6 = this.getBodyPartClothingDefense(var2.index(), false, false);
+               if ((float)Rand.Next(100) < var6) {
+                  if (var5.scratched()) {
+                     var5.generateDeepWound();
+                  } else {
+                     var5.setScratched(true, true);
+                  }
                }
 
             }
@@ -10270,41 +11865,31 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.addBodyVisualFromItemType("Base." + var1);
    }
 
-   protected ItemVisual addBodyVisualFromItemType(String var1) {
-      Item var2 = ScriptManager.instance.getItem(var1);
-      return var2 != null && !StringUtils.isNullOrWhitespace(var2.getClothingItem()) ? this.addBodyVisualFromClothingItemName(var2.getClothingItem()) : null;
-   }
-
-   protected ItemVisual addBodyVisualFromClothingItemName(String var1) {
+   public ItemVisual addBodyVisualFromItemType(String var1) {
       IHumanVisual var2 = (IHumanVisual)Type.tryCastTo(this, IHumanVisual.class);
       if (var2 == null) {
          return null;
       } else {
-         String var3 = ScriptManager.instance.getItemTypeForClothingItem(var1);
+         Item var3 = ScriptManager.instance.getItem(var1);
          if (var3 == null) {
             return null;
          } else {
-            Item var4 = ScriptManager.instance.getItem(var3);
+            ClothingItem var4 = var3.getClothingItemAsset();
             if (var4 == null) {
                return null;
             } else {
-               ClothingItem var5 = var4.getClothingItemAsset();
-               if (var5 == null) {
-                  return null;
+               ClothingItemReference var5 = new ClothingItemReference();
+               var5.itemGUID = var4.m_GUID;
+               var5.randomize();
+               ItemVisual var6 = new ItemVisual();
+               var6.setItemType(var1);
+               var6.synchWithOutfit(var5);
+               if (!this.isDuplicateBodyVisual(var6)) {
+                  ItemVisuals var7 = var2.getHumanVisual().getBodyVisuals();
+                  var7.add(var6);
+                  return var6;
                } else {
-                  ClothingItemReference var6 = new ClothingItemReference();
-                  var6.itemGUID = var5.m_GUID;
-                  var6.randomize();
-                  ItemVisual var7 = new ItemVisual();
-                  var7.setItemType(var3);
-                  var7.synchWithOutfit(var6);
-                  if (!this.isDuplicateBodyVisual(var7)) {
-                     ItemVisuals var8 = var2.getHumanVisual().getBodyVisuals();
-                     var8.add(var7);
-                     return var7;
-                  } else {
-                     return null;
-                  }
+                  return null;
                }
             }
          }
@@ -10342,18 +11927,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void startMuzzleFlash() {
-      float var1 = GameTime.getInstance().getNight() * 0.8F;
-      var1 = Math.max(var1, 0.2F);
-      IsoLightSource var2 = new IsoLightSource((int)this.getX(), (int)this.getY(), (int)this.getZ(), 0.8F * var1, 0.8F * var1, 0.6F * var1, 18, 6);
-      IsoWorld.instance.CurrentCell.getLamppostPositions().add(var2);
-      this.m_muzzleFlash = System.currentTimeMillis();
    }
 
    public boolean isMuzzleFlash() {
-      if (Core.bDebug && DebugOptions.instance.ModelRenderMuzzleflash.getValue()) {
+      if (Core.bDebug && DebugOptions.instance.Model.Render.Muzzleflash.getValue()) {
          return true;
       } else {
-         return this.m_muzzleFlash > System.currentTimeMillis() - 50L;
+         return this.muzzleFlashDuration > System.currentTimeMillis() - 50L;
       }
    }
 
@@ -10362,39 +11942,36 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setNPC(boolean var1) {
-      if (var1 && this.GameCharacterAIBrain == null) {
-         this.GameCharacterAIBrain = new GameCharacterAIBrain(this);
-      }
-
+      this.ai.setNPC(var1);
       this.isNPC = var1;
    }
 
    public void NPCSetRunning(boolean var1) {
-      this.GameCharacterAIBrain.HumanControlVars.bRunning = var1;
+      this.ai.brain.HumanControlVars.bRunning = var1;
    }
 
    public boolean NPCGetRunning() {
-      return this.GameCharacterAIBrain.HumanControlVars.bRunning;
+      return this.ai.brain.HumanControlVars.bRunning;
    }
 
    public void NPCSetJustMoved(boolean var1) {
-      this.GameCharacterAIBrain.HumanControlVars.JustMoved = var1;
+      this.ai.brain.HumanControlVars.JustMoved = var1;
    }
 
    public void NPCSetAiming(boolean var1) {
-      this.GameCharacterAIBrain.HumanControlVars.bAiming = var1;
+      this.ai.brain.HumanControlVars.bAiming = var1;
    }
 
    public boolean NPCGetAiming() {
-      return this.GameCharacterAIBrain.HumanControlVars.bAiming;
+      return this.ai.brain.HumanControlVars.bAiming;
    }
 
    public void NPCSetAttack(boolean var1) {
-      this.GameCharacterAIBrain.HumanControlVars.initiateAttack = var1;
+      this.ai.brain.HumanControlVars.initiateAttack = var1;
    }
 
    public void NPCSetMelee(boolean var1) {
-      this.GameCharacterAIBrain.HumanControlVars.bMelee = var1;
+      this.ai.brain.HumanControlVars.bMelee = var1;
    }
 
    public void setMetabolicTarget(Metabolics var1) {
@@ -10490,13 +12067,21 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
          }
 
+         if (this.getPrimaryHandItem() != null && !this.getWornItems().contains(this.getPrimaryHandItem())) {
+            var1 += this.getPrimaryHandItem().getBloodLevelAdjustedHigh();
+         }
+
+         if (this.getSecondaryHandItem() != null && this.getPrimaryHandItem() != this.getSecondaryHandItem() && !this.getWornItems().contains(this.getSecondaryHandItem())) {
+            var1 += this.getSecondaryHandItem().getBloodLevelAdjustedHigh();
+         }
+
          var1 += ((HumanVisual)this.getVisual()).getTotalBlood();
          return var1;
       }
    }
 
    public void attackFromWindowsLunge(IsoZombie var1) {
-      if (!(this.lungeFallTimer > 0.0F) && (int)this.getZ() == (int)var1.getZ() && !var1.isDead() && this.getCurrentSquare() != null && !this.getCurrentSquare().isDoorBlockedTo(var1.getCurrentSquare()) && !this.getCurrentSquare().isWallTo(var1.getCurrentSquare()) && !this.getCurrentSquare().isWindowTo(var1.getCurrentSquare())) {
+      if (!(this.lungeFallTimer > 0.0F) && PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(var1.getZ()) && !var1.isDead() && this.getCurrentSquare() != null && !this.getCurrentSquare().isDoorBlockedTo(var1.getCurrentSquare()) && !this.getCurrentSquare().isWallTo(var1.getCurrentSquare()) && !this.getCurrentSquare().isWindowTo(var1.getCurrentSquare())) {
          if (this.getVehicle() == null) {
             boolean var2 = this.DoSwingCollisionBoneCheck(var1, var1.getAnimationPlayer().getSkinningBoneIndex("Bip01_R_Hand", -1), 1.0F);
             if (var2) {
@@ -10505,9 +12090,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                this.setIsAiming(false);
                boolean var3 = false;
                int var4 = 30;
+               var4 += this.getMoodles().getMoodleLevel(MoodleType.Drunk) * 3;
                var4 += this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 3;
                var4 += this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 5;
                var4 -= this.getPerkLevel(PerkFactory.Perks.Fitness) * 2;
+               var4 -= this.getPerkLevel(PerkFactory.Perks.Nimble);
                BodyPart var5 = this.getBodyDamage().getBodyPart(BodyPartType.Torso_Lower);
                if (var5.getAdditionalPain(true) > 20.0F) {
                   var4 = (int)((float)var4 + (var5.getAdditionalPain(true) - 20.0F) / 10.0F);
@@ -10560,7 +12147,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public boolean DoSwingCollisionBoneCheck(IsoGameCharacter var1, int var2, float var3) {
       Model.BoneToWorldCoords(var1, var2, tempVectorBonePos);
-      float var4 = IsoUtils.DistanceToSquared(tempVectorBonePos.x, tempVectorBonePos.y, this.x, this.y);
+      float var4 = IsoUtils.DistanceToSquared(tempVectorBonePos.x, tempVectorBonePos.y, this.getX(), this.getY());
       return var4 < var3 * var3;
    }
 
@@ -10569,17 +12156,21 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void setInvincible(boolean var1) {
-      this.invincible = var1;
+      if (!Role.haveCapability(this, Capability.ToggleInvincibleHimself)) {
+         this.invincible = false;
+      } else {
+         this.invincible = var1;
+      }
    }
 
    public BaseVehicle getNearVehicle() {
       if (this.getVehicle() != null) {
          return null;
       } else {
-         int var1 = ((int)this.x - 4) / 10 - 1;
-         int var2 = ((int)this.y - 4) / 10 - 1;
-         int var3 = (int)Math.ceil((double)((this.x + 4.0F) / 10.0F)) + 1;
-         int var4 = (int)Math.ceil((double)((this.y + 4.0F) / 10.0F)) + 1;
+         int var1 = (PZMath.fastfloor(this.getX()) - 4) / 8 - 1;
+         int var2 = (PZMath.fastfloor(this.getY()) - 4) / 8 - 1;
+         int var3 = (int)Math.ceil((double)((this.getX() + 4.0F) / 8.0F)) + 1;
+         int var4 = (int)Math.ceil((double)((this.getY() + 4.0F) / 8.0F)) + 1;
 
          for(int var5 = var2; var5 < var4; ++var5) {
             for(int var6 = var1; var6 < var3; ++var6) {
@@ -10587,7 +12178,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                if (var7 != null) {
                   for(int var8 = 0; var8 < var7.vehicles.size(); ++var8) {
                      BaseVehicle var9 = (BaseVehicle)var7.vehicles.get(var8);
-                     if (var9.getScript() != null && (int)this.getZ() == (int)var9.getZ() && (!(this instanceof IsoPlayer) || !((IsoPlayer)this).isLocalPlayer() || var9.getTargetAlpha(((IsoPlayer)this).PlayerIndex) != 0.0F) && !(this.DistToSquared((float)((int)var9.x), (float)((int)var9.y)) >= 16.0F)) {
+                     if (var9.getScript() != null && PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(var9.getZ()) && (!(this instanceof IsoPlayer) || !((IsoPlayer)this).isLocalPlayer() || var9.getTargetAlpha(((IsoPlayer)this).PlayerIndex) != 0.0F) && !(this.DistToSquared((float)PZMath.fastfloor(var9.getX()), (float)PZMath.fastfloor(var9.getY())) >= 16.0F)) {
                         return var9;
                      }
                   }
@@ -10596,6 +12187,33 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
 
          return null;
+      }
+   }
+
+   public boolean isNearSirenVehicle() {
+      if (this.getVehicle() != null) {
+         return false;
+      } else {
+         int var1 = (PZMath.fastfloor(this.getX()) - 5) / 8 - 1;
+         int var2 = (PZMath.fastfloor(this.getY()) - 5) / 8 - 1;
+         int var3 = (int)Math.ceil((double)((this.getX() + 5.0F) / 8.0F)) + 1;
+         int var4 = (int)Math.ceil((double)((this.getY() + 5.0F) / 8.0F)) + 1;
+
+         for(int var5 = var2; var5 < var4; ++var5) {
+            for(int var6 = var1; var6 < var3; ++var6) {
+               IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var6, var5) : IsoWorld.instance.CurrentCell.getChunk(var6, var5);
+               if (var7 != null) {
+                  for(int var8 = 0; var8 < var7.vehicles.size(); ++var8) {
+                     BaseVehicle var9 = (BaseVehicle)var7.vehicles.get(var8);
+                     if (var9.getScript() != null && PZMath.fastfloor(this.getZ()) == PZMath.fastfloor(var9.getZ()) && (!(this instanceof IsoPlayer) || !((IsoPlayer)this).isLocalPlayer() || var9.getTargetAlpha(((IsoPlayer)this).PlayerIndex) != 0.0F) && !(this.DistToSquared((float)PZMath.fastfloor(var9.getX()), (float)PZMath.fastfloor(var9.getY())) >= 25.0F) && var9.isSirening()) {
+                        return true;
+                     }
+                  }
+               }
+            }
+         }
+
+         return false;
       }
    }
 
@@ -10633,6 +12251,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   var1.AddWorldInventoryItem(var2, var5, var6, var7);
                   LuaEventManager.triggerEvent("OnContainerUpdate");
                   LuaEventManager.triggerEvent("onItemFall", var2);
+                  this.playDropItemSound(var2);
                }
 
                if (this.isHeavyItem(var3)) {
@@ -10645,6 +12264,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                      var1.AddWorldInventoryItem(var3, var5, var6, var7);
                      LuaEventManager.triggerEvent("OnContainerUpdate");
                      LuaEventManager.triggerEvent("onItemFall", var3);
+                     this.playDropItemSound(var3);
                   }
                }
 
@@ -10674,11 +12294,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean isUnlimitedEndurance() {
-      return this.unlimitedEndurance;
+      return this.m_cheats.m_unlimitedEndurance;
    }
 
    public void setUnlimitedEndurance(boolean var1) {
-      this.unlimitedEndurance = var1;
+      if (!Role.haveCapability(this, Capability.ToggleUnlimitedEndurance)) {
+         this.m_cheats.m_unlimitedEndurance = false;
+      } else {
+         this.m_cheats.m_unlimitedEndurance = var1;
+      }
    }
 
    private void addActiveLightItem(InventoryItem var1, ArrayList<InventoryItem> var2) {
@@ -10711,6 +12335,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void playEmote(String var1) {
       this.setVariable("emote", var1);
+      this.setVariable("EmotePlaying", true);
       this.actionContext.reportEvent("EventEmote");
    }
 
@@ -10723,7 +12348,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public boolean shouldWaitToStartTimedAction() {
-      if (this.isSitOnGround()) {
+      if (!this.isSitOnGround()) {
+         return false;
+      } else if (this.getCurrentState().equals(FishingState.instance())) {
+         return false;
+      } else {
          AdvancedAnimator var1 = this.getAdvancedAnimator();
          if (var1.getRootLayer() == null) {
             return false;
@@ -10742,8 +12371,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          } else {
             return false;
          }
-      } else {
-         return false;
       }
    }
 
@@ -10776,6 +12403,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       this.doDeathSound = var1;
    }
 
+   public boolean isKilledByFall() {
+      return this.bKilledByFall;
+   }
+
+   public void setKilledByFall(boolean var1) {
+      this.bKilledByFall = var1;
+   }
+
    public void updateEquippedRadioFreq() {
       this.invRadioFreq.clear();
 
@@ -10797,6 +12432,25 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          GameClient.sendEquippedRadioFreq((IsoPlayer)this);
       }
 
+   }
+
+   public void updateEquippedItemSounds() {
+      if (this.leftHandItem != null) {
+         this.leftHandItem.updateEquippedAndActivatedSound();
+      }
+
+      if (this.rightHandItem != null) {
+         this.rightHandItem.updateEquippedAndActivatedSound();
+      }
+
+      WornItems var1 = this.getWornItems();
+      if (var1 != null) {
+         for(int var2 = 0; var2 < var1.size(); ++var2) {
+            InventoryItem var3 = var1.getItemByIndex(var2);
+            var3.updateEquippedAndActivatedSound();
+         }
+
+      }
    }
 
    public FMODParameterList getFMODParameters() {
@@ -10847,6 +12501,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void setIgnoreAimingInput(boolean var1) {
       this.ignoreAimingInput = var1;
+   }
+
+   public boolean isIgnoringAimingInput() {
+      return this.ignoreAimingInput;
    }
 
    public void addBlood(float var1) {
@@ -10986,7 +12644,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    public void Kill(IsoGameCharacter var1) {
-      DebugLog.Death.trace("id=%d", this.getOnlineID());
       this.setAttackedBy(var1);
       this.setHealth(0.0F);
       this.setOnKillDone(true);
@@ -11007,12 +12664,11 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          } else {
             this.becomeCorpse();
          }
-      }
 
+      }
    }
 
    public void becomeCorpse() {
-      DebugLog.Death.trace("id=%d", this.getOnlineID());
       this.Kill(this.getAttackedBy());
       this.setOnDeathDone(true);
    }
@@ -11024,11 +12680,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          }
 
          if (GameServer.bServer) {
+            if (this instanceof IsoPlayer && GameServer.isDelayedDisconnect((IsoPlayer)this)) {
+               return true;
+            }
+
             return this.getNetworkCharacterAI().isSetDeadBody();
          }
 
          if (GameClient.bClient) {
-            return this.isCurrentState(ZombieOnGroundState.instance()) || this.isCurrentState(PlayerOnGroundState.instance());
+            return this.isCurrentState(ZombieOnGroundState.instance()) || this.isCurrentState(PlayerOnGroundState.instance()) || this.isCurrentState(AnimalOnGroundState.instance());
          }
       }
 
@@ -11041,6 +12701,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public NetworkCharacterAI getNetworkCharacterAI() {
       return null;
+   }
+
+   public boolean wasLocal() {
+      return this.getNetworkCharacterAI() == null || this.getNetworkCharacterAI().wasLocal();
    }
 
    public boolean isLocal() {
@@ -11061,7 +12725,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       } else if (var1.isEngineRunning() || var1.getVehicleTowing() != null && var1.getVehicleTowing().isEngineRunning() || var1.getVehicleTowedBy() != null && var1.getVehicleTowedBy().isEngineRunning()) {
          if (var1.getDriver() == null && (var1.getVehicleTowing() == null || var1.getVehicleTowing().getDriver() == null) && (var1.getVehicleTowedBy() == null || var1.getVehicleTowedBy().getDriver() == null)) {
             return false;
-         } else if (!(Math.abs(var1.x - this.x) < 0.01F) && !(Math.abs(var1.y - this.y) < 0.01F)) {
+         } else if (!(Math.abs(var1.getX() - this.getX()) < 0.01F) && !(Math.abs(var1.getY() - this.getY()) < 0.01F)) {
             return (!this.isKnockedDown() || this.isOnFloor()) && (this.getHitReactionNetworkAI() == null || !this.getHitReactionNetworkAI().isStarted());
          } else {
             return false;
@@ -11078,53 +12742,89 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             if (var3.isLocal()) {
                SoundManager.instance.PlayWorldSound("VehicleHitCharacter", this.getCurrentSquare(), 0.0F, 20.0F, 0.9F, true);
                float var4 = this.Hit(var1, var2.hitSpeed, var2.isTargetHitFromBehind, -var2.targetImpulse.x, -var2.targetImpulse.z);
-               GameClient.sendHitVehicle(var3, this, var1, var4, var2.isTargetHitFromBehind, var2.vehicleDamage, var2.hitSpeed, var2.isVehicleHitFromFront);
+               GameClient.sendVehicleHit(var3, this, var1, var4, var2.isTargetHitFromBehind, var2.vehicleDamage, var2.hitSpeed, var2.isVehicleHitFromFront);
+               var3.triggerMusicIntensityEvent("VehicleHitCharacter");
             } else {
                this.getNetworkCharacterAI().resetVehicleHitTimeout();
             }
          }
       } else if (!GameServer.bServer) {
-         BaseSoundEmitter var6 = IsoWorld.instance.getFreeEmitter(this.x, this.y, this.z);
-         long var7 = var6.playSound("VehicleHitCharacter");
-         var6.setParameterValue(var7, FMODManager.instance.getParameterDescription("VehicleSpeed"), var1.getCurrentSpeedKmHour());
+         BaseSoundEmitter var7 = IsoWorld.instance.getFreeEmitter(this.getX(), this.getY(), this.getZ());
+         long var8 = var7.playSound("VehicleHitCharacter");
+         var7.setParameterValue(var8, FMODManager.instance.getParameterDescription("VehicleHitLocation"), (float)ParameterVehicleHitLocation.calculateLocation(var1, this.getX(), this.getY(), this.getZ()).getValue());
+         var7.setParameterValue(var8, FMODManager.instance.getParameterDescription("VehicleSpeed"), var1.getCurrentSpeedKmHour());
          this.Hit(var1, var2.hitSpeed, var2.isTargetHitFromBehind, -var2.targetImpulse.x, -var2.targetImpulse.z);
+         IsoPlayer var6 = (IsoPlayer)Type.tryCastTo(var1.getDriver(), IsoPlayer.class);
+         if (var6 != null) {
+            var6.triggerMusicIntensityEvent("VehicleHitCharacter");
+         }
       }
 
    }
 
    public boolean isSkipResolveCollision() {
-      return this instanceof IsoZombie && (this.isCurrentState(ZombieHitReactionState.instance()) || this.isCurrentState(ZombieFallDownState.instance()) || this.isCurrentState(ZombieOnGroundState.instance()) || this.isCurrentState(StaggerBackState.instance())) || this instanceof IsoPlayer && !this.isLocal() && (this.isCurrentState(PlayerFallDownState.instance()) || this.isCurrentState(BumpedState.instance()) || this.isCurrentState(PlayerKnockedDown.instance()) || this.isCurrentState(PlayerHitReactionState.instance()) || this.isCurrentState(PlayerHitReactionPVPState.instance()) || this.isCurrentState(PlayerOnGroundState.instance()));
+      return this.isBeingGrappled();
    }
 
-   public boolean isAttackAnim() {
-      return this.attackAnim;
+   public boolean isPerformingAttackAnimation() {
+      return this.m_isPerformingAttackAnim;
    }
 
-   public void setAttackAnim(boolean var1) {
-      this.attackAnim = var1;
+   public void setPerformingAttackAnimation(boolean var1) {
+      this.m_isPerformingAttackAnim = var1;
+   }
+
+   public boolean isPerformingShoveAnimation() {
+      return this.m_isPerformingShoveAnim;
+   }
+
+   public void setPerformingShoveAnimation(boolean var1) {
+      this.m_isPerformingShoveAnim = var1;
+   }
+
+   public boolean isPerformingStompAnimation() {
+      return this.m_isPerformingStompAnim;
+   }
+
+   public void setPerformingStompAnimation(boolean var1) {
+      this.m_isPerformingStompAnim = var1;
+   }
+
+   public boolean isPerformingHostileAnimation() {
+      return this.isPerformingAttackAnimation() || this.isPerformingShoveAnimation() || this.isPerformingStompAnimation() || this.isPerformingGrappleGrabAnimation();
    }
 
    public Float getNextAnimationTranslationLength() {
-      if (this.getActionContext() != null && this.getAnimationPlayer() != null && this.getAdvancedAnimator() != null) {
-         ActionState var1 = this.getActionContext().getNextState();
-         if (var1 != null && !StringUtils.isNullOrEmpty(var1.getName())) {
-            ArrayList var2 = new ArrayList();
-            this.getAdvancedAnimator().animSet.GetState(var1.getName()).getAnimNodes(this, var2);
-            Iterator var3 = var2.iterator();
+      ActionContext var1 = this.getActionContext();
+      AnimationPlayer var2 = this.getAnimationPlayer();
+      AdvancedAnimator var3 = this.getAdvancedAnimator();
+      if (var1 != null && var2 != null && var3 != null) {
+         ActionState var4 = var1.getNextState();
+         if (var4 != null && !StringUtils.isNullOrEmpty(var4.getName())) {
+            AnimationSet var5 = var3.animSet;
+            AnimState var6 = var5.GetState(var4.getName());
+            SkinningData var7 = var2.getSkinningData();
+            ArrayList var8 = new ArrayList();
+            var6.getAnimNodes(this, var8);
+            Iterator var9 = var8.iterator();
 
-            while(var3.hasNext()) {
-               AnimNode var4 = (AnimNode)var3.next();
-               if (!StringUtils.isNullOrEmpty(var4.m_AnimName)) {
-                  AnimationClip var5 = (AnimationClip)this.getAnimationPlayer().getSkinningData().AnimationClips.get(var4.m_AnimName);
-                  if (var5 != null) {
-                     return var5.getTranslationLength(var4.m_deferredBoneAxis);
+            while(var9.hasNext()) {
+               AnimNode var10 = (AnimNode)var9.next();
+               if (!StringUtils.isNullOrEmpty(var10.m_AnimName)) {
+                  AnimationClip var11 = (AnimationClip)var7.AnimationClips.get(var10.m_AnimName);
+                  if (var11 != null) {
+                     return var11.getTranslationLength(var10.m_deferredBoneAxis);
                   }
                }
             }
-         }
-      }
 
-      return null;
+            return null;
+         } else {
+            return null;
+         }
+      } else {
+         return null;
+      }
    }
 
    public Float calcHitDir(IsoGameCharacter var1, HandWeapon var2, Vector2 var3) {
@@ -11156,52 +12856,1324 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
    public void burnCorpse(IsoDeadBody var1) {
       if (GameClient.bClient) {
-         GameClient.sendBurnCorpse(this.getOnlineID(), var1.getObjectID());
+         INetworkPacket.send(PacketTypes.PacketType.BurnCorpse, (IsoPlayer)this, var1.getObjectID());
       } else {
          IsoFireManager.StartFire(var1.getCell(), var1.getSquare(), true, 100, 700);
       }
    }
 
-   public class XP {
+   public void setIsAnimal(boolean var1) {
+      this.animal = var1;
+   }
+
+   public boolean isAnimal() {
+      return this.animal;
+   }
+
+   public float getPerkToUnit(PerkFactory.Perk var1) {
+      int var2 = this.getPerkLevel(var1);
+      if (var2 == 10) {
+         return 1.0F;
+      } else {
+         float var3 = var1.getXpForLevel(var2 + 1);
+         float var4 = this.getXp().getXP(var1);
+         float var5 = 0.0F;
+         if (var2 > 0) {
+            var5 = var1.getTotalXpForLevel(var2);
+         }
+
+         var4 -= var5;
+         float var6 = (float)var2 * 0.1F + var4 / var3 * 0.1F;
+         return PZMath.clamp(var6, 0.0F, 1.0F);
+      }
+   }
+
+   public HashMap<String, Integer> getReadLiterature() {
+      return this.readLiterature;
+   }
+
+   public boolean isLiteratureRead(String var1) {
+      HashMap var2 = this.getReadLiterature();
+      if (var2.containsKey(var1)) {
+         int var3 = (Integer)var2.get(var1);
+         int var4 = GameTime.getInstance().getNightsSurvived();
+         return var4 < var3 + SandboxOptions.getInstance().LiteratureCooldown.getValue();
+      } else {
+         return false;
+      }
+   }
+
+   public void addReadLiterature(String var1) {
+      if (!this.isLiteratureRead(var1)) {
+         HashMap var2 = this.getReadLiterature();
+         int var3 = GameTime.getInstance().getNightsSurvived();
+         var2.put(var1, var3);
+      }
+   }
+
+   public void addReadLiterature(String var1, int var2) {
+      if (!this.isLiteratureRead(var1)) {
+         HashMap var3 = this.getReadLiterature();
+         var3.put(var1, var2);
+      }
+   }
+
+   public void setMusicIntensityEventModData(String var1, Object var2) {
+      if (!StringUtils.isNullOrWhitespace(var1)) {
+         KahluaTable var3 = this.hasModData() ? (KahluaTable)Type.tryCastTo(this.getModData().rawget("MusicIntensityEvent"), KahluaTable.class) : null;
+         if (var3 != null || var2 != null) {
+            if (var3 == null) {
+               var3 = LuaManager.platform.newTable();
+               this.getModData().rawset("MusicIntensityEvent", var3);
+            }
+
+            var3.rawset(var1, var2);
+         }
+      }
+   }
+
+   public Object getMusicIntensityEventModData(String var1) {
+      if (this.hasModData()) {
+         KahluaTable var2 = (KahluaTable)Type.tryCastTo(this.getModData().rawget("MusicIntensityEvent"), KahluaTable.class);
+         return var2 == null ? null : var2.rawget(var1);
+      } else {
+         return null;
+      }
+   }
+
+   public boolean isWearingTag(String var1) {
+      for(int var2 = 0; var2 < this.getWornItems().size(); ++var2) {
+         InventoryItem var3 = this.getWornItems().get(var2).getItem();
+         if (var3.hasTag(var1)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   public float getCorpseSicknessDefense() {
+      return this.getCorpseSicknessDefense(0.0F, false);
+   }
+
+   public float getCorpseSicknessDefense(float var1) {
+      return this.getCorpseSicknessDefense(var1, true);
+   }
+
+   public float getCorpseSicknessDefense(float var1, boolean var2) {
+      float var3 = 0.0F;
+
+      for(int var4 = 0; var4 < this.getWornItems().size(); ++var4) {
+         InventoryItem var5 = this.getWornItems().getItemByIndex(var4);
+         if (var5 instanceof Clothing var6) {
+            if (var6.hasTag("SCBA") && var6.isActivated() && var6.hasTank() && var6.getUsedDelta() > 0.0F) {
+               return 100.0F;
+            }
+
+            if (((Clothing)var5).getCorpseSicknessDefense() > var3) {
+               var3 = ((Clothing)var5).getCorpseSicknessDefense();
+            }
+
+            if (var6.hasTag("GasMask") && var6.hasFilter()) {
+               var3 = 25.0F;
+            }
+
+            if (var6.hasTag("GasMask") && var6.getUsedDelta() > 0.0F) {
+               var3 = 100.0F;
+               if (var2 && var1 > 0.0F) {
+                  var6.drainGasMask(var1);
+               }
+            }
+         }
+
+         if (var3 >= 100.0F) {
+            return 100.0F;
+         }
+      }
+
+      return var3;
+   }
+
+   public boolean isProtectedFromToxic() {
+      return this.isProtectedFromToxic(false);
+   }
+
+   public boolean isProtectedFromToxic(boolean var1) {
+      for(int var2 = 0; var2 < this.getWornItems().size(); ++var2) {
+         InventoryItem var3 = this.getWornItems().getItemByIndex(var2);
+         if (var3 instanceof Clothing var4) {
+            if (var4.hasTag("SCBA") && var4.isActivated() && var4.hasTank() && var4.getUsedDelta() > 0.0F) {
+               return true;
+            }
+
+            if (var4.hasTag("GasMask") && var4.hasFilter() && var4.getUsedDelta() > 0.0F) {
+               if (var1) {
+                  var4.drainGasMask(0.01F);
+               }
+
+               return true;
+            }
+         }
+      }
+
+      return false;
+   }
+
+   private void checkSCBADrain() {
+      for(int var1 = 0; var1 < this.getWornItems().size(); ++var1) {
+         InventoryItem var2 = this.getWornItems().getItemByIndex(var1);
+         if (var2 instanceof Clothing var3) {
+            if (var3.hasTag("SCBA") && var3.isActivated() && var3.hasTank() && var3.getUsedDelta() > 0.0F) {
+               var3.drainSCBA();
+               return;
+            }
+
+            if (var3.hasTag("SCBA") && var3.isActivated() && (!var3.hasTank() || var3.getUsedDelta() <= 0.0F)) {
+               var3.setActivated(false);
+               return;
+            }
+         }
+      }
+
+   }
+
+   public boolean isOverEncumbered() {
+      float var1 = this.getInventory().getCapacityWeight();
+      float var2 = (float)this.getMaxWeight();
+      return var1 / var2 > 1.0F;
+   }
+
+   public void updateWornItemsVisionModifier() {
+      float var1 = 1.0F;
+      int var2;
+      if (this instanceof IsoZombie) {
+         this.getItemVisuals(tempItemVisuals);
+         if (tempItemVisuals != null) {
+            for(var2 = tempItemVisuals.size() - 1; var2 >= 0; --var2) {
+               ItemVisual var3 = (ItemVisual)tempItemVisuals.get(var2);
+               if (var3 != null) {
+                  Item var4 = var3.getScriptItem();
+                  if (var4 != null && var4.getVisionModifier() != 1.0F && var4.getVisionModifier() > 0.0F) {
+                     var1 /= var4.getVisionModifier();
+                  }
+               }
+            }
+         }
+      } else if (this.getWornItems() != null) {
+         for(var2 = 0; var2 < this.getWornItems().size(); ++var2) {
+            InventoryItem var5 = this.getWornItems().getItemByIndex(var2);
+            if (var5 != null && var5.getVisionModifier() != 1.0F && var5.getVisionModifier() > 0.0F) {
+               var1 /= var5.getVisionModifier();
+            }
+         }
+      }
+
+      this.wornItemsVisionModifier = var1;
+   }
+
+   public float getWornItemsVisionModifier() {
+      return this.wornItemsVisionModifier;
+   }
+
+   public float getWornItemsVisionMultiplier() {
+      return 1.0F / this.getWornItemsVisionModifier();
+   }
+
+   public void updateWornItemsHearingModifier() {
+      float var1 = 1.0F;
+      int var2;
+      if (this instanceof IsoZombie) {
+         this.getItemVisuals(tempItemVisuals);
+
+         for(var2 = tempItemVisuals.size() - 1; var2 >= 0; --var2) {
+            ItemVisual var3 = (ItemVisual)tempItemVisuals.get(var2);
+            Item var4 = var3.getScriptItem();
+            if (var4 != null && var4.getHearingModifier() != 1.0F && var4.getHearingModifier() > 0.0F) {
+               var1 /= var4.getHearingModifier();
+            }
+         }
+      } else {
+         for(var2 = 0; var2 < this.getWornItems().size(); ++var2) {
+            InventoryItem var5 = this.getWornItems().getItemByIndex(var2);
+            if (var5 != null && var5.getHearingModifier() != 1.0F && var5.getHearingModifier() > 0.0F) {
+               var1 /= var5.getHearingModifier();
+            }
+         }
+      }
+
+      this.wornItemsHearingModifier = var1;
+   }
+
+   public float getWornItemsHearingModifier() {
+      return this.wornItemsHearingModifier;
+   }
+
+   public float getWornItemsHearingMultiplier() {
+      return 1.0F / this.getWornItemsHearingModifier();
+   }
+
+   public float getHearDistanceModifier() {
+      float var1 = 1.0F;
+      if (this.Traits.HardOfHearing.isSet()) {
+         var1 *= 4.5F;
+      }
+
+      var1 *= this.getWornItemsHearingModifier();
+      return var1;
+   }
+
+   public float getWeatherHearingMultiplier() {
+      float var1 = 1.0F;
+      var1 -= ClimateManager.getInstance().getRainIntensity() * 0.33F;
+      var1 -= ClimateManager.getInstance().getFogIntensity() * 0.1F;
+      return var1;
+   }
+
+   public float getSeeNearbyCharacterDistance() {
+      return (3.5F - this.stats.getFatigue() - this.stats.Drunkenness * 0.01F) * this.getWornItemsVisionMultiplier();
+   }
+
+   public void setLastHitCharacter(IsoGameCharacter var1) {
+      this.lastHitCharacter = var1;
+   }
+
+   public IsoGameCharacter getLastHitCharacter() {
+      return this.lastHitCharacter;
+   }
+
+   public void triggerCough() {
+      this.setVariable("Ext", "Cough");
+      this.Say(Translator.getText("IGUI_PlayerText_Cough"));
+      this.reportEvent("EventDoExt");
+      WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), 35, 40, true);
+   }
+
+   public boolean hasDirtyClothing(Integer var1) {
+      this.getItemVisuals(tempItemVisuals);
+
+      for(int var2 = tempItemVisuals.size() - 1; var2 >= 0; --var2) {
+         ItemVisual var3 = (ItemVisual)tempItemVisuals.get(var2);
+         Item var4 = var3.getScriptItem();
+         if (var4 != null) {
+            ArrayList var5 = var4.getBloodClothingType();
+            if (var5 != null) {
+               ArrayList var6 = BloodClothingType.getCoveredParts(var5);
+               if (var6 != null) {
+                  InventoryItem var7 = var3.getInventoryItem();
+                  if (var7 == null) {
+                     var7 = InventoryItemFactory.CreateItem(var3.getItemType());
+                     if (var7 == null) {
+                        continue;
+                     }
+                  }
+
+                  for(int var8 = 0; var8 < var6.size(); ++var8) {
+                     if (var7 instanceof Clothing && ((BloodBodyPartType)var6.get(var8)).index() == var1 && var3.getDirt((BloodBodyPartType)var6.get(var8)) > 0.15F) {
+                        return true;
+                     }
+                  }
+               }
+            }
+         }
+      }
+
+      return false;
+   }
+
+   public boolean hasBloodyClothing(Integer var1) {
+      this.getItemVisuals(tempItemVisuals);
+
+      for(int var2 = tempItemVisuals.size() - 1; var2 >= 0; --var2) {
+         ItemVisual var3 = (ItemVisual)tempItemVisuals.get(var2);
+         Item var4 = var3.getScriptItem();
+         if (var4 != null) {
+            ArrayList var5 = var4.getBloodClothingType();
+            if (var5 != null) {
+               ArrayList var6 = BloodClothingType.getCoveredParts(var5);
+               if (var6 != null) {
+                  InventoryItem var7 = var3.getInventoryItem();
+                  if (var7 == null) {
+                     var7 = InventoryItemFactory.CreateItem(var3.getItemType());
+                     if (var7 == null) {
+                        continue;
+                     }
+                  }
+
+                  for(int var8 = 0; var8 < var6.size(); ++var8) {
+                     if (var7 instanceof Clothing && ((BloodBodyPartType)var6.get(var8)).index() == var1 && var3.getBlood((BloodBodyPartType)var6.get(var8)) > 0.25F) {
+                        return true;
+                     }
+                  }
+               }
+            }
+         }
+      }
+
+      return false;
+   }
+
+   public IAnimatable getAnimatable() {
+      return this;
+   }
+
+   public IGrappleable getGrappleable() {
+      return this;
+   }
+
+   public BaseGrappleable getWrappedGrappleable() {
+      return this.m_grappleable;
+   }
+
+   public boolean canBeGrappled() {
+      return this.isBeingGrappled() ? false : this.canTransitionToState("grappled");
+   }
+
+   public boolean isPerformingGrappleAnimation() {
+      AnimationPlayer var1 = this.getAnimationPlayer();
+      if (var1 != null && var1.isReady()) {
+         List var2 = var1.getMultiTrack().getTracks();
+
+         for(int var3 = 0; var3 < var2.size(); ++var3) {
+            AnimationTrack var4 = (AnimationTrack)var2.get(var3);
+            if (var4.isGrappler()) {
+               return true;
+            }
+         }
+
+         return false;
+      } else {
+         return false;
+      }
+   }
+
+   public String getShoutType() {
+      if (this.getPrimaryHandItem() != null && this.getPrimaryHandItem().getShoutType() != null) {
+         return this.getPrimaryHandItem().getShoutType() + "_primary";
+      } else {
+         return this.getSecondaryHandItem() != null && this.getSecondaryHandItem().getShoutType() != null ? this.getSecondaryHandItem().getShoutType() + "_secondary" : null;
+      }
+   }
+
+   public String getShoutItemModel() {
+      if (this.getPrimaryHandItem() != null && this.getPrimaryHandItem().getShoutType() != null) {
+         return this.getPrimaryHandItem().getStaticModel();
+      } else {
+         return this.getSecondaryHandItem() != null && this.getSecondaryHandItem().getShoutType() != null ? this.getSecondaryHandItem().getStaticModel() : null;
+      }
+   }
+
+   public boolean isWearingGlasses() {
+      InventoryItem var1 = this.getWornItem("Eyes");
+      return var1 != null && var1.isVisualAid();
+   }
+
+   public float getClothingDiscomfortModifier() {
+      return this.clothingDiscomfortModifier;
+   }
+
+   public void updateVisionEffectTargets() {
+      this.blurFactor = PZMath.lerp(this.blurFactor, this.blurFactorTarget, this.blurFactor < this.blurFactorTarget ? 0.1F : 0.01F);
+   }
+
+   public void updateVisionEffects() {
+      boolean var1 = this.Traits.ShortSighted.isSet();
+      boolean var2 = this.isWearingGlasses();
+      if ((var2 || !var1) && (!var2 || var1)) {
+         this.blurFactorTarget = 0.0F;
+      } else {
+         this.blurFactorTarget = 1.0F;
+      }
+
+   }
+
+   public float getBlurFactor() {
+      return this.blurFactor;
+   }
+
+   public boolean isDisguised() {
+      return this.usernameDisguised;
+   }
+
+   public void updateDisguisedState() {
+      if ((GameClient.bClient || GameServer.bServer) && ServerOptions.instance.UsernameDisguises.getValue()) {
+         this.usernameDisguised = false;
+         if (this.isoPlayer == null) {
+            return;
+         }
+
+         SafeHouse var1 = SafeHouse.isSafeHouse(this.getCurrentSquare(), (String)null, false);
+         if (var1 == null || !ServerOptions.instance.SafehouseDisableDisguises.getValue() || this.isoPlayer.role.haveCapability(Capability.CanGoInsideSafehouses)) {
+            HashSet var2 = new HashSet();
+            this.getItemVisuals(tempItemVisuals);
+            int var3;
+            Item var5;
+            if (tempItemVisuals != null) {
+               for(var3 = tempItemVisuals.size() - 1; var3 >= 0; --var3) {
+                  ItemVisual var6 = (ItemVisual)tempItemVisuals.get(var3);
+                  if (var6 != null) {
+                     var5 = var6.getScriptItem();
+                     if (var5 != null) {
+                        var2.addAll(var5.getTags());
+                     }
+                  }
+               }
+            } else if (this.getWornItems() != null) {
+               for(var3 = 0; var3 < this.getWornItems().size(); ++var3) {
+                  InventoryItem var4 = this.getWornItems().getItemByIndex(var3);
+                  if (var4 != null) {
+                     var5 = var4.getScriptItem();
+                     if (var5 != null) {
+                        var2.addAll(var5.getTags());
+                     }
+                  }
+               }
+            }
+
+            if (!var2.isEmpty() && (var2.contains("IsDisguise") || var2.contains("IsLowerDisguise") && var2.contains("IsUpperDisguise"))) {
+               this.usernameDisguised = true;
+            }
+         }
+      }
+
+   }
+
+   public void OnClothingUpdated() {
+      this.updateSpeedModifiers();
+      if (this instanceof IsoPlayer) {
+         this.updateVisionEffects();
+         this.updateDiscomfortModifiers();
+      }
+
+      this.updateWornItemsVisionModifier();
+      this.updateWornItemsHearingModifier();
+   }
+
+   public void OnEquipmentUpdated() {
+   }
+
+   private void renderDebugData() {
+      IndieGL.StartShader(0);
+      IndieGL.disableDepthTest();
+      IsoZombie var1 = (IsoZombie)Type.tryCastTo(this, IsoZombie.class);
+      IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(this, IsoPlayer.class);
+      IsoAnimal var3 = (IsoAnimal)Type.tryCastTo(this, IsoAnimal.class);
+      boolean var4 = var2 != null && var3 == null && this.isLocal();
+      TextManager var10000 = TextManager.instance;
+      Objects.requireNonNull(var10000);
+      TextManager.StringDrawer var5 = var10000::DrawString;
+      if (var4) {
+         var10000 = TextManager.instance;
+         Objects.requireNonNull(var10000);
+         var5 = var10000::DrawStringRight;
+      }
+
+      Color var6 = Colors.Chartreuse;
+      if (this.isDead()) {
+         var6 = Colors.Yellow;
+      } else if (this.getNetworkCharacterAI().isRemote()) {
+         var6 = Colors.OrangeRed;
+      }
+
+      UIFont var7 = UIFont.Dialogue;
+      Color var8 = Colors.NavajoWhite;
+      float var9 = IsoUtils.XToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+      float var10 = IsoUtils.YToScreenExact(this.getX(), this.getY(), this.getZ(), 0);
+      float var11 = 10.0F;
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue()) {
+         if (var2 != null && var2.getRole() != null && !(this instanceof IsoAnimal)) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 11.0F)), String.format("%d (%s)", this.getOnlineID(), var2.getRole().getName()), (double)var6.r, (double)var6.g, (double)var6.b, (double)var6.a);
+         } else {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 11.0F)), String.format("%d", this.getOnlineID()), (double)var6.r, (double)var6.g, (double)var6.b, (double)var6.a);
+         }
+      }
+
+      float var12;
+      float var13;
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().Owner.getValue() && var2 != null && var2.isLocalPlayer() && var3 == null) {
+         var12 = var10 - 150.0F;
+         var13 = 0.0F;
+         Iterator var14 = AnimalInstanceManager.getInstance().getAnimals().iterator();
+
+         while(var14.hasNext()) {
+            IsoAnimal var15 = (IsoAnimal)var14.next();
+            if (var15.isLocalPlayer()) {
+               if (var4) {
+                  var5.draw(var7, (double)var9, (double)(var12 + (var13 -= 14.0F)), String.format("%s %s - %d", var15.getAnimalType(), var15.getBreed().getName(), var15.getOnlineID()), (double)var6.r, (double)var6.g, (double)var6.b, (double)var6.a);
+               } else {
+                  var5.draw(var7, (double)var9, (double)(var12 + (var13 -= 14.0F)), String.format("%d - %s %s", var15.getOnlineID(), var15.getAnimalType(), var15.getBreed().getName()), (double)var6.r, (double)var6.g, (double)var6.b, (double)var6.a);
+               }
+            }
+         }
+      }
+
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().Desync.getValue() && (var1 != null || var3 != null)) {
+         var8 = Colors.NavajoWhite;
+         var12 = IsoUtils.DistanceTo(this.getX(), this.getY(), this.realx, this.realy);
+         if (this.getNetworkCharacterAI().isRemote() && var12 > 1.0F) {
+            LineDrawer.DrawIsoLine(this.realx, this.realy, this.getZ(), this.getX(), this.getY(), this.getZ(), var8.r, var8.g, var8.b, var8.a, 1);
+            LineDrawer.DrawIsoTransform(this.realx, this.realy, this.getZ(), this.realdir.ToVector().x, this.realdir.ToVector().y, 0.35F, 16, var8.r, var8.g, var8.b, var8.a, 1);
+            LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), 0.4F, 4, var8.r, var8.g, var8.b, var8.a);
+            var13 = IsoUtils.DistanceTo(this.realx, this.realy, this.getNetworkCharacterAI().targetX, this.getNetworkCharacterAI().targetY);
+            float var18 = IsoUtils.DistanceTo(this.getX(), this.getY(), this.getNetworkCharacterAI().targetX, this.getNetworkCharacterAI().targetY) / var13;
+            TextManager.instance.DrawStringCentre(var7, (double)var9, (double)var10, String.format("dist:%f scale:%f", var12, var18), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         }
+      }
+
+      int var16;
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().Hit.getValue() && this.getHitReactionNetworkAI() != null) {
+         if (this.getHitReactionNetworkAI().isSetup()) {
+            LineDrawer.DrawIsoLine(this.getX(), this.getY(), this.getZ(), this.getX() + this.getHitDir().getX(), this.getY() + this.getHitDir().getY(), this.getZ(), Colors.BlueViolet.r, Colors.BlueViolet.g, Colors.BlueViolet.b, Colors.BlueViolet.a, 1);
+            LineDrawer.DrawIsoLine(this.getHitReactionNetworkAI().startPosition.x, this.getHitReactionNetworkAI().startPosition.y, this.getZ(), this.getHitReactionNetworkAI().finalPosition.x, this.getHitReactionNetworkAI().finalPosition.y, this.getZ(), Colors.Salmon.r, Colors.Salmon.g, Colors.Salmon.b, Colors.Salmon.a, 1);
+            float var23 = this.getHitReactionNetworkAI().startPosition.x;
+            float var10001 = this.getHitReactionNetworkAI().startPosition.y;
+            float var10002 = this.getZ();
+            float var10007 = Colors.Salmon.r - 0.2F;
+            float var10008 = Colors.Salmon.g + 0.2F;
+            LineDrawer.DrawIsoTransform(var23, var10001, var10002, this.getHitReactionNetworkAI().startDirection.x, this.getHitReactionNetworkAI().startDirection.y, 0.4F, 16, var10007, var10008, Colors.Salmon.b, Colors.Salmon.a, 1);
+            var23 = this.getHitReactionNetworkAI().finalPosition.x;
+            var10001 = this.getHitReactionNetworkAI().finalPosition.y;
+            var10002 = this.getZ();
+            var10008 = Colors.Salmon.g - 0.2F;
+            LineDrawer.DrawIsoTransform(var23, var10001, var10002, this.getHitReactionNetworkAI().finalDirection.x, this.getHitReactionNetworkAI().finalDirection.y, 0.4F, 16, Colors.Salmon.r, var10008, Colors.Salmon.b, Colors.Salmon.a, 1);
+         }
+
+         if (var1 != null) {
+            var8 = Colors.Red;
+            var16 = var1.canHaveMultipleHits();
+            if (var16 == 0) {
+               var8 = Colors.Green;
+            } else if (var16 == 1) {
+               var8 = Colors.Yellow;
+            }
+
+            LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), 0.45F, 4, var8.r, var8.g, var8.b, 0.5F);
+            TextManager.instance.DrawStringCentre(var7, (double)IsoUtils.XToScreenExact(this.getX() + 0.4F, this.getY() + 0.4F, this.getZ(), 0), (double)IsoUtils.YToScreenExact(this.getX() + 0.4F, this.getY() - 1.4F, this.getZ(), 0), String.valueOf(this.getOnlineID()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         }
+
+         if (var2 != null && var2.isLocalPlayer() && var3 == null) {
+            HandWeapon var17 = (HandWeapon)Type.tryCastTo(var2.getPrimaryHandItem(), HandWeapon.class);
+            if (var17 != null) {
+               LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), var17.getMaxRange(var2), 16, var8.r, var8.g, var8.b, 0.5F);
+            }
+         }
+      }
+
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().Prediction.getValue()) {
+         if (var1 != null) {
+            LineDrawer.DrawIsoTransform(this.realx, this.realy, this.getZ(), this.realdir.ToVector().x, this.realdir.ToVector().y, 0.35F, 16, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, Colors.Blue.a, 1);
+            if (var1.networkAI.DebugInterfaceActive) {
+               LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), 0.4F, 4, Colors.NavajoWhite.r, Colors.NavajoWhite.g, Colors.NavajoWhite.b, Colors.NavajoWhite.a);
+            } else if (!this.getNetworkCharacterAI().isRemote()) {
+               LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), 0.3F, 3, Colors.Magenta.r, Colors.Magenta.g, Colors.Magenta.b, Colors.Magenta.a);
+            } else {
+               LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), 0.3F, 5, Colors.Magenta.r, Colors.Magenta.g, Colors.Magenta.b, Colors.Magenta.a);
+            }
+
+            LineDrawer.DrawIsoTransform(this.getNetworkCharacterAI().targetX, this.getNetworkCharacterAI().targetY, this.getZ(), 1.0F, 0.0F, 0.4F, 16, Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, Colors.LimeGreen.a, 1);
+            LineDrawer.DrawIsoLine(this.getX(), this.getY(), this.getZ(), this.getNetworkCharacterAI().targetX, this.getNetworkCharacterAI().targetY, this.getZ(), Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, Colors.LimeGreen.a, 1);
+            if (IsoUtils.DistanceToSquared(this.getX(), this.getY(), this.realx, this.realy) > 4.5F) {
+               LineDrawer.DrawIsoLine(this.realx, this.realy, this.getZ(), this.getX(), this.getY(), this.getZ(), Colors.Magenta.r, Colors.Magenta.g, Colors.Magenta.b, Colors.Magenta.a, 1);
+            } else {
+               LineDrawer.DrawIsoLine(this.realx, this.realy, this.getZ(), this.getX(), this.getY(), this.getZ(), Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, Colors.Blue.a, 1);
+            }
+         } else if (var2 != null) {
+            if (var2.networkAI.footstepSoundRadius != 0) {
+               LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), (float)var2.networkAI.footstepSoundRadius, 32, Colors.Violet.r, Colors.Violet.g, Colors.Violet.b, Colors.Violet.a);
+            }
+
+            if (var2.bRemote || var3 != null && this.getNetworkCharacterAI().getOwnership().getConnection() == null) {
+               LineDrawer.DrawIsoCircle(this.getX(), this.getY(), this.getZ(), 0.3F, 16, Colors.OrangeRed.r, Colors.OrangeRed.g, Colors.OrangeRed.b, Colors.OrangeRed.a);
+               tempo.set(this.realdir.ToVector());
+               LineDrawer.DrawIsoTransform(this.realx, this.realy, this.getZ(), tempo.x, tempo.y, 0.35F, 16, Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, Colors.Blue.a, 1);
+               LineDrawer.DrawIsoLine(this.realx, this.realy, this.getZ(), this.getX(), this.getY(), this.getZ(), Colors.Blue.r, Colors.Blue.g, Colors.Blue.b, Colors.Blue.a, 1);
+               tempo.set(this.getNetworkCharacterAI().targetX, this.getNetworkCharacterAI().targetY);
+               LineDrawer.DrawIsoTransform(tempo.x, tempo.y, this.getZ(), 1.0F, 0.0F, 0.4F, 16, Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, Colors.LimeGreen.a, 1);
+               LineDrawer.DrawIsoLine(this.getX(), this.getY(), this.getZ(), tempo.x, tempo.y, this.getZ(), Colors.LimeGreen.r, Colors.LimeGreen.g, Colors.LimeGreen.b, Colors.LimeGreen.a, 1);
+            }
+         }
+      }
+
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().Position.getValue()) {
+         var8 = Colors.NavajoWhite;
+
+         for(var16 = PZMath.fastfloor(this.getX()) - 10; var16 < PZMath.fastfloor(this.getX()) + 10; ++var16) {
+            for(int var19 = PZMath.fastfloor(this.getY()) - 10; var19 < PZMath.fastfloor(this.getY()) + 10; ++var19) {
+               LineDrawer.DrawIsoRect((float)var16, (float)var19, 1.0F, 1.0F, 0, 0.0F, 0.0F, 0.0F);
+            }
+         }
+
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("x=%09.3f", this.getX()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("y=%09.3f", this.getY()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("z=%09.3f", this.getZ()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var12 = IsoUtils.DistanceTo(this.getX(), this.getY(), IsoPlayer.getInstance().getX(), IsoPlayer.getInstance().getY());
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("d=%09.3f", var12), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         if (this.getPathFindBehavior2().getTargetX() != 0.0F || this.getPathFindBehavior2().getTargetY() != 0.0F) {
+            LineDrawer.DrawIsoCircle(this.getPathFindBehavior2().getTargetX(), this.getPathFindBehavior2().getTargetY(), this.getPathFindBehavior2().getTargetZ(), 0.3F, 16, var8.r, var8.g, var8.b, var8.a);
+            LineDrawer.DrawIsoLine(this.getPathFindBehavior2().getTargetX(), this.getPathFindBehavior2().getTargetY(), this.getPathFindBehavior2().getTargetZ(), this.getX(), this.getY(), this.getZ(), var8.r, var8.g, var8.b, var8.a, 1);
+         }
+
+         if (var3 != null && this.getNetworkCharacterAI() != null && this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetX > 0.0F && this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetY > 0.0F) {
+            LineDrawer.DrawIsoCircle(this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetX, this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetY, this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetZ, 0.3F, 16, Colors.Pink.r, Colors.Pink.g, Colors.Pink.b, Colors.Pink.a);
+            LineDrawer.DrawIsoLine(this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetX, this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetY, this.getNetworkCharacterAI().getAnimalPacket().pfbData.targetZ, this.getX(), this.getY(), this.getZ(), Colors.Pink.r, Colors.Pink.g, Colors.Pink.b, Colors.Pink.a, 1);
+         }
+      }
+
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().Variables.getValue()) {
+         var8 = Colors.GreenYellow;
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 16.0F)), String.format("Health: %.03f", var1 == null && var3 == null ? this.getBodyDamage().getOverallBodyHealth() : this.getHealth()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         if (var2 != null && var3 == null) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("IdleSpeed: %s , targetDist: %s ", var2.getVariableString("IdleSpeed"), var2.getVariableString("targetDist")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("WalkInjury: %s , WalkSpeed: %s", var2.getVariableString("WalkInjury"), var2.getVariableString("WalkSpeed")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("DeltaX: %s , DeltaY: %s", var2.getVariableString("DeltaX"), var2.getVariableString("DeltaY")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("AttackVariationX: %s , AttackVariationY: %s", var2.getVariableString("AttackVariationX"), var2.getVariableString("AttackVariationY")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("autoShootVarX: %s , autoShootVarY: %s", var2.getVariableString("autoShootVarX"), var2.getVariableString("autoShootVarY")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("recoilVarX: %s , recoilVarY: %s", var2.getVariableString("recoilVarX"), var2.getVariableString("recoilVarY")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("ShoveAimX: %s , ShoveAimY: %s", var2.getVariableString("ShoveAimX"), var2.getVariableString("ShoveAimY")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("ForwardDirection: %f", var2.getForwardDirection().getDirection()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         }
+
+         if (var3 != null) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Stress:%.02f", var3.getStress()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Milk: %.02f", var3.getData().getMilkQuantity()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Acceptance:%.02f", var3.getAcceptanceLevel(IsoPlayer.getInstance())), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("AlertX:%.02f", var3.getVariableFloat("AlertX", 0.0F)), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         }
+
+         if (var2 != null && var3 == null || var1 != null) {
+            var8 = Colors.OrangeRed;
+            if (this.getReanimateTimer() <= 0.0F) {
+               var8 = Colors.GreenYellow;
+            } else if (this.isBeingSteppedOn()) {
+               var8 = Colors.Blue;
+            }
+
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 18.0F)), "Reanimate: " + this.getReanimateTimer(), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         }
+
+         if (var1 != null) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 18.0F)), "Prediction: " + this.getNetworkCharacterAI().predictionType, (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Real state: %s", var1.realState), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            if (var1.target instanceof IsoPlayer) {
+               var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), "Target: " + ((IsoPlayer)var1.target).username + "  =" + var1.vectorToTarget.getLength(), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            } else {
+               var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), "Target: " + var1.target + "  =" + var1.vectorToTarget.getLength(), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            }
+         }
+      }
+
+      if (this.getNetworkCharacterAI().getBooleanDebugOptions().Enable.getValue() && this.getNetworkCharacterAI().getBooleanDebugOptions().State.getValue()) {
+         var8 = Colors.LightBlue;
+         if (this.isCurrentState(AnimalPathFindState.instance())) {
+            var8 = Colors.Pink;
+         }
+
+         if (var3 != null && var3.alertedChr != null) {
+            LineDrawer.DrawIsoCircle(var3.alertedChr.getX(), var3.alertedChr.getY(), var3.alertedChr.getZ(), 0.3F, Colors.OrangeRed.r, Colors.OrangeRed.g, Colors.OrangeRed.b, Colors.OrangeRed.a);
+            LineDrawer.DrawIsoLine(var3.alertedChr.getX(), var3.alertedChr.getY(), var3.alertedChr.getZ(), var3.getX(), var3.getY(), var3.getZ(), Colors.OrangeRed.r, Colors.OrangeRed.g, Colors.OrangeRed.b, Colors.OrangeRed.a, 1);
+         }
+
+         String var20;
+         if (this.advancedAnimator.getRootLayer() != null) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 16.0F)), "Set: " + this.advancedAnimator.animSet.m_Name, (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), "State: " + this.advancedAnimator.getCurrentStateName(), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var20 = this.advancedAnimator.getRootLayer().getDebugNodeName().replace(this.advancedAnimator.animSet.m_Name + "/", "").replace(this.advancedAnimator.getCurrentStateName() + "/", "");
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), "Node: " + var20, (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         }
+
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 16.0F)), String.format("Previous: %s", this.getPreviousStateName()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("( %s )", this.getPreviousActionContextStateName()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Current: %s", this.getCurrentStateName()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("( %s )", this.getCurrentActionContextStateName()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var20 = this.getActionContext() != null && this.getActionContext().getChildStates() != null && !this.getActionContext().getChildStates().isEmpty() && this.getActionContext().getChildStateAt(0) != null ? this.getActionContext().getChildStateAt(0).getName() : "";
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Child: %s", var20), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         if (this.CharacterActions != null) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Character actions: %d", this.CharacterActions.size()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            Iterator var22 = this.CharacterActions.iterator();
+
+            while(var22.hasNext()) {
+               BaseAction var21 = (BaseAction)var22.next();
+               if (var21 instanceof LuaTimedActionNew) {
+                  var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("Action: %s", ((LuaTimedActionNew)var21).getMetaType()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+               }
+            }
+         }
+
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 16.0F)), String.format("isHitFromBehind=%b/%b", this.isHitFromBehind(), this.getVariableBoolean("frombehind")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("bKnockedDown=%b/%b", this.isKnockedDown(), this.getVariableBoolean("bknockeddown")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("isFallOnFront=%b/%b", this.isFallOnFront(), this.getVariableBoolean("fallonfront")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("isOnFloor=%b/%b", this.isOnFloor(), this.getVariableBoolean("bonfloor")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("isSitOnGround=%b/%b", this.isSitOnGround(), this.getVariableBoolean("sitonground")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("isDead=%b/%b", this.isDead(), this.getVariableBoolean("bdead")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         if (var1 != null) {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("bThump=%b", this.getVariableString("bThump")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("ThumpType=%s", this.getVariableString("ThumpType")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("onknees=%b", this.getVariableBoolean("onknees")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+         } else {
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("isBumped=%b/%s", this.isBumped(), this.getBumpType()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("bMoving=%b/%s", this.isMoving(), this.getVariableBoolean("bMoving")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("bPathfind=%s", this.getVariableBoolean("bPathfind")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            if (var3 != null) {
+               var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("isAlerted=%b", var3.isAlerted()), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+               var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("animalSpeed=%f", this.getVariableFloat("animalSpeed", -1.0F)), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+               var5.draw(var7, (double)var9, (double)(var10 + (var11 += 12.0F)), String.format("animalRunning=%s", this.getVariableBoolean("animalRunning")), (double)var8.r, (double)var8.g, (double)var8.b, (double)var8.a);
+            }
+         }
+      }
+
+   }
+
+   public float getCorpseSicknessRate() {
+      return this.corpseSicknessRate;
+   }
+
+   public void setCorpseSicknessRate(float var1) {
+      this.corpseSicknessRate = Math.max(0.0F, var1);
+   }
+
+   public void spikePartIndex(int var1) {
+      DebugLog.Combat.debugln("" + this + " got spiked in " + BodyPartType.getDisplayName(BodyPartType.FromIndex(var1)));
+      HandWeapon var2 = (HandWeapon)InventoryItemFactory.CreateItem("Base.IcePick");
+      if (this.getBodyDamage() == null) {
+         this.splatBloodFloorBig();
+         this.getEmitter().playSoundImpl(var2.getZombieHitSound(), (IsoObject)null);
+         this.Hit(var2, IsoWorld.instance.CurrentCell.getFakeZombieForHit(), 0.0F, false, 0.0F);
+      } else if (this instanceof IsoAnimal) {
+         this.splatBloodFloorBig();
+         this.getEmitter().playSoundImpl(var2.getZombieHitSound(), (IsoObject)null);
+         this.Hit(var2, IsoWorld.instance.CurrentCell.getFakeZombieForHit(), 0.0F, false, 0.0F);
+      } else {
+         this.getBodyDamage().DamageFromWeapon(var2, var1);
+      }
+   }
+
+   public void spikePart(BodyPartType var1) {
+      int var2 = BodyPartType.ToIndex(var1);
+      this.spikePartIndex(var2);
+   }
+
+   public IsoGameCharacter getReanimatedCorpse() {
+      return this.ReanimatedCorpse;
+   }
+
+   public void applyDamage(float var1) {
+      this.Health -= var1;
+      if (this.Health < 0.0F) {
+         this.Health = 0.0F;
+      }
+
+   }
+
+   public boolean useRagdoll() {
+      return this.useRagdoll;
+   }
+
+   public RagdollController getRagdollController() {
+      AnimationPlayer var1 = this.getAnimationPlayer();
+      return var1 == null ? null : var1.getRagdollController();
+   }
+
+   public void releaseRagdollController() {
+      AnimationPlayer var1 = this.getAnimationPlayer();
+      if (var1 != null) {
+         var1.releaseRagdollController();
+      }
+   }
+
+   public boolean useBallistics() {
+      return useBallistics;
+   }
+
+   public BallisticsController getBallisticsController() {
+      return this.ballisticsController;
+   }
+
+   public void updateBallistics() {
+      if (!GameServer.bServer) {
+         if (this.ballisticsController == null) {
+            this.ballisticsController = BallisticsController.alloc();
+            this.ballisticsController.setIsoGameCharacter(this);
+         }
+
+         this.ballisticsController.update();
+      }
+   }
+
+   public void releaseBallisticsController() {
+      if (this.ballisticsController != null) {
+         this.ballisticsController.releaseController();
+         this.ballisticsController = null;
+      }
+
+   }
+
+   public BallisticsTarget getBallisticsTarget() {
+      return this.ballisticsTarget;
+   }
+
+   public BallisticsTarget ensureExitsBallisticsTarget(IsoGameCharacter var1) {
+      if (var1 == null) {
+         return null;
+      } else {
+         if (this.ballisticsTarget == null) {
+            this.ballisticsTarget = BallisticsTarget.alloc(var1);
+         }
+
+         this.ballisticsTarget.setIsoGameCharacter(var1);
+         return this.ballisticsTarget;
+      }
+   }
+
+   private void updateBallisticsTarget() {
+      if (this.ballisticsTarget != null) {
+         boolean var1 = this.ballisticsTarget.update();
+         if (var1) {
+            this.releaseBallisticsTarget();
+         }
+
+      }
+   }
+
+   public void releaseBallisticsTarget() {
+      if (this.ballisticsTarget != null) {
+         this.ballisticsTarget.releaseTarget();
+         this.ballisticsTarget = null;
+      }
+
+   }
+
+   public boolean canReachTo(IsoGridSquare var1) {
+      return this.getSquare().canReachTo(var1);
+   }
+
+   public boolean canUseAsGenericCraftingSurface(IsoObject var1) {
+      return var1.isGenericCraftingSurface() && this.getSquare().canReachTo(var1.getSquare());
+   }
+
+   public ArrayList<HitInfo> getHitInfoList() {
+      return this.hitInfoList;
+   }
+
+   public AttackVars getAttackVars() {
+      return this.attackVars;
+   }
+
+   public void addCombatMuscleStrain(HandWeapon var1) {
+      this.addCombatMuscleStrain(var1, 1);
+   }
+
+   public void addCombatMuscleStrain(HandWeapon var1, int var2) {
+      this.addCombatMuscleStrain(var1, var2, 1.0F);
+   }
+
+   public void addCombatMuscleStrain(HandWeapon var1, int var2, float var3) {
+      float var10;
+      float var11;
+      if (this.isStomping()) {
+         var10 = 0.3F;
+         var11 = (float)(15 - this.getPerkLevel(PerkFactory.Perks.Strength)) / 10.0F;
+         var10 *= var11;
+         this.addRightLegMuscleStrain(var10);
+      } else if (this.isShoving()) {
+         var10 = 0.15F;
+         var11 = (float)(15 - this.getPerkLevel(PerkFactory.Perks.Strength)) / 10.0F;
+         var10 *= var11;
+         this.addBothArmMuscleStrain(var10);
+      } else if (var1.isAimedFirearm()) {
+         var10 = (float)var1.getRecoilDelay(this) * CombatManager.FirearmRecoilMuscleStrainModifier * var1.muscleStrainMod(this) * ((float)(15 - this.getPerkLevel(PerkFactory.Perks.Strength)) / 10.0F);
+         if ("Auto".equalsIgnoreCase(var1.getFireMode())) {
+            var10 *= 0.5F;
+         }
+
+         var10 *= (float)SandboxOptions.instance.MuscleStrainFactor.getValue();
+         if (var10 != 0.0F) {
+            this.addStiffness(BodyPartType.Hand_R, var10);
+            this.addStiffness(BodyPartType.ForeArm_R, var10);
+            if (this.getSecondaryHandItem() == var1) {
+               this.addStiffness(BodyPartType.UpperArm_R, var10);
+               this.addStiffness(BodyPartType.Hand_L, var10 * 0.1F);
+               this.addStiffness(BodyPartType.ForeArm_L, var10 * 0.1F);
+            }
+
+         }
+      } else if (this.isActuallyAttackingWithMeleeWeapon()) {
+         if (SandboxOptions.instance.MuscleStrainFactor.getValue() > 0.0 && var1.isUseEndurance() && WeaponType.getWeaponType(this) != WeaponType.barehand && !var1.isRanged() && !this.isForceShove()) {
+            if (var2 <= 0) {
+               var2 = 1;
+            }
+
+            if (var3 <= 0.0F) {
+               var3 = 1.0F;
+            }
+
+            boolean var4 = var1.isTwoHandWeapon();
+            boolean var5 = var1.isTwoHandWeapon() && (this.getPrimaryHandItem() != var1 || this.getSecondaryHandItem() != var1);
+            float var6 = 0.0F;
+            if (var5) {
+               var6 = var1.getWeight() / 1.5F / 10.0F;
+               var4 = false;
+            }
+
+            float var7 = (var1.getWeight() * 0.15F * var1.getEnduranceMod() * 0.3F + var6) * 4.0F;
+            float var8 = 1.0F;
+            var8 *= (float)(var2 + 1);
+            var7 *= var8;
+            float var9 = (float)(15 - this.getPerkLevel(PerkFactory.Perks.Strength)) / 10.0F;
+            var7 *= var9;
+            var7 *= var1.muscleStrainMod(this);
+            var7 *= var3;
+            if (var4) {
+               var7 *= 0.5F;
+            }
+
+            this.addArmMuscleStrain(var7);
+            if (var4) {
+               this.addLeftArmMuscleStrain(var7);
+            }
+         }
+
+      }
+   }
+
+   public void addRightLegMuscleStrain(float var1) {
+      if (SandboxOptions.instance.MuscleStrainFactor.getValue() > 0.0) {
+         var1 = (float)((double)var1 * 2.5);
+         var1 = (float)((double)var1 * SandboxOptions.instance.MuscleStrainFactor.getValue());
+         this.addStiffness(BodyPartType.UpperLeg_R, var1);
+         this.addStiffness(BodyPartType.LowerLeg_R, var1);
+         this.addStiffness(BodyPartType.Foot_R, var1);
+      }
+
+   }
+
+   public void addBackMuscleStrain(float var1) {
+      if (SandboxOptions.instance.MuscleStrainFactor.getValue() > 0.0) {
+         var1 = (float)((double)var1 * 2.5);
+         var1 = (float)((double)var1 * SandboxOptions.instance.MuscleStrainFactor.getValue());
+         this.addStiffness(BodyPartType.Torso_Upper, var1);
+         this.addStiffness(BodyPartType.Torso_Lower, var1);
+      }
+
+   }
+
+   public void addNeckMuscleStrain(float var1) {
+      if (SandboxOptions.instance.MuscleStrainFactor.getValue() > 0.0) {
+         var1 = (float)((double)var1 * 2.5);
+         var1 = (float)((double)var1 * SandboxOptions.instance.MuscleStrainFactor.getValue());
+         this.addStiffness(BodyPartType.Neck, var1);
+      }
+
+   }
+
+   public void addArmMuscleStrain(float var1) {
+      if (SandboxOptions.instance.MuscleStrainFactor.getValue() > 0.0) {
+         var1 = (float)((double)var1 * 2.5);
+         var1 = (float)((double)var1 * SandboxOptions.instance.MuscleStrainFactor.getValue());
+         this.addStiffness(BodyPartType.Hand_R, var1);
+         this.addStiffness(BodyPartType.ForeArm_R, var1);
+         this.addStiffness(BodyPartType.UpperArm_R, var1);
+      }
+
+   }
+
+   public void addLeftArmMuscleStrain(float var1) {
+      if (SandboxOptions.instance.MuscleStrainFactor.getValue() > 0.0) {
+         var1 = (float)((double)var1 * 2.5);
+         var1 = (float)((double)var1 * SandboxOptions.instance.MuscleStrainFactor.getValue());
+         this.addStiffness(BodyPartType.Hand_L, var1);
+         this.addStiffness(BodyPartType.ForeArm_L, var1);
+         this.addStiffness(BodyPartType.UpperArm_L, var1);
+      }
+
+   }
+
+   public void addBothArmMuscleStrain(float var1) {
+      this.addArmMuscleStrain(var1);
+      this.addLeftArmMuscleStrain(var1);
+   }
+
+   public void addStiffness(BodyPartType var1, float var2) {
+      BodyPart var3 = this.getBodyDamage().getBodyPart(var1);
+      var3.addStiffness(var2);
+   }
+
+   public int getClimbingFailChanceInt() {
+      return (int)this.getClimbingFailChanceFloat();
+   }
+
+   public float getClimbingFailChanceFloat() {
+      float var1 = 0.0F;
+      var1 += (float)(this.getPerkLevel(PerkFactory.Perks.Fitness) * 2);
+      var1 += (float)(this.getPerkLevel(PerkFactory.Perks.Strength) * 2);
+      var1 += (float)(this.getPerkLevel(PerkFactory.Perks.Nimble) * 2);
+      var1 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.Endurance) * 5);
+      var1 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.Drunk) * 8);
+      var1 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) * 8);
+      var1 -= (float)(this.getMoodles().getMoodleLevel(MoodleType.Pain) * 5);
+      if (this.Traits.Obese.isSet()) {
+         var1 -= 25.0F;
+      } else if (this.getTraits().contains("Overweight")) {
+         var1 -= 15.0F;
+      }
+
+      if (this.getTraits().contains("Clumsy")) {
+         var1 /= 2.0F;
+      }
+
+      if (this.isWearingAwkwardGloves()) {
+         var1 /= 2.0F;
+      } else if (!this.isWearingAwkwardGloves() && this.isWearingGloves()) {
+         var1 += 4.0F;
+      }
+
+      if (this.HasTrait("AllThumbs")) {
+         var1 -= 4.0F;
+      } else if (this.HasTrait("Dextrous")) {
+         var1 += 4.0F;
+      }
+
+      if (this.HasTrait("Burglar")) {
+         var1 += 4.0F;
+      }
+
+      if (this.HasTrait("Gymnast")) {
+         var1 += 4.0F;
+      }
+
+      IsoGridSquare var2 = this.getCurrentSquare();
+      if (var2 != null) {
+         for(int var3 = 0; var3 < var2.getMovingObjects().size(); ++var3) {
+            IsoMovingObject var4 = (IsoMovingObject)var2.getMovingObjects().get(var3);
+            if (var4 instanceof IsoZombie) {
+               if (((IsoZombie)var4).target == this && ((IsoZombie)var4).getCurrentState() == AttackState.instance()) {
+                  var1 -= 25.0F;
+               } else {
+                  var1 -= 7.0F;
+               }
+            }
+         }
+      }
+
+      var1 = Math.max(0.0F, var1);
+      var1 = (float)((int)Math.sqrt((double)var1));
+      return var1;
+   }
+
+   public boolean isClimbingRope() {
+      return this.getCurrentState().equals(ClimbSheetRopeState.instance()) || this.getCurrentState().equals(ClimbDownSheetRopeState.instance());
+   }
+
+   public void fallFromRope() {
+      if (this.isClimbingRope()) {
+         this.setCollidable(true);
+         this.setbClimbing(false);
+         this.setbFalling(true);
+         this.clearVariable("ClimbRope");
+         this.setLlz(this.getZ());
+      }
+   }
+
+   public boolean isWearingGloves() {
+      return this.getWornItem("Hands") != null;
+   }
+
+   public boolean isWearingAwkwardGloves() {
+      return this.getWornItem("Hands") != null && this.getWornItem("Hands").hasTag("AwkwardGloves");
+   }
+
+   public float getClimbRopeSpeed(boolean var1) {
+      int var3 = Math.max(this.getPerkLevel(PerkFactory.Perks.Strength), this.getPerkLevel(PerkFactory.Perks.Fitness)) - (this.getMoodles().getMoodleLevel(MoodleType.Drunk) + this.getMoodles().getMoodleLevel(MoodleType.Endurance) + this.getMoodles().getMoodleLevel(MoodleType.Pain));
+      if (!var1) {
+         var3 -= this.getMoodles().getMoodleLevel(MoodleType.HeavyLoad);
+         if (this.Traits.Obese.isSet()) {
+            var3 -= 2;
+         } else if (this.getTraits().contains("Overweight")) {
+            --var3;
+         }
+      }
+
+      if (this.HasTrait("AllThumbs")) {
+         --var3;
+      } else if (this.HasTrait("Dextrous")) {
+         ++var3;
+      }
+
+      if (this.HasTrait("Burglar")) {
+         ++var3;
+      }
+
+      if (this.HasTrait("Gymnast")) {
+         ++var3;
+      }
+
+      if (this.isWearingAwkwardGloves()) {
+         var3 /= 2;
+      } else if (this.isWearingGloves()) {
+         ++var3;
+      }
+
+      var3 = Math.max(0, var3);
+      var3 = Math.min(10, var3);
+      float var2;
+      if (var1) {
+         var2 = 0.16F;
+      } else {
+         var2 = 0.16F;
+      }
+
+      switch (var3) {
+         case 0:
+            var2 -= 0.12F;
+            break;
+         case 1:
+            var2 -= 0.11F;
+            break;
+         case 2:
+            var2 -= 0.1F;
+            break;
+         case 3:
+            var2 -= 0.09F;
+         case 4:
+         case 5:
+         default:
+            break;
+         case 6:
+            var2 += 0.02F;
+            break;
+         case 7:
+            var2 += 0.05F;
+            break;
+         case 8:
+            var2 += 0.07F;
+            break;
+         case 9:
+            var2 += 0.09F;
+            break;
+         case 10:
+            var2 += 0.12F;
+      }
+
+      if (var1) {
+         var2 *= 0.5F;
+      } else {
+         var2 *= 0.5F;
+      }
+
+      return var2;
+   }
+
+   public void setClimbRopeTime(float var1) {
+      this.climbRopeTime = var1;
+   }
+
+   public float getClimbRopeTime() {
+      return this.climbRopeTime;
+   }
+
+   public boolean hasAwkwardHands() {
+      return this.isWearingAwkwardGloves() || this.HasTrait("AllThumbs");
+   }
+
+   public void triggerContextualAction(String var1) {
+      LuaHookManager.TriggerHook("ContextualAction", var1, this);
+   }
+
+   public void triggerContextualAction(String var1, Object var2) {
+      LuaHookManager.TriggerHook("ContextualAction", var1, this, var2);
+   }
+
+   public void triggerContextualAction(String var1, Object var2, Object var3) {
+      LuaHookManager.TriggerHook("ContextualAction", var1, this, var2, var3);
+   }
+
+   public void triggerContextualAction(String var1, Object var2, Object var3, Object var4) {
+      LuaHookManager.TriggerHook("ContextualAction", var1, this, var2, var3, var4);
+   }
+
+   public void triggerContextualAction(String var1, Object var2, Object var3, Object var4, Object var5) {
+      LuaHookManager.TriggerHook("ContextualAction", var1, this, var2, var3, var4, var5);
+   }
+
+   public boolean isActuallyAttackingWithMeleeWeapon() {
+      if (this.getPrimaryHandItem() == null) {
+         return false;
+      } else if (!(this.getPrimaryHandItem() instanceof HandWeapon)) {
+         return false;
+      } else if (this.getUseHandWeapon() == null) {
+         return false;
+      } else {
+         HandWeapon var1 = this.getUseHandWeapon();
+         if (WeaponType.getWeaponType(this) == WeaponType.barehand) {
+            return false;
+         } else if (var1.isRanged()) {
+            return false;
+         } else if (this.isShoving()) {
+            return false;
+         } else {
+            return !this.isStomping();
+         }
+      }
+   }
+
+   public boolean isStomping() {
+      return this.isAimAtFloor() && ((IsoPlayer)this).isDoShove();
+   }
+
+   public boolean isShoving() {
+      return (this.isForceShove() || ((IsoPlayer)this).isDoShove()) && !this.isStomping();
+   }
+
+   public class XP implements AntiCheatXPUpdate.IAntiCheatUpdate {
       public int level = 0;
       public int lastlevel = 0;
       public float TotalXP = 0.0F;
       public HashMap<PerkFactory.Perk, Float> XPMap = new HashMap();
-      private float lastXPSumm = 0.0F;
-      private long lastXPTime = System.currentTimeMillis();
-      private float lastXPGrowthRate = 0.0F;
-      public static final float MaxXPGrowthRate = 1000.0F;
       public HashMap<PerkFactory.Perk, XPMultiplier> XPMapMultiplier = new HashMap();
       IsoGameCharacter chr = null;
+      private static final long XP_INTERVAL = 60000L;
+      private final UpdateLimit ulInterval = new UpdateLimit(60000L);
+      private float sum = 0.0F;
 
       public XP(IsoGameCharacter var2) {
          this.chr = var2;
       }
 
-      public void update() {
-         if (GameServer.bServer && this.chr instanceof IsoPlayer) {
-            if (System.currentTimeMillis() - this.lastXPTime > 60000L) {
-               this.lastXPTime = System.currentTimeMillis();
-               float var1 = 0.0F;
+      public boolean intervalCheck() {
+         return this.ulInterval.Check();
+      }
 
-               Float var3;
-               for(Iterator var2 = this.XPMap.values().iterator(); var2.hasNext(); var1 += var3) {
-                  var3 = (Float)var2.next();
-               }
+      public float getGrowthRate() {
+         this.ulInterval.Reset(60000L);
+         float var1 = 0.0F;
 
-               this.lastXPGrowthRate = var1 - this.lastXPSumm;
-               this.lastXPSumm = var1;
-               if ((double)this.lastXPGrowthRate > 1000.0 * SandboxOptions.instance.XpMultiplier.getValue() * ServerOptions.instance.AntiCheatProtectionType9ThresholdMultiplier.getValue()) {
-                  UdpConnection var4 = GameServer.getConnectionFromPlayer((IsoPlayer)this.chr);
-                  if (ServerOptions.instance.AntiCheatProtectionType9.getValue() && PacketValidator.checkUser(var4)) {
-                     PacketValidator.doKickUser(var4, this.getClass().getSimpleName(), "Type9", (String)null);
-                  } else if ((double)this.lastXPGrowthRate > 1000.0 * SandboxOptions.instance.XpMultiplier.getValue() * ServerOptions.instance.AntiCheatProtectionType9ThresholdMultiplier.getValue() / 2.0) {
-                     PacketValidator.doLogUser(var4, Userlog.UserlogType.SuspiciousActivity, this.getClass().getSimpleName(), "Type9");
-                  }
+         Float var3;
+         for(Iterator var2 = this.XPMap.values().iterator(); var2.hasNext(); var1 += var3) {
+            var3 = (Float)var2.next();
+         }
+
+         float var4 = var1 - this.sum;
+         this.sum = var1;
+         return var4;
+      }
+
+      public float getMultiplier() {
+         double var1 = 0.0;
+         if (SandboxOptions.instance.multipliersConfig.XPMultiplierGlobalToggle.getValue()) {
+            var1 = SandboxOptions.instance.multipliersConfig.XPMultiplierGlobal.getValue();
+         } else {
+            int var4 = 0;
+
+            for(int var5 = 0; var5 < IsoGameCharacter.this.getPerkList().size(); ++var5) {
+               String var3 = "MultiplierConfig." + IsoGameCharacter.this.getPerkList().get(var5);
+               if (SandboxOptions.instance.getOptionByName(var3) != null) {
+                  ++var4;
+                  var1 += Double.parseDouble(SandboxOptions.instance.getOptionByName(var3).asConfigOption().getValueAsString());
                }
             }
 
+            var1 /= (double)var4;
          }
+
+         return (float)var1;
       }
 
       public void addXpMultiplier(PerkFactory.Perk var1, float var2, int var3, int var4) {
@@ -11259,6 +14231,13 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
       }
 
+      public void AddXP(PerkFactory.Perk var1, float var2, boolean var3) {
+         if (this.chr instanceof IsoPlayer && ((IsoPlayer)this.chr).isLocalPlayer()) {
+            this.AddXP(var1, var2, true, !var3, false);
+         }
+
+      }
+
       public void AddXPNoMultiplier(PerkFactory.Perk var1, float var2) {
          XPMultiplier var3 = (XPMultiplier)this.getMultiplierMap().remove(var1);
 
@@ -11275,7 +14254,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
 
       public void AddXP(PerkFactory.Perk var1, float var2, boolean var3, boolean var4, boolean var5) {
          if (!var5 && GameClient.bClient && this.chr instanceof IsoPlayer) {
-            GameClient.instance.sendAddXp((IsoPlayer)this.chr, var1, (int)var2);
+            GameClient.instance.sendAddXp((IsoPlayer)this.chr, var1, var2, !var4);
          }
 
          PerkFactory.Perk var6 = null;
@@ -11299,16 +14278,15 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                }
             }
 
-            float var15 = this.getXP(var1);
-            float var16 = var6.getTotalXpForLevel(10);
-            if (!(var2 >= 0.0F) || !(var15 >= var16)) {
+            float var14 = this.getXP(var1);
+            float var15 = var6.getTotalXpForLevel(10);
+            if (!(var2 >= 0.0F) || !(var14 >= var15)) {
                float var9 = 1.0F;
-               float var18;
                if (var4) {
                   boolean var10 = false;
                   Iterator var11 = IsoGameCharacter.this.getDescriptor().getXPBoostMap().entrySet().iterator();
 
-                  label191:
+                  label216:
                   while(true) {
                      while(true) {
                         Map.Entry var12;
@@ -11327,7 +14305,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                               }
 
                               if (IsoGameCharacter.this.Traits.Pacifist.isSet()) {
-                                 if (var6.getType() != PerkFactory.Perks.SmallBlade && var6.getType() != PerkFactory.Perks.LongBlade && var6.getType() != PerkFactory.Perks.SmallBlunt && var6.getType() != PerkFactory.Perks.Spear && var6.getType() != PerkFactory.Perks.Maintenance && var6.getType() != PerkFactory.Perks.Blunt && var6.getType() != PerkFactory.Perks.Axe) {
+                                 if (var6.getType() != PerkFactory.Perks.SmallBlade && var6.getType() != PerkFactory.Perks.LongBlade && var6.getType() != PerkFactory.Perks.SmallBlunt && var6.getType() != PerkFactory.Perks.Spear && var6.getType() != PerkFactory.Perks.Blunt && var6.getType() != PerkFactory.Perks.Axe) {
                                     if (var6.getType() == PerkFactory.Perks.Aiming) {
                                        var9 *= 0.75F;
                                     }
@@ -11337,17 +14315,17 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                               }
 
                               var2 *= var9;
-                              var18 = this.getMultiplier(var1);
-                              if (var18 > 1.0F) {
-                                 var2 *= var18;
+                              float var17 = this.getMultiplier(var1);
+                              if (var17 > 1.0F) {
+                                 var2 *= var17;
                               }
 
-                              if (!var6.isPassiv()) {
-                                 var2 = (float)((double)var2 * SandboxOptions.instance.XpMultiplier.getValue());
-                              } else if (var6.isPassiv() && SandboxOptions.instance.XpMultiplierAffectsPassive.getValue()) {
-                                 var2 = (float)((double)var2 * SandboxOptions.instance.XpMultiplier.getValue());
+                              if (SandboxOptions.instance.multipliersConfig.XPMultiplierGlobalToggle.getValue()) {
+                                 var2 = (float)((double)var2 * SandboxOptions.instance.multipliersConfig.XPMultiplierGlobal.getValue());
+                              } else {
+                                 var2 *= Float.parseFloat(SandboxOptions.instance.getOptionByName("MultiplierConfig." + var6.getType()).asConfigOption().getValueAsString());
                               }
-                              break label191;
+                              break label216;
                            }
 
                            var12 = (Map.Entry)var11.next();
@@ -11369,22 +14347,32 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   }
                }
 
-               float var17 = var15 + var2;
-               if (var17 < 0.0F) {
-                  var17 = 0.0F;
-                  var2 = -var15;
+               float var16 = var14 + var2;
+               if (var16 < 0.0F) {
+                  var16 = 0.0F;
+                  var2 = -var14;
                }
 
-               if (var17 > var16) {
-                  var17 = var16;
-                  var2 = var16 - var15;
+               if (var16 > var15) {
+                  var16 = var15;
+                  var2 = var15 - var14;
                }
 
-               this.XPMap.put(var1, var17);
+               this.XPMap.put(var1, var16);
+               XPMultiplier var18 = (XPMultiplier)this.getMultiplierMap().get(var6);
+               float var13;
+               float var19;
+               if (var18 != null) {
+                  var19 = var6.getTotalXpForLevel(var18.minLevel - 1);
+                  var13 = var6.getTotalXpForLevel(var18.maxLevel);
+                  if (var14 >= var19 && var16 < var19 || var14 < var13 && var16 >= var13) {
+                     this.getMultiplierMap().remove(var6);
+                  }
+               }
 
-               for(var18 = var6.getTotalXpForLevel(this.chr.getPerkLevel(var6) + 1); var15 < var18 && var17 >= var18; var18 = var6.getTotalXpForLevel(this.chr.getPerkLevel(var6) + 1)) {
+               for(var19 = var6.getTotalXpForLevel(this.chr.getPerkLevel(var6) + 1); var14 < var19 && var16 >= var19; var19 = var6.getTotalXpForLevel(this.chr.getPerkLevel(var6) + 1)) {
                   IsoGameCharacter.this.LevelPerk(var1);
-                  if (this.chr instanceof IsoPlayer && ((IsoPlayer)this.chr).isLocalPlayer() && !this.chr.getEmitter().isPlaying("GainExperienceLevel")) {
+                  if (this.chr instanceof IsoPlayer && ((IsoPlayer)this.chr).isLocalPlayer() && (var6 != PerkFactory.Perks.Strength && var6 != PerkFactory.Perks.Fitness || this.chr.getPerkLevel(var6) != 10) && !this.chr.getEmitter().isPlaying("GainExperienceLevel")) {
                      this.chr.getEmitter().playSoundImpl("GainExperienceLevel", (IsoObject)null);
                   }
 
@@ -11393,16 +14381,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
                   }
                }
 
-               XPMultiplier var19 = (XPMultiplier)this.getMultiplierMap().get(var6);
-               if (var19 != null) {
-                  float var13 = var6.getTotalXpForLevel(var19.minLevel - 1);
-                  float var14 = var6.getTotalXpForLevel(var19.maxLevel);
-                  if (var15 >= var13 && var17 < var13 || var15 < var14 && var17 >= var14) {
-                     this.getMultiplierMap().remove(var6);
+               for(var13 = var6.getTotalXpForLevel(this.chr.getPerkLevel(var6)); var14 >= var13 && var16 < var13; var13 = var6.getTotalXpForLevel(this.chr.getPerkLevel(var6))) {
+                  IsoGameCharacter.this.LoseLevel(var6);
+                  if (this.chr.getPerkLevel(var6) >= 10) {
+                     break;
                   }
                }
 
-               if (var3) {
+               if (!GameServer.bServer) {
                   LuaEventManager.triggerEventGarbage("AddXP", this.chr, var1, var2);
                }
 
@@ -11446,33 +14432,9 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
 
       private PerkFactory.Perk loadPerk(ByteBuffer var1, int var2) throws IOException {
-         PerkFactory.Perk var4;
-         if (var2 >= 152) {
-            String var5 = GameWindow.ReadStringUTF(var1);
-            var4 = PerkFactory.Perks.FromString(var5);
-            return var4 == PerkFactory.Perks.MAX ? null : var4;
-         } else {
-            int var3 = var1.getInt();
-            if (var3 >= 0 && var3 < PerkFactory.Perks.MAX.index()) {
-               var4 = PerkFactory.Perks.fromIndex(var3);
-               return var4 == PerkFactory.Perks.MAX ? null : var4;
-            } else {
-               return null;
-            }
-         }
-      }
-
-      public void recalcSumm() {
-         float var1 = 0.0F;
-
-         Float var3;
-         for(Iterator var2 = this.XPMap.values().iterator(); var2.hasNext(); var1 += var3) {
-            var3 = (Float)var2.next();
-         }
-
-         this.lastXPSumm = var1;
-         this.lastXPTime = System.currentTimeMillis();
-         this.lastXPGrowthRate = 0.0F;
+         String var3 = GameWindow.ReadStringUTF(var1);
+         PerkFactory.Perk var4 = PerkFactory.Perks.FromString(var3);
+         return var4 == PerkFactory.Perks.MAX ? null : var4;
       }
 
       public void load(ByteBuffer var1, int var2) throws IOException {
@@ -11506,18 +14468,10 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             }
          }
 
-         int var13;
-         if (var2 < 162) {
-            var12 = var1.getInt();
-
-            for(var13 = 0; var13 < var12; ++var13) {
-               this.loadPerk(var1, var2);
-            }
-         }
-
          IsoGameCharacter.this.PerkList.clear();
          var12 = var1.getInt();
 
+         int var13;
          for(var13 = 0; var13 < var12; ++var13) {
             PerkFactory.Perk var14 = this.loadPerk(var1, var2);
             int var8 = var1.getInt();
@@ -11545,7 +14499,7 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             this.setTotalXP((float)this.chr.getXpForLevel(this.getLevel()));
          }
 
-         this.recalcSumm();
+         this.getGrowthRate();
       }
 
       public void save(ByteBuffer var1) throws IOException {
@@ -11606,88 +14560,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
-   public class CharacterTraits extends TraitCollection {
-      public final TraitCollection.TraitSlot Obese = this.getTraitSlot("Obese");
-      public final TraitCollection.TraitSlot Athletic = this.getTraitSlot("Athletic");
-      public final TraitCollection.TraitSlot Overweight = this.getTraitSlot("Overweight");
-      public final TraitCollection.TraitSlot Unfit = this.getTraitSlot("Unfit");
-      public final TraitCollection.TraitSlot Emaciated = this.getTraitSlot("Emaciated");
-      public final TraitCollection.TraitSlot Graceful = this.getTraitSlot("Graceful");
-      public final TraitCollection.TraitSlot Clumsy = this.getTraitSlot("Clumsy");
-      public final TraitCollection.TraitSlot Strong = this.getTraitSlot("Strong");
-      public final TraitCollection.TraitSlot Weak = this.getTraitSlot("Weak");
-      public final TraitCollection.TraitSlot VeryUnderweight = this.getTraitSlot("Very Underweight");
-      public final TraitCollection.TraitSlot Underweight = this.getTraitSlot("Underweight");
-      public final TraitCollection.TraitSlot FastHealer = this.getTraitSlot("FastHealer");
-      public final TraitCollection.TraitSlot SlowHealer = this.getTraitSlot("SlowHealer");
-      public final TraitCollection.TraitSlot ShortSighted = this.getTraitSlot("ShortSighted");
-      public final TraitCollection.TraitSlot EagleEyed = this.getTraitSlot("EagleEyed");
-      public final TraitCollection.TraitSlot Agoraphobic = this.getTraitSlot("Agoraphobic");
-      public final TraitCollection.TraitSlot Claustophobic = this.getTraitSlot("Claustophobic");
-      public final TraitCollection.TraitSlot AdrenalineJunkie = this.getTraitSlot("AdrenalineJunkie");
-      public final TraitCollection.TraitSlot OutOfShape = this.getTraitSlot("Out of Shape");
-      public final TraitCollection.TraitSlot HighThirst = this.getTraitSlot("HighThirst");
-      public final TraitCollection.TraitSlot LowThirst = this.getTraitSlot("LowThirst");
-      public final TraitCollection.TraitSlot HeartyAppitite = this.getTraitSlot("HeartyAppitite");
-      public final TraitCollection.TraitSlot LightEater = this.getTraitSlot("LightEater");
-      public final TraitCollection.TraitSlot Cowardly = this.getTraitSlot("Cowardly");
-      public final TraitCollection.TraitSlot Brave = this.getTraitSlot("Brave");
-      public final TraitCollection.TraitSlot Brooding = this.getTraitSlot("Brooding");
-      public final TraitCollection.TraitSlot Insomniac = this.getTraitSlot("Insomniac");
-      public final TraitCollection.TraitSlot NeedsLessSleep = this.getTraitSlot("NeedsLessSleep");
-      public final TraitCollection.TraitSlot NeedsMoreSleep = this.getTraitSlot("NeedsMoreSleep");
-      public final TraitCollection.TraitSlot Asthmatic = this.getTraitSlot("Asthmatic");
-      public final TraitCollection.TraitSlot PlaysFootball = this.getTraitSlot("PlaysFootball");
-      public final TraitCollection.TraitSlot Jogger = this.getTraitSlot("Jogger");
-      public final TraitCollection.TraitSlot NightVision = this.getTraitSlot("NightVision");
-      public final TraitCollection.TraitSlot FastLearner = this.getTraitSlot("FastLearner");
-      public final TraitCollection.TraitSlot SlowLearner = this.getTraitSlot("SlowLearner");
-      public final TraitCollection.TraitSlot Pacifist = this.getTraitSlot("Pacifist");
-      public final TraitCollection.TraitSlot Feeble = this.getTraitSlot("Feeble");
-      public final TraitCollection.TraitSlot Stout = this.getTraitSlot("Stout");
-      public final TraitCollection.TraitSlot ShortTemper = this.getTraitSlot("ShortTemper");
-      public final TraitCollection.TraitSlot Patient = this.getTraitSlot("Patient");
-      public final TraitCollection.TraitSlot Injured = this.getTraitSlot("Injured");
-      public final TraitCollection.TraitSlot Inconspicuous = this.getTraitSlot("Inconspicuous");
-      public final TraitCollection.TraitSlot Conspicuous = this.getTraitSlot("Conspicuous");
-      public final TraitCollection.TraitSlot Desensitized = this.getTraitSlot("Desensitized");
-      public final TraitCollection.TraitSlot NightOwl = this.getTraitSlot("NightOwl");
-      public final TraitCollection.TraitSlot Hemophobic = this.getTraitSlot("Hemophobic");
-      public final TraitCollection.TraitSlot Burglar = this.getTraitSlot("Burglar");
-      public final TraitCollection.TraitSlot KeenHearing = this.getTraitSlot("KeenHearing");
-      public final TraitCollection.TraitSlot Deaf = this.getTraitSlot("Deaf");
-      public final TraitCollection.TraitSlot HardOfHearing = this.getTraitSlot("HardOfHearing");
-      public final TraitCollection.TraitSlot ThinSkinned = this.getTraitSlot("ThinSkinned");
-      public final TraitCollection.TraitSlot ThickSkinned = this.getTraitSlot("ThickSkinned");
-      public final TraitCollection.TraitSlot Marksman = this.getTraitSlot("Marksman");
-      public final TraitCollection.TraitSlot Outdoorsman = this.getTraitSlot("Outdoorsman");
-      public final TraitCollection.TraitSlot Lucky = this.getTraitSlot("Lucky");
-      public final TraitCollection.TraitSlot Unlucky = this.getTraitSlot("Unlucky");
-      public final TraitCollection.TraitSlot Nutritionist = this.getTraitSlot("Nutritionist");
-      public final TraitCollection.TraitSlot Nutritionist2 = this.getTraitSlot("Nutritionist2");
-      public final TraitCollection.TraitSlot Organized = this.getTraitSlot("Organized");
-      public final TraitCollection.TraitSlot Disorganized = this.getTraitSlot("Disorganized");
-      public final TraitCollection.TraitSlot Axeman = this.getTraitSlot("Axeman");
-      public final TraitCollection.TraitSlot IronGut = this.getTraitSlot("IronGut");
-      public final TraitCollection.TraitSlot WeakStomach = this.getTraitSlot("WeakStomach");
-      public final TraitCollection.TraitSlot HeavyDrinker = this.getTraitSlot("HeavyDrinker");
-      public final TraitCollection.TraitSlot LightDrinker = this.getTraitSlot("LightDrinker");
-      public final TraitCollection.TraitSlot Resilient = this.getTraitSlot("Resilient");
-      public final TraitCollection.TraitSlot ProneToIllness = this.getTraitSlot("ProneToIllness");
-      public final TraitCollection.TraitSlot SpeedDemon = this.getTraitSlot("SpeedDemon");
-      public final TraitCollection.TraitSlot SundayDriver = this.getTraitSlot("SundayDriver");
-      public final TraitCollection.TraitSlot Smoker = this.getTraitSlot("Smoker");
-      public final TraitCollection.TraitSlot Hypercondriac = this.getTraitSlot("Hypercondriac");
-      public final TraitCollection.TraitSlot Illiterate = this.getTraitSlot("Illiterate");
-
-      public CharacterTraits() {
-      }
-
-      public boolean isIlliterate() {
-         return this.Illiterate.isSet();
-      }
-   }
-
    public static class Location {
       public int x;
       public int y;
@@ -11721,12 +14593,36 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
          return this.z;
       }
 
+      public boolean equals(int var1, int var2, int var3) {
+         return this.x == var1 && this.y == var2 && this.z == var3;
+      }
+
       public boolean equals(Object var1) {
          if (!(var1 instanceof Location var2)) {
             return false;
          } else {
             return this.x == var2.x && this.y == var2.y && this.z == var2.z;
          }
+      }
+   }
+
+   private static final class Cheats {
+      boolean m_godMod = false;
+      boolean m_invulnerable = false;
+      boolean m_invisible = false;
+      boolean m_unlimitedEndurance = false;
+      boolean m_unlimitedCarry = false;
+      boolean m_buildCheat = false;
+      boolean m_farmingCheat = false;
+      boolean m_fishingCheat = false;
+      boolean m_healthCheat = false;
+      boolean m_mechanicsCheat = false;
+      boolean m_fastMoveCheat = false;
+      boolean m_movablesCheat = false;
+      boolean m_timedActionInstantCheat = false;
+      boolean m_canUseBrushTool = false;
+
+      private Cheats() {
       }
    }
 
@@ -11764,6 +14660,14 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
+   private static class Recoil {
+      public float m_recoilVarX = 0.0F;
+      public float m_recoilVarY = 0.0F;
+
+      private Recoil() {
+      }
+   }
+
    private static final class L_getDotWithForwardDirection {
       static final Vector2 v1 = new Vector2();
       static final Vector2 v2 = new Vector2();
@@ -11793,9 +14697,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
    }
 
    private static final class L_renderShadow {
+      static final ShadowParams shadowParams = new ShadowParams(1.0F, 1.0F, 1.0F);
+      static final Vector2 vector2_1 = new Vector2();
+      static final Vector2 vector2_2 = new Vector2();
       static final Vector3f forward = new Vector3f();
-      static final Vector3 v1 = new Vector3();
-      static final Vector3f v3 = new Vector3f();
+      static final Vector3 vector3 = new Vector3();
+      static final Vector3f vector3f = new Vector3f();
 
       private L_renderShadow() {
       }
@@ -11808,11 +14715,12 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       }
    }
 
-   private static class s_performance {
-      static final PerformanceProfileProbe postUpdate = new PerformanceProfileProbe("IsoGameCharacter.postUpdate");
-      public static PerformanceProfileProbe update = new PerformanceProfileProbe("IsoGameCharacter.update");
+   protected static final class l_testDotSide {
+      static final Vector2 v1 = new Vector2();
+      static final Vector2 v2 = new Vector2();
+      static final Vector2 v3 = new Vector2();
 
-      private s_performance() {
+      protected l_testDotSide() {
       }
    }
 
@@ -11891,15 +14799,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
       static final ArrayList<State> states = new ArrayList();
 
       private L_actionStateChanged() {
-      }
-   }
-
-   protected static final class l_testDotSide {
-      static final Vector2 v1 = new Vector2();
-      static final Vector2 v2 = new Vector2();
-      static final Vector2 v3 = new Vector2();
-
-      protected l_testDotSide() {
       }
    }
 
@@ -12020,10 +14919,6 @@ public abstract class IsoGameCharacter extends IsoMovingObject implements Talker
             var1.getInventory().Remove(var3);
             var1.resetModelNextFrame();
             var1.onWornItemsChanged();
-            if (GameClient.bClient && var1 instanceof IsoPlayer && ((IsoPlayer)var1).isLocalPlayer()) {
-               GameClient.instance.sendClothing((IsoPlayer)var1, var3.getBodyLocation(), var3);
-            }
-
          }
       }
    }

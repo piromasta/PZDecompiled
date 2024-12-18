@@ -8,6 +8,7 @@ import javax.imageio.ImageIO;
 import org.lwjgl.BufferUtils;
 import org.lwjglx.LWJGLException;
 import org.lwjglx.input.Cursor;
+import zombie.GameTime;
 import zombie.ZomboidFileSystem;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
@@ -16,13 +17,22 @@ import zombie.core.textures.Texture;
 public final class Mouse {
    protected static int x;
    protected static int y;
-   public static boolean bLeftDown;
-   public static boolean bLeftWasDown;
-   public static boolean bRightDown;
-   public static boolean bRightWasDown;
-   public static boolean bMiddleDown;
-   public static boolean bMiddleWasDown;
+   private static float TimeRightPressed = 0.0F;
+   private static final float TIME_RIGHT_PRESSED_SECONDS = 0.15F;
+   public static final int BTN_OFFSET = 10000;
+   public static final int BTN_0 = 10000;
+   public static final int BTN_1 = 10001;
+   public static final int BTN_2 = 10002;
+   public static final int BTN_3 = 10003;
+   public static final int BTN_4 = 10004;
+   public static final int BTN_5 = 10005;
+   public static final int BTN_6 = 10006;
+   public static final int BTN_7 = 10007;
+   public static final int LMB = 10000;
+   public static final int RMB = 10001;
+   public static final int MMB = 10002;
    public static boolean[] m_buttonDownStates;
+   public static boolean[] m_buttonPrevStates;
    public static long lastActivity;
    public static int wheelDelta;
    private static final MouseStateCache s_mouseStateCache = new MouseStateCache();
@@ -37,6 +47,10 @@ public final class Mouse {
 
    public static int getWheelState() {
       return wheelDelta;
+   }
+
+   public static int getButtonCount() {
+      return s_mouseStateCache.getState().getButtonCount();
    }
 
    public static synchronized int getXA() {
@@ -59,12 +73,34 @@ public final class Mouse {
       return m_buttonDownStates != null ? m_buttonDownStates[var0] : false;
    }
 
+   public static boolean wasButtonDown(int var0) {
+      return m_buttonPrevStates != null ? m_buttonPrevStates[var0] : false;
+   }
+
+   public static boolean isButtonPressed(int var0) {
+      if (m_buttonDownStates != null && m_buttonPrevStates != null) {
+         return !m_buttonPrevStates[var0] && m_buttonDownStates[var0];
+      } else {
+         return false;
+      }
+   }
+
+   public static boolean isButtonReleased(int var0) {
+      if (m_buttonDownStates != null && m_buttonPrevStates != null) {
+         return m_buttonPrevStates[var0] && !m_buttonDownStates[var0];
+      } else {
+         return false;
+      }
+   }
+
    public static void UIBlockButtonDown(int var0) {
       UICaptured[var0] = true;
    }
 
    public static boolean isButtonDownUICheck(int var0) {
-      if (m_buttonDownStates != null) {
+      if (m_buttonDownStates == null) {
+         return false;
+      } else {
          boolean var1 = m_buttonDownStates[var0];
          if (!var1) {
             UICaptured[var0] = false;
@@ -72,58 +108,64 @@ public final class Mouse {
             return false;
          }
 
-         return var1;
+         return var0 == 1 ? isRightDelay() : var1;
+      }
+   }
+
+   public static boolean isRightDelay() {
+      if (!UICaptured[1] && m_buttonDownStates != null && m_buttonDownStates[1]) {
+         return TimeRightPressed >= 0.15F;
       } else {
          return false;
       }
    }
 
    public static boolean isLeftDown() {
-      return bLeftDown;
+      return isButtonDown(0);
    }
 
    public static boolean isLeftPressed() {
-      return !bLeftWasDown && bLeftDown;
+      return isButtonPressed(0);
    }
 
    public static boolean isLeftReleased() {
-      return bLeftWasDown && !bLeftDown;
+      return isButtonReleased(0);
    }
 
    public static boolean isLeftUp() {
-      return !bLeftDown;
+      return !isButtonDown(0);
    }
 
    public static boolean isMiddleDown() {
-      return bMiddleDown;
+      return isButtonDown(2);
    }
 
    public static boolean isMiddlePressed() {
-      return !bMiddleWasDown && bMiddleDown;
+      return isButtonPressed(2);
    }
 
    public static boolean isMiddleReleased() {
-      return bMiddleWasDown && !bMiddleDown;
+      return isButtonReleased(2);
    }
 
    public static boolean isMiddleUp() {
-      return !bMiddleDown;
+      return !isButtonDown(2);
    }
 
    public static boolean isRightDown() {
-      return bRightDown;
+      return isButtonDown(1);
    }
 
    public static boolean isRightPressed() {
-      return !bRightWasDown && bRightDown;
+      return isButtonPressed(1);
    }
 
    public static boolean isRightReleased() {
-      return bRightWasDown && !bRightDown;
+      return isButtonReleased(1);
    }
 
    public static boolean isRightUp() {
-      return !bRightDown;
+      return !isButtonDown(1);
    }
 
    public static synchronized void update() {
@@ -133,32 +175,46 @@ public final class Mouse {
 
          try {
             org.lwjglx.input.Mouse.create();
-         } catch (LWJGLException var4) {
-            var4.printStackTrace();
+         } catch (LWJGLException var5) {
+            var5.printStackTrace();
          }
 
       } else {
-         bLeftWasDown = bLeftDown;
-         bRightWasDown = bRightDown;
-         bMiddleWasDown = bMiddleDown;
          int var1 = x;
          int var2 = y;
          x = var0.getX();
          y = Core.getInstance().getScreenHeight() - var0.getY() - 1;
-         bLeftDown = var0.isButtonDown(0);
-         bRightDown = var0.isButtonDown(1);
-         bMiddleDown = var0.isButtonDown(2);
          wheelDelta = var0.getDWheel();
          var0.resetDWheel();
+         boolean var3 = var1 != x || var2 != y || wheelDelta != 0;
          if (m_buttonDownStates == null) {
             m_buttonDownStates = new boolean[var0.getButtonCount()];
          }
 
-         for(int var3 = 0; var3 < m_buttonDownStates.length; ++var3) {
-            m_buttonDownStates[var3] = var0.isButtonDown(var3);
+         if (m_buttonPrevStates == null) {
+            m_buttonPrevStates = new boolean[var0.getButtonCount()];
          }
 
-         if (var1 != x || var2 != y || wheelDelta != 0 || bLeftWasDown != bLeftDown || bRightWasDown != bRightDown || bMiddleWasDown != bMiddleDown) {
+         int var4;
+         for(var4 = 0; var4 < m_buttonDownStates.length; ++var4) {
+            m_buttonPrevStates[var4] = m_buttonDownStates[var4];
+         }
+
+         for(var4 = 0; var4 < m_buttonDownStates.length; ++var4) {
+            if (m_buttonDownStates[var4] != var0.isButtonDown(var4)) {
+               var3 = true;
+            }
+
+            m_buttonDownStates[var4] = var0.isButtonDown(var4);
+         }
+
+         if (m_buttonDownStates[1]) {
+            TimeRightPressed += GameTime.getInstance().getRealworldSecondsSinceLastUpdate();
+         } else {
+            TimeRightPressed = 0.0F;
+         }
+
+         if (var3) {
             lastActivity = System.currentTimeMillis();
          }
 

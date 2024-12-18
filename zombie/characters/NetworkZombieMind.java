@@ -1,11 +1,12 @@
 package zombie.characters;
 
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.NetworkVariables;
-import zombie.network.packets.ZombiePacket;
-import zombie.vehicles.PathFindBehavior2;
+import zombie.network.packets.character.ZombiePacket;
+import zombie.pathfind.PathFindBehavior2;
 
 public class NetworkZombieMind {
    private final IsoZombie zombie;
@@ -89,9 +90,9 @@ public class NetworkZombieMind {
          } else if (this.pfbType == 2) {
             this.zombie.pathToLocationF(this.pfbTargetX, this.pfbTargetY, this.pfbTargetZ);
          } else if (this.pfbType == 3) {
-            this.zombie.pathToSound((int)this.pfbTargetX, (int)this.pfbTargetY, (int)this.pfbTargetZ);
+            this.zombie.pathToSound(PZMath.fastfloor(this.pfbTargetX), PZMath.fastfloor(this.pfbTargetY), PZMath.fastfloor(this.pfbTargetZ));
             this.zombie.alerted = false;
-            this.zombie.setLastHeardSound((int)this.pfbTargetX, (int)this.pfbTargetY, (int)this.pfbTargetZ);
+            this.zombie.setLastHeardSound(PZMath.fastfloor(this.pfbTargetX), PZMath.fastfloor(this.pfbTargetY), PZMath.fastfloor(this.pfbTargetZ));
             this.zombie.AllowRepathDelay = 120.0F;
             this.zombie.timeSinceRespondToSound = 0.0F;
          }

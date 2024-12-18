@@ -9,7 +9,9 @@ import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.Core;
+import zombie.core.math.PZMath;
 import zombie.core.raknet.UdpConnection;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoGridSquare;
@@ -26,13 +28,13 @@ import zombie.network.GameClient;
 import zombie.network.GameServer;
 
 public final class IsoRegions {
-   public static final int SINGLE_CHUNK_PACKET_SIZE = 1024;
+   public static final int SINGLE_CHUNK_PACKET_SIZE = 2076;
    public static final int CHUNKS_DATA_PACKET_SIZE = 65536;
    public static boolean PRINT_D = false;
-   public static final int CELL_DIM = 300;
-   public static final int CELL_CHUNK_DIM = 30;
-   public static final int CHUNK_DIM = 10;
-   public static final int CHUNK_MAX_Z = 8;
+   public static final int CELL_DIM;
+   public static final int CELL_CHUNK_DIM;
+   public static final int CHUNK_DIM = 8;
+   public static final int CHUNK_MAX_Z = 32;
    public static final byte BIT_EMPTY = 0;
    public static final byte BIT_WALL_N = 1;
    public static final byte BIT_WALL_W = 2;
@@ -52,23 +54,23 @@ public final class IsoRegions {
    public static final byte DIR_BOT = 5;
    public static final byte DIR_MAX = 6;
    protected static final int CHUNK_LOAD_DIMENSIONS = 7;
-   protected static boolean DEBUG_LOAD_ALL_CHUNKS = false;
+   protected static boolean DEBUG_LOAD_ALL_CHUNKS;
    public static final String FILE_PRE = "datachunk_";
    public static final String FILE_SEP = "_";
    public static final String FILE_EXT = ".bin";
    public static final String FILE_DIR = "isoregiondata";
    private static final int SQUARE_CHANGE_WARN_THRESHOLD = 20;
-   private static int SQUARE_CHANGE_PER_TICK = 0;
+   private static int SQUARE_CHANGE_PER_TICK;
    private static String cacheDir;
    private static File cacheDirFile;
    private static File headDataFile;
-   private static final Map<Integer, File> chunkFileNames = new HashMap();
+   private static final Map<Integer, File> chunkFileNames;
    private static IsoRegionWorker regionWorker;
    private static DataRoot dataRoot;
    private static IsoRegionsLogger logger;
-   protected static int lastChunkX = -1;
-   protected static int lastChunkY = -1;
-   private static byte previousFlags = 0;
+   protected static int lastChunkX;
+   protected static int lastChunkY;
+   private static byte previousFlags;
 
    public IsoRegions() {
    }
@@ -216,8 +218,8 @@ public final class IsoRegions {
       }
 
       if (!GameClient.bClient && !GameServer.bServer && DEBUG_LOAD_ALL_CHUNKS && Core.bDebug) {
-         int var2 = (int)IsoPlayer.getInstance().getX() / 10;
-         int var1 = (int)IsoPlayer.getInstance().getY() / 10;
+         int var2 = PZMath.fastfloor(IsoPlayer.getInstance().getX()) / 8;
+         int var1 = PZMath.fastfloor(IsoPlayer.getInstance().getY()) / 8;
          if (lastChunkX != var2 || lastChunkY != var1) {
             lastChunkX = var2;
             lastChunkY = var1;
@@ -232,8 +234,8 @@ public final class IsoRegions {
    protected static void forceRecalcSurroundingChunks() {
       if (Core.bDebug && !GameClient.bClient) {
          logger.log("[DEBUG] Forcing a full load/recalculate of chunks surrounding player.", Colors.Gold);
-         int var0 = (int)IsoPlayer.getInstance().getX() / 10;
-         int var1 = (int)IsoPlayer.getInstance().getY() / 10;
+         int var0 = PZMath.fastfloor(IsoPlayer.getInstance().getX()) / 8;
+         int var1 = PZMath.fastfloor(IsoPlayer.getInstance().getY()) / 8;
          regionWorker.readSurroundingChunks(var0, var1, IsoChunkMap.ChunkGridWidth - 2, true, true);
       }
    }
@@ -274,7 +276,7 @@ public final class IsoRegions {
                for(int var8 = var1; var8 < var3; ++var8) {
                   IsoChunk var5 = var4.getChunk(var7, var8);
                   if (var5 != null) {
-                     for(int var9 = 0; var9 <= var5.maxLevel; ++var9) {
+                     for(int var9 = 0; var9 < var5.squares.length; ++var9) {
                         for(int var10 = 0; var10 < var5.squares[0].length; ++var10) {
                            IsoGridSquare var6 = var5.squares[var9][var10];
                            if (var6 != null) {
@@ -342,5 +344,16 @@ public final class IsoRegions {
 
    protected static IsoRegionWorker getRegionWorker() {
       return regionWorker;
+   }
+
+   static {
+      CELL_DIM = IsoCell.CellSizeInSquares;
+      CELL_CHUNK_DIM = IsoCell.CellSizeInSquares / 8;
+      DEBUG_LOAD_ALL_CHUNKS = false;
+      SQUARE_CHANGE_PER_TICK = 0;
+      chunkFileNames = new HashMap();
+      lastChunkX = -1;
+      lastChunkY = -1;
+      previousFlags = 0;
    }
 }

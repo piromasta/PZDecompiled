@@ -3,6 +3,7 @@ package zombie.worldMap;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import zombie.core.math.PZMath;
+import zombie.iso.IsoCell;
 import zombie.vehicles.Clipper;
 
 public final class WorldMapGeometry {
@@ -14,6 +15,7 @@ public final class WorldMapGeometry {
    public int m_maxY;
    public float[] m_triangles = null;
    public ArrayList<TrianglesPerZoom> m_trianglesPerZoom = null;
+   public boolean bFailedToTriangulate = false;
    public int m_vboIndex1 = -1;
    public int m_vboIndex2 = -1;
    public int m_vboIndex3 = -1;
@@ -93,30 +95,30 @@ public final class WorldMapGeometry {
          s_clipper.addPath(var4.numPoints(), s_vertices, true);
       }
 
-      if (this.m_minX < 0 || this.m_minY < 0 || this.m_maxX > 300 || this.m_maxY > 300) {
-         short var26 = 900;
-         float var24 = (float)(-var26);
-         float var27 = (float)(-var26);
-         float var6 = (float)(300 + var26);
-         float var7 = (float)(-var26);
-         float var8 = (float)(300 + var26);
-         float var9 = (float)(300 + var26);
-         float var10 = (float)(-var26);
-         float var11 = (float)(300 + var26);
-         float var12 = (float)(-var26);
+      if (this.m_minX < 0 || this.m_minY < 0 || this.m_maxX > IsoCell.CellSizeInSquares || this.m_maxY > IsoCell.CellSizeInSquares) {
+         var3 = IsoCell.CellSizeInSquares * 3;
+         float var24 = (float)(-var3);
+         float var26 = (float)(-var3);
+         float var6 = (float)(IsoCell.CellSizeInSquares + var3);
+         float var7 = (float)(-var3);
+         float var8 = (float)(IsoCell.CellSizeInSquares + var3);
+         float var9 = (float)(IsoCell.CellSizeInSquares + var3);
+         float var10 = (float)(-var3);
+         float var11 = (float)(IsoCell.CellSizeInSquares + var3);
+         float var12 = (float)(-var3);
          float var13 = 0.0F;
          float var14 = 0.0F;
          float var15 = 0.0F;
          float var16 = 0.0F;
-         float var17 = 300.0F;
-         float var18 = 300.0F;
-         float var19 = 300.0F;
-         float var20 = 300.0F;
+         float var17 = (float)IsoCell.CellSizeInSquares;
+         float var18 = (float)IsoCell.CellSizeInSquares;
+         float var19 = (float)IsoCell.CellSizeInSquares;
+         float var20 = (float)IsoCell.CellSizeInSquares;
          float var21 = 0.0F;
-         float var22 = (float)(-var26);
+         float var22 = (float)(-var3);
          float var23 = 0.0F;
          s_vertices.clear();
-         s_vertices.putFloat(var24).putFloat(var27);
+         s_vertices.putFloat(var24).putFloat(var26);
          s_vertices.putFloat(var6).putFloat(var7);
          s_vertices.putFloat(var8).putFloat(var9);
          s_vertices.putFloat(var10).putFloat(var11);
@@ -131,36 +133,66 @@ public final class WorldMapGeometry {
 
       var3 = s_clipper.generatePolygons(0.0);
       if (var3 > 0) {
-         s_vertices.clear();
-         int var25 = s_clipper.triangulate(0, s_vertices);
-         this.m_triangles = new float[var25 * 2];
+         int var25;
+         for(var25 = 0; var25 < var3; ++var25) {
+            s_vertices.clear();
+            var5 = s_clipper.triangulate(var25, s_vertices);
+            if (var5 >= 3) {
+               int var27;
+               if (this.m_triangles == null) {
+                  this.m_triangles = new float[var5 * 2];
+                  var27 = 0;
+               } else {
+                  var27 = this.m_triangles.length;
+                  float[] var29 = new float[this.m_triangles.length + var5 * 2];
+                  System.arraycopy(this.m_triangles, 0, var29, 0, this.m_triangles.length);
+                  this.m_triangles = var29;
+               }
 
-         for(var5 = 0; var5 < var25; ++var5) {
-            this.m_triangles[var5 * 2] = s_vertices.getFloat();
-            this.m_triangles[var5 * 2 + 1] = s_vertices.getFloat();
+               for(int var30 = 0; var30 < var5; ++var30) {
+                  this.m_triangles[var27 + var30 * 2] = s_vertices.getFloat();
+                  this.m_triangles[var27 + var30 * 2 + 1] = s_vertices.getFloat();
+               }
+            }
          }
 
          if (var1 != null) {
-            for(var5 = 0; var5 < var1.length; ++var5) {
-               double var28 = var1[var5] - (var5 == 0 ? 0.0 : var1[var5 - 1]);
+            for(var25 = 0; var25 < var1.length; ++var25) {
+               double var28 = var1[var25] - (var25 == 0 ? 0.0 : var1[var25 - 1]);
                var3 = s_clipper.generatePolygons(var28);
                if (var3 > 0) {
-                  s_vertices.clear();
-                  var25 = s_clipper.triangulate(0, s_vertices);
-                  TrianglesPerZoom var29 = new TrianglesPerZoom();
-                  var29.m_triangles = new float[var25 * 2];
-                  var29.m_delta = var1[var5];
+                  TrianglesPerZoom var31 = new TrianglesPerZoom();
+                  var31.m_delta = var1[var25];
 
-                  for(int var30 = 0; var30 < var25; ++var30) {
-                     var29.m_triangles[var30 * 2] = s_vertices.getFloat();
-                     var29.m_triangles[var30 * 2 + 1] = s_vertices.getFloat();
+                  for(int var32 = 0; var32 < var3; ++var32) {
+                     s_vertices.clear();
+                     int var33 = s_clipper.triangulate(var32, s_vertices);
+                     if (var33 >= 3) {
+                        int var34;
+                        if (var31.m_triangles == null) {
+                           var31.m_triangles = new float[var33 * 2];
+                           var34 = 0;
+                        } else {
+                           var34 = var31.m_triangles.length;
+                           float[] var35 = new float[var31.m_triangles.length + var33 * 2];
+                           System.arraycopy(var31.m_triangles, 0, var35, 0, var31.m_triangles.length);
+                           var31.m_triangles = var35;
+                        }
+
+                        for(int var36 = 0; var36 < var33; ++var36) {
+                           var31.m_triangles[var34 + var36 * 2] = s_vertices.getFloat();
+                           var31.m_triangles[var34 + var36 * 2 + 1] = s_vertices.getFloat();
+                        }
+                     }
                   }
 
-                  if (this.m_trianglesPerZoom == null) {
-                     this.m_trianglesPerZoom = new ArrayList();
-                  }
+                  if (var31.m_triangles != null) {
+                     if (this.m_trianglesPerZoom == null) {
+                        this.m_trianglesPerZoom = new ArrayList();
+                     }
 
-                  this.m_trianglesPerZoom.add(var29);
+                     this.m_trianglesPerZoom.add(var31);
+                  }
                }
             }
 

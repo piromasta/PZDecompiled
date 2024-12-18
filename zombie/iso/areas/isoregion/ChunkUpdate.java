@@ -13,13 +13,14 @@ public class ChunkUpdate {
          int var4 = var1.position();
          var1.putInt(0);
          var1.putInt(var0.maxLevel);
-         int var5 = (var0.maxLevel + 1) * 100;
+         int var5 = (var0.maxLevel + 1) * 64;
          var1.putInt(var5);
 
          int var6;
          for(var6 = 0; var6 <= var0.maxLevel; ++var6) {
             for(int var7 = 0; var7 < var0.squares[0].length; ++var7) {
-               IsoGridSquare var2 = var0.squares[var6][var7];
+               int var8 = var0.squaresIndexOfLevel(var6);
+               IsoGridSquare var2 = var0.squares[var8][var7];
                byte var3 = IsoRegions.calculateSquareFlags(var2);
                var1.put(var3);
             }

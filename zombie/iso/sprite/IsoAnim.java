@@ -22,18 +22,19 @@ public final class IsoAnim {
    };
    public IsoDirectionFrame[] FramesArray = new IsoDirectionFrame[0];
 
-   public IsoAnim() {
-   }
-
    public static void DisposeAll() {
       GlobalAnimMap.clear();
+   }
+
+   public IsoAnim() {
+      boolean var1 = true;
    }
 
    void LoadExtraFrame(String var1, String var2, int var3) {
       this.name = var2;
       String var4 = var1 + "_";
       String var5 = "_" + var2 + "_";
-      Integer var6 = new Integer(var3);
+      Integer var6 = var3;
       IsoDirectionFrame var7 = new IsoDirectionFrame(Texture.getSharedTexture(var4 + "8" + var5 + var6.toString() + ".png"), Texture.getSharedTexture(var4 + "9" + var5 + var6.toString() + ".png"), Texture.getSharedTexture(var4 + "6" + var5 + var6.toString() + ".png"), Texture.getSharedTexture(var4 + "3" + var5 + var6.toString() + ".png"), Texture.getSharedTexture(var4 + "2" + var5 + var6.toString() + ".png"));
       this.Frames.add(var7);
       this.FramesArray = (IsoDirectionFrame[])this.Frames.toArray(this.FramesArray);
@@ -241,7 +242,7 @@ public final class IsoAnim {
       }
 
       for(int var10 = 0; var10 < 1; ++var10) {
-         Integer var11 = new Integer(var5);
+         Integer var11 = var5;
          IsoDirectionFrame var12 = new IsoDirectionFrame(Texture.getSharedTexture(var7 + "8" + var8 + var11.toString() + var9 + ".png"), Texture.getSharedTexture(var7 + "9" + var8 + var11.toString() + var9 + ".png"), Texture.getSharedTexture(var7 + "6" + var8 + var11.toString() + var9 + ".png"), Texture.getSharedTexture(var7 + "3" + var8 + var11.toString() + var9 + ".png"), Texture.getSharedTexture(var7 + "2" + var8 + var11.toString() + var9 + ".png"));
          this.Frames.add(var12);
       }
@@ -256,7 +257,7 @@ public final class IsoAnim {
       String var6 = "_";
 
       for(int var7 = 0; var7 < var4; ++var7) {
-         Integer var8 = new Integer(var7);
+         Integer var8 = var7;
          IsoDirectionFrame var9 = new IsoDirectionFrame(Texture.getSharedTexture(var5 + "8" + var6 + var8.toString() + ".png"), Texture.getSharedTexture(var5 + "9" + var6 + var8.toString() + ".png"), Texture.getSharedTexture(var5 + "6" + var6 + var8.toString() + ".png"), Texture.getSharedTexture(var5 + "3" + var6 + var8.toString() + ".png"), Texture.getSharedTexture(var5 + "2" + var6 + var8.toString() + ".png"));
          this.Frames.add(var9);
       }
@@ -271,7 +272,7 @@ public final class IsoAnim {
       String var5 = "_";
 
       for(int var6 = 0; var6 < var3; ++var6) {
-         Integer var7 = new Integer(var6);
+         Integer var7 = var6;
          IsoDirectionFrame var8 = new IsoDirectionFrame(Texture.getSharedTexture(var4 + "8" + var5 + var7.toString() + ".png"), Texture.getSharedTexture(var4 + "9" + var5 + var7.toString() + ".png"), Texture.getSharedTexture(var4 + "6" + var5 + var7.toString() + ".png"), Texture.getSharedTexture(var4 + "3" + var5 + var7.toString() + ".png"), Texture.getSharedTexture(var4 + "2" + var5 + var7.toString() + ".png"));
          this.Frames.add(var8);
       }
@@ -284,7 +285,7 @@ public final class IsoAnim {
       this.name = var2;
       String var5 = "_";
       String var6 = "";
-      Integer var8 = new Integer(var3);
+      Integer var8 = var3;
       IsoDirectionFrame var9 = new IsoDirectionFrame(Texture.getSharedTexture(var2 + "8" + var5 + var8.toString() + var6 + ".png"), Texture.getSharedTexture(var2 + "9" + var5 + var8.toString() + var6 + ".png"), Texture.getSharedTexture(var2 + "6" + var5 + var8.toString() + var6 + ".png"), Texture.getSharedTexture(var2 + "3" + var5 + var8.toString() + var6 + ".png"), Texture.getSharedTexture(var2 + "2" + var5 + var8.toString() + var6 + ".png"));
       this.Frames.add(var9);
       this.FinishUnloopedOnFrame = (short)(this.Frames.size() - 1);
@@ -300,7 +301,7 @@ public final class IsoAnim {
          var8 = "_" + var5;
       }
 
-      Integer var10 = new Integer(var4);
+      Integer var10 = var4;
       IsoDirectionFrame var11 = new IsoDirectionFrame(Texture.getSharedTexture(var6 + "8" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "9" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "6" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "3" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "2" + var7 + var10.toString() + var8 + ".png"));
       this.Frames.add(var11);
       this.FinishUnloopedOnFrame = (short)(this.Frames.size() - 1);
@@ -317,7 +318,7 @@ public final class IsoAnim {
       }
 
       for(int var9 = 0; var9 < var4; ++var9) {
-         Integer var10 = new Integer(var9);
+         Integer var10 = var9;
          IsoDirectionFrame var11 = new IsoDirectionFrame(Texture.getSharedTexture(var6 + "8" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "9" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "6" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "3" + var7 + var10.toString() + var8 + ".png"), Texture.getSharedTexture(var6 + "2" + var7 + var10.toString() + var8 + ".png"));
          this.Frames.add(var11);
       }
@@ -332,7 +333,7 @@ public final class IsoAnim {
       String var5 = "_" + var2 + "_";
 
       for(int var6 = 0; var6 < var3; ++var6) {
-         Integer var7 = new Integer(var6);
+         Integer var7 = var6;
          IsoDirectionFrame var8 = new IsoDirectionFrame(Texture.getSharedTexture(var4 + "8" + var5 + var7.toString() + ".pcx"), Texture.getSharedTexture(var4 + "9" + var5 + var7.toString() + ".pcx"), Texture.getSharedTexture(var4 + "6" + var5 + var7.toString() + ".pcx"), Texture.getSharedTexture(var4 + "3" + var5 + var7.toString() + ".pcx"), Texture.getSharedTexture(var4 + "2" + var5 + var7.toString() + ".pcx"));
          this.Frames.add(var8);
       }
@@ -363,7 +364,7 @@ public final class IsoAnim {
       String var5 = "_" + var2 + "_";
 
       for(int var6 = 0; var6 < var3; ++var6) {
-         Integer var7 = new Integer(var6);
+         Integer var7 = var6;
          IsoDirectionFrame var8 = new IsoDirectionFrame(Texture.getSharedTexture(var4 + var5 + var7.toString() + ".png"));
          this.Frames.add(var8);
       }
@@ -378,7 +379,7 @@ public final class IsoAnim {
       String var5 = "_" + var2 + "_";
 
       for(int var6 = 0; var6 < var3; ++var6) {
-         Integer var7 = new Integer(var6);
+         Integer var7 = var6;
          IsoDirectionFrame var8 = new IsoDirectionFrame(Texture.getSharedTexture(var4 + var5 + var7.toString()));
          this.Frames.add(var8);
       }
@@ -393,7 +394,7 @@ public final class IsoAnim {
       String var5 = "_" + var2 + "_";
 
       for(int var6 = 0; var6 < var3; ++var6) {
-         Integer var7 = new Integer(var6);
+         Integer var7 = var6;
          IsoDirectionFrame var8 = new IsoDirectionFrame(Texture.getSharedTexture(var4 + var5 + var7.toString() + ".png"));
          this.Frames.add(var8);
       }
@@ -419,7 +420,7 @@ public final class IsoAnim {
       this.name = "default";
 
       for(int var5 = 0; var5 < 1; ++var5) {
-         new Integer(var5);
+         Integer var6 = var5;
          IsoDirectionFrame var7 = new IsoDirectionFrame(Texture.getSharedTexture(var1), Texture.getSharedTexture(var2), Texture.getSharedTexture(var3), Texture.getSharedTexture(var4));
          this.Frames.add(var7);
       }
@@ -434,7 +435,7 @@ public final class IsoAnim {
       String var6 = "_" + var2 + "_";
 
       for(int var7 = 0; var7 < var3; ++var7) {
-         Integer var8 = new Integer(var7);
+         Integer var8 = var7;
          IsoDirectionFrame var9 = new IsoDirectionFrame(Texture.getSharedTexture(var5 + var6 + var8.toString() + ".pcx", var4));
          this.Frames.add(var9);
       }
@@ -449,7 +450,7 @@ public final class IsoAnim {
       String var6 = "_" + var2 + "_";
 
       for(int var7 = 0; var7 < var3; ++var7) {
-         Integer var8 = new Integer(var7);
+         Integer var8 = var7;
          IsoDirectionFrame var9 = new IsoDirectionFrame(Texture.getSharedTexture(var5 + "8" + var6 + var8.toString() + "_" + var4), Texture.getSharedTexture(var5 + "9" + var6 + var8.toString() + "_" + var4), Texture.getSharedTexture(var5 + "6" + var6 + var8.toString() + "_" + var4), Texture.getSharedTexture(var5 + "3" + var6 + var8.toString() + "_" + var4), Texture.getSharedTexture(var5 + "2" + var6 + var8.toString() + "_" + var4));
          this.Frames.add(var9);
       }
@@ -467,5 +468,16 @@ public final class IsoAnim {
       }
 
       this.FramesArray = (IsoDirectionFrame[])this.Frames.toArray(this.FramesArray);
+   }
+
+   public boolean hasNoTextures() {
+      for(int var1 = 0; var1 < this.Frames.size(); ++var1) {
+         IsoDirectionFrame var2 = (IsoDirectionFrame)this.Frames.get(var1);
+         if (!var2.hasNoTextures()) {
+            return false;
+         }
+      }
+
+      return true;
    }
 }

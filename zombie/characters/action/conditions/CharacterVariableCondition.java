@@ -3,10 +3,10 @@ package zombie.characters.action.conditions;
 import org.w3c.dom.Element;
 import zombie.characters.action.ActionContext;
 import zombie.characters.action.IActionCondition;
-import zombie.core.Core;
+import zombie.core.skinnedmodel.advancedanimation.AnimationVariableReference;
 import zombie.core.skinnedmodel.advancedanimation.IAnimatable;
+import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSlot;
 import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSource;
-import zombie.core.skinnedmodel.advancedanimation.debug.AnimatorDebugMonitor;
 import zombie.util.StringUtils;
 
 public final class CharacterVariableCondition implements IActionCondition {
@@ -24,16 +24,52 @@ public final class CharacterVariableCondition implements IActionCondition {
          char var2 = var0.charAt(0);
          int var4;
          char var5;
-         if (var2 == '-' || var2 == '+' || var2 >= '0' && var2 <= '9') {
-            int var8 = 0;
+         if (var2 != '-' && var2 != '+' && (var2 < '0' || var2 > '9')) {
+            if (!var0.equalsIgnoreCase("true") && !var0.equalsIgnoreCase("yes")) {
+               if (!var0.equalsIgnoreCase("false") && !var0.equalsIgnoreCase("no")) {
+                  if (var1) {
+                     if (var2 != '\'' && var2 != '"') {
+                        return new CharacterVariableLookup(var0);
+                     } else {
+                        StringBuilder var8 = new StringBuilder(var0.length() - 2);
+
+                        for(var4 = 1; var4 < var0.length(); ++var4) {
+                           var5 = var0.charAt(var4);
+                           switch (var5) {
+                              case '"':
+                              case '\'':
+                                 if (var5 == var2) {
+                                    return var8.toString();
+                                 }
+                              default:
+                                 var8.append(var5);
+                                 break;
+                              case '\\':
+                                 var8.append(var0.charAt(var4));
+                           }
+                        }
+
+                        return var8.toString();
+                     }
+                  } else {
+                     return var0;
+                  }
+               } else {
+                  return false;
+               }
+            } else {
+               return true;
+            }
+         } else {
+            int var3 = 0;
             if (var2 >= '0' && var2 <= '9') {
-               var8 = var2 - 48;
+               var3 = var2 - 48;
             }
 
             for(var4 = 1; var4 < var0.length(); ++var4) {
                var5 = var0.charAt(var4);
                if (var5 >= '0' && var5 <= '9') {
-                  var8 = var8 * 10 + (var5 - 48);
+                  var3 = var3 * 10 + (var5 - 48);
                } else if (var5 != ',') {
                   if (var5 != '.') {
                      return var0;
@@ -45,9 +81,9 @@ public final class CharacterVariableCondition implements IActionCondition {
             }
 
             if (var4 == var0.length()) {
-               return var8;
+               return var3;
             } else {
-               float var9 = (float)var8;
+               float var9 = (float)var3;
 
                for(float var6 = 10.0F; var4 < var0.length(); ++var4) {
                   char var7 = var0.charAt(var4);
@@ -65,40 +101,6 @@ public final class CharacterVariableCondition implements IActionCondition {
 
                return var9;
             }
-         } else if (!var0.equalsIgnoreCase("true") && !var0.equalsIgnoreCase("yes")) {
-            if (!var0.equalsIgnoreCase("false") && !var0.equalsIgnoreCase("no")) {
-               if (var1) {
-                  if (var2 != '\'' && var2 != '"') {
-                     return new CharacterVariableLookup(var0);
-                  } else {
-                     StringBuilder var3 = new StringBuilder(var0.length() - 2);
-
-                     for(var4 = 1; var4 < var0.length(); ++var4) {
-                        var5 = var0.charAt(var4);
-                        switch (var5) {
-                           case '"':
-                           case '\'':
-                              if (var5 == var2) {
-                                 return var3.toString();
-                              }
-                           default:
-                              var3.append(var5);
-                              break;
-                           case '\\':
-                              var3.append(var0.charAt(var4));
-                        }
-                     }
-
-                     return var3.toString();
-                  }
-               } else {
-                  return var0;
-               }
-            } else {
-               return false;
-            }
-         } else {
-            return true;
          }
       }
    }
@@ -180,9 +182,9 @@ public final class CharacterVariableCondition implements IActionCondition {
    }
 
    private static Object resolveValue(Object var0, IAnimationVariableSource var1) {
-      if (var0 instanceof CharacterVariableLookup) {
-         String var2 = var1.getVariableString(((CharacterVariableLookup)var0).variableName);
-         return var2 != null ? parseValue(var2, false) : null;
+      if (var0 instanceof CharacterVariableLookup var2) {
+         String var3 = var2.getValueString(var1);
+         return var3 != null ? parseValue(var3, false) : null;
       } else {
          return var0;
       }
@@ -319,19 +321,33 @@ public final class CharacterVariableCondition implements IActionCondition {
       return var10000 + getOpString(this.op) + valueToString(this.rhsValue);
    }
 
+   public String toString() {
+      return this.toString("");
+   }
+
+   public String toString(String var1) {
+      return var1 + this.getClass().getName() + "{ " + this.getDescription() + " }";
+   }
+
    private static class CharacterVariableLookup {
-      public String variableName;
+      private final AnimationVariableReference m_variableReference;
 
       public CharacterVariableLookup(String var1) {
-         this.variableName = var1;
-         if (Core.bDebug) {
-            AnimatorDebugMonitor.registerVariable(var1);
-         }
+         this.m_variableReference = AnimationVariableReference.fromRawVariableName(var1);
+      }
 
+      public String getValueString(IAnimationVariableSource var1) {
+         IAnimationVariableSlot var2 = this.m_variableReference.getVariable(var1);
+         if (var2 == null) {
+            return null;
+         } else {
+            String var3 = var2.getValueString();
+            return var3;
+         }
       }
 
       public String toString() {
-         return this.variableName;
+         return this.m_variableReference.toString();
       }
    }
 

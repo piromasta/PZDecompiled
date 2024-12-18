@@ -37,7 +37,7 @@ public final class KahluaNumberConverter {
       });
       var0.addLuaConverter(new LuaToJavaConverter<Double, Float>() {
          public Float fromLuaToJava(Double var1, Class<Float> var2) {
-            return new Float(var1.floatValue());
+            return var1.floatValue();
          }
 
          public Class<Float> getJavaType() {
@@ -137,14 +137,14 @@ public final class KahluaNumberConverter {
       }
 
       public static Double valueOf(double var0) {
-         return var0 == (double)((int)var0) && var0 >= -128.0 && var0 <= 10000.0 ? cache[(int)(var0 + 128.0)] : new Double(var0);
+         return var0 == (double)((int)var0) && var0 >= -128.0 && var0 <= 10000.0 ? cache[(int)(var0 + 128.0)] : var0;
       }
 
       static {
          int var0 = -128;
 
          for(int var1 = 0; var1 < cache.length; ++var1) {
-            cache[var1] = new Double((double)(var0++));
+            cache[var1] = (double)(var0++);
          }
 
       }

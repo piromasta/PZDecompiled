@@ -40,11 +40,11 @@ public class IsoZombieHead extends IsoMovingObject {
       super(var2);
       this.solid = false;
       this.shootable = false;
-      this.x = var3;
-      this.y = var4;
-      this.z = var5;
-      this.nx = var3;
-      this.ny = var4;
+      this.setX(var3);
+      this.setY(var4);
+      this.setZ(var5);
+      this.setNextX(var3);
+      this.setNextY(var4);
       this.setAlpha(0.5F);
       this.def = IsoSpriteInstance.get(this.sprite);
       this.def.alpha = 1.0F;

@@ -11,9 +11,7 @@ import zombie.chat.ChatSettings;
 import zombie.chat.ChatTab;
 import zombie.chat.ServerChatMessage;
 import zombie.core.Color;
-import zombie.core.Core;
 import zombie.core.network.ByteBufferWriter;
-import zombie.debug.DebugLog;
 import zombie.network.GameClient;
 import zombie.network.chat.ChatType;
 
@@ -104,6 +102,9 @@ public class ServerChat extends ChatBase {
       this.messages.add(var1);
       if (this.isEnabled()) {
          LuaEventManager.triggerEvent("OnAddMessage", var1, this.getTabID());
+         if (var1.isServerAlert()) {
+            LuaEventManager.triggerEvent("OnAlertMessage", var1, this.getTabID());
+         }
       }
 
    }
@@ -114,10 +115,6 @@ public class ServerChat extends ChatBase {
       while(var2.hasNext()) {
          short var3 = (Short)var2.next();
          this.sendMessageToPlayer(var3, var1);
-      }
-
-      if (Core.bDebug) {
-         DebugLog.log("New message '" + var1 + "' was sent members of chat '" + this.getID() + "'");
       }
 
    }

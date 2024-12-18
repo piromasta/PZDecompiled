@@ -3,6 +3,7 @@ package zombie;
 import java.util.ArrayList;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
+import zombie.core.math.PZMath;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoWorld;
 import zombie.network.GameServer;
@@ -40,95 +41,103 @@ public final class MovingObjectUpdateScheduler {
             boolean var4 = false;
             boolean var5 = false;
             float var6 = 1.0E8F;
-            boolean var7 = false;
+            int var7 = 2147483647;
+            boolean var8 = false;
 
-            int var8;
-            for(var8 = 0; var8 < IsoPlayer.numPlayers; ++var8) {
-               IsoPlayer var9 = IsoPlayer.players[var8];
-               if (var9 != null) {
+            int var9;
+            for(var9 = 0; var9 < IsoPlayer.numPlayers; ++var9) {
+               IsoPlayer var10 = IsoPlayer.players[var9];
+               if (var10 != null) {
                   if (var3.getCurrentSquare() == null) {
-                     var3.setCurrent(IsoWorld.instance.getCell().getGridSquare((double)var3.x, (double)var3.y, (double)var3.z));
+                     var3.setCurrent(IsoWorld.instance.getCell().getGridSquare((double)var3.getX(), (double)var3.getY(), (double)var3.getZ()));
                   }
 
-                  if (var9 == var3) {
-                     var7 = true;
+                  if (var10 == var3) {
+                     var8 = true;
                   }
 
                   if (var3.getCurrentSquare() != null) {
-                     if (var3.getCurrentSquare().isCouldSee(var8)) {
+                     if (var3.getCurrentSquare().isCouldSee(var9)) {
                         var4 = true;
                      }
 
-                     if (var3.getCurrentSquare().isCanSee(var8)) {
+                     if (var3.getCurrentSquare().isCanSee(var9)) {
                         var5 = true;
                      }
 
-                     float var10 = var3.DistTo(var9);
-                     if (var10 < var6) {
-                        var6 = var10;
+                     float var11 = var3.DistTo(var10);
+                     if (var11 < var6) {
+                        var6 = var11;
                      }
                   }
+
+                  int var12 = (int)PZMath.abs((float)(PZMath.fastfloor(var3.getZ()) - PZMath.fastfloor(var10.getZ())));
+                  var7 = PZMath.min(var12, var7);
                }
             }
 
-            var8 = 3;
+            var9 = 3;
             if (!var5) {
-               --var8;
+               --var9;
             }
 
             if (!var4 && var6 > 10.0F) {
-               --var8;
+               --var9;
             }
 
             if (var6 > 30.0F) {
-               --var8;
+               --var9;
             }
 
             if (var6 > 60.0F) {
-               --var8;
+               --var9;
             }
 
             if (var6 > 80.0F) {
-               --var8;
+               --var9;
+            }
+
+            if (!var5 && var7 > 1) {
+               var9 = -1;
             }
 
             if (var3 instanceof IsoPlayer) {
-               var8 = 3;
+               var9 = 3;
             }
 
             if (var3 instanceof BaseVehicle) {
-               var8 = 3;
+               var9 = 3;
             }
 
             if (GameServer.bServer) {
-               var8 = 3;
+               var9 = 3;
             }
 
-            if (var7) {
-               var8 = 3;
+            if (var8) {
+               var9 = 3;
             }
 
             if (!this.isEnabled) {
-               var8 = 3;
+               var9 = 3;
             }
 
-            if (var8 == 3) {
+            if (var9 == 3) {
                this.fullSimulation.add(var3);
             }
 
-            if (var8 == 2) {
+            if (var9 == 2) {
                this.halfSimulation.add(var3);
             }
 
-            if (var8 == 1) {
+            if (var9 == 1) {
                this.quarterSimulation.add(var3);
             }
 
-            if (var8 == 0) {
+            if (var9 == 0) {
                this.eighthSimulation.add(var3);
             }
 
-            if (var8 < 0) {
+            if (var9 < 0) {
                this.sixteenthSimulation.add(var3);
             }
          }
@@ -152,6 +161,15 @@ public final class MovingObjectUpdateScheduler {
       this.quarterSimulation.postupdate((int)this.frameCounter);
       this.eighthSimulation.postupdate((int)this.frameCounter);
       this.sixteenthSimulation.postupdate((int)this.frameCounter);
+   }
+
+   public void updateAnimation() {
+      GameTime.getInstance().PerObjectMultiplier = 1.0F;
+      this.fullSimulation.updateAnimation((int)this.frameCounter);
+      this.halfSimulation.updateAnimation((int)this.frameCounter);
+      this.quarterSimulation.updateAnimation((int)this.frameCounter);
+      this.eighthSimulation.updateAnimation((int)this.frameCounter);
+      this.sixteenthSimulation.updateAnimation((int)this.frameCounter);
    }
 
    public boolean isEnabled() {

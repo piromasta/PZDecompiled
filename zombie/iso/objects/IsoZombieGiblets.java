@@ -1,9 +1,11 @@
 package zombie.iso.objects;
 
 import zombie.GameTime;
+import zombie.IndieGL;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoPhysicsObject;
@@ -30,17 +32,17 @@ public class IsoZombieGiblets extends IsoPhysicsObject {
    }
 
    public void update() {
-      if (Rand.Next(Rand.AdjustForFramerate(12)) == 0 && this.getZ() > (float)((int)this.getZ()) && this.getCurrentSquare() != null && this.getCurrentSquare().getChunk() != null) {
-         this.getCurrentSquare().getChunk().addBloodSplat(this.x, this.y, (float)((int)this.z), Rand.Next(8));
+      if (Rand.Next(Rand.AdjustForFramerate(12)) == 0 && this.getZ() > (float)PZMath.fastfloor(this.getZ()) && this.getCurrentSquare() != null && this.getCurrentSquare().getChunk() != null) {
+         this.getCurrentSquare().getChunk().addBloodSplat(this.getX(), this.getY(), (float)PZMath.fastfloor(this.getZ()), Rand.Next(8));
       }
 
-      if (Core.bLastStand && Rand.Next(Rand.AdjustForFramerate(15)) == 0 && this.getZ() > (float)((int)this.getZ()) && this.getCurrentSquare() != null && this.getCurrentSquare().getChunk() != null) {
-         this.getCurrentSquare().getChunk().addBloodSplat(this.x, this.y, (float)((int)this.z), Rand.Next(8));
+      if (Core.bLastStand && Rand.Next(Rand.AdjustForFramerate(15)) == 0 && this.getZ() > (float)PZMath.fastfloor(this.getZ()) && this.getCurrentSquare() != null && this.getCurrentSquare().getChunk() != null) {
+         this.getCurrentSquare().getChunk().addBloodSplat(this.getX(), this.getY(), (float)PZMath.fastfloor(this.getZ()), Rand.Next(8));
       }
 
       super.update();
       this.time += GameTime.instance.getMultipliedSecondsSinceLastUpdate();
-      if (this.velX == 0.0F && this.velY == 0.0F && this.getZ() == (float)((int)this.getZ())) {
+      if (this.velX == 0.0F && this.velY == 0.0F && this.getZ() == (float)PZMath.fastfloor(this.getZ())) {
          this.setCollidable(false);
          IsoWorld.instance.CurrentCell.getRemoveList().add(this);
       }
@@ -55,7 +57,11 @@ public class IsoZombieGiblets extends IsoPhysicsObject {
          var4.r = 0.5F;
          var4.g = 0.5F;
          var4.b = 0.5F;
-         this.setTargetAlpha(this.sprite.def.targetAlpha = this.def.targetAlpha = 1.0F - this.time / 1.0F);
+         float var11 = 1.0F - PZMath.clamp(this.time, 0.0F, 1.0F);
+         this.def.targetAlpha = var11;
+         this.sprite.def.targetAlpha = var11;
+         this.setTargetAlpha(var11);
+         IndieGL.glBlendFunc(770, 771);
          super.render(var1, var2, var3, var4, var5, var6, var7);
          if (Core.bDebug) {
          }
@@ -76,11 +82,11 @@ public class IsoZombieGiblets extends IsoPhysicsObject {
       var9 -= 0.2F;
       this.velX += var8;
       this.velY += var9;
-      this.x = var3;
-      this.y = var4;
-      this.z = var5;
-      this.nx = var3;
-      this.ny = var4;
+      this.setX(var3);
+      this.setY(var4);
+      this.setZ(var5);
+      this.setNextX(var3);
+      this.setNextY(var4);
       this.setAlpha(0.2F);
       this.def = IsoSpriteInstance.get(this.sprite);
       this.def.alpha = 0.2F;

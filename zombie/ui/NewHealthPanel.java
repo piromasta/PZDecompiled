@@ -33,6 +33,7 @@ public final class NewHealthPanel extends NewWindow {
    public Texture HealthBar;
    public Texture HealthBarBack;
    public Texture HealthIcon;
+   private static int UI_BORDER_SPACING = 10;
    IsoGameCharacter ParentChar;
 
    public void SetCharacter(IsoGameCharacter var1) {
@@ -55,25 +56,27 @@ public final class NewHealthPanel extends NewWindow {
       }
 
       this.BodyOutline = Texture.getSharedTexture("media/ui/BodyDamage/" + var5 + "_base.png");
-      this.width = 300.0F;
+      int var6 = this.BodyOutline.getWidth() - 123 + 2;
+      int var7 = this.BodyOutline.getHeight() - 302 + 2;
+      this.width = (float)(this.BodyOutline.getWidth() + this.HealthIcon.getWidth() + UI_BORDER_SPACING);
       this.height = (float)(270 + this.titleRight.getHeight() + 5);
-      this.Hand_L = new UI_BodyPart(BodyPartType.Hand_L, 0, 0, "hand_left.png", this.ParentChar, false);
-      this.Hand_R = new UI_BodyPart(BodyPartType.Hand_R, 0, 0, "hand_right.png", this.ParentChar, false);
-      this.ForeArm_L = new UI_BodyPart(BodyPartType.ForeArm_L, 0, 0, "lowerarm_left.png", this.ParentChar, false);
-      this.ForeArm_R = new UI_BodyPart(BodyPartType.ForeArm_R, 0, 0, "lowerarm_right.png", this.ParentChar, false);
-      this.UpperArm_L = new UI_BodyPart(BodyPartType.UpperArm_L, 0, 0, "upperarm_left.png", this.ParentChar, false);
-      this.UpperArm_R = new UI_BodyPart(BodyPartType.UpperArm_R, 0, 0, "upperarm_right.png", this.ParentChar, false);
-      this.Torso_Upper = new UI_BodyPart(BodyPartType.Torso_Upper, 0, 0, "chest.png", this.ParentChar, false);
-      this.Torso_Lower = new UI_BodyPart(BodyPartType.Torso_Lower, 0, 0, "abdomen.png", this.ParentChar, false);
-      this.Head = new UI_BodyPart(BodyPartType.Head, 0, 0, "head.png", this.ParentChar, false);
-      this.Neck = new UI_BodyPart(BodyPartType.Neck, 0, 0, "neck.png", this.ParentChar, false);
-      this.Groin = new UI_BodyPart(BodyPartType.Groin, 0, 0, "groin.png", this.ParentChar, false);
-      this.UpperLeg_L = new UI_BodyPart(BodyPartType.UpperLeg_L, 0, 0, "upperleg_left.png", this.ParentChar, false);
-      this.UpperLeg_R = new UI_BodyPart(BodyPartType.UpperLeg_R, 0, 0, "upperleg_right.png", this.ParentChar, false);
-      this.LowerLeg_L = new UI_BodyPart(BodyPartType.LowerLeg_L, 0, 0, "lowerleg_left.png", this.ParentChar, false);
-      this.LowerLeg_R = new UI_BodyPart(BodyPartType.LowerLeg_R, 0, 0, "lowerleg_right.png", this.ParentChar, false);
-      this.Foot_L = new UI_BodyPart(BodyPartType.Foot_L, 0, 0, "foot_left.png", this.ParentChar, false);
-      this.Foot_R = new UI_BodyPart(BodyPartType.Foot_R, 0, 0, "foot_right.png", this.ParentChar, false);
+      this.Hand_L = new UI_BodyPart(BodyPartType.Hand_L, var6, var7, "hand_left.png", this.ParentChar, false);
+      this.Hand_R = new UI_BodyPart(BodyPartType.Hand_R, var6, var7, "hand_right.png", this.ParentChar, false);
+      this.ForeArm_L = new UI_BodyPart(BodyPartType.ForeArm_L, var6, var7, "lowerarm_left.png", this.ParentChar, false);
+      this.ForeArm_R = new UI_BodyPart(BodyPartType.ForeArm_R, var6, var7, "lowerarm_right.png", this.ParentChar, false);
+      this.UpperArm_L = new UI_BodyPart(BodyPartType.UpperArm_L, var6, var7, "upperarm_left.png", this.ParentChar, false);
+      this.UpperArm_R = new UI_BodyPart(BodyPartType.UpperArm_R, var6, var7, "upperarm_right.png", this.ParentChar, false);
+      this.Torso_Upper = new UI_BodyPart(BodyPartType.Torso_Upper, var6, var7, "chest.png", this.ParentChar, false);
+      this.Torso_Lower = new UI_BodyPart(BodyPartType.Torso_Lower, var6, var7, "abdomen.png", this.ParentChar, false);
+      this.Head = new UI_BodyPart(BodyPartType.Head, var6, var7, "head.png", this.ParentChar, false);
+      this.Neck = new UI_BodyPart(BodyPartType.Neck, var6, var7, "neck.png", this.ParentChar, false);
+      this.Groin = new UI_BodyPart(BodyPartType.Groin, var6, var7, "groin.png", this.ParentChar, false);
+      this.UpperLeg_L = new UI_BodyPart(BodyPartType.UpperLeg_L, var6, var7, "upperleg_left.png", this.ParentChar, false);
+      this.UpperLeg_R = new UI_BodyPart(BodyPartType.UpperLeg_R, var6, var7, "upperleg_right.png", this.ParentChar, false);
+      this.LowerLeg_L = new UI_BodyPart(BodyPartType.LowerLeg_L, var6, var7, "lowerleg_left.png", this.ParentChar, false);
+      this.LowerLeg_R = new UI_BodyPart(BodyPartType.LowerLeg_R, var6, var7, "lowerleg_right.png", this.ParentChar, false);
+      this.Foot_L = new UI_BodyPart(BodyPartType.Foot_L, var6, var7, "foot_left.png", this.ParentChar, false);
+      this.Foot_R = new UI_BodyPart(BodyPartType.Foot_R, var6, var7, "foot_right.png", this.ParentChar, false);
       this.AddChild(this.Hand_L);
       this.AddChild(this.Hand_R);
       this.AddChild(this.ForeArm_L);
@@ -94,8 +97,10 @@ public final class NewHealthPanel extends NewWindow {
    }
 
    public void render() {
+      int var1 = this.BodyOutline.getWidth();
+      int var2 = this.BodyOutline.getHeight();
       if (this.isVisible()) {
-         this.DrawTexture(this.BodyOutline, 0.0, 0.0, (double)this.alpha);
+         this.DrawTexture(this.BodyOutline, (double)(var1 - 123 + 2), (double)(var2 - 302 + 2), (double)this.alpha);
          this.Hand_L.render();
          this.Hand_R.render();
          this.ForeArm_L.render();
@@ -113,27 +118,25 @@ public final class NewHealthPanel extends NewWindow {
          this.LowerLeg_R.render();
          this.Foot_L.render();
          this.Foot_R.render();
-         BodyDamage var1 = this.ParentChar.getBodyDamage();
+         BodyDamage var3 = this.ParentChar.getBodyDamage();
          if (GameClient.bClient && this.ParentChar instanceof IsoPlayer && !((IsoPlayer)this.ParentChar).isLocalPlayer()) {
-            var1 = this.ParentChar.getBodyDamageRemote();
+            var3 = this.ParentChar.getBodyDamageRemote();
          }
 
-         float var2 = (100.0F - var1.getHealth()) * 1.7F;
-         this.DrawTexture(this.HealthIcon, 126.0, 200.0, (double)this.alpha);
-         this.DrawTextureScaled(this.HealthBarBack, 130.0, 25.0, 18.0, 172.0, (double)this.alpha);
-         this.DrawTextureScaled(this.HealthBar, 130.0, (double)(26 + (int)var2), 18.0, (double)(170 - (int)var2), (double)this.alpha);
-         double var3 = 0.15;
-         double var5 = 1.0;
-         this.DrawTextureScaledColor((Texture)null, 130.0, 25.0, 18.0, 1.0, var3, var3, var3, var5);
-         this.DrawTextureScaledColor((Texture)null, 130.0, 25.0, 1.0, 172.0, var3, var3, var3, var5);
-         this.DrawTextureScaledColor((Texture)null, 147.0, 25.0, 1.0, 172.0, var3, var3, var3, var5);
+         double var4 = 0.15;
+         double var6 = 1.0;
+         this.DrawTextureScaledColor((Texture)null, (double)(var1 + UI_BORDER_SPACING) + 0.0, 0.0, 25.0, 258.0, var4, var4, var4, var6);
+         float var8 = (100.0F - var3.getHealth()) * 2.56F;
+         this.DrawTexture(this.HealthIcon, (double)(var1 + UI_BORDER_SPACING - 1), (double)(var2 - this.HealthIcon.getHeight() - 2), (double)this.alpha);
+         this.DrawTextureScaled(this.HealthBarBack, (double)(var1 + UI_BORDER_SPACING + 1), 1.0, 23.0, 256.0, (double)this.alpha);
+         this.DrawTextureScaled(this.HealthBar, (double)(var1 + UI_BORDER_SPACING + 1), (double)(1 + (int)var8), 23.0, (double)(256 - (int)var8), (double)this.alpha);
          if (Core.bDebug && DebugOptions.instance.UIRenderOutline.getValue()) {
-            Double var7 = -this.getXScroll();
-            Double var8 = -this.getYScroll();
-            this.DrawTextureScaledColor((Texture)null, var7, var8, 1.0, (double)this.height, 1.0, 1.0, 1.0, 0.5);
-            this.DrawTextureScaledColor((Texture)null, var7 + 1.0, var8, (double)this.width - 2.0, 1.0, 1.0, 1.0, 1.0, 0.5);
-            this.DrawTextureScaledColor((Texture)null, var7 + (double)this.width - 1.0, var8, 1.0, (double)this.height, 1.0, 1.0, 1.0, 0.5);
-            this.DrawTextureScaledColor((Texture)null, var7 + 1.0, var8 + (double)this.height - 1.0, (double)this.width - 2.0, 1.0, 1.0, 1.0, 1.0, 0.5);
+            Double var9 = -this.getXScroll();
+            Double var10 = -this.getYScroll();
+            this.DrawTextureScaledColor((Texture)null, var9, var10, 1.0, (double)this.height, 1.0, 1.0, 1.0, 0.5);
+            this.DrawTextureScaledColor((Texture)null, var9 + 1.0, var10, (double)this.width - 2.0, 1.0, 1.0, 1.0, 1.0, 0.5);
+            this.DrawTextureScaledColor((Texture)null, var9 + (double)this.width - 1.0, var10, 1.0, (double)this.height, 1.0, 1.0, 1.0, 0.5);
+            this.DrawTextureScaledColor((Texture)null, var9 + 1.0, var10 + (double)this.height - 1.0, (double)this.width - 2.0, 1.0, 1.0, 1.0, 1.0, 0.5);
          }
 
       }

@@ -3,75 +3,145 @@ package zombie.world.logger;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.List;
+import zombie.world.DictionaryInfo;
+import zombie.world.DictionaryScriptInfo;
 import zombie.world.ItemInfo;
 
 public class Log {
    public Log() {
    }
 
+   public static class VersionChangedScript extends BaseScriptLog {
+      private final long oldVersion;
+
+      public VersionChangedScript(DictionaryScriptInfo var1, long var2) {
+         super(var1);
+         this.oldVersion = var2;
+      }
+
+      public void saveAsText(FileWriter var1, String var2) throws IOException {
+         var1.write(var2 + "{ type = \"script_version\", old_version = " + this.oldVersion + "," + this.getScriptString() + " }" + System.lineSeparator());
+      }
+   }
+
+   public static class RegisterScript extends BaseScriptLog {
+      public RegisterScript(DictionaryScriptInfo var1) {
+         super(var1);
+      }
+
+      public void saveAsText(FileWriter var1, String var2) throws IOException {
+         var1.write(var2 + "{ type = \"reg_script\", " + this.getScriptString() + " }" + System.lineSeparator());
+      }
+   }
+
+   public abstract static class BaseScriptLog extends BaseLog {
+      protected final DictionaryScriptInfo info;
+
+      public BaseScriptLog(DictionaryScriptInfo var1) {
+         this.info = var1;
+      }
+
+      abstract void saveAsText(FileWriter var1, String var2) throws IOException;
+
+      protected String getScriptString() {
+         String var10000 = this.info.getName();
+         return "name = \"" + var10000 + "\", registeryID = " + this.info.getRegistryID() + ", version = " + this.info.getVersion() + ", isLoaded = " + this.info.isLoaded();
+      }
+   }
+
+   public static class RegisterString extends BaseLog {
+      protected static final String reg = "reg_str";
+      protected static final String unreg = "un_reg_str";
+      protected final String registerName;
+      protected final String s;
+      protected final int ID;
+      protected final boolean register;
+
+      public RegisterString(String var1, String var2, int var3) {
+         this(var1, var2, var3, true);
+      }
+
+      public RegisterString(String var1, String var2, int var3, boolean var4) {
+         this.registerName = var1;
+         this.s = var2;
+         this.ID = var3;
+         this.register = var4;
+      }
+
+      public void saveAsText(FileWriter var1, String var2) throws IOException {
+         var1.write(var2 + "{ type = \"" + (this.register ? "reg_str" : "un_reg_str") + "\", register = " + this.registerName + ", id = " + this.ID + ", value = \"" + this.s + "\" }" + System.lineSeparator());
+      }
+   }
+
    public static class ModIDChangedItem extends BaseItemLog {
       protected final String oldModID;
       protected final String newModID;
 
-      public ModIDChangedItem(ItemInfo var1, String var2, String var3) {
+      public ModIDChangedItem(DictionaryInfo<?> var1, String var2, String var3) {
          super(var1);
          this.oldModID = var2;
          this.newModID = var3;
       }
 
       public void saveAsText(FileWriter var1, String var2) throws IOException {
-         var1.write(var2 + "{ type = \"modchange_item\", oldModID = \"" + this.oldModID + "\", " + this.getItemString() + " }" + System.lineSeparator());
+         var1.write(var2 + "{ type = \"modchange_" + this.getTypeTag() + "\", oldModID = \"" + this.oldModID + "\", " + this.getItemString() + " }" + System.lineSeparator());
       }
    }
 
    public static class RemovedItem extends BaseItemLog {
       protected final boolean isScriptMissing;
 
-      public RemovedItem(ItemInfo var1, boolean var2) {
+      public RemovedItem(DictionaryInfo<?> var1, boolean var2) {
          super(var1);
          this.isScriptMissing = var2;
       }
 
       public void saveAsText(FileWriter var1, String var2) throws IOException {
-         var1.write(var2 + "{ type = \"removed_item\", scriptMissing = " + this.isScriptMissing + ", " + this.getItemString() + " }" + System.lineSeparator());
+         var1.write(var2 + "{ type = \"removed_" + this.getTypeTag() + "\", scriptMissing = " + this.isScriptMissing + ", " + this.getItemString() + " }" + System.lineSeparator());
       }
    }
 
    public static class ObsoleteItem extends BaseItemLog {
-      public ObsoleteItem(ItemInfo var1) {
+      public ObsoleteItem(DictionaryInfo<?> var1) {
          super(var1);
       }
 
       public void saveAsText(FileWriter var1, String var2) throws IOException {
-         var1.write(var2 + "{ type = \"obsolete_item\", " + this.getItemString() + " }" + System.lineSeparator());
+         var1.write(var2 + "{ type = \"obsolete_" + this.getTypeTag() + "\", " + this.getItemString() + " }" + System.lineSeparator());
       }
    }
 
    public static class ReinstateItem extends BaseItemLog {
-      public ReinstateItem(ItemInfo var1) {
+      public ReinstateItem(DictionaryInfo<?> var1) {
          super(var1);
       }
 
       public void saveAsText(FileWriter var1, String var2) throws IOException {
-         var1.write(var2 + "{ type = \"reinstate_item\", " + this.getItemString() + " }" + System.lineSeparator());
+         var1.write(var2 + "{ type = \"reinstate_" + this.getTypeTag() + "\", " + this.getItemString() + " }" + System.lineSeparator());
       }
    }
 
    public static class RegisterItem extends BaseItemLog {
-      public RegisterItem(ItemInfo var1) {
+      public RegisterItem(DictionaryInfo<?> var1) {
          super(var1);
       }
 
       public void saveAsText(FileWriter var1, String var2) throws IOException {
-         var1.write(var2 + "{ type = \"reg_item\", " + this.getItemString() + " }" + System.lineSeparator());
+         var1.write(var2 + "{ type = \"reg_" + this.getTypeTag() + "\", " + this.getItemString() + " }" + System.lineSeparator());
       }
    }
 
    public abstract static class BaseItemLog extends BaseLog {
-      protected final ItemInfo itemInfo;
+      protected final DictionaryInfo<?> itemInfo;
+      protected final boolean isItem;
 
-      public BaseItemLog(ItemInfo var1) {
+      public BaseItemLog(DictionaryInfo<?> var1) {
          this.itemInfo = var1;
+         this.isItem = this.itemInfo instanceof ItemInfo;
+      }
+
+      public final String getTypeTag() {
+         return this.isItem ? "item" : "entity";
       }
 
       abstract void saveAsText(FileWriter var1, String var2) throws IOException;

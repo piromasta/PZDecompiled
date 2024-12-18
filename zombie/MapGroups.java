@@ -147,97 +147,119 @@ public final class MapGroups {
       while(true) {
          ChooseGameInfo.Mod var6;
          String[] var8;
+         int var9;
+         String var10;
+         String var10002;
          do {
             File var7;
             do {
                do {
-                  String var5;
-                  if (!var4.hasNext()) {
-                     if (var2) {
-                        ArrayList var11 = getVanillaMapDirectories(var3);
-                        var5 = ZomboidFileSystem.instance.getMediaPath("maps");
-                        Iterator var15 = var11.iterator();
+                  do {
+                     do {
+                        String var5;
+                        if (!var4.hasNext()) {
+                           if (var2) {
+                              ArrayList var11 = getVanillaMapDirectories(var3);
+                              var5 = ZomboidFileSystem.instance.getMediaPath("maps");
+                              Iterator var15 = var11.iterator();
 
-                        while(var15.hasNext()) {
-                           String var19 = (String)var15.next();
-                           this.handleMapDirectory(var19, var5 + File.separator + var19);
-                        }
-                     }
-
-                     var4 = this.realDirectories.iterator();
-
-                     while(var4.hasNext()) {
-                        MapDirectory var12 = (MapDirectory)var4.next();
-                        ArrayList var16 = new ArrayList();
-                        this.getDirsRecursively(var12, var16);
-                        MapGroup var20 = this.findGroupWithAnyOfTheseDirectories(var16);
-                        if (var20 == null) {
-                           var20 = new MapGroup();
-                           this.groups.add(var20);
-                        }
-
-                        Iterator var21 = var16.iterator();
-
-                        while(var21.hasNext()) {
-                           MapDirectory var24 = (MapDirectory)var21.next();
-                           if (!var20.hasDirectory(var24.name)) {
-                              var20.addDirectory(var24);
+                              while(var15.hasNext()) {
+                                 String var19 = (String)var15.next();
+                                 this.handleMapDirectory(var19, var5 + File.separator + var19);
+                              }
                            }
-                        }
-                     }
 
-                     var4 = this.groups.iterator();
+                           var4 = this.realDirectories.iterator();
 
-                     MapGroup var14;
-                     while(var4.hasNext()) {
-                        var14 = (MapGroup)var4.next();
-                        var14.setPriority();
-                     }
+                           while(var4.hasNext()) {
+                              MapDirectory var12 = (MapDirectory)var4.next();
+                              ArrayList var16 = new ArrayList();
+                              this.getDirsRecursively(var12, var16);
+                              MapGroup var20 = this.findGroupWithAnyOfTheseDirectories(var16);
+                              if (var20 == null) {
+                                 var20 = new MapGroup();
+                                 this.groups.add(var20);
+                              }
 
-                     var4 = this.groups.iterator();
+                              Iterator var21 = var16.iterator();
 
-                     while(var4.hasNext()) {
-                        var14 = (MapGroup)var4.next();
-                        var14.setOrder(var1);
-                     }
-
-                     if (Core.bDebug) {
-                        int var13 = 1;
-
-                        for(Iterator var17 = this.groups.iterator(); var17.hasNext(); ++var13) {
-                           MapGroup var18 = (MapGroup)var17.next();
-                           DebugLog.log("MapGroup " + var13 + "/" + this.groups.size());
-                           Iterator var22 = var18.directories.iterator();
-
-                           while(var22.hasNext()) {
-                              MapDirectory var23 = (MapDirectory)var22.next();
-                              DebugLog.log("  " + var23.name);
+                              while(var21.hasNext()) {
+                                 MapDirectory var24 = (MapDirectory)var21.next();
+                                 if (!var20.hasDirectory(var24.name)) {
+                                    var20.addDirectory(var24);
+                                 }
+                              }
                            }
+
+                           var4 = this.groups.iterator();
+
+                           MapGroup var14;
+                           while(var4.hasNext()) {
+                              var14 = (MapGroup)var4.next();
+                              var14.setPriority();
+                           }
+
+                           var4 = this.groups.iterator();
+
+                           while(var4.hasNext()) {
+                              var14 = (MapGroup)var4.next();
+                              var14.setOrder(var1);
+                           }
+
+                           if (Core.bDebug) {
+                              int var13 = 1;
+
+                              for(Iterator var17 = this.groups.iterator(); var17.hasNext(); ++var13) {
+                                 MapGroup var18 = (MapGroup)var17.next();
+                                 DebugLog.log("MapGroup " + var13 + "/" + this.groups.size());
+                                 Iterator var22 = var18.directories.iterator();
+
+                                 while(var22.hasNext()) {
+                                    MapDirectory var23 = (MapDirectory)var22.next();
+                                    DebugLog.log("  " + var23.name);
+                                 }
+                              }
+
+                              DebugLog.log("-----");
+                           }
+
+                           return;
                         }
 
-                        DebugLog.log("-----");
-                     }
+                        var5 = (String)var4.next();
+                        var6 = ChooseGameInfo.getAvailableModDetails(var5);
+                     } while(var6 == null);
 
-                     return;
+                     var7 = new File(var6.getCommonDir() + "/media/maps/");
+                  } while(!var7.exists());
+
+                  var8 = var7.list();
+               } while(var8 == null);
+
+               for(var9 = 0; var9 < var8.length; ++var9) {
+                  var10 = var8[var9];
+                  if (var10.equalsIgnoreCase("challengemaps")) {
+                     if (var3) {
+                     }
+                  } else {
+                     var10002 = var6.getCommonDir();
+                     this.handleMapDirectory(var10, var10002 + "/media/maps/" + var10);
                   }
+               }
 
-                  var5 = (String)var4.next();
-                  var6 = ChooseGameInfo.getAvailableModDetails(var5);
-               } while(var6 == null);
-
-               var7 = new File(var6.getDir() + "/media/maps/");
+               var7 = new File(var6.getVersionDir() + "/media/maps/");
             } while(!var7.exists());
 
             var8 = var7.list();
          } while(var8 == null);
 
-         for(int var9 = 0; var9 < var8.length; ++var9) {
-            String var10 = var8[var9];
+         for(var9 = 0; var9 < var8.length; ++var9) {
+            var10 = var8[var9];
             if (var10.equalsIgnoreCase("challengemaps")) {
                if (var3) {
                }
             } else {
-               String var10002 = var6.getDir();
+               var10002 = var6.getVersionDir();
                this.handleMapDirectory(var10, var10002 + "/media/maps/" + var10);
             }
          }

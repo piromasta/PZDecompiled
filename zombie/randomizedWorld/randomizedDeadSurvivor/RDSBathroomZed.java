@@ -1,7 +1,7 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.RoomDef;
 
@@ -15,10 +15,12 @@ public final class RDSBathroomZed extends RandomizedDeadSurvivorBase {
       this.items.add("Base.Razor");
       this.items.add("Base.Lipstick");
       this.items.add("Base.Comb");
-      this.items.add("Base.Hairspray");
+      this.items.add("Base.Hairspray2");
       this.items.add("Base.Toothbrush");
       this.items.add("Base.Cologne");
       this.items.add("Base.Perfume");
+      this.items.add("Base.HairDryer");
+      this.items.add("Base.StraightRazor");
    }
 
    public void randomizeDeadSurvivor(BuildingDef var1) {

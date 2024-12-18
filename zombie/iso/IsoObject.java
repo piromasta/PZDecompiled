@@ -3,35 +3,41 @@ package zombie.iso;
 import fmod.fmod.FMODManager;
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.Serializable;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Consumer;
-import org.lwjgl.opengl.ARBShaderObjects;
+import org.lwjgl.opengl.GL20;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.IndieGL;
 import zombie.SandboxOptions;
 import zombie.SoundManager;
-import zombie.SystemDisabler;
 import zombie.WorldSoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
 import zombie.ai.states.ThumpState;
 import zombie.audio.BaseSoundEmitter;
+import zombie.audio.FMODAmbientWalls;
 import zombie.audio.ObjectAmbientEmitters;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoLivingCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Color;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.PerformanceSettings;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
+import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
@@ -41,6 +47,10 @@ import zombie.core.opengl.Shader;
 import zombie.core.opengl.ShaderProgram;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.animation.AnimationPlayer;
+import zombie.core.skinnedmodel.model.IsoObjectAnimations;
+import zombie.core.skinnedmodel.model.IsoObjectModelDrawer;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
@@ -48,15 +58,30 @@ import zombie.core.utils.Bits;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
+import zombie.entity.ComponentType;
+import zombie.entity.GameEntity;
+import zombie.entity.GameEntityManager;
+import zombie.entity.GameEntityType;
+import zombie.entity.components.fluids.Fluid;
+import zombie.entity.components.fluids.FluidContainer;
+import zombie.entity.components.spriteconfig.SpriteConfig;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.ItemPickerJava;
+import zombie.inventory.ItemSpawner;
 import zombie.inventory.types.HandWeapon;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.isoregion.IsoRegions;
-import zombie.iso.objects.BSFurnace;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
+import zombie.iso.fboRenderChunk.FBORenderObjectHighlight;
+import zombie.iso.fboRenderChunk.FBORenderObjectOutline;
+import zombie.iso.fboRenderChunk.ObjectRenderInfo;
+import zombie.iso.fboRenderChunk.ObjectRenderLayer;
+import zombie.iso.objects.IsoAnimalTrack;
 import zombie.iso.objects.IsoBarbecue;
 import zombie.iso.objects.IsoBarricade;
 import zombie.iso.objects.IsoBrokenGlass;
@@ -68,9 +93,11 @@ import zombie.iso.objects.IsoCompost;
 import zombie.iso.objects.IsoCurtain;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.IsoFeedingTrough;
 import zombie.iso.objects.IsoFire;
 import zombie.iso.objects.IsoFireplace;
 import zombie.iso.objects.IsoGenerator;
+import zombie.iso.objects.IsoHutch;
 import zombie.iso.objects.IsoJukebox;
 import zombie.iso.objects.IsoLightSwitch;
 import zombie.iso.objects.IsoMannequin;
@@ -90,7 +117,6 @@ import zombie.iso.objects.IsoZombieGiblets;
 import zombie.iso.objects.ObjectRenderEffects;
 import zombie.iso.objects.RenderEffectType;
 import zombie.iso.objects.interfaces.Thumpable;
-import zombie.iso.sprite.IsoDirectionFrame;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteGrid;
 import zombie.iso.sprite.IsoSpriteInstance;
@@ -103,8 +129,11 @@ import zombie.iso.sprite.shapers.WallShaperWhole;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
-import zombie.network.ServerOptions;
+import zombie.network.packets.AddItemToMapPacket;
+import zombie.network.packets.INetworkPacket;
+import zombie.scripting.ScriptManager;
 import zombie.spnetwork.SinglePlayerServer;
+import zombie.tileDepth.CutawayAttachedModifier;
 import zombie.ui.ObjectTooltip;
 import zombie.util.StringUtils;
 import zombie.util.Type;
@@ -115,10 +144,11 @@ import zombie.util.list.PZArrayList;
 import zombie.vehicles.BaseVehicle;
 import zombie.world.WorldDictionary;
 
-public class IsoObject implements Serializable, Thumpable {
+public class IsoObject extends GameEntity implements Serializable, Thumpable {
    public static final byte OBF_Highlighted = 1;
    public static final byte OBF_HighlightRenderOnce = 2;
    public static final byte OBF_Blink = 4;
+   public static final byte OBF_SatChair = 8;
    public static final int MAX_WALL_SPLATS = 32;
    private static final String PropMoveWithWind = "MoveWithWind";
    public static IsoObject lastRendered = null;
@@ -153,8 +183,9 @@ public class IsoObject implements Serializable, Thumpable {
    public IsoSprite overlaySprite;
    public ColorInfo overlaySpriteColor;
    public IsoGridSquare square;
-   private final float[] alpha;
-   private final float[] targetAlpha;
+   public final float[] alpha;
+   protected final float[] targetAlpha;
+   protected final ObjectRenderInfo[] renderInfo;
    public IsoObject rerouteCollide;
    public KahluaTable table;
    public String name;
@@ -182,11 +213,24 @@ public class IsoObject implements Serializable, Thumpable {
    protected final int[] outlineHighlightCol;
    private float outlineThickness;
    protected boolean bMovedThumpable;
+   protected String spriteModelName;
+   protected SpriteModel spriteModel;
+   protected IsoSprite spriteModelInit;
+   protected boolean bAnimating;
+   private IsoLightSource lightSource;
+   private IsoSpriteInstance onOverlay;
+   public ColorInfo fireColor;
    private static final Map<Byte, IsoObjectFactory> byteToObjectMap = new HashMap();
    private static final Map<Integer, IsoObjectFactory> hashCodeToObjectMap = new HashMap();
    private static final Map<String, IsoObjectFactory> nameToObjectMap = new HashMap();
    private static IsoObjectFactory factoryIsoObject;
    private static IsoObjectFactory factoryVehicle;
+   private boolean bRemoveFromWorldToMeta;
+   private long isoEntityNetID;
+   private int lastObjectIndex;
+   public IsoGridSquare renderSquareOverride;
+   public IsoGridSquare renderSquareOverride2;
+   public float renderDepthAdjust;
 
    public IsoObject(IsoCell var1) {
       this();
@@ -212,6 +256,7 @@ public class IsoObject implements Serializable, Thumpable {
       this.overlaySpriteColor = null;
       this.alpha = new float[4];
       this.targetAlpha = new float[4];
+      this.renderInfo = new ObjectRenderInfo[4];
       this.rerouteCollide = null;
       this.table = null;
       this.name = null;
@@ -230,12 +275,26 @@ public class IsoObject implements Serializable, Thumpable {
       this.isOutlineHlAttached = 0;
       this.isOutlineHlBlink = 0;
       this.outlineHighlightCol = new int[4];
-      this.outlineThickness = 0.15F;
+      this.outlineThickness = 1.0F;
       this.bMovedThumpable = false;
+      this.spriteModelName = null;
+      this.spriteModel = null;
+      this.spriteModelInit = null;
+      this.bAnimating = false;
+      this.lightSource = null;
+      this.onOverlay = null;
+      this.fireColor = new ColorInfo(0.51F, 0.27F, 0.18F, 1.0F);
+      this.bRemoveFromWorldToMeta = false;
+      this.isoEntityNetID = -1L;
+      this.lastObjectIndex = -1;
+      this.renderSquareOverride = null;
+      this.renderSquareOverride2 = null;
+      this.renderDepthAdjust = 0.0F;
 
       for(int var1 = 0; var1 < 4; ++var1) {
          this.setAlphaAndTarget(var1, 1.0F);
          this.outlineHighlightCol[var1] = -1;
+         this.renderInfo[var1] = new ObjectRenderInfo(this);
       }
 
    }
@@ -501,11 +560,6 @@ public class IsoObject implements Serializable, Thumpable {
             return new IsoMannequin(var1);
          }
       });
-      addIsoObjectFactory(new IsoObjectFactory(25, "StoneFurnace") {
-         protected IsoObject InstantiateObject(IsoCell var1) {
-            return new BSFurnace(var1);
-         }
-      });
       addIsoObjectFactory(new IsoObjectFactory(26, "Window") {
          protected IsoObject InstantiateObject(IsoCell var1) {
             return new IsoWindow(var1);
@@ -554,6 +608,36 @@ public class IsoObject implements Serializable, Thumpable {
       addIsoObjectFactory(new IsoObjectFactory(35, "StackedWasherDryer") {
          protected IsoObject InstantiateObject(IsoCell var1) {
             return new IsoStackedWasherDryer(var1);
+         }
+      });
+      addIsoObjectFactory(new IsoObjectFactory(36, "Animal") {
+         protected IsoObject InstantiateObject(IsoCell var1) {
+            return new IsoAnimal(var1);
+         }
+      });
+      addIsoObjectFactory(new IsoObjectFactory(37, "FeedingTrough") {
+         protected IsoObject InstantiateObject(IsoCell var1) {
+            return new IsoFeedingTrough(var1);
+         }
+      });
+      addIsoObjectFactory(new IsoObjectFactory(38, "IsoHutch") {
+         protected IsoObject InstantiateObject(IsoCell var1) {
+            return new IsoHutch(var1);
+         }
+      });
+      addIsoObjectFactory(new IsoObjectFactory(39, "IsoAnimalTrack") {
+         protected IsoObject InstantiateObject(IsoCell var1) {
+            return new IsoAnimalTrack(var1);
+         }
+      });
+      addIsoObjectFactory(new IsoObjectFactory(40, "ButcherHook") {
+         protected IsoObject InstantiateObject(IsoCell var1) {
+            return new IsoButcherHook(var1);
+         }
+      });
+      addIsoObjectFactory(new IsoObjectFactory(41, "IsoWindowFrame") {
+         protected IsoObject InstantiateObject(IsoCell var1) {
+            return new IsoWindowFrame(var1);
          }
       });
    }
@@ -633,8 +717,6 @@ public class IsoObject implements Serializable, Thumpable {
          return new IsoCompost(var0);
       } else if (var1 == "Mannequin".hashCode()) {
          return new IsoMannequin(var0);
-      } else if (var1 == "StoneFurnace".hashCode()) {
-         return new BSFurnace(var0);
       } else if (var1 == "Window".hashCode()) {
          return new IsoWindow(var0);
       } else if (var1 == "Barricade".hashCode()) {
@@ -741,7 +823,56 @@ public class IsoObject implements Serializable, Thumpable {
       }
    }
 
+   public void sync() {
+      this.syncIsoObject(false, (byte)0, (UdpConnection)null, (ByteBuffer)null);
+   }
+
    public void syncIsoObject(boolean var1, byte var2, UdpConnection var3, ByteBuffer var4) {
+      if (this.square == null) {
+         System.out.println("ERROR: " + this.getClass().getSimpleName() + " square is null");
+      } else if (this.getObjectIndex() == -1) {
+         PrintStream var10000 = System.out;
+         String var10001 = this.getClass().getSimpleName();
+         var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
+      } else {
+         if (GameClient.bClient && !var1) {
+            ByteBufferWriter var8 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.SyncIsoObject.doPacket(var8);
+            this.syncIsoObjectSend(var8);
+            PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
+         } else {
+            Iterator var5;
+            UdpConnection var6;
+            ByteBufferWriter var7;
+            if (GameServer.bServer && !var1) {
+               var5 = GameServer.udpEngine.connections.iterator();
+
+               while(var5.hasNext()) {
+                  var6 = (UdpConnection)var5.next();
+                  var7 = var6.startPacket();
+                  PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
+                  this.syncIsoObjectSend(var7);
+                  PacketTypes.PacketType.SyncIsoObject.send(var6);
+               }
+            } else if (var1) {
+               this.syncIsoObjectReceive(var4);
+               if (GameServer.bServer) {
+                  var5 = GameServer.udpEngine.connections.iterator();
+
+                  while(var5.hasNext()) {
+                     var6 = (UdpConnection)var5.next();
+                     if (var3 != null && var6.getConnectedGUID() != var3.getConnectedGUID()) {
+                        var7 = var6.startPacket();
+                        PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
+                        this.syncIsoObjectSend(var7);
+                        PacketTypes.PacketType.SyncIsoObject.send(var6);
+                     }
+                  }
+               }
+            }
+         }
+
+      }
    }
 
    public void syncIsoObjectSend(ByteBufferWriter var1) {
@@ -749,8 +880,31 @@ public class IsoObject implements Serializable, Thumpable {
       var1.putInt(this.square.getY());
       var1.putInt(this.square.getZ());
       var1.putByte((byte)this.square.getObjects().indexOf(this));
+      var1.putByte((byte)1);
       var1.putByte((byte)0);
-      var1.putByte((byte)0);
+      var1.putInt(this.getWaterAmount());
+      FluidContainer var2 = (FluidContainer)this.getComponent(ComponentType.FluidContainer);
+      if (var2 != null) {
+         try {
+            var2.save(var1.bb);
+         } catch (IOException var4) {
+            throw new RuntimeException(var4);
+         }
+      }
+
+   }
+
+   public void syncIsoObjectReceive(ByteBuffer var1) {
+      this.setWaterAmount(var1.getInt());
+      FluidContainer var2 = (FluidContainer)this.getComponent(ComponentType.FluidContainer);
+      if (var2 != null) {
+         try {
+            var2.load(var1, IsoWorld.getWorldVersion());
+         } catch (IOException var4) {
+            throw new RuntimeException(var4);
+         }
+      }
+
    }
 
    public String getTextureName() {
@@ -767,6 +921,10 @@ public class IsoObject implements Serializable, Thumpable {
       }
 
       return this.table;
+   }
+
+   public void setModData(KahluaTable var1) {
+      this.table = var1;
    }
 
    public boolean hasModData() {
@@ -966,11 +1124,7 @@ public class IsoObject implements Serializable, Thumpable {
                      this.wallBloodSplats = new ArrayList();
                   }
 
-                  var8 = 0;
-                  if (GameClient.bClient || GameServer.bServer) {
-                     var8 = ServerOptions.getInstance().BloodSplatLifespanDays.getValue();
-                  }
-
+                  var8 = SandboxOptions.getInstance().BloodSplatLifespanDays.getValue();
                   var29 = (float)GameTime.getInstance().getWorldAgeHours();
 
                   for(int var32 = 0; var32 < var28; ++var32) {
@@ -1072,6 +1226,14 @@ public class IsoObject implements Serializable, Thumpable {
             }
 
             this.setMovedThumpable(var27.hasFlags(2048));
+            if (var27.hasFlags(4096)) {
+               this.loadEntity(var1, var2);
+            }
+
+            if (var27.hasFlags(8192)) {
+               this.spriteModelName = GameWindow.ReadStringUTF(var1);
+            }
+
             var27.release();
          }
       }
@@ -1079,7 +1241,7 @@ public class IsoObject implements Serializable, Thumpable {
       var5.release();
       if (this.sprite == null) {
          this.sprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.sprite.LoadFramesNoDirPageSimple(this.spriteName);
+         this.sprite.LoadSingleTexture(this.spriteName);
       }
 
    }
@@ -1290,6 +1452,16 @@ public class IsoObject implements Serializable, Thumpable {
             var12.addFlags(2048);
          }
 
+         if (this.requiresEntitySave()) {
+            var12.addFlags(4096);
+            this.saveEntity(var1);
+         }
+
+         if (this.spriteModelName != null) {
+            var12.addFlags(8192);
+            GameWindow.WriteStringUTF(var1, this.spriteModelName);
+         }
+
          if (!var12.equals(0)) {
             var3.addFlags(64);
             var12.write();
@@ -1344,7 +1516,6 @@ public class IsoObject implements Serializable, Thumpable {
 
          for(int var4 = 0; var4 < var3; ++var4) {
             InventoryItem var5 = this.square.AddWorldInventoryItem("Base.Plank", Rand.Next(-1.0F, 1.0F), Rand.Next(-1.0F, 1.0F), 0.0F);
-            var5.setUses(1);
          }
       }
 
@@ -1409,6 +1580,11 @@ public class IsoObject implements Serializable, Thumpable {
 
       if (this.Damage <= 40 && this.getProperties().Is("HitByCar") && !BrokenFences.getInstance().isBreakableObject(this)) {
          this.getSquare().transmitRemoveItemFromSquare(this);
+      }
+
+      IsoPlayer var7 = (IsoPlayer)Type.tryCastTo(var1.getDriver(), IsoPlayer.class);
+      if (var7 != null && var7.isLocalPlayer()) {
+         var7.triggerMusicIntensityEvent("VehicleHitObject");
       }
 
    }
@@ -1489,6 +1665,10 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void setAlpha(int var1, float var2) {
+      if (this instanceof IsoAnimal && var2 < 1.0F) {
+         System.out.println("set Alpha " + var2 + "  " + var1);
+      }
+
       this.alpha[var1] = PZMath.clamp(var2, 0.0F, 1.0F);
    }
 
@@ -1522,6 +1702,42 @@ public class IsoObject implements Serializable, Thumpable {
       this.AttachedAnimSprite = var1;
    }
 
+   public int getAttachedAnimSpriteCount() {
+      return this.AttachedAnimSprite == null ? 0 : this.AttachedAnimSprite.size();
+   }
+
+   public boolean hasAttachedAnimSprites() {
+      return this.AttachedAnimSprite != null && !this.AttachedAnimSprite.isEmpty();
+   }
+
+   public void addAttachedAnimSpriteInstance(IsoSpriteInstance var1) {
+      if (var1 != null) {
+         if (this.getAttachedAnimSprite() == null) {
+            this.setAttachedAnimSprite(new ArrayList());
+         }
+
+         this.getAttachedAnimSprite().add(var1);
+         if (PerformanceSettings.FBORenderChunk && Thread.currentThread() == GameWindow.GameThread) {
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+         }
+
+      }
+   }
+
+   public void addAttachedAnimSprite(IsoSprite var1) {
+      if (var1 != null) {
+         IsoSpriteInstance var2 = IsoSpriteInstance.get(var1);
+         this.addAttachedAnimSpriteInstance(var2);
+      }
+   }
+
+   public void addAttachedAnimSpriteByName(String var1) {
+      if (!StringUtils.isNullOrWhitespace(var1)) {
+         IsoSprite var2 = IsoSprite.getSprite(IsoSpriteManager.instance, (String)var1, 0);
+         this.addAttachedAnimSprite(var2);
+      }
+   }
+
    public IsoCell getCell() {
       return IsoWorld.instance.CurrentCell;
    }
@@ -1535,13 +1751,7 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void clearAttachedAnimSprite() {
-      if (this.AttachedAnimSprite != null) {
-         for(int var1 = 0; var1 < this.AttachedAnimSprite.size(); ++var1) {
-            IsoSpriteInstance.add((IsoSpriteInstance)this.AttachedAnimSprite.get(var1));
-         }
-
-         this.AttachedAnimSprite.clear();
-      }
+      this.RemoveAttachedAnims();
    }
 
    public ItemContainer getContainer() {
@@ -1605,21 +1815,32 @@ public class IsoObject implements Serializable, Thumpable {
       this.sprite = var1;
       this.windRenderEffects = null;
       this.checkMoveWithWind();
+      if (Thread.currentThread() == GameWindow.GameThread) {
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+      }
+
    }
 
    public void setSprite(String var1) {
-      this.sprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-      this.sprite.LoadFramesNoDirPageSimple(var1);
+      IsoSprite var2 = IsoSprite.CreateSprite(IsoSpriteManager.instance);
+      var2.LoadSingleTexture(var1);
+      this.setSprite(var2);
       this.tile = var1;
       this.spriteName = var1;
-      this.windRenderEffects = null;
-      this.checkMoveWithWind();
    }
 
    public void setSpriteFromName(String var1) {
-      this.sprite = IsoSpriteManager.instance.getSprite(var1);
-      this.windRenderEffects = null;
-      this.checkMoveWithWind();
+      IsoSprite var2 = IsoSpriteManager.instance.getSprite(var1);
+      this.setSprite(var2);
+   }
+
+   public IsoSpriteGrid getSpriteGrid() {
+      IsoSprite var1 = this.getSprite();
+      return var1 == null ? null : var1.getSpriteGrid();
+   }
+
+   public boolean hasSpriteGrid() {
+      return this.getSpriteGrid() != null;
    }
 
    public float getTargetAlpha() {
@@ -1723,6 +1944,7 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void reset() {
+      super.reset();
       this.tintr = 1.0F;
       this.tintg = 1.0F;
       this.tintb = 1.0F;
@@ -1768,6 +1990,8 @@ public class IsoObject implements Serializable, Thumpable {
 
       for(var1 = 0; var1 < 4; ++var1) {
          this.setAlphaAndTarget(var1, 1.0F);
+         this.renderInfo[var1].m_layer = ObjectRenderLayer.None;
+         this.renderInfo[var1].m_targetAlpha = 0.0F;
       }
 
       this.bNeverDoneAlpha = true;
@@ -1798,6 +2022,12 @@ public class IsoObject implements Serializable, Thumpable {
       this.sheetRope = false;
       this.sheetRopeHealth = 100.0F;
       this.bMovedThumpable = false;
+      this.isoEntityNetID = -1L;
+      this.spriteModelName = null;
+      this.spriteModel = null;
+      this.spriteModelInit = null;
+      this.lightSource = null;
+      this.onOverlay = null;
    }
 
    public long customHashCode() {
@@ -1845,7 +2075,7 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public String getSpriteName() {
-      return this.spriteName;
+      return this.spriteName == null && this.getSprite() != null && this.getSprite().getName() != null ? this.getSprite().getName() : this.spriteName;
    }
 
    public String getTile() {
@@ -1865,29 +2095,21 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void AttachAnim(String var1, String var2, int var3, float var4, int var5, int var6, boolean var7, int var8, boolean var9, float var10, ColorInfo var11) {
-      if (this.AttachedAnimSprite == null) {
-         this.AttachedAnimSprite = new ArrayList(4);
-      }
-
       IsoSprite var12 = IsoSprite.CreateSpriteUsingCache(var1, var2, var3);
       var12.TintMod.set(var11);
       var12.soffX = (short)(-var5);
       var12.soffY = (short)(-var6);
-      var12.Animate = true;
+      var12.Animate = var3 > 1;
       var12.Loop = var7;
       var12.DeleteWhenFinished = var9;
       var12.PlayAnim(var2);
       IsoSpriteInstance var13 = var12.def;
       var13.AnimFrameIncrease = var4;
       var13.Frame = 0.0F;
-      this.AttachedAnimSprite.add(var13);
+      this.addAttachedAnimSpriteInstance(var13);
    }
 
    public void AttachExistingAnim(IsoSprite var1, int var2, int var3, boolean var4, int var5, boolean var6, float var7, ColorInfo var8) {
-      if (this.AttachedAnimSprite == null) {
-         this.AttachedAnimSprite = new ArrayList(4);
-      }
-
       var1.TintMod.r = var8.r;
       var1.TintMod.g = var8.g;
       var1.TintMod.b = var8.b;
@@ -1896,11 +2118,10 @@ public class IsoObject implements Serializable, Thumpable {
       Integer var11 = var3;
       var1.soffX = (short)(-var10);
       var1.soffY = (short)(-var11);
-      var1.Animate = true;
+      var1.Animate = var1.hasAnimation() && var1.CurrentAnim.Frames.size() > 1;
       var1.Loop = var4;
       var1.DeleteWhenFinished = var6;
-      IsoSpriteInstance var12 = IsoSpriteInstance.get(var1);
-      this.AttachedAnimSprite.add(var12);
+      this.addAttachedAnimSprite(var1);
    }
 
    public void AttachExistingAnim(IsoSprite var1, int var2, int var3, boolean var4, int var5, boolean var6, float var7) {
@@ -2023,7 +2244,7 @@ public class IsoObject implements Serializable, Thumpable {
       if (this.sprite == null) {
          return 0;
       } else {
-         double var1 = 0.0;
+         double var1 = -1.0;
          if (this.hasModData() && !this.getModData().isEmpty()) {
             Object var3 = this.getModData().rawget("fuelAmount");
             if (var3 != null) {
@@ -2032,48 +2253,70 @@ public class IsoObject implements Serializable, Thumpable {
          }
 
          if (this.sprite.getProperties().Is("fuelAmount")) {
-            if (SandboxOptions.instance.FuelStationGas.getValue() == 7) {
+            if (SandboxOptions.getInstance().FuelStationGasInfinite.getValue()) {
                return 1000;
             }
 
-            if (var1 == 0.0 && (SandboxOptions.getInstance().AllowExteriorGenerator.getValue() && this.getSquare().haveElectricity() || IsoWorld.instance.isHydroPowerOn())) {
-               float var5 = 0.8F;
-               float var4 = 1.0F;
-               switch (SandboxOptions.getInstance().FuelStationGas.getValue()) {
-                  case 1:
-                     var4 = 0.0F;
-                     var5 = 0.0F;
-                     break;
-                  case 2:
-                     var5 = 0.0F;
-                     var4 = 0.01F;
-                     break;
-                  case 3:
-                     var5 = 0.01F;
-                     var4 = 0.1F;
-                     break;
-                  case 4:
-                     var5 = 0.1F;
-                     var4 = 0.5F;
-                     break;
-                  case 5:
-                     var5 = 0.5F;
-                     var4 = 0.7F;
-                     break;
-                  case 6:
-                     var5 = 0.7F;
-                     var4 = 0.8F;
-                     break;
-                  case 7:
-                     var5 = 0.8F;
-                     var4 = 0.9F;
-                     break;
-                  case 8:
-                     var4 = 1.0F;
-                     var5 = 1.0F;
+            if (var1 == -1.0 && (SandboxOptions.getInstance().AllowExteriorGenerator.getValue() && this.getSquare().haveElectricity() || IsoWorld.instance.isHydroPowerOn())) {
+               float var12 = (float)SandboxOptions.getInstance().FuelStationGasMin.getValue();
+               float var4 = (float)SandboxOptions.getInstance().FuelStationGasMax.getValue();
+               if (var12 > var4) {
+                  var12 = var4;
                }
 
-               var1 = (double)((int)Rand.Next((float)Integer.parseInt(this.sprite.getProperties().Val("fuelAmount")) * var5, (float)Integer.parseInt(this.sprite.getProperties().Val("fuelAmount")) * var4));
+               var1 = (double)((int)Rand.Next((float)Integer.parseInt(this.sprite.getProperties().Val("fuelAmount")) * var12, (float)Integer.parseInt(this.sprite.getProperties().Val("fuelAmount")) * var4));
+               if (this.getSquare().isNoGas() || Rand.Next(100) < SandboxOptions.getInstance().FuelStationGasEmptyChance.getValue()) {
+                  var1 = 0.0;
+               }
+
+               if (var1 == 0.0 && Rand.NextBool(2)) {
+                  IsoDirections var5 = this.getFacing();
+                  if (var5 == null) {
+                     var5 = IsoDirections.E;
+                  }
+
+                  if (Rand.NextBool(2)) {
+                     if (var5 == IsoDirections.E) {
+                        var5 = IsoDirections.W;
+                     }
+
+                     if (var5 == IsoDirections.S) {
+                        var5 = IsoDirections.N;
+                     }
+                  }
+
+                  IsoGridSquare var6 = this.square.getAdjacentSquare(var5);
+                  boolean var7 = var6 != null && var6.getObjects().size() < 2;
+                  if (var7 && (var5 == IsoDirections.E || var5 == IsoDirections.W)) {
+                     var7 = var6.getAdjacentSquare(IsoDirections.N) != null && var6.getAdjacentSquare(IsoDirections.N).getObjects().size() < 2 && var6.getAdjacentSquare(IsoDirections.S) != null && var6.getAdjacentSquare(IsoDirections.S).getObjects().size() < 2;
+                  }
+
+                  if (var7 && (var5 == IsoDirections.S || var5 == IsoDirections.N)) {
+                     var7 = var6.getAdjacentSquare(IsoDirections.E) != null && var6.getAdjacentSquare(IsoDirections.E).getObjects().size() < 2 && var6.getAdjacentSquare(IsoDirections.W) != null && var6.getAdjacentSquare(IsoDirections.W).getObjects().size() < 2;
+                  }
+
+                  if (var7) {
+                     String var8 = "signs_one-off_07_8";
+                     int var9 = 5;
+                     boolean var10 = Objects.equals(this.square.getZombiesType(), "Gas2Go");
+                     boolean var11 = Objects.equals(this.square.getZombiesType(), "Fossoil");
+                     if (Objects.equals(this.square.getZombiesType(), "Fossoil")) {
+                        var8 = "location_shop_fossoil_01_6";
+                        var9 = 8;
+                     } else if (Objects.equals(this.square.getZombiesType(), "Gas2Go")) {
+                        var8 = "location_shop_gas2go_01_3";
+                        var9 = 8;
+                     }
+
+                     if (var5 == IsoDirections.E || var5 == IsoDirections.W) {
+                        ++var9;
+                     }
+
+                     var8 = var8 + var9;
+                     var6.addTileObject(var8);
+                  }
+               }
+
                this.getModData().rawset("fuelAmount", var1);
                this.transmitModData();
                return (int)var1;
@@ -2088,10 +2331,6 @@ public class IsoObject implements Serializable, Thumpable {
       var1 = Math.max(0, var1);
       int var2 = this.getPipedFuelAmount();
       if (var1 != var2) {
-         if (var1 == 0 && var2 != 0) {
-            var1 = -1;
-         }
-
          this.getModData().rawset("fuelAmount", (double)var1);
          this.transmitModData();
       }
@@ -2104,7 +2343,7 @@ public class IsoObject implements Serializable, Thumpable {
       } else if (this.square != null && this.square.getRoom() != null) {
          if (!this.sprite.getProperties().Is(IsoFlagType.waterPiped)) {
             return false;
-         } else if (GameTime.getInstance().getNightsSurvived() >= SandboxOptions.instance.getWaterShutModifier()) {
+         } else if ((float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) >= (float)SandboxOptions.instance.getWaterShutModifier()) {
             return false;
          } else {
             return !this.hasModData() || !(this.getModData().rawget("canBeWaterPiped") instanceof Boolean) || !(Boolean)this.getModData().rawget("canBeWaterPiped");
@@ -2287,7 +2526,11 @@ public class IsoObject implements Serializable, Thumpable {
             }
          }
 
-         return this.sprite != null && this.sprite.getProperties().Is(IsoFlagType.taintedWater);
+         if (this.sprite != null && this.sprite.getProperties().Is(IsoFlagType.taintedWater)) {
+            return true;
+         } else {
+            return this.getFluidContainer() != null && this.getFluidContainer().getPrimaryFluid() == Fluid.TaintedWater;
+         }
       }
    }
 
@@ -2348,6 +2591,10 @@ public class IsoObject implements Serializable, Thumpable {
 
    }
 
+   public boolean isCanPath() {
+      return this.square != null && this.sprite != null && (this.sprite.getProperties().Is(IsoFlagType.canPathW) || this.sprite.getProperties().Is(IsoFlagType.canPathN));
+   }
+
    public float getX() {
       return (float)this.square.getX();
    }
@@ -2369,12 +2616,18 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void RemoveAttachedAnims() {
-      if (this.AttachedAnimSprite != null) {
+      if (this.AttachedAnimSprite != null && !this.AttachedAnimSprite.isEmpty()) {
          for(int var1 = 0; var1 < this.AttachedAnimSprite.size(); ++var1) {
-            ((IsoSpriteInstance)this.AttachedAnimSprite.get(var1)).Dispose();
+            IsoSpriteInstance var2 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var1);
+            var2.Dispose();
+            IsoSpriteInstance.add(var2);
          }
 
          this.AttachedAnimSprite.clear();
+         if (PerformanceSettings.FBORenderChunk && Thread.currentThread() == GameWindow.GameThread) {
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+         }
+
       }
    }
 
@@ -2382,7 +2635,12 @@ public class IsoObject implements Serializable, Thumpable {
       if (this.AttachedAnimSprite != null) {
          if (var1 >= 0 && var1 < this.AttachedAnimSprite.size()) {
             ((IsoSpriteInstance)this.AttachedAnimSprite.get(var1)).Dispose();
-            this.AttachedAnimSprite.remove(var1);
+            IsoSpriteInstance var2 = (IsoSpriteInstance)this.AttachedAnimSprite.remove(var1);
+            IsoSpriteInstance.add(var2);
+            if (PerformanceSettings.FBORenderChunk && Thread.currentThread() == GameWindow.GameThread) {
+               this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+            }
+
          }
       }
    }
@@ -2539,7 +2797,9 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
-      if (!this.isSpriteInvisible()) {
+      if (this.renderModel(var1 + 0.5F, var2 + 0.5F, var3, var4)) {
+         this.updateRenderInfoForObjectPicker(var1, var2, var3, var4);
+      } else if (!this.isSpriteInvisible()) {
          this.prepareToRender(var4);
          int var8 = IsoCamera.frameState.playerIndex;
          int var9;
@@ -2549,7 +2809,7 @@ public class IsoObject implements Serializable, Thumpable {
          Texture var13;
          if (this.shouldDrawMainSprite()) {
             this.sprite.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink());
-            if (this.isOutlineHighlight(var8) && !this.isOutlineHlAttached(var8) && IsoObject.OutlineShader.instance.StartShader()) {
+            if (!PerformanceSettings.FBORenderChunk && this.isOutlineHighlight(var8) && !this.isOutlineHlAttached(var8) && IsoObject.OutlineShader.instance.StartShader()) {
                var9 = this.outlineHighlightCol[var8];
                var10 = Color.getRedChannelFromABGR(var9);
                var11 = Color.getGreenChannelFromABGR(var9);
@@ -2557,7 +2817,7 @@ public class IsoObject implements Serializable, Thumpable {
                IsoObject.OutlineShader.instance.setOutlineColor(var10, var11, var12, this.isOutlineHlBlink(var8) ? Core.blinkAlpha : 1.0F);
                var13 = this.sprite.getTextureForCurrentFrame(this.dir);
                if (var13 != null) {
-                  IsoObject.OutlineShader.instance.setStepSize(this.outlineThickness, var13.getWidth(), var13.getHeight());
+                  IsoObject.OutlineShader.instance.setStepSize(this.outlineThickness, var13.getWidthHW(), var13.getHeightHW());
                }
 
                this.sprite.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink());
@@ -2565,8 +2825,12 @@ public class IsoObject implements Serializable, Thumpable {
             }
          }
 
-         this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, (Consumer)null);
-         if (this.isOutlineHighlight(var8) && this.isOutlineHlAttached(var8) && IsoObject.OutlineShader.instance.StartShader()) {
+         if (this.isSatChair()) {
+            var5 = false;
+         }
+
+         this.renderAttachedAndOverlaySpritesInternal(this.dir, var1, var2, var3, var4, var5, var6, var7, (Consumer)null);
+         if (!PerformanceSettings.FBORenderChunk && this.isOutlineHighlight(var8) && this.isOutlineHlAttached(var8) && IsoObject.OutlineShader.instance.StartShader()) {
             var9 = this.outlineHighlightCol[var8];
             var10 = Color.getRedChannelFromABGR(var9);
             var11 = Color.getGreenChannelFromABGR(var9);
@@ -2574,14 +2838,20 @@ public class IsoObject implements Serializable, Thumpable {
             IsoObject.OutlineShader.instance.setOutlineColor(var10, var11, var12, this.isOutlineHlBlink(var8) ? Core.blinkAlpha : 1.0F);
             var13 = this.sprite.getTextureForCurrentFrame(this.dir);
             if (var13 != null) {
-               IsoObject.OutlineShader.instance.setStepSize(this.outlineThickness, var13.getWidth(), var13.getHeight());
+               IsoObject.OutlineShader.instance.setStepSize(this.outlineThickness, var13.getWidthHW(), var13.getHeightHW());
+            }
+
+            if (this.getProperties().Is(IsoFlagType.unlit)) {
+               stCol.r = 1.0F;
+               stCol.g = 1.0F;
+               stCol.b = 1.0F;
             }
 
             if (this.shouldDrawMainSprite()) {
                this.sprite.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink());
             }
 
-            this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, (Consumer)null);
+            this.renderAttachedAndOverlaySpritesInternal(this.dir, var1, var2, var3, var4, var5, var6, var7, (Consumer)null);
             IndieGL.EndShader();
          }
 
@@ -2628,82 +2898,146 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void renderFloorTile(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7, Consumer<TextureDraw> var8, Consumer<TextureDraw> var9) {
-      if (!this.isSpriteInvisible()) {
+      if (this.renderModel(var1 + 0.5F, var2 + 0.5F, var3, var4)) {
+         this.updateRenderInfoForObjectPicker(var1, var2, var3, var4);
+      } else if (!this.isSpriteInvisible()) {
          this.prepareToRender(var4);
-         FloorShaper var10 = (FloorShaper)Type.tryCastTo(var8, FloorShaper.class);
-         FloorShaper var11 = (FloorShaper)Type.tryCastTo(var9, FloorShaper.class);
-         if ((var10 != null || var11 != null) && this.isHighlighted() && this.getHighlightColor() != null) {
-            ColorInfo var12 = this.getHighlightColor();
-            float var13 = var12.a * (this.isBlink() ? Core.blinkAlpha : 1.0F);
-            int var14 = Color.colorToABGR(var12.r, var12.g, var12.b, var13);
-            if (var10 != null) {
-               var10.setTintColor(var14);
+         boolean var10 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+         FloorShaper var11 = (FloorShaper)Type.tryCastTo(var8, FloorShaper.class);
+         FloorShaper var12 = (FloorShaper)Type.tryCastTo(var9, FloorShaper.class);
+         if ((var11 != null || var12 != null) && var10 && this.getHighlightColor() != null) {
+            ColorInfo var13 = this.getHighlightColor();
+            float var14 = var13.a * (this.isBlink() ? Core.blinkAlpha : 1.0F);
+            int var15 = Color.colorToABGR(var13.r, var13.g, var13.b, var14);
+            if (var11 != null) {
+               var11.setTintColor(var15);
             }
 
-            if (var11 != null) {
-               var11.setTintColor(var14);
+            if (var12 != null) {
+               var12.setTintColor(var15);
             }
          }
 
          if (this.shouldDrawMainSprite()) {
-            IndieGL.shaderSetValue(var7, "floorLayer", 0);
+            if (this == this.square.getFloor()) {
+               FBORenderCell.instance.renderSeamFix1_Floor(this, var1, var2, var3, stCol, var8);
+               FBORenderCell.instance.renderSeamFix2_Floor(this, var1, var2, var3, stCol, var8);
+            }
+
+            if (!PerformanceSettings.FBORenderChunk && this.square.getWater() != null && this.square.getWater().isbShore()) {
+               IndieGL.glBlendFunc(770, 771);
+            }
+
             this.sprite.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink(), var8);
          }
 
-         this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, var9);
-         if (var10 != null) {
-            var10.setTintColor(0);
-         }
-
+         this.renderAttachedAndOverlaySpritesInternal(this.dir, var1, var2, var3, var4, var5, var6, var7, var9);
          if (var11 != null) {
             var11.setTintColor(0);
+         }
+
+         if (var12 != null) {
+            var12.setTintColor(0);
          }
 
       }
    }
 
-   public void renderWallTile(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7, Consumer<TextureDraw> var8) {
-      if (!this.isSpriteInvisible()) {
-         this.renderWallTileOnly(var1, var2, var3, var4, var7, var8);
-         this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, var8);
-         int var9 = IsoCamera.frameState.playerIndex;
-         if (this.isOutlineHighlight(var9) && !this.isOutlineHlAttached(var9) && IsoObject.OutlineShader.instance.StartShader()) {
-            int var10 = this.outlineHighlightCol[var9];
-            float var11 = Color.getRedChannelFromABGR(var10);
-            float var12 = Color.getGreenChannelFromABGR(var10);
-            float var13 = Color.getBlueChannelFromABGR(var10);
-            IsoObject.OutlineShader.instance.setOutlineColor(var11, var12, var13, this.isOutlineHlBlink(var9) ? Core.blinkAlpha : 1.0F);
-            Texture var14 = this.sprite.getTextureForCurrentFrame(this.dir);
-            if (var14 != null) {
-               IsoObject.OutlineShader.instance.setStepSize(this.outlineThickness, var14.getWidth(), var14.getHeight());
+   public void renderWallTile(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, boolean var6, boolean var7, Shader var8, Consumer<TextureDraw> var9) {
+      if (this.renderModel(var2 + 0.5F, var3 + 0.5F, var4, var5)) {
+         this.updateRenderInfoForObjectPicker(var2, var3, var4, var5);
+         this.sx = 0.0F;
+      } else if (!this.isSpriteInvisible()) {
+         this.renderWallTileOnly(var1, var2, var3, var4, var5, var8, var9);
+         this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, var8, var9);
+         int var10 = IsoCamera.frameState.playerIndex;
+         if (!PerformanceSettings.FBORenderChunk && this.isOutlineHighlight(var10) && !this.isOutlineHlAttached(var10) && IsoObject.OutlineShader.instance.StartShader()) {
+            int var11 = this.outlineHighlightCol[var10];
+            float var12 = Color.getRedChannelFromABGR(var11);
+            float var13 = Color.getGreenChannelFromABGR(var11);
+            float var14 = Color.getBlueChannelFromABGR(var11);
+            IsoObject.OutlineShader.instance.setOutlineColor(var12, var13, var14, this.isOutlineHlBlink(var10) ? Core.blinkAlpha : 1.0F);
+            Texture var15 = this.sprite.getTextureForCurrentFrame(this.dir);
+            if (var15 != null) {
+               IsoObject.OutlineShader.instance.setStepSize(this.outlineThickness, var15.getWidthHW(), var15.getHeightHW());
             }
 
-            this.sprite.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink());
+            this.sprite.render(this, var2, var3, var4, var1, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink());
             IndieGL.EndShader();
          }
 
       }
    }
 
-   public void renderWallTileOnly(float var1, float var2, float var3, ColorInfo var4, Shader var5, Consumer<TextureDraw> var6) {
+   public void renderWallTileDepth(IsoDirections var1, boolean var2, boolean var3, boolean var4, int var5, float var6, float var7, float var8, ColorInfo var9, Shader var10, Consumer<TextureDraw> var11) {
       if (!this.isSpriteInvisible()) {
-         this.prepareToRender(var4);
-         WallShaper var7 = (WallShaper)Type.tryCastTo(var6, WallShaper.class);
-         if (var7 != null && this.isHighlighted() && this.getHighlightColor() != null) {
-            ColorInfo var8 = this.getHighlightColor();
-            float var9 = var8.a * (this.isBlink() ? Core.blinkAlpha : 1.0F);
-            int var10 = Color.colorToABGR(var8.r, var8.g, var8.b, var9);
-            var7.setTintColor(var10);
+         this.prepareToRender(var9);
+         boolean var12 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+         WallShaper var13 = (WallShaper)Type.tryCastTo(var11, WallShaper.class);
+         if (var13 != null && var12 && this.getHighlightColor() != null) {
+            ColorInfo var14 = this.getHighlightColor();
+            float var15 = var14.a * (this.isBlink() ? Core.blinkAlpha : 1.0F);
+            int var16 = Color.colorToABGR(var14.r, var14.g, var14.b, var15);
+            var13.setTintColor(var16);
          }
 
          if (this.shouldDrawMainSprite()) {
-            IndieGL.pushShader(var5);
-            this.sprite.render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink(), var6);
-            IndieGL.popShader(var5);
+            this.sprite.renderDepth(this, var1, var2, var3, var4, var5, var6, var7, var8, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink(), var11);
          }
 
-         if (var7 != null) {
-            var7.setTintColor(0);
+         if (var13 != null) {
+            var13.setTintColor(0);
+         }
+
+      }
+   }
+
+   public void renderWallTileOnly(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, Shader var6, Consumer<TextureDraw> var7) {
+      if (!this.isSpriteInvisible()) {
+         this.prepareToRender(var5);
+         boolean var8 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+         WallShaper var9 = (WallShaper)Type.tryCastTo(var7, WallShaper.class);
+         float var11;
+         if (var9 != null && var8 && this.getHighlightColor() != null) {
+            ColorInfo var10 = this.getHighlightColor();
+            var11 = var10.a * (this.isBlink() ? Core.blinkAlpha : 1.0F);
+            int var12 = Color.colorToABGR(var10.r, var10.g, var10.b, var11);
+            var9.setTintColor(var12);
+         }
+
+         if (this.shouldDrawMainSprite()) {
+            if (var6 != null) {
+               IndieGL.pushShader(var6);
+               if (PerformanceSettings.FBORenderChunk && var6 == IsoGridSquare.CircleStencilShader.instance) {
+                  float var16 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var2, var3, var4).depthStart;
+                  var11 = var4 + 1.0F;
+                  float var17 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY), var2 + 1.0F, var3 + 1.0F, var11).depthStart;
+                  if (!FBORenderCell.instance.bRenderTranslucentOnly) {
+                     byte var13 = 8;
+                     IsoDepthHelper.Results var14 = IsoDepthHelper.getChunkDepthData(PZMath.fastfloor(IsoCamera.frameState.CamCharacterX / (float)var13), PZMath.fastfloor(IsoCamera.frameState.CamCharacterY / (float)var13), PZMath.fastfloor(var2 / (float)var13), PZMath.fastfloor(var3 / (float)var13), PZMath.fastfloor(var4));
+                     float var15 = var14.depthStart;
+                     var16 -= var15;
+                     var17 -= var15;
+                  }
+
+                  IndieGL.shaderSetValue(var6, "zDepthBlendZ", var17);
+                  IndieGL.shaderSetValue(var6, "zDepthBlendToZ", var16);
+               }
+            }
+
+            if (PerformanceSettings.FBORenderChunk && !FBORenderCell.instance.bRenderTranslucentOnly && var6 != IsoGridSquare.CircleStencilShader.instance) {
+               FBORenderCell.instance.renderSeamFix1_Wall(this, var2, var3, var4, stCol, var7);
+               FBORenderCell.instance.renderSeamFix2_Wall(this, var2, var3, var4, stCol, var7);
+            }
+
+            this.sprite.render(this, var2, var3, var4, var1, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, stCol, !this.isBlink(), var7);
+            if (var6 != null) {
+               IndieGL.popShader(var6);
+            }
+         }
+
+         if (var9 != null) {
+            var9.setTintColor(0);
          }
 
       }
@@ -2717,32 +3051,42 @@ public class IsoObject implements Serializable, Thumpable {
       }
    }
 
-   public void renderAttachedAndOverlaySprites(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7, Consumer<TextureDraw> var8) {
+   public void renderAttachedAndOverlaySprites(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, boolean var6, boolean var7, Shader var8, Consumer<TextureDraw> var9) {
       if (!this.isSpriteInvisible()) {
-         this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, var8);
+         this.renderAttachedAndOverlaySpritesInternal(var1, var2, var3, var4, var5, var6, var7, var8, var9);
       }
    }
 
-   private void renderAttachedAndOverlaySpritesInternal(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7, Consumer<TextureDraw> var8) {
-      if (this.isHighlighted()) {
-         var4 = stCol;
+   private void renderAttachedAndOverlaySpritesInternal(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, boolean var6, boolean var7, Shader var8, Consumer<TextureDraw> var9) {
+      boolean var10 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+      if (var10) {
+         var5 = stCol;
       }
 
-      this.renderOverlaySprites(var1, var2, var3, var4);
-      if (var5) {
-         this.renderAttachedSprites(var1, var2, var3, var4, var6, var7, var8);
+      if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue() && !FBORenderObjectHighlight.getInstance().isRendering()) {
+         var5.set(1.0F, 1.0F, 1.0F, var5.a);
+      }
+
+      this.renderOverlaySprites(var2, var3, var4, var5, var8, var9);
+      if (var6) {
+         this.renderAttachedSprites(var1, var2, var3, var4, var5, var7, var8, var9);
       }
 
    }
 
    private void prepareToRender(ColorInfo var1) {
       stCol.set(var1);
-      if (this.isHighlighted()) {
+      if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+         stCol.set(1.0F, 1.0F, 1.0F, stCol.a);
+      }
+
+      boolean var2 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+      ColorInfo var10000;
+      if (var2) {
          stCol.set(this.getHighlightColor());
          if (this.isBlink()) {
-            stCol.a = Core.blinkAlpha;
-         } else {
-            stCol.a = 1.0F;
+            var10000 = stCol;
+            var10000.a *= Core.blinkAlpha;
          }
 
          stCol.r = var1.r * (1.0F - stCol.a) + this.getHighlightColor().r * stCol.a;
@@ -2751,107 +3095,109 @@ public class IsoObject implements Serializable, Thumpable {
          stCol.a = var1.a;
       }
 
-      float var2;
-      if (this.customColor != null) {
-         var2 = this.square != null ? this.square.getDarkMulti(IsoPlayer.getPlayerIndex()) : 1.0F;
-         if (this.isHighlighted()) {
-            ColorInfo var10000 = stCol;
-            var10000.r *= this.customColor.r * var2;
-            var10000 = stCol;
-            var10000.g *= this.customColor.g * var2;
-            var10000 = stCol;
-            var10000.b *= this.customColor.b * var2;
-         } else {
-            stCol.r = this.customColor.r * var2;
-            stCol.g = this.customColor.g * var2;
-            stCol.b = this.customColor.b * var2;
-         }
-      }
-
       float var3;
+      if (this.customColor != null) {
+         var3 = this.square != null ? this.square.getDarkMulti(IsoPlayer.getPlayerIndex()) : 1.0F;
+         if (var2) {
+            var10000 = stCol;
+            var10000.r *= this.customColor.r * var3;
+            var10000 = stCol;
+            var10000.g *= this.customColor.g * var3;
+            var10000 = stCol;
+            var10000.b *= this.customColor.b * var3;
+         } else {
+            stCol.r = this.customColor.r * var3;
+            stCol.g = this.customColor.g * var3;
+            stCol.b = this.customColor.b * var3;
+         }
+      }
+
       float var4;
-      if (this.sprite != null && this.sprite.forceAmbient) {
-         var2 = rmod * this.tintr;
-         var3 = gmod * this.tintg;
-         var4 = bmod * this.tintb;
-         if (!this.isHighlighted()) {
-            stCol.r = RenderSettings.getInstance().getAmbientForPlayer(IsoPlayer.getPlayerIndex()) * var2;
-            stCol.g = RenderSettings.getInstance().getAmbientForPlayer(IsoPlayer.getPlayerIndex()) * var3;
-            stCol.b = RenderSettings.getInstance().getAmbientForPlayer(IsoPlayer.getPlayerIndex()) * var4;
+      float var5;
+      if (this.sprite != null && this.sprite.forceAmbient && !DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+         var3 = rmod * this.tintr;
+         var4 = gmod * this.tintg;
+         var5 = bmod * this.tintb;
+         if (!var2) {
+            stCol.r = RenderSettings.getInstance().getAmbientForPlayer(IsoPlayer.getPlayerIndex()) * var3;
+            stCol.g = RenderSettings.getInstance().getAmbientForPlayer(IsoPlayer.getPlayerIndex()) * var4;
+            stCol.b = RenderSettings.getInstance().getAmbientForPlayer(IsoPlayer.getPlayerIndex()) * var5;
          }
       }
 
-      int var13 = IsoPlayer.getPlayerIndex();
-      var3 = IsoCamera.frameState.CamCharacterX;
-      var4 = IsoCamera.frameState.CamCharacterY;
-      float var5 = IsoCamera.frameState.CamCharacterZ;
-      if (IsoWorld.instance.CurrentCell.IsPlayerWindowPeeking(var13)) {
-         IsoPlayer var6 = IsoPlayer.players[var13];
-         IsoDirections var7 = IsoDirections.fromAngle(var6.getForwardDirection());
-         if (var7 == IsoDirections.N || var7 == IsoDirections.NW) {
-            var4 = (float)((double)var4 - 1.0);
+      int var14 = IsoPlayer.getPlayerIndex();
+      var4 = IsoCamera.frameState.CamCharacterX;
+      var5 = IsoCamera.frameState.CamCharacterY;
+      float var6 = IsoCamera.frameState.CamCharacterZ;
+      if (IsoWorld.instance.CurrentCell.IsPlayerWindowPeeking(var14)) {
+         IsoPlayer var7 = IsoPlayer.players[var14];
+         IsoDirections var8 = IsoDirections.fromAngle(var7.getForwardDirection());
+         if (var8 == IsoDirections.N || var8 == IsoDirections.NW) {
+            --var5;
          }
 
-         if (var7 == IsoDirections.W || var7 == IsoDirections.NW) {
-            var3 = (float)((double)var3 - 1.0);
+         if (var8 == IsoDirections.W || var8 == IsoDirections.NW) {
+            --var4;
          }
       }
 
-      if (this == IsoCamera.CamCharacter) {
-         this.setAlphaAndTarget(var13, 1.0F);
+      if (this == IsoCamera.getCameraCharacter()) {
+         this.setAlphaAndTarget(var14, 1.0F);
       }
 
       lastRenderedRendered = lastRendered;
       lastRendered = this;
-      if (this.sprite != null && !(this instanceof IsoPhysicsObject) && IsoCamera.CamCharacter != null) {
-         boolean var14 = this instanceof IsoWindow || this.sprite.getType() == IsoObjectType.doorW || this.sprite.getType() == IsoObjectType.doorN;
+      if (this.sprite != null && !(this instanceof IsoPhysicsObject) && IsoCamera.getCameraCharacter() != null) {
+         boolean var15 = this instanceof IsoWindow || this.sprite.getType() == IsoObjectType.doorW || this.sprite.getType() == IsoObjectType.doorN;
          if (this.sprite.getProperties().Is("GarageDoor")) {
-            var14 = false;
+            var15 = false;
          }
 
-         if (!var14 && ((float)this.square.getX() > var3 || (float)this.square.getY() > var4) && (int)var5 <= this.square.getZ()) {
-            boolean var15 = false;
-            float var8 = 0.2F;
-            boolean var9 = (this.sprite.cutW || this.sprite.getProperties().Is(IsoFlagType.doorW)) && (float)this.square.getX() > var3;
-            boolean var10 = (this.sprite.cutN || this.sprite.getProperties().Is(IsoFlagType.doorN)) && (float)this.square.getY() > var4;
-            if (var9 && this.square.getProperties().Is(IsoFlagType.WallSE) && (float)this.square.getY() <= var4) {
-               var9 = false;
+         if (!var15 && ((float)this.square.getX() > var4 || (float)this.square.getY() > var5) && PZMath.fastfloor(var6) <= this.square.getZ()) {
+            boolean var16 = false;
+            float var9 = 0.2F;
+            boolean var10 = (this.sprite.cutW || this.sprite.getProperties().Is(IsoFlagType.doorW)) && (float)this.square.getX() > var4;
+            boolean var11 = (this.sprite.cutN || this.sprite.getProperties().Is(IsoFlagType.doorN)) && (float)this.square.getY() > var5;
+            if (var10 && this.square.getProperties().Is(IsoFlagType.WallSE) && (float)this.square.getY() <= var5) {
+               var10 = false;
             }
 
-            if (!var9 && !var10) {
-               boolean var11 = this.getType() == IsoObjectType.WestRoofB || this.getType() == IsoObjectType.WestRoofM || this.getType() == IsoObjectType.WestRoofT;
-               boolean var12 = var11 && (int)var5 == this.square.getZ() && this.square.getBuilding() == null;
-               if (var12 && IsoWorld.instance.CurrentCell.CanBuildingSquareOccludePlayer(this.square, var13)) {
-                  var15 = true;
-                  var8 = 0.05F;
+            if (!var10 && !var11) {
+               boolean var12 = this.getType() == IsoObjectType.WestRoofB || this.getType() == IsoObjectType.WestRoofM || this.getType() == IsoObjectType.WestRoofT;
+               boolean var13 = var12 && PZMath.fastfloor(var6) == this.square.getZ() && this.square.getBuilding() == null;
+               if (var13 && IsoWorld.instance.CurrentCell.CanBuildingSquareOccludePlayer(this.square, var14)) {
+                  var16 = true;
+                  var9 = 0.05F;
                }
             } else {
-               var15 = true;
+               var16 = true;
             }
 
             if (this.sprite.getProperties().Is(IsoFlagType.halfheight)) {
-               var15 = false;
+               var16 = false;
             }
 
-            if (var15) {
-               if (var10 && this.sprite.getProperties().Is(IsoFlagType.HoppableN)) {
-                  var8 = 0.25F;
+            if (var16) {
+               if (var11 && this.sprite.getProperties().Is(IsoFlagType.HoppableN)) {
+                  var9 = 0.25F;
                }
 
-               if (var9 && this.sprite.getProperties().Is(IsoFlagType.HoppableW)) {
-                  var8 = 0.25F;
+               if (var10 && this.sprite.getProperties().Is(IsoFlagType.HoppableW)) {
+                  var9 = 0.25F;
                }
 
-               if (this.bAlphaForced) {
-                  if (this.getTargetAlpha(var13) == 1.0F) {
-                     this.setAlphaAndTarget(var13, 0.99F);
+               if (!PerformanceSettings.FBORenderChunk) {
+                  if (this.bAlphaForced) {
+                     if (this.getTargetAlpha(var14) == 1.0F) {
+                        this.setAlphaAndTarget(var14, 0.99F);
+                     }
+                  } else {
+                     this.setTargetAlpha(var14, var9);
                   }
-               } else {
-                  this.setTargetAlpha(var13, var8);
                }
 
                LowLightingQualityHack = true;
-               this.NoPicking = this.rerouteMask == null && !(this instanceof IsoThumpable) && !IsoWindowFrame.isWindowFrame(this) && !this.sprite.getProperties().Is(IsoFlagType.doorN) && !this.sprite.getProperties().Is(IsoFlagType.doorW) && !this.sprite.getProperties().Is(IsoFlagType.HoppableN) && !this.sprite.getProperties().Is(IsoFlagType.HoppableW);
+               this.NoPicking = this.rerouteMask == null && !(this instanceof IsoThumpable) && !(this instanceof IsoWindowFrame) && !this.sprite.getProperties().Is(IsoFlagType.doorN) && !this.sprite.getProperties().Is(IsoFlagType.doorW) && !this.sprite.getProperties().Is(IsoFlagType.HoppableN) && !this.sprite.getProperties().Is(IsoFlagType.HoppableW);
             } else {
                this.NoPicking = false;
             }
@@ -2860,8 +3206,8 @@ public class IsoObject implements Serializable, Thumpable {
          }
       }
 
-      if (this == IsoCamera.CamCharacter) {
-         this.setTargetAlpha(var13, 1.0F);
+      if (this == IsoCamera.getCameraCharacter()) {
+         this.setTargetAlpha(var14, 1.0F);
       }
 
    }
@@ -2889,13 +3235,15 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    protected final void updateAlpha() {
-      if (!GameServer.bServer) {
-         for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
-            if (IsoPlayer.players[var1] != null) {
-               this.updateAlpha(var1);
+      if (!(this instanceof IsoAnimal)) {
+         if (!GameServer.bServer) {
+            for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
+               if (IsoPlayer.players[var1] != null) {
+                  this.updateAlpha(var1);
+               }
             }
-         }
 
+         }
       }
    }
 
@@ -2943,91 +3291,116 @@ public class IsoObject implements Serializable, Thumpable {
       }
    }
 
-   private void renderOverlaySprites(float var1, float var2, float var3, ColorInfo var4) {
+   private void renderOverlaySprites(float var1, float var2, float var3, ColorInfo var4, Shader var5, Consumer<TextureDraw> var6) {
       if (this.getOverlaySprite() != null && DebugOptions.instance.Terrain.RenderTiles.OverlaySprites.getValue()) {
-         ColorInfo var5 = stCol2;
-         var5.set(var4);
-         if (this.overlaySpriteColor != null) {
-            var5.set(this.overlaySpriteColor);
+         if (PerformanceSettings.FBORenderChunk) {
+            IndieGL.glDepthMask(true);
          }
 
-         if (var5.a != 1.0F && this.overlaySprite.def != null && this.overlaySprite.def.bCopyTargetAlpha) {
-            int var6 = IsoPlayer.getPlayerIndex();
-            float var7 = this.alpha[var6];
+         ColorInfo var7 = stCol2;
+         var7.set(var4);
+         if (this.overlaySpriteColor != null) {
+            var7.set(this.overlaySpriteColor);
+         }
+
+         if (var6 != CutawayAttachedModifier.instance) {
+            var6 = null;
+         }
+
+         if (var7.a != 1.0F && this.overlaySprite.def != null && this.overlaySprite.def.bCopyTargetAlpha) {
+            int var8 = IsoPlayer.getPlayerIndex();
+            float var9 = this.alpha[var8];
             float[] var10000 = this.alpha;
-            var10000[var6] *= var5.a;
-            this.getOverlaySprite().render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, var5, true);
-            this.alpha[var6] = var7;
+            var10000[var8] *= var7.a;
+            this.getOverlaySprite().render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, var7, true, var6);
+            this.alpha[var8] = var9;
          } else {
-            this.getOverlaySprite().render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, var5, true);
+            this.getOverlaySprite().render(this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, var7, true, var6);
+         }
+
+         if (PerformanceSettings.FBORenderChunk) {
+            IndieGL.glDepthMask(true);
          }
 
       }
    }
 
-   private void renderAttachedSprites(float var1, float var2, float var3, ColorInfo var4, boolean var5, Shader var6, Consumer<TextureDraw> var7) {
-      int var8;
-      int var9;
-      if (this.AttachedAnimSprite != null && DebugOptions.instance.Terrain.RenderTiles.AttachedAnimSprites.getValue()) {
-         var8 = this.AttachedAnimSprite.size();
+   private void renderAttachedSprites(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, boolean var6, Shader var7, Consumer<TextureDraw> var8) {
+      if (PerformanceSettings.FBORenderChunk) {
+         boolean var9 = this.sprite == null ? false : this.sprite.solidfloor;
+         IndieGL.glDepthMask(!var9);
+      }
 
-         for(var9 = 0; var9 < var8; ++var9) {
-            IsoSpriteInstance var10 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var9);
-            if (!var5 || !var10.parentSprite.Properties.Is(IsoFlagType.NoWallLighting)) {
-               float var11 = var4.a;
-               IndieGL.shaderSetValue(var6, "floorLayer", 1);
-               var4.a = var10.alpha;
-               Object var12 = var7;
-               if (var7 == WallShaperW.instance) {
-                  if (var10.parentSprite.getProperties().Is(IsoFlagType.attachedN)) {
-                     Texture var13 = var10.parentSprite.getTextureForCurrentFrame(this.dir);
-                     if (var13 != null && var13.getWidth() < 32 * Core.TileScale) {
+      int var10;
+      int var15;
+      if (this.AttachedAnimSprite != null && DebugOptions.instance.Terrain.RenderTiles.AttachedAnimSprites.getValue()) {
+         var15 = this.AttachedAnimSprite.size();
+
+         for(var10 = 0; var10 < var15; ++var10) {
+            IsoSpriteInstance var11 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var10);
+            if (!var6 || !var11.parentSprite.Properties.Is(IsoFlagType.NoWallLighting)) {
+               float var12 = var5.a;
+               IndieGL.shaderSetValue(var7, "floorLayer", 1);
+               var5.a = var11.alpha;
+               Object var13 = var8;
+               if (var8 == WallShaperW.instance) {
+                  if (var11.parentSprite.getProperties().Is(IsoFlagType.attachedN)) {
+                     Texture var14 = var11.parentSprite.getTextureForCurrentFrame(var1);
+                     if (var14 != null && var14.getWidth() < 32 * Core.TileScale) {
                         continue;
                      }
                   }
 
-                  if (var10.parentSprite.getProperties().Is(IsoFlagType.attachedW)) {
-                     var12 = WallShaperWhole.instance;
+                  if (var11.parentSprite.getProperties().Is(IsoFlagType.attachedW)) {
+                     var13 = WallShaperWhole.instance;
                   }
-               } else if (var7 == WallShaperN.instance) {
-                  if (var10.parentSprite.getProperties().Is(IsoFlagType.attachedW)) {
+               } else if (var8 == WallShaperN.instance) {
+                  if (var11.parentSprite.getProperties().Is(IsoFlagType.attachedW)) {
                      continue;
                   }
 
-                  if (var10.parentSprite.getProperties().Is(IsoFlagType.attachedN)) {
-                     var12 = WallShaperWhole.instance;
+                  if (var11.parentSprite.getProperties().Is(IsoFlagType.attachedN)) {
+                     var13 = WallShaperWhole.instance;
                   }
                }
 
-               var10.parentSprite.render(var10, this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, var4, true, (Consumer)var12);
-               var4.a = var11;
-               var10.update();
+               var11.parentSprite.render(var11, this, var2, var3, var4, var1, this.offsetX, this.offsetY + this.renderYOffset * (float)Core.TileScale, var5, true, (Consumer)var13);
+               var5.a = var12;
+               var11.update();
             }
          }
       }
 
       if (this.Children != null && DebugOptions.instance.Terrain.RenderTiles.AttachedChildren.getValue()) {
-         var8 = this.Children.size();
+         var15 = this.Children.size();
 
-         for(var9 = 0; var9 < var8; ++var9) {
-            IsoObject var14 = (IsoObject)this.Children.get(var9);
-            if (var14 instanceof IsoMovingObject) {
-               IndieGL.shaderSetValue(var6, "floorLayer", 1);
-               var14.render(((IsoMovingObject)var14).x, ((IsoMovingObject)var14).y, ((IsoMovingObject)var14).z, var4, true, false, (Shader)null);
+         for(var10 = 0; var10 < var15; ++var10) {
+            IsoObject var16 = (IsoObject)this.Children.get(var10);
+            if (var16 instanceof IsoMovingObject) {
+               IndieGL.shaderSetValue(var7, "floorLayer", 1);
+               var16.render(((IsoMovingObject)var16).getX(), ((IsoMovingObject)var16).getY(), ((IsoMovingObject)var16).getZ(), var5, true, false, (Shader)null);
             }
          }
       }
 
       if (this.wallBloodSplats != null && DebugOptions.instance.Terrain.RenderTiles.AttachedWallBloodSplats.getValue()) {
-         if (Core.OptionBloodDecals == 0) {
+         if (Core.getInstance().getOptionBloodDecals() == 0) {
+            if (PerformanceSettings.FBORenderChunk) {
+               IndieGL.glDepthMask(true);
+            }
+
             return;
          }
 
-         IndieGL.shaderSetValue(var6, "floorLayer", 0);
+         IndieGL.shaderSetValue(var7, "floorLayer", 0);
 
-         for(var8 = 0; var8 < this.wallBloodSplats.size(); ++var8) {
-            ((IsoWallBloodSplat)this.wallBloodSplats.get(var8)).render(var1, var2, var3, var4);
+         for(var15 = 0; var15 < this.wallBloodSplats.size(); ++var15) {
+            ((IsoWallBloodSplat)this.wallBloodSplats.get(var15)).render(var2, var3, var4, var5);
          }
+      }
+
+      if (PerformanceSettings.FBORenderChunk) {
+         IndieGL.glDepthMask(true);
       }
 
    }
@@ -3066,13 +3439,13 @@ public class IsoObject implements Serializable, Thumpable {
             for(var6 = 0; var6 < var5; ++var6) {
                IsoObject var8 = (IsoObject)this.Children.get(var6);
                if (var8 instanceof IsoMovingObject) {
-                  var8.render(((IsoMovingObject)var8).x, ((IsoMovingObject)var8).y, ((IsoMovingObject)var8).z, colFxMask, var4, false, (Shader)null);
+                  var8.render(((IsoMovingObject)var8).getX(), ((IsoMovingObject)var8).getY(), ((IsoMovingObject)var8).getZ(), colFxMask, var4, false, (Shader)null);
                }
             }
          }
 
          if (this.wallBloodSplats != null) {
-            if (Core.OptionBloodDecals == 0) {
+            if (Core.getInstance().getOptionBloodDecals() == 0) {
                return;
             }
 
@@ -3104,14 +3477,8 @@ public class IsoObject implements Serializable, Thumpable {
       return IsoObject.VisionResult.Unblocked;
    }
 
-   Texture getCurrentFrameTex() {
-      if (this.sprite == null) {
-         return null;
-      } else if (this.sprite.CurrentAnim == null) {
-         return null;
-      } else {
-         return (float)this.sprite.CurrentAnim.Frames.size() <= this.sprite.def.Frame ? null : ((IsoDirectionFrame)this.sprite.CurrentAnim.Frames.get((int)this.sprite.def.Frame)).getTexture(this.dir);
-      }
+   public Texture getCurrentFrameTex() {
+      return this.sprite == null ? null : this.sprite.getTextureForCurrentFrame(this.dir);
    }
 
    public boolean isMaskClicked(int var1, int var2) {
@@ -3136,11 +3503,15 @@ public class IsoObject implements Serializable, Thumpable {
 
    public void setCustomColor(ColorInfo var1) {
       this.customColor = var1;
+      if (Thread.currentThread() == GameWindow.GameThread) {
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+      }
+
    }
 
    public void setCustomColor(float var1, float var2, float var3, float var4) {
       ColorInfo var5 = new ColorInfo(var1, var2, var3, var4);
-      this.customColor = var5;
+      this.setCustomColor(var5);
    }
 
    public void loadFromRemoteBuffer(ByteBuffer var1) {
@@ -3149,7 +3520,7 @@ public class IsoObject implements Serializable, Thumpable {
 
    public void loadFromRemoteBuffer(ByteBuffer var1, boolean var2) {
       try {
-         this.load(var1, 195);
+         this.load(var1, 219);
       } catch (IOException var12) {
          var12.printStackTrace();
          return;
@@ -3222,6 +3593,9 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void addToWorld() {
+      super.addToWorld();
+      this.createContainersFromSpriteProperties();
+
       ItemContainer var2;
       for(int var1 = 0; var1 < this.getContainerCount(); ++var1) {
          var2 = this.getContainerByIndex(var1);
@@ -3238,22 +3612,20 @@ public class IsoObject implements Serializable, Thumpable {
          } else if (this.sprite != null && this.sprite.getProperties().Is(IsoFlagType.waterPiped) && (float)this.getWaterAmount() > 0.0F && Rand.Next(15) == 0) {
             this.addObjectAmbientEmitter((new ObjectAmbientEmitters.WaterDripLogic()).init(this));
             var4 = "WaterDrip";
-         } else if (this.sprite == null || this.sprite.getName() == null || !this.sprite.getName().startsWith("camping_01") || this.sprite.tileSheetIndex != 0 && this.sprite.tileSheetIndex != 3) {
-            if (this instanceof IsoDoor) {
-               if (((IsoDoor)this).isExterior()) {
-                  this.addObjectAmbientEmitter((new ObjectAmbientEmitters.DoorLogic()).init(this));
-               }
-            } else if (this instanceof IsoWindow) {
-               if (((IsoWindow)this).isExterior()) {
-                  this.addObjectAmbientEmitter((new ObjectAmbientEmitters.WindowLogic()).init(this));
-               }
-            } else if (this instanceof IsoTree && Rand.Next(40) == 0) {
-               this.addObjectAmbientEmitter((new ObjectAmbientEmitters.TreeAmbianceLogic()).init(this));
-               var4 = "TreeAmbiance";
-            }
-         } else {
+         } else if (this.sprite != null && this.sprite.getName() != null && this.sprite.getName().startsWith("camping_01") && (this.sprite.tileSheetIndex == 0 || this.sprite.tileSheetIndex == 3)) {
             this.addObjectAmbientEmitter((new ObjectAmbientEmitters.TentAmbianceLogic()).init(this));
             var4 = "TentAmbiance";
+         } else if (this instanceof IsoDoor) {
+            if (!FMODAmbientWalls.ENABLE && ((IsoDoor)this).isExterior()) {
+               this.addObjectAmbientEmitter((new ObjectAmbientEmitters.DoorLogic()).init(this));
+            }
+         } else if (this instanceof IsoWindow) {
+            if (!FMODAmbientWalls.ENABLE && ((IsoWindow)this).isExterior()) {
+               this.addObjectAmbientEmitter((new ObjectAmbientEmitters.WindowLogic()).init(this));
+            }
+         } else if (this instanceof IsoTree && Rand.Next(40) == 0) {
+            this.addObjectAmbientEmitter((new ObjectAmbientEmitters.TreeAmbianceLogic()).init(this));
+            var4 = "TreeAmbiance";
          }
 
          PropertyContainer var3 = this.getProperties();
@@ -3263,10 +3635,12 @@ public class IsoObject implements Serializable, Thumpable {
          }
 
          this.checkMoveWithWind();
+         this.addLightSourceToWorld();
       }
    }
 
    public void removeFromWorld() {
+      super.removeFromWorld(this.bRemoveFromWorldToMeta);
       IsoCell var1 = this.getCell();
       var1.addToProcessIsoObjectRemove(this);
       var1.getStaticUpdaterObjectList().remove(this);
@@ -3285,6 +3659,23 @@ public class IsoObject implements Serializable, Thumpable {
          this.getChunk().removeObjectAmbientEmitter(this);
       }
 
+      this.removeLightSourceFromWorld();
+      this.clearOnOverlay();
+      if (PerformanceSettings.FBORenderChunk) {
+         FBORenderObjectHighlight.getInstance().unregisterObject(this);
+         FBORenderObjectOutline.getInstance().unregisterObject(this);
+      }
+
+   }
+
+   public final void removeFromWorldToMeta() {
+      try {
+         this.bRemoveFromWorldToMeta = true;
+         this.removeFromWorld();
+      } finally {
+         this.bRemoveFromWorldToMeta = false;
+      }
+
    }
 
    public void reuseGridSquare() {
@@ -3298,9 +3689,9 @@ public class IsoObject implements Serializable, Thumpable {
 
    }
 
-   public void transmitCustomColor() {
-      if (GameClient.bClient && this.getCustomColor() != null) {
-         GameClient.instance.sendCustomColor(this);
+   public void transmitCustomColorToClients() {
+      if (GameServer.bServer && this.getCustomColor() != null) {
+         INetworkPacket.sendToRelative(PacketTypes.PacketType.SendCustomColor, (float)this.getSquare().x, (float)this.getSquare().y, this);
       }
 
    }
@@ -3311,28 +3702,7 @@ public class IsoObject implements Serializable, Thumpable {
             return;
          }
 
-         int var1;
-         UdpConnection var2;
-         if (SystemDisabler.doWorldSyncEnable) {
-            for(var1 = 0; var1 < GameServer.udpEngine.connections.size(); ++var1) {
-               var2 = (UdpConnection)GameServer.udpEngine.connections.get(var1);
-               if (var2.RelevantTo((float)this.square.x, (float)this.square.y)) {
-                  GameServer.SyncObjectChunkHashes(this.square.chunk, var2);
-               }
-            }
-
-            return;
-         }
-
-         for(var1 = 0; var1 < GameServer.udpEngine.connections.size(); ++var1) {
-            var2 = (UdpConnection)GameServer.udpEngine.connections.get(var1);
-            if (var2 != null && this.square != null && var2.RelevantTo((float)this.square.x, (float)this.square.y)) {
-               ByteBufferWriter var3 = var2.startPacket();
-               PacketTypes.PacketType.AddItemToMap.doPacket(var3);
-               this.writeToRemoteBuffer(var3);
-               PacketTypes.PacketType.AddItemToMap.send(var2);
-            }
-         }
+         INetworkPacket.sendToRelative(PacketTypes.PacketType.AddItemToMap, (float)this.square.x, (float)this.square.y, this);
       }
 
    }
@@ -3463,6 +3833,7 @@ public class IsoObject implements Serializable, Thumpable {
 
    public void loadChange(String var1, ByteBuffer var2) {
       int var3;
+      int var11;
       if ("containers".equals(var1)) {
          for(var3 = 0; var3 < this.getContainerCount(); ++var3) {
             ItemContainer var4 = this.getContainerByIndex(var3);
@@ -3473,14 +3844,14 @@ public class IsoObject implements Serializable, Thumpable {
          this.removeAllContainers();
          byte var9 = var2.get();
 
-         for(int var11 = 0; var11 < var9; ++var11) {
+         for(var11 = 0; var11 < var9; ++var11) {
             ItemContainer var5 = new ItemContainer();
             var5.ID = 0;
             var5.parent = this;
             var5.SourceGrid = this.square;
 
             try {
-               var5.load(var2, 195);
+               var5.load(var2, 219);
                if (var11 == 0) {
                   if (this instanceof IsoDeadBody) {
                      var5.Capacity = 8;
@@ -3507,7 +3878,7 @@ public class IsoObject implements Serializable, Thumpable {
             var3 = this.getObjectIndex();
             if (var3 >= 0) {
                IsoObject var13 = factoryFromFileInput(this.getCell(), var2);
-               var13.load(var2, 195);
+               var13.load(var2, 219);
                var13.setSquare(this.square);
                this.square.getObjects().set(var3, var13);
                this.square.getSpecialObjects().remove(this);
@@ -3541,6 +3912,13 @@ public class IsoObject implements Serializable, Thumpable {
             }
          }
       } else if ("emptyTrash".equals(var1)) {
+         ItemContainer var15 = this.getContainer();
+
+         for(var11 = 0; var11 < var15.getItems().size(); ++var11) {
+            InventoryItem var16 = (InventoryItem)var15.getItems().get(var11);
+            var15.DoRemoveItem(var16);
+         }
+
          this.getContainer().clear();
          if (this.getOverlaySprite() != null) {
             ItemPickerJava.updateOverlaySprite(this);
@@ -3550,6 +3928,8 @@ public class IsoObject implements Serializable, Thumpable {
       this.checkMoveWithWind();
    }
 
+   /** @deprecated */
+   @Deprecated
    public void transmitUpdatedSpriteToServer() {
       if (GameClient.bClient) {
          ByteBufferWriter var1 = GameClient.connection.startPacket();
@@ -3572,16 +3952,22 @@ public class IsoObject implements Serializable, Thumpable {
          }
 
          PacketTypes.PacketType.UpdateItemSprite.send(GameClient.connection);
+         DebugLog.General.warn("Special for the MP branch: The deprecated function was called: transmitUpdatedSpriteToServer");
       }
 
    }
 
+   /** @deprecated */
+   @Deprecated
    public void transmitCompleteItemToServer() {
       if (GameClient.bClient) {
-         ByteBufferWriter var1 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.AddItemToMap.doPacket(var1);
-         this.writeToRemoteBuffer(var1);
+         AddItemToMapPacket var1 = new AddItemToMapPacket();
+         var1.set(this);
+         ByteBufferWriter var2 = GameClient.connection.startPacket();
+         PacketTypes.PacketType.AddItemToMap.doPacket(var2);
+         var1.write(var2);
          PacketTypes.PacketType.AddItemToMap.send(GameClient.connection);
+         DebugLog.General.warn("Special for the MP branch: The deprecated function was called: transmitCompleteItemToServer");
       }
 
    }
@@ -3589,25 +3975,7 @@ public class IsoObject implements Serializable, Thumpable {
    public void transmitModData() {
       if (this.square != null) {
          if (GameClient.bClient) {
-            ByteBufferWriter var1 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.ObjectModData.doPacket(var1);
-            var1.putInt(this.getSquare().getX());
-            var1.putInt(this.getSquare().getY());
-            var1.putInt(this.getSquare().getZ());
-            var1.putInt(this.getSquare().getObjects().indexOf(this));
-            if (this.getModData().isEmpty()) {
-               var1.putByte((byte)0);
-            } else {
-               var1.putByte((byte)1);
-
-               try {
-                  this.getModData().save(var1.bb);
-               } catch (IOException var3) {
-                  var3.printStackTrace();
-               }
-            }
-
-            PacketTypes.PacketType.ObjectModData.send(GameClient.connection);
+            INetworkPacket.send(PacketTypes.PacketType.ObjectModData, this);
          } else if (GameServer.bServer) {
             GameServer.sendObjectModData(this);
          }
@@ -3704,28 +4072,25 @@ public class IsoObject implements Serializable, Thumpable {
          this.overlaySpriteColor = null;
       }
 
+      if (PerformanceSettings.FBORenderChunk && !GameServer.bServer && Thread.currentThread() == GameWindow.GameThread) {
+         this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+      }
+
       if (!var6) {
          return true;
       } else {
          if (GameServer.bServer) {
             GameServer.updateOverlayForClients(this, var1, var2, var3, var4, var5, (UdpConnection)null);
          } else if (GameClient.bClient) {
-            ByteBufferWriter var8 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.UpdateOverlaySprite.doPacket(var8);
-            GameWindow.WriteStringUTF(var8.bb, var1);
-            var8.putInt(this.getSquare().getX());
-            var8.putInt(this.getSquare().getY());
-            var8.putInt(this.getSquare().getZ());
-            var8.putFloat(var2);
-            var8.putFloat(var3);
-            var8.putFloat(var4);
-            var8.putFloat(var5);
-            var8.putInt(this.getSquare().getObjects().indexOf(this));
-            PacketTypes.PacketType.UpdateOverlaySprite.send(GameClient.connection);
+            INetworkPacket.send(PacketTypes.PacketType.UpdateOverlaySprite, this, var1, var2, var3, var4, var5);
          }
 
          return true;
       }
+   }
+
+   public boolean hasOverlaySprite() {
+      return this.getOverlaySprite() != null;
    }
 
    public boolean haveSpecialTooltip() {
@@ -3755,8 +4120,14 @@ public class IsoObject implements Serializable, Thumpable {
    public void setHighlighted(boolean var1, boolean var2) {
       if (var1) {
          this.highlightFlags = (byte)(this.highlightFlags | 1);
+         if (PerformanceSettings.FBORenderChunk) {
+            FBORenderObjectHighlight.getInstance().registerObject(this);
+         }
       } else {
          this.highlightFlags &= -2;
+         if (PerformanceSettings.FBORenderChunk) {
+            FBORenderObjectHighlight.getInstance().unregisterObject(this);
+         }
       }
 
       if (var2) {
@@ -3797,6 +4168,20 @@ public class IsoObject implements Serializable, Thumpable {
 
    }
 
+   public boolean isSatChair() {
+      return (this.highlightFlags & 8) != 0;
+   }
+
+   public void setSatChair(boolean var1) {
+      if (var1) {
+         this.highlightFlags = (byte)(this.highlightFlags | 8);
+      } else {
+         this.highlightFlags &= -9;
+      }
+
+      this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+   }
+
    public void checkHaveElectricity() {
       if (!GameServer.bServer) {
          ItemContainer var1 = this.getContainerByEitherType("fridge", "freezer");
@@ -3808,6 +4193,7 @@ public class IsoObject implements Serializable, Thumpable {
          }
 
          this.checkAmbientSound();
+         this.checkLightSourceActive();
       }
    }
 
@@ -3964,11 +4350,29 @@ public class IsoObject implements Serializable, Thumpable {
       return this;
    }
 
+   public int getRenderEffectObjectCount() {
+      return 1;
+   }
+
+   public IsoObject getRenderEffectObjectByIndex(int var1) {
+      return this;
+   }
+
    public void setRenderEffect(RenderEffectType var1, boolean var2) {
       if (!GameServer.bServer) {
          IsoObject var3 = this.getRenderEffectMaster();
+         ObjectRenderEffects var4 = var3.objectRenderEffects;
          if (var3.objectRenderEffects == null || var2) {
             var3.objectRenderEffects = ObjectRenderEffects.getNew(this, var1, var2);
+         }
+
+         if (PerformanceSettings.FBORenderChunk && var3.objectRenderEffects != var4) {
+            for(int var5 = 0; var5 < this.getRenderEffectObjectCount(); ++var5) {
+               IsoObject var6 = this.getRenderEffectObjectByIndex(var5);
+               if (var6 != null) {
+                  var6.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+               }
+            }
          }
 
       }
@@ -3978,6 +4382,14 @@ public class IsoObject implements Serializable, Thumpable {
       IsoObject var2 = this.getRenderEffectMaster();
       if (var2.objectRenderEffects != null && var2.objectRenderEffects == var1) {
          var2.objectRenderEffects = null;
+         if (PerformanceSettings.FBORenderChunk) {
+            for(int var3 = 0; var3 < this.getRenderEffectObjectCount(); ++var3) {
+               IsoObject var4 = this.getRenderEffectObjectByIndex(var3);
+               if (var4 != null) {
+                  var4.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+               }
+            }
+         }
       }
 
    }
@@ -3996,25 +4408,44 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public void getSpriteGridObjects(ArrayList<IsoObject> var1) {
-      var1.clear();
-      IsoSprite var2 = this.getSprite();
-      if (var2 != null) {
-         IsoSpriteGrid var3 = var2.getSpriteGrid();
-         if (var3 != null) {
-            int var4 = var3.getSpriteGridPosX(var2);
-            int var5 = var3.getSpriteGridPosY(var2);
-            int var6 = this.getSquare().getX();
-            int var7 = this.getSquare().getY();
-            int var8 = this.getSquare().getZ();
+      this.getSpriteGridObjects(var1, false);
+   }
 
-            for(int var9 = var7 - var5; var9 < var7 - var5 + var3.getHeight(); ++var9) {
-               for(int var10 = var6 - var4; var10 < var6 - var4 + var3.getWidth(); ++var10) {
-                  IsoGridSquare var11 = this.getCell().getGridSquare(var10, var9, var8);
-                  if (var11 != null) {
-                     for(int var12 = 0; var12 < var11.getObjects().size(); ++var12) {
-                        IsoObject var13 = (IsoObject)var11.getObjects().get(var12);
-                        if (var13.getSprite() != null && var13.getSprite().getSpriteGrid() == var3) {
-                           var1.add(var13);
+   public void getSpriteGridObjectsExcludingSelf(ArrayList<IsoObject> var1) {
+      this.getSpriteGridObjects(var1, false);
+   }
+
+   public void getSpriteGridObjectsIncludingSelf(ArrayList<IsoObject> var1) {
+      this.getSpriteGridObjects(var1, true);
+   }
+
+   public void getSpriteGridObjects(ArrayList<IsoObject> var1, boolean var2) {
+      var1.clear();
+      if (var2) {
+         var1.add(this);
+      }
+
+      IsoSprite var3 = this.getSprite();
+      if (var3 != null) {
+         IsoSpriteGrid var4 = var3.getSpriteGrid();
+         if (var4 != null) {
+            int var5 = var4.getSpriteGridPosX(var3);
+            int var6 = var4.getSpriteGridPosY(var3);
+            int var7 = var4.getSpriteGridPosZ(var3);
+            int var8 = this.getSquare().getX();
+            int var9 = this.getSquare().getY();
+            int var10 = this.getSquare().getZ();
+
+            for(int var11 = var10 - var7; var11 < var10 - var7 + var4.getLevels(); ++var11) {
+               for(int var12 = var9 - var6; var12 < var9 - var6 + var4.getHeight(); ++var12) {
+                  for(int var13 = var8 - var5; var13 < var8 - var5 + var4.getWidth(); ++var13) {
+                     IsoGridSquare var14 = this.getCell().getGridSquare(var13, var12, var11);
+                     if (var14 != null) {
+                        for(int var15 = 0; var15 < var14.getObjects().size(); ++var15) {
+                           IsoObject var16 = (IsoObject)var14.getObjects().get(var15);
+                           if ((var16 != this || var2) && var16.getSpriteGrid() == var4) {
+                              var1.add(var16);
+                           }
                         }
                      }
                   }
@@ -4023,6 +4454,36 @@ public class IsoObject implements Serializable, Thumpable {
 
          }
       }
+   }
+
+   public boolean isConnectedSpriteGridObject(IsoObject var1) {
+      if (var1 == null) {
+         return false;
+      } else {
+         IsoSprite var2 = this.getSprite();
+         IsoSprite var3 = var1.getSprite();
+         if (var2 != null && var3 != null) {
+            IsoSpriteGrid var4 = var2.getSpriteGrid();
+            IsoSpriteGrid var5 = var3.getSpriteGrid();
+            if (var4 != null && var4 == var5) {
+               int var6 = this.getSquare().getX() - var4.getSpriteGridPosX(var2);
+               int var7 = this.getSquare().getY() - var4.getSpriteGridPosY(var2);
+               int var8 = this.getSquare().getZ() - var4.getSpriteGridPosZ(var2);
+               int var9 = var1.getSquare().getX() - var5.getSpriteGridPosX(var3);
+               int var10 = var1.getSquare().getY() - var5.getSpriteGridPosY(var3);
+               int var11 = var1.getSquare().getZ() - var5.getSpriteGridPosZ(var3);
+               return var6 == var9 && var7 == var10 && var8 == var11;
+            } else {
+               return false;
+            }
+         } else {
+            return false;
+         }
+      }
+   }
+
+   public boolean isOnScreen() {
+      return this.getSquare() != null && this.getSquare().IsOnScreen();
    }
 
    public final int getOutlineHighlightCol() {
@@ -4069,6 +4530,14 @@ public class IsoObject implements Serializable, Thumpable {
 
    public final void setOutlineHighlight(boolean var1) {
       this.isOutlineHighlight = (byte)(var1 ? -1 : 0);
+      if (var1) {
+         if (PerformanceSettings.FBORenderChunk) {
+            FBORenderObjectOutline.getInstance().registerObject(this);
+         }
+      } else if (PerformanceSettings.FBORenderChunk) {
+         FBORenderObjectOutline.getInstance().unregisterObject(this);
+      }
+
    }
 
    public final void setOutlineHighlight(int var1, boolean var2) {
@@ -4301,11 +4770,645 @@ public class IsoObject implements Serializable, Thumpable {
    }
 
    public boolean isExistInTheWorld() {
-      return this.square.getMovingObjects().contains(this);
+      return this.square != null ? this.square.getObjects().contains(this) : false;
    }
 
    public float getThumpCondition() {
       return (float)PZMath.clamp(this.getDamage(), 0, 100) / 100.0F;
+   }
+
+   public String toString() {
+      String var10000 = this.getName();
+      return var10000 + ":" + (this.getSpriteName() != null ? this.getSpriteName() : "null") + ":" + (this.getSprite() != null ? this.getSprite().getName() : "UNKNOWN") + ":" + super.toString();
+   }
+
+   public GameEntityType getGameEntityType() {
+      return GameEntityType.IsoObject;
+   }
+
+   public long getEntityNetID() {
+      if (this.getObjectIndex() == -1) {
+         this.isoEntityNetID = -1L;
+         return -1L;
+      } else {
+         if (this.isoEntityNetID == -1L || this.lastObjectIndex == -1 || this.lastObjectIndex != this.getObjectIndex()) {
+            this.lastObjectIndex = this.getObjectIndex();
+            long var1 = (long)this.lastObjectIndex << 40;
+            long var3 = (long)this.square.getZ() << 32;
+            long var5 = (long)this.square.getY() << 16;
+            long var7 = (long)this.square.getX();
+            long var9 = var7 + var5 + var3 + var1;
+            GameEntityManager.checkEntityIDChange(this, this.isoEntityNetID, var9);
+            this.isoEntityNetID = var9;
+         }
+
+         return this.isoEntityNetID;
+      }
+   }
+
+   public boolean isEntityValid() {
+      return true;
+   }
+
+   public IsoObject getMasterObject() {
+      SpriteConfig var1 = this.getSpriteConfig();
+      return var1 != null ? var1.getMultiSquareMaster() : this;
+   }
+
+   public boolean isTent() {
+      if (this.getSprite().getProperties() != null && this.getSprite().getProperties().Is("CustomName") && (this.getSprite().getProperties().Val("CustomName").contains("Tent") || this.getSprite().getProperties().Val("CustomName").contains("Shelter"))) {
+         return true;
+      } else if (this.getSprite().getProperties() != null && this.getSprite().getProperties().Is("CustomName") && (this.getSprite().getProperties().Val("CustomName").contains("tent") || this.getSprite().getProperties().Val("CustomName").contains("shelter"))) {
+         return true;
+      } else if (this.getName() != null && (this.getName().contains("Tent") || this.getName().contains("Shelter"))) {
+         return true;
+      } else {
+         return this.getName() != null && (this.getName().contains("tent") || this.getName().contains("shelter"));
+      }
+   }
+
+   public IsoDirections getFacing() {
+      IsoSprite var1 = this.getSprite();
+      return var1 != null ? var1.getFacing() : null;
+   }
+
+   public String getTileName() {
+      if (this.getProperties() != null) {
+         PropertyContainer var1 = this.getProperties();
+         if (var1 != null && var1.Is("CustomName")) {
+            String var2 = "Moveable Object";
+            if (var1.Is("CustomName")) {
+               if (var1.Is("GroupName")) {
+                  String var10000 = var1.Val("GroupName");
+                  var2 = var10000 + " " + var1.Val("CustomName");
+               } else {
+                  var2 = var1.Val("CustomName");
+               }
+            }
+
+            return Translator.getMoveableDisplayName(var2);
+         }
+      }
+
+      return this.getName();
+   }
+
+   public InventoryItem addItemToObjectSurface(String var1) {
+      return this.addItemToObjectSurface(var1, false);
+   }
+
+   public InventoryItem addItemToObjectSurface(String var1, boolean var2) {
+      if (var1 == null) {
+         return null;
+      } else {
+         IsoDirections var3 = this.getFacing();
+         IsoGridSquare var4 = this.getSquare();
+         if (var4 == null) {
+            return null;
+         } else {
+            InventoryItem var5 = null;
+            if (var3 != null) {
+               if (var3 == IsoDirections.E) {
+                  var5 = ItemSpawner.spawnItem(var1, var4, Rand.Next(0.4F, 0.42F), Rand.Next(0.34F, 0.74F), this.getSurfaceOffsetNoTable() / 96.0F);
+               }
+
+               if (var3 == IsoDirections.W) {
+                  var5 = ItemSpawner.spawnItem(var1, var4, Rand.Next(0.6F, 0.64F), Rand.Next(0.34F, 0.74F), this.getSurfaceOffsetNoTable() / 96.0F);
+               }
+
+               if (var3 == IsoDirections.N) {
+                  var5 = ItemSpawner.spawnItem(var1, var4, Rand.Next(0.44F, 0.64F), 0.67F, this.getSurfaceOffsetNoTable() / 96.0F);
+               }
+
+               if (var3 == IsoDirections.S) {
+                  var5 = ItemSpawner.spawnItem(var1, var4, Rand.Next(0.44F, 0.64F), 0.42F, this.getSurfaceOffsetNoTable() / 96.0F);
+               }
+            } else {
+               var5 = ItemSpawner.spawnItem(var1, var4, Rand.Next(0.4F, 0.8F), Rand.Next(0.4F, 0.8F), this.getSurfaceOffsetNoTable() / 96.0F);
+            }
+
+            if (var2) {
+               var5.randomizeWorldZRotation();
+            }
+
+            return var5;
+         }
+      }
+   }
+
+   public ObjectRenderInfo getRenderInfo(int var1) {
+      return this.renderInfo[var1];
+   }
+
+   public void invalidateRenderChunkLevel(long var1) {
+      if (this.getSquare() != null) {
+         this.getSquare().invalidateRenderChunkLevel(var1);
+         IsoGridSquare var3 = this.getRenderSquare();
+         if (var3 != null && var3 != this.getSquare()) {
+            var3.invalidateRenderChunkLevel(var1);
+         }
+
+      }
+   }
+
+   public void invalidateVispolyChunkLevel() {
+      if (this.getSquare() != null) {
+         this.getSquare().invalidateVispolyChunkLevel();
+      }
+   }
+
+   public boolean hasAnimatedAttachments() {
+      boolean var1 = false;
+      if (this.getSprite() != null && this.getProperties().Is(IsoFlagType.HasLightOnSprite)) {
+         var1 = this.shouldShowOnOverlay();
+         if (var1 && this.getOnOverlay() == null && this.sprite.tilesetName != null) {
+            IsoSprite var2 = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(this.sprite.tilesetName + "_on_" + this.sprite.tileSheetIndex);
+            if (var2 != null) {
+               this.setOnOverlay(IsoSpriteInstance.get(var2));
+            }
+         }
+      }
+
+      return var1 && this.getOnOverlay() != null;
+   }
+
+   public void renderAnimatedAttachments(float var1, float var2, float var3, ColorInfo var4) {
+      if (this.getOnOverlay() != null) {
+         float var5 = var4.r;
+         float var6 = var4.g;
+         float var7 = var4.b;
+         float var8 = var4.a;
+         var4.set(1.0F, 1.0F, 1.0F, var4.a);
+         boolean var9 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+         if (var9) {
+            var4.set(this.getHighlightColor());
+            if (this.isBlink()) {
+               var4.a *= Core.blinkAlpha;
+            }
+
+            var4.r = var5 * (1.0F - var4.a) + this.getHighlightColor().r * var4.a;
+            var4.g = var6 * (1.0F - var4.a) + this.getHighlightColor().g * var4.a;
+            var4.b = var7 * (1.0F - var4.a) + this.getHighlightColor().b * var4.a;
+            var4.a = var8;
+         }
+
+         this.getOnOverlay().getParentSprite().render(this.getOnOverlay(), this, var1, var2, var3, this.dir, this.offsetX, this.offsetY + this.getRenderYOffset() * (float)Core.TileScale, var4, true);
+         var4.set(var5, var6, var7, var4.a);
+      }
+   }
+
+   public IsoGridSquare getRenderSquare() {
+      return this.renderSquareOverride != null ? this.renderSquareOverride : this.getSquare();
+   }
+
+   public void setSpriteModelName(String var1) {
+      this.spriteModelName = var1;
+      this.spriteModel = null;
+      this.spriteModelInit = null;
+   }
+
+   public SpriteModel getSpriteModel() {
+      if (this.spriteModelName != null) {
+         if (this.spriteModelInit != this.sprite) {
+            this.spriteModelInit = this.sprite;
+            this.spriteModel = ScriptManager.instance.getSpriteModel(this.spriteModelName);
+         }
+
+         return this.spriteModel;
+      } else if (this.sprite != null && this.sprite.spriteModel != null) {
+         if (this.spriteModelInit != this.sprite) {
+            this.spriteModelInit = this.sprite;
+            this.spriteModel = this.sprite.spriteModel;
+         }
+
+         return this.spriteModel;
+      } else {
+         return null;
+      }
+   }
+
+   protected boolean renderModel(float var1, float var2, float var3, ColorInfo var4) {
+      if (!PerformanceSettings.FBORenderChunk) {
+         return false;
+      } else {
+         SpriteModel var5 = this.getSpriteModel();
+         if (var5 == null) {
+            return false;
+         } else {
+            float var6 = this.sprite.getProperties().isSurfaceOffset() ? (float)this.sprite.getProperties().getSurface() : 0.0F;
+            int var7 = IsoCamera.frameState.playerIndex;
+            boolean var8 = this instanceof IsoDoor;
+            if (this instanceof IsoThumpable) {
+               IsoThumpable var9 = (IsoThumpable)this;
+               var8 |= var9.isDoor;
+            }
+
+            if (var8 && this.square != null && !DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+               var4 = this.square.getLightInfo(var7);
+            }
+
+            ColorInfo var16 = var4;
+            float var10 = var4.a;
+            float var11 = this.getTargetAlpha(IsoCamera.frameState.playerIndex);
+            float var12 = this.getAlpha(IsoCamera.frameState.playerIndex);
+            if (var12 < var11) {
+               var12 += IsoSprite.alphaStep;
+               if (var12 > var11) {
+                  var12 = var11;
+               }
+            } else if (var12 > var11) {
+               var12 -= IsoSprite.alphaStep;
+               if (var12 < var11) {
+                  var12 = var11;
+               }
+            }
+
+            if (var12 < 0.0F) {
+               var12 = 0.0F;
+            }
+
+            if (var12 > 1.0F) {
+               var12 = 1.0F;
+            }
+
+            this.setAlpha(IsoCamera.frameState.playerIndex, var12);
+            var4.a *= this.getAlpha(IsoCamera.frameState.playerIndex);
+            if (DebugOptions.instance.FBORenderChunk.ForceAlphaAndTargetOne.getValue()) {
+               var4.a = 1.0F;
+            }
+
+            boolean var17 = FBORenderObjectHighlight.getInstance().shouldRenderObjectHighlight(this);
+            if (var17) {
+               stCol.set(this.getHighlightColor());
+               if (this.isBlink()) {
+                  ColorInfo var10000 = stCol;
+                  var10000.a *= Core.blinkAlpha;
+               }
+
+               stCol.r = var4.r * (1.0F - stCol.a) + this.getHighlightColor().r * stCol.a;
+               stCol.g = var4.g * (1.0F - stCol.a) + this.getHighlightColor().g * stCol.a;
+               stCol.b = var4.b * (1.0F - stCol.a) + this.getHighlightColor().b * stCol.a;
+               stCol.a = var4.a;
+               var4 = stCol;
+            }
+
+            AnimationPlayer var18 = IsoObjectAnimations.getInstance().getAnimationPlayer(this);
+            IsoObjectModelDrawer.RenderStatus var13;
+            if (var18 == null) {
+               ObjectRenderEffects var14 = this.getObjectRenderEffectsToApply();
+               if (var14 == null) {
+                  var13 = IsoObjectModelDrawer.renderMain(var5, var1, var2, var3, var4, this.getRenderYOffset() + var6);
+                  if (this.isOutlineHighlight(var7)) {
+                     ColorInfo var15 = stCol.setABGR(this.getOutlineHighlightCol(var7));
+                     var15.a = this.isOutlineHlBlink(var7) ? Core.blinkAlpha : 1.0F;
+                     IsoObjectModelDrawer.renderMainOutline(var5, var1, var2, var3, var15, this.getRenderYOffset() + var6);
+                  }
+               } else {
+                  var13 = IsoObjectModelDrawer.renderMain(var5, var1 + (float)var14.x1 * 1.5F, var2 + (float)var14.y1 * 1.5F, var3, var4, this.getRenderYOffset() + var6);
+               }
+            } else {
+               var13 = IsoObjectModelDrawer.renderMain(var5, var1, var2, var3, var4, this.getRenderYOffset() + var6, var18);
+            }
+
+            var16.a = var10;
+            if (var13 == IsoObjectModelDrawer.RenderStatus.Loading && PerformanceSettings.FBORenderChunk && FBORenderChunkManager.instance.isCaching()) {
+               FBORenderCell.instance.handleDelayedLoading(this);
+               return true;
+            } else {
+               return var13 == IsoObjectModelDrawer.RenderStatus.Ready;
+            }
+         }
+      }
+   }
+
+   public boolean isAnimating() {
+      return this.bAnimating;
+   }
+
+   public void setAnimating(boolean var1) {
+      this.bAnimating = var1;
+   }
+
+   public void onAnimationFinished() {
+      this.setAnimating(false);
+   }
+
+   protected void updateRenderInfoForObjectPicker(float var1, float var2, float var3, ColorInfo var4) {
+      float var5 = var1;
+      float var6 = var2;
+      Texture var7 = this.sprite.getTextureForCurrentFrame(this.getDir());
+      if (var7 != null) {
+         IsoSpriteInstance var8 = this.sprite.def;
+         if (Core.TileScale == 2 && var7.getWidthOrig() == 64 && var7.getHeightOrig() == 128) {
+            var8.setScale(2.0F, 2.0F);
+         }
+
+         if (Core.TileScale == 2 && var8.scaleX == 2.0F && var8.scaleY == 2.0F && var7.getWidthOrig() == 128 && var7.getHeightOrig() == 256) {
+            var8.setScale(1.0F, 1.0F);
+         }
+
+         float var9 = var8.scaleX;
+         float var10 = var8.scaleY;
+         if (FBORenderChunkManager.instance.isCaching()) {
+            var1 = PZMath.coordmodulof(var1, 8);
+            var2 = PZMath.coordmodulof(var2, 8);
+            if (this.getSquare() != this.getRenderSquare()) {
+               var1 = var5 - (float)(this.getRenderSquare().chunk.wx * 8);
+               var2 = var6 - (float)(this.getRenderSquare().chunk.wy * 8);
+            }
+
+            this.sx = 0.0F;
+         }
+
+         if (this.sx == 0.0F) {
+            this.sx = IsoUtils.XToScreen(var1 + var8.offX, var2 + var8.offY, var3 + var8.offZ, 0);
+            this.sy = IsoUtils.YToScreen(var1 + var8.offX, var2 + var8.offY, var3 + var8.offZ, 0);
+            this.sx -= this.offsetX;
+            this.sy -= this.offsetY + this.renderYOffset * (float)Core.TileScale;
+         }
+
+         int var11 = IsoCamera.frameState.playerIndex;
+         ObjectRenderInfo var12 = this.getRenderInfo(var11);
+         if (!FBORenderObjectHighlight.getInstance().isRendering() && !FBORenderObjectOutline.getInstance().isRendering()) {
+            if (FBORenderCell.instance.bRenderTranslucentOnly) {
+               var12.m_renderX = this.sx - IsoCamera.frameState.OffX;
+               var12.m_renderY = this.sy - IsoCamera.frameState.OffY;
+            } else if (FBORenderChunkManager.instance.renderChunk.bHighRes) {
+               var12.m_renderX = this.sx + FBORenderChunkManager.instance.getXOffset() - (float)FBORenderChunkManager.instance.renderChunk.w / 4.0F;
+               var12.m_renderY = this.sy + FBORenderChunkManager.instance.getYOffset();
+            } else {
+               var12.m_renderX = this.sx + FBORenderChunkManager.instance.getXOffset();
+               var12.m_renderY = this.sy + FBORenderChunkManager.instance.getYOffset();
+            }
+         } else {
+            boolean var13 = true;
+         }
+
+         var12.m_renderWidth = (float)var7.getWidthOrig() * var9;
+         var12.m_renderHeight = (float)var7.getHeightOrig() * var10;
+         var12.m_renderScaleX = var9;
+         var12.m_renderScaleY = var10;
+         var12.m_renderAlpha = var4.a;
+      }
+   }
+
+   public boolean isGrave() {
+      if (this.getSprite() != null && this.getSprite().getProperties() != null && this.getSprite().getProperties().Is("CustomName") && (((String)Objects.requireNonNull(this.getSprite().getProperties().Val("CustomName"))).contains("Grave") || this.getSprite().getProperties().Val("CustomName").contains("grave"))) {
+         return true;
+      } else {
+         return this.getSprite() != null && this.getSprite().getName() != null && this.getSprite().getName().contains("cemetary");
+      }
+   }
+
+   public IsoSpriteInstance getOnOverlay() {
+      return this.onOverlay;
+   }
+
+   public void setOnOverlay(IsoSpriteInstance var1) {
+      this.onOverlay = var1;
+   }
+
+   public void clearOnOverlay() {
+      if (this.getOnOverlay() != null) {
+         IsoSpriteInstance.add(this.getOnOverlay());
+         this.setOnOverlay((IsoSpriteInstance)null);
+      }
+
+   }
+
+   public boolean shouldShowOnOverlay() {
+      int var1 = IsoCamera.frameState.playerIndex;
+      return this.getSquare() != null && this.getSquare().isSeen(var1) ? ItemContainer.isObjectPowered(this) : false;
+   }
+
+   public IsoLightSource getLightSource() {
+      return this.lightSource;
+   }
+
+   public void setLightSource(IsoLightSource var1) {
+      this.lightSource = var1;
+   }
+
+   protected boolean shouldLightSourceBeActive() {
+      return ItemContainer.isObjectPowered(this);
+   }
+
+   protected void addLightSourceToWorld() {
+      if (!GameServer.bServer) {
+         IsoGridSquare var1 = this.getSquare();
+         if (var1 != null) {
+            if (!(this instanceof IsoFire)) {
+               if (!(this instanceof IsoFireplace)) {
+                  if (!(this instanceof IsoLightSwitch)) {
+                     if (!(this instanceof IsoMovingObject)) {
+                        if (!(this instanceof IsoTelevision)) {
+                           PropertyContainer var2 = this.getProperties();
+                           if (this.lightSource == null && var2 != null && var2.Is("lightR") && var2.Is("lightG") && var2.Is("lightB")) {
+                              float var3 = Float.parseFloat(var2.Val("lightR")) / 255.0F;
+                              float var4 = Float.parseFloat(var2.Val("lightG")) / 255.0F;
+                              float var5 = Float.parseFloat(var2.Val("lightB")) / 255.0F;
+                              int var6 = 10;
+                              if (var2.Is("LightRadius") && Integer.parseInt(var2.Val("LightRadius")) > 0) {
+                                 var6 = Integer.parseInt(this.sprite.getProperties().Val("LightRadius"));
+                              }
+
+                              this.lightSource = new IsoLightSource(var1.getX(), var1.getY(), var1.getZ(), var3, var4, var5, var6);
+                              this.lightSource.bActive = this.shouldLightSourceBeActive();
+                              this.lightSource.bHydroPowered = false;
+                           }
+
+                           if (this.lightSource != null) {
+                              IsoWorld.instance.CurrentCell.addLamppost(this.lightSource);
+                           }
+
+                        }
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   protected void removeLightSourceFromWorld() {
+      if (this.lightSource != null) {
+         IsoWorld.instance.CurrentCell.removeLamppost(this.lightSource);
+         this.lightSource = null;
+      }
+
+   }
+
+   public void checkLightSourceActive() {
+      if (this.getLightSource() != null) {
+         boolean var1 = this.shouldLightSourceBeActive();
+         if (this.getLightSource().isActive() != var1) {
+            this.getLightSource().setActive(var1);
+            IsoGridSquare.setRecalcLightTime(-1.0F);
+            GameTime.instance.lightSourceUpdate = 100.0F;
+         }
+      }
+   }
+
+   public boolean isGenericCraftingSurface() {
+      if (this.getSprite() != null && this.getSprite().getProperties() != null) {
+         PropertyContainer var1 = this.getSprite().getProperties();
+         if (Objects.equals(var1.Val("GenericCraftingSurface"), "true")) {
+            return true;
+         } else if (Objects.equals(var1.Val("GenericCraftingSurface"), "false")) {
+            return false;
+         } else {
+            return var1.getSurface() > 25 && var1.getSurface() < 35 && !var1.isSurfaceOffset();
+         }
+      } else {
+         return false;
+      }
+   }
+
+   public boolean isBush() {
+      return this.sprite != null && "f_bushes_1".equals(this.sprite.tilesetName);
+   }
+
+   public boolean isFascia() {
+      PropertyContainer var1 = this.getProperties();
+      if (var1 == null) {
+         return false;
+      } else {
+         String var2 = var1.Val("FasciaEdge");
+         if (var2 == null) {
+            return false;
+         } else {
+            IsoGridSquare var3 = this.getSquare();
+            IsoGridSquare var6;
+            switch (var2) {
+               case "North":
+                  if (var3.getWallExcludingObject(true, this) != null) {
+                     return false;
+                  }
+                  break;
+               case "South":
+                  var6 = var3.getAdjacentSquare(IsoDirections.S);
+                  if (var6 != null && var6.getWallExcludingObject(true, this) == null) {
+                     break;
+                  }
+
+                  return false;
+               case "East":
+                  var6 = var3.getAdjacentSquare(IsoDirections.E);
+                  if (var6 != null && var6.getWallExcludingObject(false, this) == null) {
+                     break;
+                  }
+
+                  return false;
+               case "West":
+                  if (var3.getWallExcludingObject(false, this) != null) {
+                     return false;
+                  }
+               case "NorthEastCorner":
+               case "SouthEastCorner":
+               case "SouthWestCorner":
+               case "NorthWestCorner":
+            }
+
+            return true;
+         }
+      }
+   }
+
+   public IsoGridSquare getFasciaAttachedSquare() {
+      IsoCell var1 = IsoWorld.instance.CurrentCell;
+      IsoGridSquare var2 = this.getSquare();
+      PropertyContainer var3 = this.getProperties();
+      String var4 = var3.Val("FasciaEdge");
+      boolean var5 = StringUtils.equals(var3.Val("FasciaEdgeReversible"), "true");
+      IsoGridSquare var8;
+      switch (var4) {
+         case "North":
+            var8 = var1.getGridSquare(var2.getX(), var2.getY() - 1, var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+
+            if (var5) {
+               var8 = var1.getGridSquare(var2.getX(), var2.getY(), var2.getZ() + 1);
+               if (var8 != null) {
+                  return var8;
+               }
+            }
+            break;
+         case "South":
+            var8 = var1.getGridSquare(var2.getX(), var2.getY() + 1, var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+            break;
+         case "East":
+            var8 = var1.getGridSquare(var2.getX() + 1, var2.getY(), var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+            break;
+         case "West":
+            var8 = var1.getGridSquare(var2.getX() - 1, var2.getY(), var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+
+            if (var5) {
+               var8 = var1.getGridSquare(var2.getX(), var2.getY(), var2.getZ() + 1);
+               if (var8 != null) {
+                  return var8;
+               }
+            }
+            break;
+         case "NorthEastCorner":
+            var8 = var1.getGridSquare(var2.getX() + 1, var2.getY() - 1, var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+            break;
+         case "SouthEastCorner":
+            var8 = var1.getGridSquare(var2.getX() + 1, var2.getY() + 1, var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+            break;
+         case "SouthWestCorner":
+            var8 = var1.getGridSquare(var2.getX() - 1, var2.getY() + 1, var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+            break;
+         case "NorthWestCorner":
+            var8 = var1.getGridSquare(var2.getX() - 1, var2.getY() - 1, var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+            break;
+         case "NorthAndEast":
+         case "SouthAndEast":
+         case "SouthAndWest":
+         case "NorthAndWest":
+            var8 = var1.getGridSquare(var2.getX(), var2.getY(), var2.getZ() + 1);
+            if (var8 != null) {
+               return var8;
+            }
+      }
+
+      return null;
+   }
+
+   public void setExplored(boolean var1) {
+      if (this.getContainer() != null) {
+         this.getContainer().setExplored(var1);
+      }
+
+      if (this.secondaryContainers != null) {
+         for(int var2 = 0; var2 < this.secondaryContainers.size(); ++var2) {
+            ItemContainer var3 = (ItemContainer)this.secondaryContainers.get(var2);
+            var3.setExplored(var1);
+         }
+      }
+
    }
 
    static {
@@ -4346,13 +5449,13 @@ public class IsoObject implements Serializable, Thumpable {
       }
 
       public void initShader() {
-         this.shaderProgram = ShaderProgram.createShaderProgram("outline", false, true);
+         this.shaderProgram = ShaderProgram.createShaderProgram("outline", false, false, true);
          if (this.shaderProgram.isCompiled()) {
-            this.stepSize = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "stepSize");
-            this.outlineColor = ARBShaderObjects.glGetUniformLocationARB(this.shaderProgram.getShaderID(), "outlineColor");
-            ARBShaderObjects.glUseProgramObjectARB(this.shaderProgram.getShaderID());
-            ARBShaderObjects.glUniform2fARB(this.stepSize, 0.001F, 0.001F);
-            ARBShaderObjects.glUseProgramObjectARB(0);
+            this.stepSize = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "stepSize");
+            this.outlineColor = GL20.glGetUniformLocation(this.shaderProgram.getShaderID(), "outlineColor");
+            ShaderHelper.glUseProgramObjectARB(this.shaderProgram.getShaderID());
+            GL20.glUniform2f(this.stepSize, 0.001F, 0.001F);
+            ShaderHelper.glUseProgramObjectARB(0);
          }
 
       }

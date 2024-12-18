@@ -2,12 +2,12 @@ package zombie.iso.objects;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
 import zombie.GameTime;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
-import zombie.core.raknet.UdpConnection;
+import zombie.core.skinnedmodel.model.ItemModelRenderer;
 import zombie.core.skinnedmodel.model.WorldItemModelDrawer;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
@@ -18,12 +18,12 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
-import zombie.iso.sprite.IsoDirectionFrame;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
-import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
 
 public class IsoCarBatteryCharger extends IsoObject {
    protected InventoryItem item;
@@ -130,7 +130,7 @@ public class IsoCarBatteryCharger extends IsoObject {
          } else {
             this.startChargingSound();
             DrainableComboItem var2 = (DrainableComboItem)this.battery;
-            if (!(var2.getUsedDelta() >= 1.0F)) {
+            if (!(var2.getCurrentUsesFloat() >= 1.0F)) {
                float var3 = (float)GameTime.getInstance().getWorldAgeHours();
                if (this.lastUpdate < 0.0F) {
                   this.lastUpdate = var3;
@@ -142,7 +142,7 @@ public class IsoCarBatteryCharger extends IsoObject {
 
                float var4 = var3 - this.lastUpdate;
                if (var4 > 0.0F) {
-                  var2.setUsedDelta(Math.min(1.0F, var2.getUsedDelta() + this.chargeRate * var4));
+                  var2.setCurrentUses((int)((float)var2.getMaxUses() * Math.min(1.0F, var2.getCurrentUsesFloat() + this.chargeRate * var4)));
                   this.lastUpdate = var3;
                }
 
@@ -153,8 +153,8 @@ public class IsoCarBatteryCharger extends IsoObject {
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       this.chargerSprite = this.configureSprite(this.item, this.chargerSprite);
-      if (this.chargerSprite.CurrentAnim != null && !this.chargerSprite.CurrentAnim.Frames.isEmpty()) {
-         Texture var8 = ((IsoDirectionFrame)this.chargerSprite.CurrentAnim.Frames.get(0)).getTexture(this.dir);
+      if (!this.chargerSprite.hasNoTextures()) {
+         Texture var8 = this.chargerSprite.getTextureForCurrentFrame(this.dir);
          if (var8 != null) {
             float var9 = (float)var8.getWidthOrig() * this.chargerSprite.def.getScaleX() / 2.0F;
             float var10 = (float)var8.getHeightOrig() * this.chargerSprite.def.getScaleY() * 3.0F / 4.0F;
@@ -165,17 +165,27 @@ public class IsoCarBatteryCharger extends IsoObject {
             float var13 = 0.0F;
             this.sx = 0.0F;
             this.item.setWorldZRotation(315);
-            if (!WorldItemModelDrawer.renderMain(this.getItem(), this.getSquare(), this.getX() + var11, this.getY() + var12, this.getZ() + var13, -1.0F)) {
+            ItemModelRenderer.RenderStatus var14 = WorldItemModelDrawer.renderMain(this.getItem(), this.getSquare(), this.getRenderSquare(), this.getX() + var11, this.getY() + var12, this.getZ() + var13, -1.0F, -1.0F, true);
+            if (var14 == ItemModelRenderer.RenderStatus.NoModel || var14 == ItemModelRenderer.RenderStatus.Failed) {
                this.chargerSprite.render(this, var1 + var11, var2 + var12, var3 + var13, this.dir, this.offsetX + var9 + (float)(8 * Core.TileScale), this.offsetY + var10 + (float)(4 * Core.TileScale), var4, true);
+            }
+
+            if (var14 == ItemModelRenderer.RenderStatus.Loading && PerformanceSettings.FBORenderChunk && FBORenderChunkManager.instance.isCaching()) {
+               FBORenderCell.instance.handleDelayedLoading(this);
             }
 
             if (this.battery != null) {
                this.batterySprite = this.configureSprite(this.battery, this.batterySprite);
-               if (this.batterySprite != null && this.batterySprite.CurrentAnim != null && !this.batterySprite.CurrentAnim.Frames.isEmpty()) {
+               if (this.batterySprite != null && !this.batterySprite.hasNoTextures()) {
                   this.sx = 0.0F;
                   this.getBattery().setWorldZRotation(90);
-                  if (!WorldItemModelDrawer.renderMain(this.getBattery(), this.getSquare(), this.getX() + 0.75F, this.getY() + 0.75F, this.getZ() + var13, -1.0F)) {
+                  var14 = WorldItemModelDrawer.renderMain(this.getBattery(), this.getSquare(), this.getRenderSquare(), this.getX() + 0.75F, this.getY() + 0.75F, this.getZ() + var13, -1.0F, -1.0F, true);
+                  if (var14 == ItemModelRenderer.RenderStatus.NoModel || var14 == ItemModelRenderer.RenderStatus.Failed) {
                      this.batterySprite.render(this, var1 + var11, var2 + var12, var3 + var13, this.dir, this.offsetX + var9 - 8.0F + (float)Core.TileScale, this.offsetY + var10 - (float)(4 * Core.TileScale), var4, true);
+                  }
+
+                  if (var14 == ItemModelRenderer.RenderStatus.Loading && PerformanceSettings.FBORenderChunk && FBORenderChunkManager.instance.isCaching()) {
+                     FBORenderCell.instance.handleDelayedLoading(this);
                   }
                }
             }
@@ -206,13 +216,8 @@ public class IsoCarBatteryCharger extends IsoObject {
          var2 = IsoSprite.CreateSprite(IsoSpriteManager.instance);
       }
 
-      if (var2.CurrentAnim == null) {
-         var2.LoadFramesNoDirPageSimple(var4);
-         var2.CurrentAnim.name = var4;
-         var5 = true;
-      } else if (!var4.equals(var2.CurrentAnim.name)) {
-         var2.ReplaceCurrentAnimFrames(var4);
-         var2.CurrentAnim.name = var4;
+      if (var2.CurrentAnim != null || var2.texture != var3) {
+         var2.LoadSingleTexture(var4);
          var5 = true;
       }
 
@@ -253,59 +258,19 @@ public class IsoCarBatteryCharger extends IsoObject {
       var1.putFloat(this.chargeRate);
    }
 
-   public void syncIsoObject(boolean var1, byte var2, UdpConnection var3, ByteBuffer var4) {
-      if (GameClient.bClient && !var1) {
-         ByteBufferWriter var9 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.SyncIsoObject.doPacket(var9);
-         this.syncIsoObjectSend(var9);
-         PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
-      } else {
-         Iterator var5;
-         UdpConnection var6;
-         ByteBufferWriter var7;
-         if (GameServer.bServer && !var1) {
-            var5 = GameServer.udpEngine.connections.iterator();
-
-            while(var5.hasNext()) {
-               var6 = (UdpConnection)var5.next();
-               var7 = var6.startPacket();
-               PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
-               this.syncIsoObjectSend(var7);
-               PacketTypes.PacketType.SyncIsoObject.send(var6);
-            }
-         } else if (var1) {
-            if (var4.get() == 1) {
-               try {
-                  this.battery = InventoryItem.loadItem(var4, 195);
-               } catch (Exception var8) {
-                  var8.printStackTrace();
-               }
-            } else {
-               this.battery = null;
-            }
-
-            this.activated = var4.get() == 1;
-            this.chargeRate = var4.getFloat();
-            if (GameServer.bServer) {
-               var5 = GameServer.udpEngine.connections.iterator();
-
-               while(var5.hasNext()) {
-                  var6 = (UdpConnection)var5.next();
-                  if (var3 != null && var6 != var3) {
-                     var7 = var6.startPacket();
-                     PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
-                     this.syncIsoObjectSend(var7);
-                     PacketTypes.PacketType.SyncIsoObject.send(var6);
-                  }
-               }
-            }
+   public void syncIsoObjectReceive(ByteBuffer var1) {
+      if (var1.get() == 1) {
+         try {
+            this.battery = InventoryItem.loadItem(var1, 219);
+         } catch (Exception var3) {
+            var3.printStackTrace();
          }
+      } else {
+         this.battery = null;
       }
 
-   }
-
-   public void sync() {
-      this.syncIsoObject(false, (byte)0, (UdpConnection)null, (ByteBuffer)null);
+      this.activated = var1.get() == 1;
+      this.chargeRate = var1.getFloat();
    }
 
    public InventoryItem getItem() {
@@ -328,6 +293,7 @@ public class IsoCarBatteryCharger extends IsoObject {
       }
 
       this.battery = var1;
+      this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
    }
 
    public boolean isActivated() {

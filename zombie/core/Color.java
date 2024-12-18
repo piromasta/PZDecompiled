@@ -1,7 +1,10 @@
 package zombie.core;
 
+import java.io.IOException;
 import java.io.Serializable;
+import java.nio.ByteBuffer;
 import zombie.core.math.PZMath;
+import zombie.core.utils.Bits;
 
 public final class Color implements Serializable {
    private static final long serialVersionUID = 1393939L;
@@ -384,6 +387,20 @@ public final class Color implements Serializable {
       return this;
    }
 
+   public void save(ByteBuffer var1) {
+      var1.putFloat(this.r);
+      var1.putFloat(this.g);
+      var1.putFloat(this.b);
+      var1.putFloat(this.a);
+   }
+
+   public void load(ByteBuffer var1, int var2) {
+      this.r = var1.getFloat();
+      this.g = var1.getFloat();
+      this.b = var1.getFloat();
+      this.a = var1.getFloat();
+   }
+
    public int getAlpha() {
       return (int)(this.a * 255.0F);
    }
@@ -534,5 +551,41 @@ public final class Color implements Serializable {
 
    public static Color HSBtoRGB(float var0, float var1, float var2) {
       return HSBtoRGB(var0, var1, var2, new Color());
+   }
+
+   public void saveCompactNoAlpha(ByteBuffer var1) throws IOException {
+      this.saveCompact(var1, false);
+   }
+
+   public void loadCompactNoAlpha(ByteBuffer var1) throws IOException {
+      this.loadCompact(var1, false);
+   }
+
+   public void saveCompact(ByteBuffer var1) throws IOException {
+      this.saveCompact(var1, true);
+   }
+
+   public void loadCompact(ByteBuffer var1) throws IOException {
+      this.loadCompact(var1, true);
+   }
+
+   private void saveCompact(ByteBuffer var1, boolean var2) throws IOException {
+      var1.put(Bits.packFloatUnitToByte(this.r));
+      var1.put(Bits.packFloatUnitToByte(this.g));
+      var1.put(Bits.packFloatUnitToByte(this.b));
+      if (var2) {
+         var1.put(Bits.packFloatUnitToByte(this.a));
+      }
+
+   }
+
+   private void loadCompact(ByteBuffer var1, boolean var2) throws IOException {
+      this.r = Bits.unpackByteToFloatUnit(var1.get());
+      this.g = Bits.unpackByteToFloatUnit(var1.get());
+      this.b = Bits.unpackByteToFloatUnit(var1.get());
+      if (var2) {
+         this.a = Bits.unpackByteToFloatUnit(var1.get());
+      }
+
    }
 }

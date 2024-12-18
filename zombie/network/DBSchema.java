@@ -31,8 +31,8 @@ public class DBSchema {
 
             while(var6.next()) {
                String var8 = var6.getString(4);
-               if (!var8.equals("world") && !var8.equals("moderator") && !var8.equals("admin") && !var8.equals("password") && !var8.equals("encryptedPwd") && !var8.equals("pwdEncryptType") && !var8.equals("transactionID")) {
-                  var7.put(var8, var6.getString(6));
+               if (!var8.equals("world") && !var8.equals("moderator") && !var8.equals("admin") && !var8.equals("password") && !var8.equals("encryptedPwd") && !var8.equals("pwdEncryptType")) {
+                  var7.put(var8, var6.getString(6).split(" ")[0]);
                }
             }
 

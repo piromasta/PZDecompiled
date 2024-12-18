@@ -1,5 +1,8 @@
 package zombie.core.znet;
 
+import zombie.characters.IsoPlayer;
+import zombie.network.GameServer;
+
 public class SteamGameServer {
    public static int STEAM_SERVERS_DISCONNECTED = 0;
    public static int STEAM_SERVERS_CONNECTED = 1;
@@ -39,4 +42,31 @@ public class SteamGameServer {
    public static native int GetSteamServersConnectState();
 
    public static native long GetSteamID();
+
+   private static native void AddPlayer(short var0, String var1, int var2);
+
+   private static native void RemovePlayer(short var0);
+
+   private static native void UpdatePlayer(short var0, int var1);
+
+   public static void AddPlayer(IsoPlayer var0) {
+      if (GameServer.bServer && SteamUtils.isSteamModeEnabled() && var0 != null) {
+         AddPlayer(var0.getOnlineID(), var0.getUsername(), var0.getZombieKills());
+      }
+
+   }
+
+   public static void RemovePlayer(IsoPlayer var0) {
+      if (GameServer.bServer && SteamUtils.isSteamModeEnabled() && var0 != null) {
+         RemovePlayer(var0.getOnlineID());
+      }
+
+   }
+
+   public static void UpdatePlayer(IsoPlayer var0) {
+      if (GameServer.bServer && SteamUtils.isSteamModeEnabled() && var0 != null) {
+         UpdatePlayer(var0.getOnlineID(), var0.getZombieKills());
+      }
+
+   }
 }

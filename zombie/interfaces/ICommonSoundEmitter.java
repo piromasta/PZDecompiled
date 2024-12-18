@@ -25,6 +25,8 @@ public interface ICommonSoundEmitter {
 
    void stopOrTriggerSound(long var1);
 
+   void stopOrTriggerSoundLocal(long var1);
+
    void stopOrTriggerSoundByName(String var1);
 
    boolean isPlaying(long var1);

@@ -1,6 +1,7 @@
 package zombie.core.skinnedmodel.population;
 
 import java.util.List;
+import zombie.SandboxOptions;
 import zombie.core.Color;
 import zombie.core.ImmutableColor;
 import zombie.util.LocationRNG;
@@ -69,10 +70,19 @@ public final class OutfitRNG {
    }
 
    public static ImmutableColor randomImmutableColor() {
-      float var0 = Next(0.0F, 1.0F);
-      float var1 = Next(0.0F, 0.6F);
-      float var2 = Next(0.0F, 0.9F);
-      Color var3 = Color.HSBtoRGB(var0, var1, var2);
-      return new ImmutableColor(var3);
+      return randomImmutableColor(false);
+   }
+
+   public static ImmutableColor randomImmutableColor(boolean var0) {
+      float var1 = Next(0.0F, 1.0F);
+      float var2 = Next(0.0F, 0.6F);
+      float var3 = 0.1F;
+      if (SandboxOptions.instance.NoBlackClothes.getValue() || var0) {
+         var3 = 0.2F;
+      }
+
+      float var4 = Next(var3, 0.9F);
+      Color var5 = Color.HSBtoRGB(var1, var2, var4);
+      return new ImmutableColor(var5);
    }
 }

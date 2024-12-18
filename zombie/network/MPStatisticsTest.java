@@ -4,9 +4,11 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import zombie.core.Rand;
+import zombie.characters.Roles;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.raknet.UdpEngine;
+import zombie.core.random.RandLua;
+import zombie.core.random.RandStandard;
 
 public class MPStatisticsTest {
    private UdpConnection connection;
@@ -17,7 +19,8 @@ public class MPStatisticsTest {
 
    @BeforeClass
    public static void init() {
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       ServerOptions.instance.init();
    }
 
@@ -258,7 +261,7 @@ public class MPStatisticsTest {
       this.connection.pingHistory.addFirst(201L);
       MPStatistics.pingIntervalCount = 1L;
       MPStatistics.pingLimitCount = 0L;
-      this.connection.preferredInQueue = true;
+      this.connection.role = Roles.getDefaultForPriorityUser();
       long var1 = MPStatistics.checkLatest(this.connection, 200L);
       Assert.assertEquals(201L, MPStatistics.checkLatest(this.connection, 200L));
       Assert.assertFalse(MPStatistics.doKickWhileLoading(this.connection, var1));
@@ -269,7 +272,7 @@ public class MPStatisticsTest {
       this.connection.pingHistory.addFirst(201L);
       MPStatistics.pingIntervalCount = 1L;
       MPStatistics.pingLimitCount = 0L;
-      this.connection.accessLevel = 32;
+      this.connection.role = Roles.getDefaultForAdmin();
       long var1 = MPStatistics.checkLatest(this.connection, 200L);
       Assert.assertEquals(201L, MPStatistics.checkLatest(this.connection, 200L));
       Assert.assertFalse(MPStatistics.doKickWhileLoading(this.connection, var1));

@@ -2,7 +2,7 @@ package zombie.core.raknet;
 
 import java.nio.ByteBuffer;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.znet.SteamUtils;
 import zombie.debug.DebugLog;
 import zombie.network.GameServer;

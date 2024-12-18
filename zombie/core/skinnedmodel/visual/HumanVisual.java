@@ -33,11 +33,11 @@ import zombie.scripting.objects.ModelScript;
 import zombie.util.StringUtils;
 import zombie.util.Type;
 
-public final class HumanVisual extends BaseVisual {
+public class HumanVisual extends BaseVisual {
    private final IHumanVisual owner;
    private ImmutableColor skinColor;
    private int skinTexture;
-   private String skinTextureName;
+   protected String skinTextureName;
    public int zombieRotStage;
    private ImmutableColor hairColor;
    private ImmutableColor beardColor;
@@ -204,6 +204,10 @@ public final class HumanVisual extends BaseVisual {
    }
 
    public void setHairColor(ImmutableColor var1) {
+      if (this.beardColor == null) {
+         this.beardColor = new ImmutableColor(this.hairColor);
+      }
+
       this.hairColor = var1;
    }
 
@@ -538,10 +542,7 @@ public final class HumanVisual extends BaseVisual {
 
       this.bodyHair = var1.get();
       this.skinTexture = var1.get();
-      if (var2 >= 156) {
-         this.zombieRotStage = var1.get();
-      }
-
+      this.zombieRotStage = var1.get();
       if ((var3 & 64) != 0) {
          this.skinTextureName = GameWindow.ReadString(var1);
       }
@@ -564,14 +565,12 @@ public final class HumanVisual extends BaseVisual {
          }
       }
 
-      if (var2 >= 163) {
-         var9 = var1.get();
+      var9 = var1.get();
 
-         for(var5 = 0; var5 < var9; ++var5) {
-            var10 = var1.get();
-            if (var5 < this.dirt.length) {
-               this.dirt[var5] = var10;
-            }
+      for(var5 = 0; var5 < var9; ++var5) {
+         var10 = var1.get();
+         if (var5 < this.dirt.length) {
+            this.dirt[var5] = var10;
          }
       }
 
@@ -593,23 +592,21 @@ public final class HumanVisual extends BaseVisual {
       }
 
       this.setNonAttachedHair(GameWindow.ReadString(var1));
-      if (var2 >= 187) {
-         var5 = var1.get() & 255;
-         int var7;
-         int var8;
-         if ((var5 & 4) != 0) {
-            var6 = var1.get() & 255;
-            var7 = var1.get() & 255;
-            var8 = var1.get() & 255;
-            this.naturalHairColor = new ImmutableColor(var6, var7, var8);
-         }
+      var5 = var1.get() & 255;
+      int var7;
+      int var8;
+      if ((var5 & 4) != 0) {
+         var6 = var1.get() & 255;
+         var7 = var1.get() & 255;
+         var8 = var1.get() & 255;
+         this.naturalHairColor = new ImmutableColor(var6, var7, var8);
+      }
 
-         if ((var5 & 2) != 0) {
-            var6 = var1.get() & 255;
-            var7 = var1.get() & 255;
-            var8 = var1.get() & 255;
-            this.naturalBeardColor = new ImmutableColor(var6, var7, var8);
-         }
+      if ((var5 & 2) != 0) {
+         var6 = var1.get() & 255;
+         var7 = var1.get() & 255;
+         var8 = var1.get() & 255;
+         this.naturalBeardColor = new ImmutableColor(var6, var7, var8);
       }
 
    }
@@ -649,13 +646,20 @@ public final class HumanVisual extends BaseVisual {
    }
 
    public void dressInNamedOutfit(String var1, ItemVisuals var2) {
-      var2.clear();
+      this.dressInNamedOutfit(var1, var2, true);
+   }
+
+   public void dressInNamedOutfit(String var1, ItemVisuals var2, boolean var3) {
+      if (var3) {
+         var2.clear();
+      }
+
       if (!StringUtils.isNullOrWhitespace(var1)) {
-         Outfit var3 = this.owner.isFemale() ? OutfitManager.instance.FindFemaleOutfit(var1) : OutfitManager.instance.FindMaleOutfit(var1);
-         if (var3 != null) {
-            Outfit var4 = var3.clone();
-            var4.Randomize();
-            this.dressInOutfit(var4, var2);
+         Outfit var4 = this.owner.isFemale() ? OutfitManager.instance.FindFemaleOutfit(var1) : OutfitManager.instance.FindMaleOutfit(var1);
+         if (var4 != null) {
+            Outfit var5 = var4.clone();
+            var5.Randomize();
+            this.dressInOutfit(var5, var2);
          }
       }
    }
@@ -706,11 +710,28 @@ public final class HumanVisual extends BaseVisual {
          this.addClothingItem(var2, itemVisualLocations, var3, (ClothingItemReference)null);
       }
 
-      for(int var6 = 0; var6 < var1.m_items.size(); ++var6) {
-         ClothingItemReference var4 = (ClothingItemReference)var1.m_items.get(var6);
+      for(int var12 = 0; var12 < var1.m_items.size(); ++var12) {
+         ClothingItemReference var4 = (ClothingItemReference)var1.m_items.get(var12);
          ClothingItem var5 = var4.getClothingItem();
          if (var5 != null && var5.isReady()) {
-            this.addClothingItem(var2, itemVisualLocations, var5.m_Name, var4);
+            ItemVisual var6 = this.addClothingItem(var2, itemVisualLocations, var5.m_Name, var4);
+            if (var6 != null && var5.getSpawnWith().size() > 0) {
+               for(int var7 = 0; var7 < var5.getSpawnWith().size(); ++var7) {
+                  String var8 = var1.m_modID;
+                  if (var8 == null) {
+                     var8 = "game";
+                  }
+
+                  String var9 = var8 + "-" + (String)var5.getSpawnWith().get(var7);
+                  ClothingItem var10 = OutfitManager.instance.getClothingItem(var9);
+                  if (var10 != null && var10 != null && var10.isReady()) {
+                     ItemVisual var11 = this.addClothingItem(var2, itemVisualLocations, var10.m_Name, (ClothingItemReference)null);
+                     if (var11 != null) {
+                        var11.copyVisualFrom(var6);
+                     }
+                  }
+               }
+            }
          }
       }
 
@@ -820,6 +841,17 @@ public final class HumanVisual extends BaseVisual {
             this.getItemVisualLocations(var1, itemVisualLocations);
             return this.addClothingItem(var1, itemVisualLocations, var3.m_Name, (ClothingItemReference)null);
          }
+      }
+   }
+
+   public ItemVisual addClothingItem(ItemVisuals var1, ClothingItem var2) {
+      if (var2 == null) {
+         return null;
+      } else if (!var2.isReady()) {
+         return null;
+      } else {
+         this.getItemVisualLocations(var1, itemVisualLocations);
+         return this.addClothingItem(var1, itemVisualLocations, var2.m_Name, (ClothingItemReference)null);
       }
    }
 

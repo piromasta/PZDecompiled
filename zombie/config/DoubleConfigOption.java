@@ -97,4 +97,10 @@ public class DoubleConfigOption extends ConfigOption {
    public String getTooltip() {
       return String.valueOf(this.value);
    }
+
+   public ConfigOption makeCopy() {
+      DoubleConfigOption var1 = new DoubleConfigOption(this.name, this.min, this.max, this.defaultValue);
+      var1.value = this.value;
+      return var1;
+   }
 }

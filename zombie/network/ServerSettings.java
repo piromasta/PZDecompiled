@@ -82,7 +82,7 @@ public class ServerSettings {
       try {
          File var2 = new File(ServerSettingsManager.instance.getNameInSettingsFolder(var1));
          if (var2.exists()) {
-            DebugLog.log("deleting " + var2.getAbsolutePath());
+            DebugLog.DetailedInfo.trace("deleting " + var2.getAbsolutePath());
             var2.delete();
          }
 

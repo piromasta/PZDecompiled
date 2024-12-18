@@ -15,9 +15,9 @@ import zombie.GameWindow;
 import zombie.SandboxOptions;
 import zombie.Lua.LuaEventManager;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 import zombie.erosion.season.ErosionSeason;
 import zombie.iso.IsoWorld;
@@ -1202,10 +1202,7 @@ public class WeatherPeriod {
                this.weatherStages.add(var9);
             }
 
-            if (var2 >= 170) {
-               this.cloudColor.load(var1, var2);
-            }
-
+            this.cloudColor.load(var1, var2);
             this.linkWeatherStages();
             this.duration = 0.0;
 
@@ -1323,14 +1320,11 @@ public class WeatherPeriod {
          this.lerpMidVal = WeatherPeriod.StrLerpVal.fromValue(var1.readInt());
          this.lerpEndVal = WeatherPeriod.StrLerpVal.fromValue(var1.readInt());
          this.hasStartedCloud = var1.readBoolean();
-         if (var2 >= 141 && var1.readByte() == 1) {
+         if (var1.readByte() == 1) {
             this.modID = GameWindow.ReadString(var1);
          }
 
-         if (var2 >= 170) {
-            this.fogStrength = var1.readFloat();
-         }
-
+         this.fogStrength = var1.readFloat();
       }
 
       protected void reset() {

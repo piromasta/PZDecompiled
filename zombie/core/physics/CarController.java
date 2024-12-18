@@ -6,9 +6,8 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.Moodles.MoodleType;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
-import zombie.debug.DebugLog;
+import zombie.core.random.Rand;
 import zombie.debug.DebugOptions;
 import zombie.debug.LineDrawer;
 import zombie.input.GameKeyboard;
@@ -18,11 +17,11 @@ import zombie.iso.Vector2;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.ServerOptions;
+import zombie.pathfind.VehiclePoly;
 import zombie.scripting.objects.VehicleScript;
 import zombie.ui.UIManager;
 import zombie.vehicles.BaseVehicle;
 import zombie.vehicles.EngineRPMData;
-import zombie.vehicles.PolygonalMap2;
 import zombie.vehicles.TransmissionNumber;
 
 public final class CarController {
@@ -62,7 +61,7 @@ public final class CarController {
       VehicleScript var2 = var1.getScript();
       float var3 = var1.savedPhysicsZ;
       if (Float.isNaN(var3)) {
-         float var4 = Math.max((float)((int)var1.z), 0.0F);
+         float var4 = 0.0F;
          if (var2.getWheelCount() > 0) {
             Vector3f var5 = var2.getModelOffset();
             var4 += var5.y();
@@ -70,14 +69,17 @@ public final class CarController {
          }
 
          float var6 = var2.getCenterOfMassOffset().y() - var2.getExtents().y() / 2.0F;
-         var3 = 0.0F - Math.min(var4, var6);
+         var3 = (float)(PZMath.fastfloor(var1.getZ()) * 3) * 0.8164967F - Math.min(var4, var6);
+         if (var2.getWheelCount() == 0) {
+            var3 = PZMath.max(var3, (float)(PZMath.fastfloor(var1.getZ()) * 3) * 0.8164967F + 0.1F);
+         }
+
          var1.jniTransform.origin.y = var3;
       }
 
       if (!GameServer.bServer) {
-         Bullet.addVehicle(var1.VehicleID, var1.x, var1.y, var3, var1.savedRot.x, var1.savedRot.y, var1.savedRot.z, var1.savedRot.w, var2.getFullName());
+         Bullet.addVehicle(var1.VehicleID, var1.getX(), var1.getY(), var3, var1.savedRot.x, var1.savedRot.y, var1.savedRot.z, var1.savedRot.w, var2.getFullName());
          Bullet.setVehicleStatic(var1, var1.isNetPlayerAuthorization(BaseVehicle.Authorization.Remote));
-         DebugLog.Vehicle.debugln("Vehicle vid=%d type=%s has been added at (%f;%f;%f) auth=%s", var1.VehicleID, var2.getFullName(), var1.x, var1.y, var3, var1.getAuthorizationDescription());
       }
 
    }
@@ -370,7 +372,7 @@ public final class CarController {
 
    private void updateRegulator() {
       if (this.regulatorTimer > 0.0F) {
-         this.regulatorTimer -= GameTime.getInstance().getMultiplier() / 1.6F;
+         this.regulatorTimer -= GameTime.getInstance().getThirtyFPSMultiplier();
       }
 
       if (this.clientControls.shift) {
@@ -500,12 +502,7 @@ public final class CarController {
                var7 = 3000.0F * var1 / 200.0F;
             }
 
-            if (var4) {
-               if (var7 > 6000.0F) {
-                  this.vehicleObject.changeTransmission(this.vehicleObject.transmissionNumber.getNext(var6));
-                  var8 = true;
-               }
-            } else if (var7 > 3000.0F) {
+            if (var7 > 3000.0F) {
                this.vehicleObject.changeTransmission(this.vehicleObject.transmissionNumber.getNext(var6));
                var8 = true;
             }
@@ -518,11 +515,7 @@ public final class CarController {
          }
       }
 
-      if (var4) {
-         if (this.vehicleObject.engineSpeed > 6000.0 && this.vehicleObject.transmissionChangeTime.Check()) {
-            this.vehicleObject.changeTransmission(this.vehicleObject.transmissionNumber.getNext(var6));
-         }
-      } else if (this.vehicleObject.engineSpeed > 3000.0 && this.vehicleObject.transmissionChangeTime.Check()) {
+      if (this.vehicleObject.engineSpeed > 3000.0 && this.vehicleObject.transmissionChangeTime.Check()) {
          this.vehicleObject.changeTransmission(this.vehicleObject.transmissionNumber.getNext(var6));
       }
 
@@ -591,9 +584,9 @@ public final class CarController {
       }
 
       if (var5) {
-         this.EngineForce *= 0.6F;
-         if (var1 > 20.0F) {
-            this.EngineForce *= (40.0F - var1) / 20.0F;
+         this.EngineForce *= 0.75F;
+         if (var1 > this.vehicleObject.getMaxSpeed() * 0.6F) {
+            this.EngineForce *= (this.vehicleObject.getMaxSpeed() * 0.75F + 20.0F - var1) / 20.0F;
          }
       }
 
@@ -733,9 +726,9 @@ public final class CarController {
       }
 
       if (var5) {
-         this.EngineForce *= 0.6F;
-         if (var1 > 20.0F) {
-            this.EngineForce *= (40.0F - var1) / 20.0F;
+         this.EngineForce *= 0.75F;
+         if (var1 > this.vehicleObject.getMaxSpeed() * 0.6F) {
+            this.EngineForce *= (this.vehicleObject.getMaxSpeed() * 0.75F + 20.0F - var1) / 20.0F;
          }
       }
 
@@ -789,8 +782,8 @@ public final class CarController {
          }
       }
 
-      if (var1 < -30.0F) {
-         this.EngineForce *= (40.0F + var1) / 10.0F;
+      if (var1 < -1.0F * this.vehicleObject.getScript().maxSpeedReverse) {
+         this.EngineForce = 0.0F;
       }
 
       this.BrakingForce = 0.0F;
@@ -913,12 +906,12 @@ public final class CarController {
          boolean var5;
          boolean var6;
          if (this.vehicleObject.isKeyboardControlled()) {
-            boolean var1 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Left"));
-            var2 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Right"));
-            var3 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Forward"));
-            var4 = GameKeyboard.isKeyDown(Core.getInstance().getKey("Backward"));
-            var5 = GameKeyboard.isKeyDown(57);
-            var6 = GameKeyboard.isKeyDown(42);
+            boolean var1 = GameKeyboard.isKeyDown("Left");
+            var2 = GameKeyboard.isKeyDown("Right");
+            var3 = GameKeyboard.isKeyDown("Forward");
+            var4 = GameKeyboard.isKeyDown("Backward");
+            var5 = GameKeyboard.isKeyDown("Brake");
+            var6 = GameKeyboard.isKeyDown("CruiseControl");
             this.clientControls.steering = 0.0F;
             if (var1) {
                --this.clientControls.steering;
@@ -1023,61 +1016,62 @@ public final class CarController {
    public void debug() {
       if (Core.bDebug && DebugOptions.instance.VehicleRenderOutline.getValue()) {
          VehicleScript var1 = this.vehicleObject.getScript();
-         Vector3f var2 = this.tempVec3f;
-         this.vehicleObject.getForwardVector(var2);
-         Transform var3 = this.tempXfrm;
-         this.vehicleObject.getWorldTransform(var3);
-         PolygonalMap2.VehiclePoly var4 = this.vehicleObject.getPoly();
-         LineDrawer.addLine(var4.x1, var4.y1, 0.0F, var4.x2, var4.y2, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
-         LineDrawer.addLine(var4.x2, var4.y2, 0.0F, var4.x3, var4.y3, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
-         LineDrawer.addLine(var4.x3, var4.y3, 0.0F, var4.x4, var4.y4, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
-         LineDrawer.addLine(var4.x4, var4.y4, 0.0F, var4.x1, var4.y1, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
+         int var2 = PZMath.fastfloor(this.vehicleObject.getZ());
+         Vector3f var3 = this.tempVec3f;
+         this.vehicleObject.getForwardVector(var3);
+         Transform var4 = this.tempXfrm;
+         this.vehicleObject.getWorldTransform(var4);
+         VehiclePoly var5 = this.vehicleObject.getPoly();
+         LineDrawer.addLine(var5.x1, var5.y1, (float)var2, var5.x2, var5.y2, (float)var2, 1.0F, 1.0F, 1.0F, (String)null, true);
+         LineDrawer.addLine(var5.x2, var5.y2, (float)var2, var5.x3, var5.y3, (float)var2, 1.0F, 1.0F, 1.0F, (String)null, true);
+         LineDrawer.addLine(var5.x3, var5.y3, (float)var2, var5.x4, var5.y4, (float)var2, 1.0F, 1.0F, 1.0F, (String)null, true);
+         LineDrawer.addLine(var5.x4, var5.y4, (float)var2, var5.x1, var5.y1, (float)var2, 1.0F, 1.0F, 1.0F, (String)null, true);
          _UNIT_Y.set(0.0F, 1.0F, 0.0F);
 
-         float var6;
          float var7;
-         int var9;
-         for(var9 = 0; var9 < this.vehicleObject.getScript().getWheelCount(); ++var9) {
-            VehicleScript.Wheel var5 = var1.getWheel(var9);
-            this.tempVec3f.set(var5.getOffset());
+         float var8;
+         int var10;
+         for(var10 = 0; var10 < this.vehicleObject.getScript().getWheelCount(); ++var10) {
+            VehicleScript.Wheel var6 = var1.getWheel(var10);
+            this.tempVec3f.set(var6.getOffset());
             if (var1.getModel() != null) {
                this.tempVec3f.add(var1.getModelOffset());
             }
 
             this.vehicleObject.getWorldPos(this.tempVec3f, this.tempVec3f);
-            var6 = this.tempVec3f.x;
-            var7 = this.tempVec3f.y;
-            this.vehicleObject.getWheelForwardVector(var9, this.tempVec3f);
-            LineDrawer.addLine(var6, var7, 0.0F, var6 + this.tempVec3f.x, var7 + this.tempVec3f.z, 0.0F, 1.0F, 1.0F, 1.0F, (String)null, true);
-            this.drawRect(this.tempVec3f, var6 - WorldSimulation.instance.offsetX, var7 - WorldSimulation.instance.offsetY, var5.width, var5.radius);
+            var7 = this.tempVec3f.x;
+            var8 = this.tempVec3f.y;
+            this.vehicleObject.getWheelForwardVector(var10, this.tempVec3f);
+            LineDrawer.addLine(var7, var8, (float)var2, var7 + this.tempVec3f.x, var8 + this.tempVec3f.z, (float)var2, 1.0F, 1.0F, 1.0F, (String)null, true);
+            this.drawRect(this.tempVec3f, var7 - WorldSimulation.instance.offsetX, var8 - WorldSimulation.instance.offsetY, var6.width, var6.radius);
          }
 
          if (this.vehicleObject.collideX != -1.0F) {
-            this.vehicleObject.getForwardVector(var2);
+            this.vehicleObject.getForwardVector(var3);
             this.drawCircle(this.vehicleObject.collideX, this.vehicleObject.collideY, 0.3F);
             this.vehicleObject.collideX = -1.0F;
             this.vehicleObject.collideY = -1.0F;
          }
 
-         var9 = this.vehicleObject.getJoypad();
-         float var10;
-         if (var9 != -1) {
-            var10 = JoypadManager.instance.getMovementAxisX(var9);
-            var6 = JoypadManager.instance.getMovementAxisY(var9);
-            var7 = JoypadManager.instance.getDeadZone(var9, 0);
-            if (Math.abs(var6) > var7 || Math.abs(var10) > var7) {
-               Vector2 var8 = this.tempVec2.set(var10, var6);
-               var8.setLength(4.0F);
-               var8.rotate(-0.7853982F);
-               LineDrawer.addLine(this.vehicleObject.getX(), this.vehicleObject.getY(), this.vehicleObject.z, this.vehicleObject.getX() + var8.x, this.vehicleObject.getY() + var8.y, this.vehicleObject.z, 1.0F, 1.0F, 1.0F, (String)null, true);
+         var10 = this.vehicleObject.getJoypad();
+         float var11;
+         if (var10 != -1) {
+            var11 = JoypadManager.instance.getMovementAxisX(var10);
+            var7 = JoypadManager.instance.getMovementAxisY(var10);
+            var8 = JoypadManager.instance.getDeadZone(var10, 0);
+            if (Math.abs(var7) > var8 || Math.abs(var11) > var8) {
+               Vector2 var9 = this.tempVec2.set(var11, var7);
+               var9.setLength(4.0F);
+               var9.rotate(-0.7853982F);
+               LineDrawer.addLine(this.vehicleObject.getX(), this.vehicleObject.getY(), this.vehicleObject.getZ(), this.vehicleObject.getX() + var9.x, this.vehicleObject.getY() + var9.y, this.vehicleObject.getZ(), 1.0F, 1.0F, 1.0F, (String)null, true);
             }
          }
 
-         var10 = this.vehicleObject.x;
-         var6 = this.vehicleObject.y;
-         var7 = this.vehicleObject.z;
-         LineDrawer.DrawIsoLine(var10 - 0.5F, var6, var7, var10 + 0.5F, var6, var7, 1.0F, 1.0F, 1.0F, 0.25F, 1);
-         LineDrawer.DrawIsoLine(var10, var6 - 0.5F, var7, var10, var6 + 0.5F, var7, 1.0F, 1.0F, 1.0F, 0.25F, 1);
+         var11 = this.vehicleObject.getX();
+         var7 = this.vehicleObject.getY();
+         var8 = this.vehicleObject.getZ();
+         LineDrawer.addLine(var11 - 0.5F, var7, var8, var11 + 0.5F, var7, var8, 1.0F, 1.0F, 1.0F, (String)null, true);
+         LineDrawer.addLine(var11, var7 - 0.5F, var8, var11, var7 + 0.5F, var8, 1.0F, 1.0F, 1.0F, (String)null, true);
       }
    }
 
@@ -1116,10 +1110,11 @@ public final class CarController {
       var22 += WorldSimulation.instance.offsetY;
       var21 += WorldSimulation.instance.offsetX;
       var23 += WorldSimulation.instance.offsetY;
-      LineDrawer.addLine(var18, var24, 0.0F, var19, var25, 0.0F, var6, var7, var8, (String)null, true);
-      LineDrawer.addLine(var18, var24, 0.0F, var20, var22, 0.0F, var6, var7, var8, (String)null, true);
-      LineDrawer.addLine(var19, var25, 0.0F, var21, var23, 0.0F, var6, var7, var8, (String)null, true);
-      LineDrawer.addLine(var20, var22, 0.0F, var21, var23, 0.0F, var6, var7, var8, (String)null, true);
+      int var26 = PZMath.fastfloor(this.vehicleObject.getZ());
+      LineDrawer.addLine(var18, var24, (float)var26, var19, var25, (float)var26, var6, var7, var8, (String)null, true);
+      LineDrawer.addLine(var18, var24, (float)var26, var20, var22, (float)var26, var6, var7, var8, (String)null, true);
+      LineDrawer.addLine(var19, var25, (float)var26, var21, var23, (float)var26, var6, var7, var8, (String)null, true);
+      LineDrawer.addLine(var20, var22, (float)var26, var21, var23, (float)var26, var6, var7, var8, (String)null, true);
       var1.set(var9, var10, var11);
    }
 
@@ -1128,7 +1123,7 @@ public final class CarController {
    }
 
    public void drawCircle(float var1, float var2, float var3, float var4, float var5, float var6, float var7) {
-      LineDrawer.DrawIsoCircle(var1, var2, 0.0F, var3, 16, var4, var5, var6, var7);
+      LineDrawer.DrawIsoCircle(var1, var2, this.vehicleObject.getZ(), var3, 16, var4, var5, var6, var7);
    }
 
    static {

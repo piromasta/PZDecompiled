@@ -9,6 +9,7 @@ import zombie.characterTextures.BloodClothingType;
 import zombie.characters.IsoGameCharacter;
 import zombie.core.Translator;
 import zombie.core.math.PZMath;
+import zombie.debug.DebugLog;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemContainer;
 import zombie.scripting.objects.Item;
@@ -19,6 +20,7 @@ public final class InventoryContainer extends InventoryItem {
    int capacity = 0;
    int weightReduction = 0;
    private String CanBeEquipped = "";
+   private int MAX_CAPACITY_BAG = 50;
 
    public InventoryContainer(String var1, String var2, String var3, String var4) {
       super(var1, var2, var3, var4);
@@ -68,7 +70,12 @@ public final class InventoryContainer extends InventoryItem {
    }
 
    public int getCapacity() {
-      return this.container.getCapacity();
+      int var1 = this.container.getCapacity();
+      if ((float)var1 > (float)this.MAX_CAPACITY_BAG - this.ActualWeight) {
+         var1 = (int)((float)this.MAX_CAPACITY_BAG - this.ActualWeight);
+      }
+
+      return var1;
    }
 
    public void setCapacity(int var1) {
@@ -77,7 +84,15 @@ public final class InventoryContainer extends InventoryItem {
          this.container = new ItemContainer();
       }
 
-      this.container.Capacity = var1;
+      if ((float)var1 > (float)this.MAX_CAPACITY_BAG - this.ActualWeight) {
+         DebugLog.General.warn("Attempting to set capacity of " + this + "over maximum capacity of " + ((float)this.MAX_CAPACITY_BAG - this.ActualWeight));
+      }
+
+      this.container.setCapacity(var1);
+   }
+
+   public float getMaxItemSize() {
+      return this.getScriptItem().getMaxItemSize();
    }
 
    public float getInventoryWeight() {
@@ -101,7 +116,12 @@ public final class InventoryContainer extends InventoryItem {
    }
 
    public int getEffectiveCapacity(IsoGameCharacter var1) {
-      return this.container.getEffectiveCapacity(var1);
+      int var2 = this.container.getEffectiveCapacity(var1);
+      if ((float)var2 > (float)this.MAX_CAPACITY_BAG - this.ActualWeight) {
+         var2 = (int)((float)this.MAX_CAPACITY_BAG - this.ActualWeight);
+      }
+
+      return var2;
    }
 
    public int getWeightReduction() {
@@ -134,7 +154,7 @@ public final class InventoryContainer extends InventoryItem {
       }
 
       if (!this.getItemContainer().getItems().isEmpty()) {
-         int var3 = 5;
+         int var3 = var1.padLeft;
          var2 += 4;
          HashSet var4 = new HashSet();
 
@@ -178,6 +198,12 @@ public final class InventoryContainer extends InventoryItem {
          var3 = var2.addItem();
          var3.setLabel(Translator.getText("Tooltip_container_Weight_Reduction") + ":", 1.0F, 1.0F, 1.0F, 1.0F);
          var3.setValueRightNoPlus(this.getWeightReduction());
+      }
+
+      if (this.getMaxItemSize() != 0.0F) {
+         var3 = var2.addItem();
+         var3.setLabel(Translator.getText("Tooltip_container_Max_Item_Size") + ":", 1.0F, 1.0F, 1.0F, 1.0F);
+         var3.setValueRightNoPlus(this.getMaxItemSize());
       }
 
       if (this.getBloodClothingType() != null) {
@@ -242,5 +268,14 @@ public final class InventoryContainer extends InventoryItem {
 
    public String getClothingExtraSubmenu() {
       return this.ScriptItem.clothingExtraSubmenu;
+   }
+
+   public void reset() {
+      super.reset();
+      this.container.reset();
+   }
+
+   public boolean isEmpty() {
+      return this.container.isEmpty();
    }
 }

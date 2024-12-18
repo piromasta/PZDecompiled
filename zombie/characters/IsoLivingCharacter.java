@@ -1,28 +1,33 @@
 package zombie.characters;
 
+import zombie.CombatManager;
 import zombie.WorldSoundManager;
 import zombie.Lua.LuaHookManager;
 import zombie.ai.states.SwipeStatePlayer;
 import zombie.characters.Moodles.MoodleType;
-import zombie.characters.skills.PerkFactory;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.types.HandWeapon;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.Vector2;
-import zombie.network.packets.hit.AttackVars;
 import zombie.ui.UIManager;
+import zombie.util.Type;
 
 public class IsoLivingCharacter extends IsoGameCharacter {
    public float useChargeDelta = 0.0F;
    public final HandWeapon bareHands = (HandWeapon)InventoryItemFactory.CreateItem("Base.BareHands");
-   public boolean bDoShove = false;
+   private boolean bDoShove = false;
    public boolean bCollidedWithPushable = false;
    public IsoGameCharacter targetOnGround;
 
    public IsoLivingCharacter(IsoCell var1, float var2, float var3, float var4) {
       super(var1, var2, var3, var4);
+      this.registerVariableCallbacks();
+   }
+
+   private void registerVariableCallbacks() {
+      this.setVariable("bDoShove", this::isDoShove);
    }
 
    public boolean isCollidedWithPushableThisFrame() {
@@ -38,9 +43,9 @@ public class IsoLivingCharacter extends IsoGameCharacter {
       }
 
       if (var2 != this.bareHands && this instanceof IsoPlayer) {
-         AttackVars var3 = new AttackVars();
-         SwipeStatePlayer.instance().CalcAttackVars(this, var3);
-         this.setDoShove(var3.bDoShove);
+         CombatManager.getInstance().calculateAttackVars(this);
+         this.setDoShove(this.attackVars.bDoShove);
+         this.setDoGrapple(this.attackVars.bDoGrapple);
          if (LuaHookManager.TriggerHook("Attack", this, var1, var2)) {
             return false;
          }
@@ -56,7 +61,7 @@ public class IsoLivingCharacter extends IsoGameCharacter {
          if (this.leftHandItem != null) {
             InventoryItem var2 = this.leftHandItem;
             if (var2 instanceof HandWeapon) {
-               this.useHandWeapon = (HandWeapon)var2;
+               this.setUseHandWeapon((HandWeapon)var2);
                if (this.useHandWeapon.getCondition() <= 0) {
                   return false;
                }
@@ -67,21 +72,18 @@ public class IsoLivingCharacter extends IsoGameCharacter {
                }
 
                int var4 = 0;
-               int var5;
                if (this.useHandWeapon.isRanged()) {
-                  var5 = this.useHandWeapon.getRecoilDelay();
-                  Float var6 = (float)var5 * (1.0F - (float)this.getPerkLevel(PerkFactory.Perks.Aiming) / 30.0F);
-                  this.setRecoilDelay((float)var6.intValue());
+                  this.setRecoilDelay((float)this.useHandWeapon.getRecoilDelay(this));
                }
 
                if (this instanceof IsoSurvivor && this.useHandWeapon.isRanged() && var4 < this.useHandWeapon.getMaxHitCount()) {
-                  for(var5 = 0; var5 < this.getCell().getObjectList().size(); ++var5) {
-                     IsoMovingObject var13 = (IsoMovingObject)this.getCell().getObjectList().get(var5);
-                     if (var13 != this && var13.isShootable() && this.IsAttackRange(var13.getX(), var13.getY(), var13.getZ())) {
+                  for(int var5 = 0; var5 < this.getCell().getObjectList().size(); ++var5) {
+                     IsoMovingObject var6 = (IsoMovingObject)this.getCell().getObjectList().get(var5);
+                     if (var6 != this && var6.isShootable() && this.IsAttackRange(var6.getX(), var6.getY(), var6.getZ())) {
                         float var7 = 1.0F;
                         if (var7 > 0.0F) {
                            Vector2 var8 = new Vector2(this.getX(), this.getY());
-                           Vector2 var9 = new Vector2(var13.getX(), var13.getY());
+                           Vector2 var9 = new Vector2(var6.getX(), var6.getY());
                            var9.x -= var8.x;
                            var9.y -= var8.y;
                            boolean var10 = false;
@@ -128,34 +130,34 @@ public class IsoLivingCharacter extends IsoGameCharacter {
                   return false;
                }
 
-               if (this.useHandWeapon.getOtherHandRequire() != null && (this.rightHandItem == null || !this.rightHandItem.getType().equals(this.useHandWeapon.getOtherHandRequire()))) {
-                  return false;
-               }
-
-               if (!this.useHandWeapon.isRanged()) {
-                  this.getEmitter().playSound(this.useHandWeapon.getSwingSound(), this);
-                  WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), this.useHandWeapon.getSoundRadius(), this.useHandWeapon.getSoundVolume());
-               }
-
-               this.AttackWasSuperAttack = this.superAttack;
-               this.changeState(SwipeStatePlayer.instance());
-               if (this.useHandWeapon.getAmmoType() != null) {
-                  if (this instanceof IsoPlayer) {
-                     IsoPlayer.getInstance().inventory.RemoveOneOf(this.useHandWeapon.getAmmoType());
-                  } else {
-                     this.inventory.RemoveOneOf(this.useHandWeapon.getAmmoType());
+               if (this.useHandWeapon.getOtherHandRequire() == null || this.rightHandItem != null && (this.rightHandItem.getType().equals(this.useHandWeapon.getOtherHandRequire()) || this.rightHandItem.hasTag(this.useHandWeapon.getOtherHandRequire())) && this.rightHandItem.getCurrentUses() != 0) {
+                  if (!this.useHandWeapon.isRanged()) {
+                     this.getEmitter().playSound(this.useHandWeapon.getSwingSound(), this);
+                     WorldSoundManager.instance.addSound(this, (int)this.getX(), (int)this.getY(), (int)this.getZ(), this.useHandWeapon.getSoundRadius(), this.useHandWeapon.getSoundVolume());
                   }
+
+                  this.AttackWasSuperAttack = this.superAttack;
+                  this.changeState(SwipeStatePlayer.instance());
+                  if (this.useHandWeapon.getAmmoType() != null) {
+                     if (this instanceof IsoPlayer) {
+                        IsoPlayer.getInstance().inventory.RemoveOneOf(this.useHandWeapon.getAmmoType());
+                     } else {
+                        this.inventory.RemoveOneOf(this.useHandWeapon.getAmmoType());
+                     }
+                  }
+
+                  if (this.useHandWeapon.isUseSelf() && this.leftHandItem != null) {
+                     this.leftHandItem.Use();
+                  }
+
+                  if (this.useHandWeapon.isOtherHandUse() && this.rightHandItem != null) {
+                     this.rightHandItem.Use();
+                  }
+
+                  return true;
                }
 
-               if (this.useHandWeapon.isUseSelf() && this.leftHandItem != null) {
-                  this.leftHandItem.Use();
-               }
-
-               if (this.useHandWeapon.isOtherHandUse() && this.rightHandItem != null) {
-                  this.rightHandItem.Use();
-               }
-
-               return true;
+               return false;
             }
          }
 
@@ -169,5 +171,38 @@ public class IsoLivingCharacter extends IsoGameCharacter {
 
    public void setDoShove(boolean var1) {
       this.bDoShove = var1;
+   }
+
+   public HandWeapon getAttackingWeapon() {
+      if (this.isDoHandToHandAttack()) {
+         return this.bareHands;
+      } else {
+         HandWeapon var1 = this.getUseHandWeapon();
+         if (var1 != null) {
+            return var1;
+         } else {
+            InventoryItem var2 = this.getPrimaryHandItem();
+            HandWeapon var3 = (HandWeapon)Type.tryCastTo(var2, HandWeapon.class);
+            return var3 == null ? this.bareHands : var3;
+         }
+      }
+   }
+
+   public void clearHandToHandAttack() {
+      this.setDoShove(false);
+      this.setForceShove(false);
+      this.setDoGrapple(false);
+   }
+
+   public boolean isDoHandToHandAttack() {
+      return this.isDoShove() || this.isForceShove() || this.isDoGrapple();
+   }
+
+   public boolean isShovingWhileAiming() {
+      return this.isAiming() && (this.isDoShove() || this.isForceShove());
+   }
+
+   public boolean isGrapplingWhileAiming() {
+      return this.isAiming() && this.isDoGrapple();
    }
 }

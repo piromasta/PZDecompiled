@@ -14,6 +14,7 @@ public final class SleepingEventData {
    protected boolean bWasRainingAtStart = false;
    protected double rainTimeStartHours = -1.0;
    protected float sleepingTime = 8.0F;
+   protected boolean bFastWakeup = false;
 
    public SleepingEventData() {
    }
@@ -28,6 +29,7 @@ public final class SleepingEventData {
       this.bWasRainingAtStart = false;
       this.rainTimeStartHours = -1.0;
       this.sleepingTime = 8.0F;
+      this.bFastWakeup = false;
    }
 
    public double getHoursSinceRainStarted() {

@@ -12,7 +12,6 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import zombie.GameTime;
 import zombie.GameWindow;
-import zombie.SoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
@@ -33,8 +32,8 @@ import zombie.iso.IsoWorld;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
-import zombie.network.packets.VehicleAuthorizationPacket;
-import zombie.network.packets.vehicle.Physics;
+import zombie.network.packets.vehicle.AuthorizationPacket;
+import zombie.network.packets.vehicle.PhysicsPacket;
 import zombie.scripting.objects.VehicleScript;
 import zombie.util.Type;
 
@@ -188,7 +187,7 @@ public final class VehicleManager {
                this.registerVehicle(var5);
             }
 
-            if (var1.RelevantTo(var5.x, var5.y)) {
+            if (var1.RelevantTo(var5.getX(), var5.getY())) {
                if (var5.connectionState[var1.index] == null) {
                   var5.connectionState[var1.index] = new BaseVehicle.ServerVehicleState();
                }
@@ -224,8 +223,8 @@ public final class VehicleManager {
                BaseVehicle.ServerVehicleState var8 = var7.connectionState[var1.index];
                var5.putShort(var7.VehicleID);
                var5.putShort(var8.flags);
-               var5.putFloat(var7.x);
-               var5.putFloat(var7.y);
+               var5.putFloat(var7.getX());
+               var5.putFloat(var7.getY());
                var5.putFloat(var7.jniTransform.origin.y);
                int var9 = var5.position();
                var5.putShort((short)0);
@@ -250,15 +249,15 @@ public final class VehicleManager {
                   var5.putShort((short)var15);
                   var5.position(var24);
                   this.writePositionOrientation(var5, var7);
-                  var8.x = var7.x;
-                  var8.y = var7.y;
+                  var8.x = var7.getX();
+                  var8.y = var7.getY();
                   var8.z = var7.jniTransform.origin.y;
                   var8.orient.set(var7.savedRot);
                } else {
                   if ((var8.flags & 2) != 0) {
                      this.writePositionOrientation(var5, var7);
-                     var8.x = var7.x;
-                     var8.y = var7.y;
+                     var8.x = var7.getX();
+                     var8.y = var7.getY();
                      var8.z = var7.jniTransform.origin.y;
                      var8.orient.set(var7.savedRot);
                   }
@@ -345,7 +344,7 @@ public final class VehicleManager {
                            var14 = var13.getInventoryItem();
                            if (var14 instanceof DrainableComboItem) {
                               var5.put((byte)var23);
-                              var5.putFloat(((DrainableComboItem)var14).getUsedDelta());
+                              var5.putFloat(((DrainableComboItem)var14).getCurrentUsesFloat());
                            }
                         }
                      }
@@ -428,7 +427,7 @@ public final class VehicleManager {
             BaseVehicle var19 = (BaseVehicle)var2.get(var18);
             BaseVehicle.ServerVehicleState var20 = var19.connectionState[var1.index];
             if ((var20.flags & 16384) != 0) {
-               VehicleAuthorizationPacket var21 = new VehicleAuthorizationPacket();
+               AuthorizationPacket var21 = new AuthorizationPacket();
                var21.set(var19, var1);
                ByteBufferWriter var22 = var1.startPacket();
                PacketTypes.PacketType.VehicleAuthorization.doPacket(var22);
@@ -444,107 +443,107 @@ public final class VehicleManager {
       byte var4 = var1.get();
       short var5;
       int var6;
-      short var17;
+      BaseVehicle var8;
+      IsoPlayer var10;
+      short var16;
+      byte var17;
       String var10001;
-      byte var18;
-      BaseVehicle var19;
-      IsoPlayer var26;
-      IsoPlayer var27;
-      DebugLogStream var29;
+      IsoPlayer var23;
+      DebugLogStream var25;
       switch (var4) {
          case 1:
             var5 = var1.getShort();
             DebugLog.Vehicle.trace("%s vid=%d", vehiclePacketTypes.get(var4), var5);
-            byte var20 = var1.get();
-            String var21 = GameWindow.ReadString(var1);
-            var19 = this.IDToVehicle.get(var5);
-            if (var19 != null) {
-               IsoGameCharacter var28 = var19.getCharacter(var20);
-               if (var28 != null) {
-                  var19.setCharacterPosition(var28, var20, var21);
-                  this.sendPassengerPosition(var19, var20, var21, var2);
+            byte var19 = var1.get();
+            String var20 = GameWindow.ReadString(var1);
+            var8 = this.IDToVehicle.get(var5);
+            if (var8 != null) {
+               IsoGameCharacter var24 = var8.getCharacter(var19);
+               if (var24 != null) {
+                  var8.setCharacterPosition(var24, var19, var20);
+                  this.sendPassengerPosition(var8, var19, var20, var2);
                }
             }
             break;
          case 2:
             var5 = var1.getShort();
-            var17 = var1.getShort();
-            var18 = var1.get();
-            DebugLog.Vehicle.trace("Vehicle enter vid=%d pid=%d seat=%d", var5, var17, Integer.valueOf(var18));
-            var19 = this.IDToVehicle.get(var5);
-            if (var19 == null) {
+            var16 = var1.getShort();
+            var17 = var1.get();
+            DebugLog.Vehicle.trace("Vehicle enter vid=%d pid=%d seat=%d", var5, var16, Integer.valueOf(var17));
+            var8 = this.IDToVehicle.get(var5);
+            if (var8 == null) {
                DebugLog.Vehicle.warn("Vehicle vid=%d not found", var5);
             } else {
-               var26 = (IsoPlayer)GameServer.IDToPlayerMap.get(var17);
-               if (var26 == null) {
-                  DebugLog.Vehicle.warn("Player pid=%d not found", var17);
+               var23 = (IsoPlayer)GameServer.IDToPlayerMap.get(var16);
+               if (var23 == null) {
+                  DebugLog.Vehicle.warn("Player pid=%d not found", var16);
                } else {
-                  var27 = (IsoPlayer)Type.tryCastTo(var19.getCharacter(var18), IsoPlayer.class);
-                  if (var27 != null && var27 != var26) {
-                     var29 = DebugLog.Vehicle;
-                     var10001 = var26.getUsername();
-                     var29.warn(var10001 + " got in same seat as " + var27.getUsername());
+                  var10 = (IsoPlayer)Type.tryCastTo(var8.getCharacter(var17), IsoPlayer.class);
+                  if (var10 != null && var10 != var23) {
+                     var25 = DebugLog.DetailedInfo;
+                     var10001 = var23.getUsername();
+                     var25.warn(var10001 + " got in same seat as " + var10.getUsername());
                   } else {
-                     var19.enter(var18, var26);
-                     if (var18 == 0 && var19.isNetPlayerAuthorization(BaseVehicle.Authorization.Server)) {
-                        var19.authorizationServerOnSeat(var26, true);
+                     var8.enter(var17, var23);
+                     if (var17 == 0 && var8.isNetPlayerAuthorization(BaseVehicle.Authorization.Server)) {
+                        var8.authorizationServerOnSeat(var23, true);
                      }
 
-                     this.sendEnter(var19, var26, var18);
+                     this.sendEnter(var8, var23, var17);
                   }
                }
             }
             break;
          case 3:
             var5 = var1.getShort();
-            var17 = var1.getShort();
-            var18 = var1.get();
-            DebugLog.Vehicle.trace("Vehicle exit vid=%d pid=%d seat=%d", var5, var17, Integer.valueOf(var18));
-            var19 = this.IDToVehicle.get(var5);
-            if (var19 == null) {
+            var16 = var1.getShort();
+            var17 = var1.get();
+            DebugLog.Vehicle.trace("Vehicle exit vid=%d pid=%d seat=%d", var5, var16, Integer.valueOf(var17));
+            var8 = this.IDToVehicle.get(var5);
+            if (var8 == null) {
                DebugLog.Vehicle.warn("Vehicle vid=%d not found", var5);
             } else {
-               var26 = (IsoPlayer)GameServer.IDToPlayerMap.get(var17);
-               if (var26 == null) {
-                  DebugLog.Vehicle.warn("Player pid=%d not found", var17);
+               var23 = (IsoPlayer)GameServer.IDToPlayerMap.get(var16);
+               if (var23 == null) {
+                  DebugLog.Vehicle.warn("Player pid=%d not found", var16);
                } else {
-                  var19.exit(var26);
-                  if (var18 == 0) {
-                     var19.authorizationServerOnSeat(var26, false);
+                  var8.exit(var23);
+                  if (var17 == 0) {
+                     var8.authorizationServerOnSeat(var23, false);
                   }
 
-                  this.sendExit(var19, var26, var18);
+                  this.sendExit(var8, var23, var17);
                }
             }
             break;
          case 4:
             var5 = var1.getShort();
-            var17 = var1.getShort();
-            var18 = var1.get();
-            byte var24 = var1.get();
-            DebugLog.Vehicle.trace("Vehicle switch seat vid=%d pid=%d seats=%d=>%d", var5, var17, Integer.valueOf(var18), Integer.valueOf(var24));
-            BaseVehicle var25 = this.IDToVehicle.get(var5);
-            if (var25 == null) {
+            var16 = var1.getShort();
+            var17 = var1.get();
+            byte var21 = var1.get();
+            DebugLog.Vehicle.trace("Vehicle switch seat vid=%d pid=%d seats=%d=>%d", var5, var16, Integer.valueOf(var17), Integer.valueOf(var21));
+            BaseVehicle var22 = this.IDToVehicle.get(var5);
+            if (var22 == null) {
                DebugLog.Vehicle.warn("Vehicle vid=%d not found", var5);
             } else {
-               var27 = (IsoPlayer)GameServer.IDToPlayerMap.get(var17);
-               if (var27 == null) {
-                  DebugLog.Vehicle.warn("Player pid=%d not found", var17);
+               var10 = (IsoPlayer)GameServer.IDToPlayerMap.get(var16);
+               if (var10 == null) {
+                  DebugLog.Vehicle.warn("Player pid=%d not found", var16);
                } else {
-                  IsoPlayer var11 = (IsoPlayer)Type.tryCastTo(var25.getCharacter(var24), IsoPlayer.class);
-                  if (var11 != null && var11 != var27) {
-                     var29 = DebugLog.Vehicle;
-                     var10001 = var27.getUsername();
-                     var29.warn(var10001 + " switched to same seat as " + var11.getUsername());
+                  IsoPlayer var11 = (IsoPlayer)Type.tryCastTo(var22.getCharacter(var21), IsoPlayer.class);
+                  if (var11 != null && var11 != var10) {
+                     var25 = DebugLog.DetailedInfo;
+                     var10001 = var10.getUsername();
+                     var25.warn(var10001 + " switched to same seat as " + var11.getUsername());
                   } else {
-                     var25.switchSeat(var27, var24);
-                     if (var24 == 0 && var25.isNetPlayerAuthorization(BaseVehicle.Authorization.Server)) {
-                        var25.authorizationServerOnSeat(var27, true);
-                     } else if (var18 == 0) {
-                        var25.authorizationServerOnSeat(var27, false);
+                     var22.switchSeat(var10, var21);
+                     if (var21 == 0 && var22.isNetPlayerAuthorization(BaseVehicle.Authorization.Server)) {
+                        var22.authorizationServerOnSeat(var10, true);
+                     } else if (var17 == 0) {
+                        var22.authorizationServerOnSeat(var10, false);
                      }
 
-                     this.sendSwitchSeat(var25, var27, var18, var24);
+                     this.sendSwitchSeat(var22, var10, var17, var21);
                   }
                }
             }
@@ -560,19 +559,19 @@ public final class VehicleManager {
             DebugLog.Vehicle.warn("Unknown vehicle packet %d", var4);
             break;
          case 9:
-            Physics var12 = new Physics();
+            PhysicsPacket var12 = new PhysicsPacket();
             var12.parse(var1, var2);
-            var12.process();
+            var12.process(var2);
 
             for(var6 = 0; var6 < GameServer.udpEngine.connections.size(); ++var6) {
-               UdpConnection var16 = (UdpConnection)GameServer.udpEngine.connections.get(var6);
-               if (var2 != var16 && var12.isRelevant(var16)) {
-                  ByteBufferWriter var22 = var16.startPacket();
-                  PacketTypes.PacketType var23 = (PacketTypes.PacketType)PacketTypes.packetTypes.get(var3);
-                  var23.doPacket(var22);
-                  var22.bb.put((byte)9);
-                  var12.write(var22);
-                  var23.send(var16);
+               UdpConnection var15 = (UdpConnection)GameServer.udpEngine.connections.get(var6);
+               if (var2 != var15 && var12.isRelevant(var15)) {
+                  ByteBufferWriter var18 = var15.startPacket();
+                  PacketTypes.PacketType var9 = (PacketTypes.PacketType)PacketTypes.packetTypes.get(var3);
+                  var9.doPacket(var18);
+                  var18.bb.put((byte)9);
+                  var12.write(var18);
+                  var9.send(var15);
                }
             }
 
@@ -581,15 +580,15 @@ public final class VehicleManager {
             var5 = var1.getShort();
 
             for(var6 = 0; var6 < var5; ++var6) {
-               short var15 = var1.getShort();
-               DebugLog.Vehicle.trace("Vehicle vid=%d full update response ", var15);
-               var19 = this.IDToVehicle.get(var15);
-               if (var19 != null) {
-                  if (var19.connectionState[var2.index] == null) {
-                     var19.connectionState[var2.index] = new BaseVehicle.ServerVehicleState();
+               short var14 = var1.getShort();
+               DebugLog.Vehicle.trace("Vehicle vid=%d full update response ", var14);
+               var8 = this.IDToVehicle.get(var14);
+               if (var8 != null) {
+                  if (var8.connectionState[var2.index] == null) {
+                     var8.connectionState[var2.index] = new BaseVehicle.ServerVehicleState();
                   }
 
-                  BaseVehicle.ServerVehicleState var10000 = var19.connectionState[var2.index];
+                  BaseVehicle.ServerVehicleState var10000 = var8.connectionState[var2.index];
                   var10000.flags = (short)(var10000.flags | 1);
                   this.sendVehicles(var2, var3);
                }
@@ -608,30 +607,11 @@ public final class VehicleManager {
          case 15:
             var5 = var1.getShort();
             var6 = var1.getShort();
-            boolean var14 = var1.get() == 1;
-            DebugLog.Vehicle.trace("%s vid=%d pid=%d %b", vehiclePacketTypes.get(var4), var5, Short.valueOf((short)var6), var14);
-            var19 = this.IDToVehicle.get(var5);
-            if (var19 != null) {
-               var19.authorizationServerCollide((short)var6, var14);
-            }
-            break;
-         case 16:
-            var5 = var1.getShort();
-            DebugLog.Vehicle.trace("%s vid=%d", vehiclePacketTypes.get(var4), var5);
-            var6 = var1.get();
-            BaseVehicle var7 = this.IDToVehicle.get(var5);
-            if (var7 != null) {
-               for(int var8 = 0; var8 < GameServer.udpEngine.connections.size(); ++var8) {
-                  UdpConnection var9 = (UdpConnection)GameServer.udpEngine.connections.get(var8);
-                  if (var9 != var2) {
-                     ByteBufferWriter var10 = var9.startPacket();
-                     PacketTypes.PacketType.Vehicles.doPacket(var10);
-                     var10.bb.put((byte)16);
-                     var10.bb.putShort(var7.VehicleID);
-                     var10.bb.put((byte)var6);
-                     PacketTypes.PacketType.Vehicles.send(var9);
-                  }
-               }
+            boolean var7 = var1.get() == 1;
+            DebugLog.Vehicle.trace("%s vid=%d pid=%d %b", vehiclePacketTypes.get(var4), var5, Short.valueOf((short)var6), var7);
+            var8 = this.IDToVehicle.get(var5);
+            if (var8 != null) {
+               var8.authorizationServerCollide((short)var6, var7);
             }
       }
 
@@ -806,7 +786,7 @@ public final class VehicleManager {
          var1.get();
          var1.get();
          this.tempVehicle.parts.clear();
-         this.tempVehicle.load(var1, 195);
+         this.tempVehicle.load(var1, 219);
          if (var10.physics != null && (var10.getDriver() == null || !var10.getDriver().isLocal())) {
             this.tempTransform.setRotation(this.tempVehicle.savedRot);
             this.tempTransform.origin.set(var3 - WorldSimulation.instance.offsetX, var5, var4 - WorldSimulation.instance.offsetY);
@@ -826,7 +806,7 @@ public final class VehicleManager {
          var12.VehicleID = var2;
          var12.square = var9;
          var12.setCurrent(var9);
-         var12.load(var1, 195);
+         var12.load(var1, 219);
          if (var9 != null) {
             var12.chunk = var12.square.chunk;
             var12.chunk.vehicles.add(var12);
@@ -866,21 +846,21 @@ public final class VehicleManager {
          }
 
       } else {
-         boolean var19;
-         int var27;
+         boolean var22;
+         int var30;
          if (var9 != null && var8 == null) {
-            var19 = true;
+            var22 = true;
 
-            for(var27 = 0; var27 < IsoPlayer.numPlayers; ++var27) {
-               IsoPlayer var33 = IsoPlayer.players[var27];
-               if (var33 != null && var33.getVehicle() == var9) {
-                  var19 = false;
-                  var33.setPosition(var4, var5, 0.0F);
+            for(var30 = 0; var30 < IsoPlayer.numPlayers; ++var30) {
+               IsoPlayer var36 = IsoPlayer.players[var30];
+               if (var36 != null && var36.getVehicle() == var9) {
+                  var22 = false;
+                  var36.setPosition(var4, var5, 0.0F);
                   this.sendRequestGetPosition(var2, PacketTypes.PacketType.VehiclesUnreliable);
                }
             }
 
-            if (var19) {
+            if (var22) {
                var9.removeFromWorld();
                var9.removeFromSquare();
             }
@@ -891,7 +871,7 @@ public final class VehicleManager {
 
          } else {
             int var10;
-            byte var20;
+            byte var23;
             if ((var3 & 1) != 0) {
                DebugLog.Vehicle.trace("Vehicle vid=%d full update received", var2);
                this.clientReceiveUpdateFull(var1, var2, var4, var5, var6);
@@ -901,28 +881,36 @@ public final class VehicleManager {
 
                if (!var9.isKeyboardControlled() && var9.getJoypad() == -1) {
                   var1.getLong();
-                  var20 = 0;
-                  float[] var35 = this.tempFloats;
-                  var10 = var20 + 1;
-                  var35[var20] = var4;
-                  var35[var10++] = var5;
+                  var23 = 0;
+                  float[] var38 = this.tempFloats;
+                  var10 = var23 + 1;
+                  var38[var23] = var4;
+                  var38[var10++] = var5;
 
-                  for(var35[var10++] = var6; var10 < 10; var35[var10++] = var1.getFloat()) {
+                  for(var38[var10++] = var6; var10 < 10; var38[var10++] = var1.getFloat()) {
                   }
 
-                  float var32 = var1.getFloat();
-                  float var31 = var1.getFloat();
-                  short var28 = var1.getShort();
-                  var35[var10++] = (float)var28;
+                  float var35 = var1.getFloat();
+                  float var34 = var1.getFloat();
+                  short var31 = var1.getShort();
+                  var38[var10++] = (float)var31;
 
-                  for(int var34 = 0; var34 < var28; ++var34) {
-                     var35[var10++] = var1.getFloat();
-                     var35[var10++] = var1.getFloat();
-                     var35[var10++] = var1.getFloat();
-                     var35[var10++] = var1.getFloat();
+                  for(int var37 = 0; var37 < var31; ++var37) {
+                     float var39 = var1.getFloat();
+                     float var17 = var1.getFloat();
+                     float var18 = var1.getFloat();
+                     float var19 = var1.getFloat();
+                     var38[var10++] = var39;
+                     var38[var10++] = var17;
+                     var38[var10++] = var18;
+                     var38[var10++] = var19;
+                     var9.wheelInfo[var37].steering = var39;
+                     var9.wheelInfo[var37].rotation = var17;
+                     var9.wheelInfo[var37].skidInfo = var18;
+                     var9.wheelInfo[var37].suspensionLength = var19;
                   }
 
-                  Bullet.setOwnVehiclePhysics(var2, var35);
+                  Bullet.setOwnVehiclePhysics(var2, var38);
                } else if (var1.limit() > var1.position() + 102) {
                   var1.position(var1.position() + 102);
                }
@@ -994,18 +982,18 @@ public final class VehicleManager {
                   var9.setHotwiredBroken(var1.get() == 1);
                   var9.setRegulatorSpeed(var1.getFloat());
                   var9.setPreviouslyEntered(var1.get() == 1);
-                  var19 = var1.get() == 1;
+                  var22 = var1.get() == 1;
                   var11 = var1.get() == 1;
                   InventoryItem var12 = null;
                   if (var1.get() == 1) {
                      try {
-                        var12 = InventoryItem.loadItem(var1, 195);
-                     } catch (Exception var18) {
-                        var18.printStackTrace();
+                        var12 = InventoryItem.loadItem(var1, 219);
+                     } catch (Exception var21) {
+                        var21.printStackTrace();
                      }
                   }
 
-                  var9.syncKeyInIgnition(var19, var11, var12);
+                  var9.syncKeyInIgnition(var22, var11, var12);
                   var9.setRust(var1.getFloat());
                   var9.setBloodIntensity("Front", var1.getFloat());
                   var9.setBloodIntensity("Rear", var1.getFloat());
@@ -1028,15 +1016,15 @@ public final class VehicleManager {
                }
 
                int var13;
-               byte var23;
+               byte var26;
                if ((var3 & 1024) != 0) {
                   DebugLog.Vehicle.trace("received update Sounds id=%d", var2);
-                  var19 = var1.get() == 1;
+                  var22 = var1.get() == 1;
                   var11 = var1.get() == 1;
-                  var23 = var1.get();
+                  var26 = var1.get();
                   var13 = var1.get();
-                  if (var19 != var9.soundHornOn) {
-                     if (var19) {
+                  if (var22 != var9.soundHornOn) {
+                     if (var22) {
                         var9.onHornStart();
                      } else {
                         var9.onHornStop();
@@ -1051,8 +1039,8 @@ public final class VehicleManager {
                      }
                   }
 
-                  if (var9.lightbarLightsMode.get() != var23) {
-                     var9.setLightbarLightsMode(var23);
+                  if (var9.lightbarLightsMode.get() != var26) {
+                     var9.setLightbarLightsMode(var26);
                   }
 
                   if (var9.lightbarSirenMode.get() != var13) {
@@ -1060,80 +1048,80 @@ public final class VehicleManager {
                   }
                }
 
-               VehiclePart var21;
+               VehiclePart var24;
                if ((var3 & 2048) != 0) {
-                  for(var20 = var1.get(); var20 != -1; var20 = var1.get()) {
-                     var21 = var9.getPartByIndex(var20);
-                     DebugLog.Vehicle.trace("received update PartCondition id=%d part=%s", var2, var21.getId());
-                     var21.updateFlags = (short)(var21.updateFlags | 2048);
-                     var21.setCondition(var1.getInt());
+                  for(var23 = var1.get(); var23 != -1; var23 = var1.get()) {
+                     var24 = var9.getPartByIndex(var23);
+                     DebugLog.Vehicle.trace("received update PartCondition id=%d part=%s", var2, var24.getId());
+                     var24.updateFlags = (short)(var24.updateFlags | 2048);
+                     var24.setCondition(var1.getInt());
                   }
 
                   var9.doDamageOverlay();
                }
 
                if ((var3 & 16) != 0) {
-                  for(var20 = var1.get(); var20 != -1; var20 = var1.get()) {
-                     var21 = var9.getPartByIndex(var20);
-                     DebugLog.Vehicle.trace("received update PartModData id=%d part=%s", var2, var21.getId());
-                     var21.getModData().load(var1, 195);
-                     if (var21.isContainer()) {
-                        var21.setContainerContentAmount(var21.getContainerContentAmount());
+                  for(var23 = var1.get(); var23 != -1; var23 = var1.get()) {
+                     var24 = var9.getPartByIndex(var23);
+                     DebugLog.Vehicle.trace("received update PartModData id=%d part=%s", var2, var24.getId());
+                     var24.getModData().load(var1, 219);
+                     if (var24.isContainer()) {
+                        var24.setContainerContentAmount(var24.getContainerContentAmount());
                      }
                   }
                }
 
-               VehiclePart var24;
-               InventoryItem var25;
+               VehiclePart var27;
+               InventoryItem var28;
                if ((var3 & 32) != 0) {
-                  for(var20 = var1.get(); var20 != -1; var20 = var1.get()) {
-                     float var22 = var1.getFloat();
-                     var24 = var9.getPartByIndex(var20);
-                     DebugLog.Vehicle.trace("received update PartUsedDelta id=%d part=%s", var2, var24.getId());
-                     var25 = var24.getInventoryItem();
-                     if (var25 instanceof DrainableComboItem) {
-                        ((DrainableComboItem)var25).setUsedDelta(var22);
+                  for(var23 = var1.get(); var23 != -1; var23 = var1.get()) {
+                     float var25 = var1.getFloat();
+                     var27 = var9.getPartByIndex(var23);
+                     DebugLog.Vehicle.trace("received update PartUsedDelta id=%d part=%s", var2, var27.getId());
+                     var28 = var27.getInventoryItem();
+                     if (var28 instanceof DrainableComboItem) {
+                        var28.setCurrentUses((int)((float)var28.getMaxUses() * var25));
                      }
                   }
                }
 
                if ((var3 & 128) != 0) {
-                  for(var20 = var1.get(); var20 != -1; var20 = var1.get()) {
-                     var21 = var9.getPartByIndex(var20);
-                     DebugLog.Vehicle.trace("received update PartItem id=%d part=%s", var2, var21.getId());
-                     var21.updateFlags = (short)(var21.updateFlags | 128);
-                     boolean var26 = var1.get() != 0;
-                     if (var26) {
+                  for(var23 = var1.get(); var23 != -1; var23 = var1.get()) {
+                     var24 = var9.getPartByIndex(var23);
+                     DebugLog.Vehicle.trace("received update PartItem id=%d part=%s", var2, var24.getId());
+                     var24.updateFlags = (short)(var24.updateFlags | 128);
+                     boolean var29 = var1.get() != 0;
+                     if (var29) {
                         try {
-                           var25 = InventoryItem.loadItem(var1, 195);
-                        } catch (Exception var17) {
-                           var17.printStackTrace();
+                           var28 = InventoryItem.loadItem(var1, 219);
+                        } catch (Exception var20) {
+                           var20.printStackTrace();
                            return;
                         }
 
-                        if (var25 != null) {
-                           var21.setInventoryItem(var25);
+                        if (var28 != null) {
+                           var24.setInventoryItem(var28);
                         }
                      } else {
-                        var21.setInventoryItem((InventoryItem)null);
+                        var24.setInventoryItem((InventoryItem)null);
                      }
 
-                     var13 = var21.getWheelIndex();
+                     var13 = var24.getWheelIndex();
                      if (var13 != -1) {
-                        var9.setTireRemoved(var13, !var26);
+                        var9.setTireRemoved(var13, !var29);
                      }
 
-                     if (var21.isContainer()) {
+                     if (var24.isContainer()) {
                         LuaEventManager.triggerEvent("OnContainerUpdate");
                      }
                   }
                }
 
                if ((var3 & 512) != 0) {
-                  for(var20 = var1.get(); var20 != -1; var20 = var1.get()) {
-                     var21 = var9.getPartByIndex(var20);
-                     DebugLog.Vehicle.trace("received update PartDoor id=%d part=%s", var2, var21.getId());
-                     var21.getDoor().load(var1, 195);
+                  for(var23 = var1.get(); var23 != -1; var23 = var1.get()) {
+                     var24 = var9.getPartByIndex(var23);
+                     DebugLog.Vehicle.trace("received update PartDoor id=%d part=%s", var2, var24.getId());
+                     var24.getDoor().load(var1, 219);
                   }
 
                   LuaEventManager.triggerEvent("OnContainerUpdate");
@@ -1141,10 +1129,10 @@ public final class VehicleManager {
                }
 
                if ((var3 & 256) != 0) {
-                  for(var20 = var1.get(); var20 != -1; var20 = var1.get()) {
-                     var21 = var9.getPartByIndex(var20);
-                     DebugLog.Vehicle.trace("received update PartWindow id=%d part=%s", var2, var21.getId());
-                     var21.getWindow().load(var1, 195);
+                  for(var23 = var1.get(); var23 != -1; var23 = var1.get()) {
+                     var24 = var9.getPartByIndex(var23);
+                     DebugLog.Vehicle.trace("received update PartWindow id=%d part=%s", var2, var24.getId());
+                     var24.getWindow().load(var1, 219);
                   }
 
                   var9.doDamageOverlay();
@@ -1154,42 +1142,42 @@ public final class VehicleManager {
                   this.oldModels.clear();
                   this.oldModels.addAll(var9.models);
                   this.curModels.clear();
-                  var20 = var1.get();
+                  var23 = var1.get();
 
-                  for(var27 = 0; var27 < var20; ++var27) {
-                     var23 = var1.get();
-                     byte var29 = var1.get();
-                     VehiclePart var14 = var9.getPartByIndex(var23);
-                     VehicleScript.Model var15 = (VehicleScript.Model)var14.getScriptPart().models.get(var29);
+                  for(var30 = 0; var30 < var23; ++var30) {
+                     var26 = var1.get();
+                     byte var32 = var1.get();
+                     VehiclePart var14 = var9.getPartByIndex(var26);
+                     VehicleScript.Model var15 = (VehicleScript.Model)var14.getScriptPart().models.get(var32);
                      BaseVehicle.ModelInfo var16 = var9.setModelVisible(var14, var15, true);
                      this.curModels.add(var16);
                   }
 
-                  for(var27 = 0; var27 < this.oldModels.size(); ++var27) {
-                     BaseVehicle.ModelInfo var30 = (BaseVehicle.ModelInfo)this.oldModels.get(var27);
-                     if (!this.curModels.contains(var30)) {
-                        var9.setModelVisible(var30.part, var30.scriptModel, false);
+                  for(var30 = 0; var30 < this.oldModels.size(); ++var30) {
+                     BaseVehicle.ModelInfo var33 = (BaseVehicle.ModelInfo)this.oldModels.get(var30);
+                     if (!this.curModels.contains(var33)) {
+                        var9.setModelVisible(var33.part, var33.scriptModel, false);
                      }
                   }
 
                   var9.doDamageOverlay();
                }
 
-               var19 = false;
+               var22 = false;
 
-               for(var27 = 0; var27 < var9.getPartCount(); ++var27) {
-                  var24 = var9.getPartByIndex(var27);
-                  if (var24.updateFlags != 0) {
-                     if ((var24.updateFlags & 2048) != 0 && (var24.updateFlags & 128) == 0) {
-                        var24.doInventoryItemStats(var24.getInventoryItem(), var24.getMechanicSkillInstaller());
-                        var19 = true;
+               for(var30 = 0; var30 < var9.getPartCount(); ++var30) {
+                  var27 = var9.getPartByIndex(var30);
+                  if (var27.updateFlags != 0) {
+                     if ((var27.updateFlags & 2048) != 0 && (var27.updateFlags & 128) == 0) {
+                        var27.doInventoryItemStats(var27.getInventoryItem(), var27.getMechanicSkillInstaller());
+                        var22 = true;
                      }
 
-                     var24.updateFlags = 0;
+                     var27.updateFlags = 0;
                   }
                }
 
-               if (var19) {
+               if (var22) {
                   var9.updatePartStats();
                   var9.updateBulletStats();
                }
@@ -1206,33 +1194,31 @@ public final class VehicleManager {
       BaseVehicle var7;
       short var15;
       DebugLogStream var10000;
-      byte var16;
       String var10001;
-      BaseVehicle var17;
-      String var19;
+      String var18;
+      byte var21;
       BaseVehicle var22;
-      byte var23;
       IsoPlayer var27;
       IsoPlayer var28;
       switch (var2) {
          case 1:
             var3 = var1.getShort();
             DebugLog.Vehicle.trace("%s vid=%d", vehiclePacketTypes.get(var2), var3);
-            var16 = var1.get();
-            var19 = GameWindow.ReadString(var1);
+            byte var26 = var1.get();
+            var18 = GameWindow.ReadString(var1);
             var22 = this.IDToVehicle.get(var3);
             if (var22 != null) {
-               IsoGameCharacter var29 = var22.getCharacter(var16);
+               IsoGameCharacter var29 = var22.getCharacter(var26);
                if (var29 != null) {
-                  var22.setCharacterPosition(var29, var16, var19);
+                  var22.setCharacterPosition(var29, var26, var18);
                }
             }
             break;
          case 2:
             var3 = var1.getShort();
             var15 = var1.getShort();
-            var23 = var1.get();
-            DebugLog.Vehicle.trace("Vehicle enter vid=%d pid=%d seat=%d", var3, var15, Integer.valueOf(var23));
+            var21 = var1.get();
+            DebugLog.Vehicle.trace("Vehicle enter vid=%d pid=%d seat=%d", var3, var15, Integer.valueOf(var21));
             var22 = this.IDToVehicle.get(var3);
             if (var22 == null) {
                DebugLog.Vehicle.warn("Vehicle vid=%d not found", var3);
@@ -1241,13 +1227,13 @@ public final class VehicleManager {
                if (var27 == null) {
                   DebugLog.Vehicle.warn("Player pid=%d not found", var15);
                } else {
-                  var28 = (IsoPlayer)Type.tryCastTo(var22.getCharacter(var23), IsoPlayer.class);
+                  var28 = (IsoPlayer)Type.tryCastTo(var22.getCharacter(var21), IsoPlayer.class);
                   if (var28 != null && var28 != var27) {
-                     var10000 = DebugLog.Vehicle;
+                     var10000 = DebugLog.DetailedInfo;
                      var10001 = var27.getUsername();
                      var10000.warn(var10001 + " got in same seat as " + var28.getUsername());
                   } else {
-                     var22.enterRSync(var23, var27, var22);
+                     var22.enterRSync(var21, var27, var22);
                   }
                }
             }
@@ -1255,8 +1241,8 @@ public final class VehicleManager {
          case 3:
             var3 = var1.getShort();
             var15 = var1.getShort();
-            var23 = var1.get();
-            DebugLog.Vehicle.trace("Vehicle exit vid=%d pid=%d seat=%d", var3, var15, Integer.valueOf(var23));
+            var21 = var1.get();
+            DebugLog.Vehicle.trace("Vehicle exit vid=%d pid=%d seat=%d", var3, var15, Integer.valueOf(var21));
             var22 = this.IDToVehicle.get(var3);
             if (var22 == null) {
                DebugLog.Vehicle.warn("Vehicle vid=%d not found", var3);
@@ -1272,9 +1258,9 @@ public final class VehicleManager {
          case 4:
             var3 = var1.getShort();
             var15 = var1.getShort();
-            var23 = var1.get();
-            byte var25 = var1.get();
-            DebugLog.Vehicle.trace("Vehicle switch seat vid=%d pid=%d seats=%d=>%d", var3, var15, Integer.valueOf(var23), Integer.valueOf(var25));
+            var21 = var1.get();
+            byte var24 = var1.get();
+            DebugLog.Vehicle.trace("Vehicle switch seat vid=%d pid=%d seats=%d=>%d", var3, var15, Integer.valueOf(var21), Integer.valueOf(var24));
             var7 = this.IDToVehicle.get(var3);
             if (var7 == null) {
                DebugLog.Vehicle.warn("Vehicle vid=%d not found", var3);
@@ -1283,13 +1269,13 @@ public final class VehicleManager {
                if (var28 == null) {
                   DebugLog.Vehicle.warn("Player pid=%d not found", var15);
                } else {
-                  IsoPlayer var9 = (IsoPlayer)Type.tryCastTo(var7.getCharacter(var25), IsoPlayer.class);
+                  IsoPlayer var9 = (IsoPlayer)Type.tryCastTo(var7.getCharacter(var24), IsoPlayer.class);
                   if (var9 != null && var9 != var28) {
-                     var10000 = DebugLog.Vehicle;
+                     var10000 = DebugLog.DetailedInfo;
                      var10001 = var28.getUsername();
                      var10000.warn(var10001 + " switched to same seat as " + var9.getUsername());
                   } else {
-                     var7.switchSeat(var28, var25);
+                     var7.switchSeat(var28, var24);
                   }
                }
             }
@@ -1318,6 +1304,7 @@ public final class VehicleManager {
          case 12:
          case 14:
          case 15:
+         case 16:
          default:
             DebugLog.Vehicle.warn("Unknown vehicle packet %d", var2);
             break;
@@ -1325,15 +1312,15 @@ public final class VehicleManager {
             var3 = var1.getShort();
             DebugLog.Vehicle.trace("%s vid=%d", vehiclePacketTypes.get(var2), var3);
             if (this.IDToVehicle.containsKey(var3)) {
-               BaseVehicle var20 = this.IDToVehicle.get(var3);
-               var20.serverRemovedFromWorld = true;
+               BaseVehicle var19 = this.IDToVehicle.get(var3);
+               var19.serverRemovedFromWorld = true;
 
                try {
-                  var20.removeFromWorld();
-                  var20.removeFromSquare();
+                  var19.removeFromWorld();
+                  var19.removeFromSquare();
                } finally {
                   if (this.IDToVehicle.containsKey(var3)) {
-                     this.unregisterVehicle(var20);
+                     this.unregisterVehicle(var19);
                   }
 
                }
@@ -1342,48 +1329,39 @@ public final class VehicleManager {
             VehicleCache.remove(var3);
             break;
          case 9:
-            Physics var14 = new Physics();
+            PhysicsPacket var14 = new PhysicsPacket();
             var14.parse(var1, GameClient.connection);
-            var14.process();
+            var14.process(GameClient.connection);
             break;
          case 13:
             var3 = var1.getShort();
             DebugLog.Vehicle.trace("%s vid=%d", vehiclePacketTypes.get(var2), var3);
-            Vector3f var18 = new Vector3f();
-            Vector3f var21 = new Vector3f();
-            var18.x = var1.getFloat();
-            var18.y = var1.getFloat();
-            var18.z = var1.getFloat();
-            var21.x = var1.getFloat();
-            var21.y = var1.getFloat();
-            var21.z = var1.getFloat();
+            Vector3f var16 = new Vector3f();
+            Vector3f var20 = new Vector3f();
+            var16.x = var1.getFloat();
+            var16.y = var1.getFloat();
+            var16.z = var1.getFloat();
+            var20.x = var1.getFloat();
+            var20.y = var1.getFloat();
+            var20.z = var1.getFloat();
             var22 = this.IDToVehicle.get(var3);
             if (var22 != null) {
-               Bullet.applyCentralForceToVehicle(var22.VehicleID, var18.x, var18.y, var18.z);
-               Vector3f var26 = var21.cross(var18);
-               Bullet.applyTorqueToVehicle(var22.VehicleID, var26.x, var26.y, var26.z);
-            }
-            break;
-         case 16:
-            var3 = var1.getShort();
-            DebugLog.Vehicle.trace("%s vid=%d", vehiclePacketTypes.get(var2), var3);
-            var16 = var1.get();
-            var17 = this.IDToVehicle.get(var3);
-            if (var17 != null) {
-               SoundManager.instance.PlayWorldSound("VehicleCrash", var17.square, 1.0F, 20.0F, 1.0F, true);
+               Bullet.applyCentralForceToVehicle(var22.VehicleID, var16.x, var16.y, var16.z);
+               Vector3f var25 = var20.cross(var16);
+               Bullet.applyTorqueToVehicle(var22.VehicleID, var25.x, var25.y, var25.z);
             }
             break;
          case 17:
             var3 = var1.getShort();
             var15 = var1.getShort();
-            var19 = GameWindow.ReadString(var1);
-            String var24 = GameWindow.ReadString(var1);
-            DebugLog.Vehicle.trace("Vehicle attach A=%d/%s B=%d/%s", var3, var19, var15, var24);
+            var18 = GameWindow.ReadString(var1);
+            String var23 = GameWindow.ReadString(var1);
+            DebugLog.Vehicle.trace("Vehicle attach A=%d/%s B=%d/%s", var3, var18, var15, var23);
             this.towedVehicleMap.put(var3, var15);
             var7 = this.IDToVehicle.get(var3);
             BaseVehicle var8 = this.IDToVehicle.get(var15);
             if (var7 != null && var8 != null) {
-               var7.addPointConstraint((IsoPlayer)null, var8, var19, var24);
+               var7.addPointConstraint((IsoPlayer)null, var8, var18, var23);
             }
             break;
          case 18:
@@ -1398,7 +1376,7 @@ public final class VehicleManager {
                this.towedVehicleMap.remove(var15);
             }
 
-            var17 = this.IDToVehicle.get(var3);
+            BaseVehicle var17 = this.IDToVehicle.get(var3);
             var22 = this.IDToVehicle.get(var15);
             if (var17 != null) {
                var17.breakConstraint(true, true);
@@ -1430,28 +1408,6 @@ public final class VehicleManager {
       var5.bb.put((byte)(var3 ? 1 : 0));
       PacketTypes.PacketType.Vehicles.send(GameClient.connection);
       DebugLog.Vehicle.trace("vid=%d pid=%d collide=%b", var1.VehicleID, var4, var3);
-   }
-
-   public static void sendSound(BaseVehicle var0, byte var1) {
-      ByteBufferWriter var2 = GameClient.connection.startPacket();
-      PacketTypes.PacketType.Vehicles.doPacket(var2);
-      var2.bb.put((byte)16);
-      var2.bb.putShort(var0.VehicleID);
-      var2.bb.put(var1);
-      PacketTypes.PacketType.Vehicles.send(GameClient.connection);
-   }
-
-   public static void sendSoundFromServer(BaseVehicle var0, byte var1) {
-      for(int var2 = 0; var2 < GameServer.udpEngine.connections.size(); ++var2) {
-         UdpConnection var3 = (UdpConnection)GameServer.udpEngine.connections.get(var2);
-         ByteBufferWriter var4 = var3.startPacket();
-         PacketTypes.PacketType.Vehicles.doPacket(var4);
-         var4.bb.put((byte)16);
-         var4.bb.putShort(var0.VehicleID);
-         var4.bb.put(var1);
-         PacketTypes.PacketType.Vehicles.send(var3);
-      }
-
    }
 
    public void sendPassengerPosition(BaseVehicle var1, int var2, String var3) {
@@ -1619,7 +1575,7 @@ public final class VehicleManager {
       PacketTypes.PacketType var3 = var1.isReliable ? PacketTypes.PacketType.Vehicles : PacketTypes.PacketType.VehiclesUnreliable;
       var3.doPacket(var2);
       var2.bb.put((byte)9);
-      Physics var4 = new Physics();
+      PhysicsPacket var4 = new PhysicsPacket();
       if (var4.set(var1)) {
          var4.write(var2);
          var3.send(GameClient.connection);
@@ -1720,7 +1676,6 @@ public final class VehicleManager {
       vehiclePacketTypes.put((byte)12, "RequestGetPosition");
       vehiclePacketTypes.put((byte)13, "AddImpulse");
       vehiclePacketTypes.put((byte)15, "Collide");
-      vehiclePacketTypes.put((byte)16, "Sound");
       vehiclePacketTypes.put((byte)17, "TowingCar");
       vehiclePacketTypes.put((byte)18, "DetachTowingCar");
       vehiclePacketTypes.put((byte)19, "InitialWorldState");
@@ -1752,11 +1707,9 @@ public final class VehicleManager {
       public static final byte RequestGetPosition = 12;
       public static final byte AddImpulse = 13;
       public static final byte Collide = 15;
-      public static final byte Sound = 16;
       public static final byte TowingCar = 17;
       public static final byte DetachTowingCar = 18;
       public static final byte InitialWorldState = 19;
-      public static final byte Sound_Crash = 1;
 
       public VehiclePacket() {
       }

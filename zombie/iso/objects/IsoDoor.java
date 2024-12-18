@@ -9,7 +9,6 @@ import java.util.function.Consumer;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.SandboxOptions;
-import zombie.SystemDisabler;
 import zombie.WorldSoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.ai.states.ThumpState;
@@ -18,15 +17,17 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.animals.IsoAnimal;
 import zombie.characters.skills.PerkFactory;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.model.IsoObjectAnimations;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.TextureDraw;
 import zombie.debug.DebugOptions;
@@ -44,22 +45,27 @@ import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.LosUtil;
+import zombie.iso.SpriteModel;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.fboRenderChunk.FBORenderCell;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.objects.interfaces.Thumpable;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.iso.weather.fx.WeatherFxMask;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
 import zombie.network.ServerMap;
+import zombie.network.packets.INetworkPacket;
+import zombie.pathfind.PolygonalMap2;
 import zombie.util.StringUtils;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PolygonalMap2;
 
 public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    public int Health = 500;
@@ -79,16 +85,17 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    private boolean bHasCurtain;
    private boolean bCurtainInside;
    private boolean bCurtainOpen;
+   private static final ColorInfo curtainColor = new ColorInfo();
    KahluaTable table;
    public static final Vector2 tempo = new Vector2();
-   private IsoSprite curtainN;
-   private IsoSprite curtainS;
-   private IsoSprite curtainW;
-   private IsoSprite curtainE;
-   private IsoSprite curtainNopen;
-   private IsoSprite curtainSopen;
-   private IsoSprite curtainWopen;
-   private IsoSprite curtainEopen;
+   private IsoSpriteInstance curtainN;
+   private IsoSpriteInstance curtainS;
+   private IsoSpriteInstance curtainW;
+   private IsoSpriteInstance curtainE;
+   private IsoSpriteInstance curtainNopen;
+   private IsoSpriteInstance curtainSopen;
+   private IsoSpriteInstance curtainWopen;
+   private IsoSpriteInstance curtainEopen;
    private static final int[] DoubleDoorNorthSpriteOffset = new int[]{5, 3, 4, 4};
    private static final int[] DoubleDoorWestSpriteOffset = new int[]{4, 4, 5, 3};
    private static final int[] DoubleDoorNorthClosedXOffset = new int[]{0, 1, 2, 3};
@@ -114,7 +121,6 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    }
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
-      this.checkKeyHighlight(var1, var2);
       if (!this.bHasCurtain) {
          super.render(var1, var2, var3, var4, var5, var6, var7);
       } else {
@@ -126,34 +132,119 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       }
    }
 
-   public void renderWallTile(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7, Consumer<TextureDraw> var8) {
-      this.checkKeyHighlight(var1, var2);
+   public void renderWallTile(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, boolean var6, boolean var7, Shader var8, Consumer<TextureDraw> var9) {
+      this.sx = 0.0F;
+      int var10 = getDoubleDoorIndex(this);
+      if (var10 != -1) {
+         IsoObject var11 = null;
+         if (var10 == 2) {
+            var11 = getDoubleDoorObject(this, 1);
+         } else if (var10 == 3) {
+            var11 = getDoubleDoorObject(this, 4);
+         }
+
+         if (var11 != null && var11.getSpriteModel() != null) {
+            this.updateRenderInfoForObjectPicker(var2, var3, var4, var5);
+            this.sx = 0.0F;
+            return;
+         }
+      }
+
       if (!this.bHasCurtain) {
-         super.renderWallTile(var1, var2, var3, var4, var5, var6, var7, var8);
+         super.renderWallTile(var1, var2, var3, var4, var5, var6, var7, var8, var9);
       } else {
          this.initCurtainSprites();
-         IsoDirections var9 = this.getSpriteEdge(false);
-         this.prerender(var1, var2, var3, var4, var5, var6, var9);
-         super.renderWallTile(var1, var2, var3, var4, var5, var6, var7, var8);
-         this.postrender(var1, var2, var3, var4, var5, var6, var9);
+         this.initCurtainColor();
+         IsoDirections var12 = this.getSpriteEdge(false);
+         this.prerender(var2, var3, var4, curtainColor, var6, var7, var12);
+         super.renderWallTile(var1, var2, var3, var4, var5, var6, var7, var8, var9);
+         this.postrender(var2, var3, var4, curtainColor, var6, var7, var12);
       }
    }
 
-   private void checkKeyHighlight(float var1, float var2) {
-      int var3 = IsoCamera.frameState.playerIndex;
-      IsoGameCharacter var4 = IsoCamera.frameState.CamCharacter;
-      Key var5 = Key.highlightDoor[var3];
-      if (var5 != null && var1 >= var4.getX() - 20.0F && var2 >= var4.getY() - 20.0F && var1 < var4.getX() + 20.0F && var2 < var4.getY() + 20.0F) {
-         boolean var6 = this.square.isSeen(var3);
-         if (!var6) {
-            IsoGridSquare var7 = this.getOppositeSquare();
-            var6 = var7 != null && var7.isSeen(var3);
+   private ColorInfo initCurtainColor() {
+      if (DebugOptions.instance.FBORenderChunk.NoLighting.getValue()) {
+         return curtainColor.set(1.0F, 1.0F, 1.0F, 1.0F);
+      } else {
+         IsoGridSquare var1 = this.getSheetSquare();
+         if (var1 == null) {
+            return curtainColor.set(1.0F, 1.0F, 1.0F, 1.0F);
+         } else {
+            ColorInfo var2 = var1.getLightInfo(IsoCamera.frameState.playerIndex);
+            if (var2 == null) {
+               return curtainColor.set(1.0F, 1.0F, 1.0F, 1.0F);
+            } else {
+               curtainColor.set(var2);
+               IsoDirections var3 = this.getSpriteEdge(false);
+               float var10000;
+               switch (var3) {
+                  case N:
+                     var10000 = 0.5F;
+                     break;
+                  case S:
+                     var10000 = 0.5F;
+                     break;
+                  case W:
+                     var10000 = 0.0F;
+                     break;
+                  case E:
+                     var10000 = 1.0F;
+                     break;
+                  default:
+                     var10000 = 0.0F;
+               }
+
+               float var4 = var10000;
+               switch (var3) {
+                  case N:
+                     var10000 = 0.0F;
+                     break;
+                  case S:
+                     var10000 = 1.0F;
+                     break;
+                  case W:
+                     var10000 = 0.5F;
+                     break;
+                  case E:
+                     var10000 = 1.5F;
+                     break;
+                  default:
+                     var10000 = 0.0F;
+               }
+
+               float var5 = var10000;
+               var1.interpolateLight(curtainColor, var4, var5);
+               curtainColor.a = FBORenderCell.instance.calculateWindowTargetAlpha(IsoCamera.frameState.playerIndex, this, this.getOppositeSquare(), this.getNorth());
+               return curtainColor;
+            }
+         }
+      }
+   }
+
+   public void addToWorld() {
+      super.addToWorld();
+      IsoObjectAnimations.getInstance().addDancingDoor(this);
+   }
+
+   public void removeFromWorld() {
+      super.removeFromWorld();
+      IsoObjectAnimations.getInstance().removeDancingDoor(this);
+   }
+
+   public void checkKeyHighlight() {
+      int var1 = IsoCamera.frameState.playerIndex;
+      Key var2 = Key.highlightDoor[var1];
+      if (var2 != null) {
+         boolean var3 = this.square.isSeen(var1);
+         if (!var3) {
+            IsoGridSquare var4 = this.getOppositeSquare();
+            var3 = var4 != null && var4.isSeen(var1);
          }
 
-         if (var6) {
+         if (var3) {
             this.checkKeyId();
-            if (this.getKeyId() == var5.getKeyId()) {
-               this.setHighlighted(true);
+            if (this.getKeyId() == var2.getKeyId()) {
+               this.setHighlighted(true, false);
             }
          }
       }
@@ -331,10 +422,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    private void prerender2xN(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       if (this.bCurtainInside) {
          if (!this.north && this.open) {
-            (this.bCurtainOpen ? this.curtainSopen : this.curtainS).render((IsoObject)null, var1, var2 - 1.0F, var3, this.dir, this.offsetX + 7.0F, this.offsetY + (float)(this.bCurtainOpen ? -28 : -28), var4, true);
+            (this.bCurtainOpen ? this.curtainSopen : this.curtainS).render((IsoObject)null, var1, var2 - 1.0F, var3, this.dir, this.offsetX + 7.0F, this.offsetY + (float)(this.bCurtainOpen ? -28 : -28), var4, false);
          }
       } else if (this.north && !this.open) {
-         (this.bCurtainOpen ? this.curtainSopen : this.curtainS).render((IsoObject)null, var1, var2 - 1.0F, var3, this.dir, this.offsetX - 3.0F, this.offsetY + (float)(this.bCurtainOpen ? -30 : -30), var4, true);
+         (this.bCurtainOpen ? this.curtainSopen : this.curtainS).render((IsoObject)null, var1, var2 - 1.0F, var3, this.dir, this.offsetX - 3.0F, this.offsetY + (float)(this.bCurtainOpen ? -30 : -30), var4, false);
       }
 
    }
@@ -342,10 +433,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    private void postrender2xN(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       if (this.bCurtainInside) {
          if (this.north && !this.open) {
-            (this.bCurtainOpen ? this.curtainNopen : this.curtainN).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 20.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, true);
+            (this.bCurtainOpen ? this.curtainNopen : this.curtainN).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 20.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, false);
          }
       } else if (!this.north && this.open) {
-         (this.bCurtainOpen ? this.curtainNopen : this.curtainN).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 8.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, true);
+         (this.bCurtainOpen ? this.curtainNopen : this.curtainN).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 8.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, false);
       }
 
    }
@@ -354,7 +445,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       assert !this.north && this.open;
 
       if (!this.bCurtainInside) {
-         (this.bCurtainOpen ? this.curtainSopen : this.curtainS).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -14 : -14), this.offsetY + (float)(this.bCurtainOpen ? -16 : -16), var4, true);
+         (this.bCurtainOpen ? this.curtainSopen : this.curtainS).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -14 : -14), this.offsetY + (float)(this.bCurtainOpen ? -16 : -16), var4, false);
       }
 
    }
@@ -363,7 +454,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       assert !this.north && this.open;
 
       if (this.bCurtainInside) {
-         (this.bCurtainOpen ? this.curtainNopen : this.curtainN).render((IsoObject)null, var1, var2 + 1.0F, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -28 : -28), this.offsetY + (float)(this.bCurtainOpen ? -8 : -8), var4, true);
+         (this.bCurtainOpen ? this.curtainNopen : this.curtainN).render((IsoObject)null, var1, var2 + 1.0F, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -28 : -28), this.offsetY + (float)(this.bCurtainOpen ? -8 : -8), var4, false);
       }
 
    }
@@ -371,10 +462,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    private void prerender2xW(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       if (this.bCurtainInside) {
          if (this.north && this.open) {
-            (this.bCurtainOpen ? this.curtainEopen : this.curtainE).render((IsoObject)null, var1 - 1.0F, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -32 : -37), this.offsetY + (float)(this.bCurtainOpen ? -28 : -31), var4, true);
+            (this.bCurtainOpen ? this.curtainEopen : this.curtainE).render((IsoObject)null, var1 - 1.0F, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -32 : -37), this.offsetY + (float)(this.bCurtainOpen ? -28 : -31), var4, false);
          }
       } else if (!this.north && !this.open) {
-         (this.bCurtainOpen ? this.curtainEopen : this.curtainE).render((IsoObject)null, var1 - 1.0F, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -22 : -26), this.offsetY + (float)(this.bCurtainOpen ? -28 : -31), var4, true);
+         (this.bCurtainOpen ? this.curtainEopen : this.curtainE).render((IsoObject)null, var1 - 1.0F, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -22 : -26), this.offsetY + (float)(this.bCurtainOpen ? -28 : -31), var4, false);
       }
 
    }
@@ -382,10 +473,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    private void postrender2xW(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
       if (this.bCurtainInside) {
          if (!this.north && !this.open) {
-            (this.bCurtainOpen ? this.curtainWopen : this.curtainW).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 5.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, true);
+            (this.bCurtainOpen ? this.curtainWopen : this.curtainW).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 5.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, false);
          }
       } else if (this.north && this.open) {
-         (this.bCurtainOpen ? this.curtainWopen : this.curtainW).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 19.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, true);
+         (this.bCurtainOpen ? this.curtainWopen : this.curtainW).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX - 19.0F, this.offsetY + (float)(this.bCurtainOpen ? -20 : -20), var4, false);
       }
 
    }
@@ -394,7 +485,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       assert this.north && this.open;
 
       if (!this.bCurtainInside) {
-         (this.bCurtainOpen ? this.curtainEopen : this.curtainE).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -13 : -18), this.offsetY + (float)(this.bCurtainOpen ? -15 : -18), var4, true);
+         (this.bCurtainOpen ? this.curtainEopen : this.curtainE).render((IsoObject)null, var1, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? -13 : -18), this.offsetY + (float)(this.bCurtainOpen ? -15 : -18), var4, false);
       }
 
    }
@@ -403,7 +494,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       assert this.north && this.open;
 
       if (this.bCurtainInside) {
-         (this.bCurtainOpen ? this.curtainWopen : this.curtainW).render((IsoObject)null, var1 + 1.0F, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? 0 : 0), this.offsetY + (float)(this.bCurtainOpen ? 0 : 0), var4, true);
+         (this.bCurtainOpen ? this.curtainWopen : this.curtainW).render((IsoObject)null, var1 + 1.0F, var2, var3, this.dir, this.offsetX + (float)(this.bCurtainOpen ? 0 : 0), this.offsetY + (float)(this.bCurtainOpen ? 0 : 0), var4, false);
       }
 
    }
@@ -454,6 +545,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
             break;
          case StrongWooden:
             this.MaxHealth = this.Health = 800;
+      }
+
+      if (this.getProperties().Is("forceLocked")) {
+         this.MaxHealth = this.Health = 2000;
       }
 
       if (this.getSprite().getName() != null && this.getSprite().getName().contains("fences")) {
@@ -582,22 +677,13 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       this.openSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
       this.OutlineOnMouseover = true;
       this.PushedMaxStrength = this.PushedStrength = 2500;
-      if (var2 >= 57) {
-         this.keyId = var1.getInt();
-         this.lockedByKey = var1.get() == 1;
-      }
-
-      if (var2 >= 80) {
-         byte var4 = var1.get();
-         if ((var4 & 1) != 0) {
-            this.bHasCurtain = true;
-            this.bCurtainOpen = (var4 & 2) != 0;
-            this.bCurtainInside = (var4 & 4) != 0;
-         }
-      }
-
-      if (SystemDisabler.doObjectStateSyncEnable && GameClient.bClient) {
-         GameClient.instance.objectSyncReq.putRequestLoad(this.square);
+      this.keyId = var1.getInt();
+      this.lockedByKey = var1.get() == 1;
+      byte var4 = var1.get();
+      if ((var4 & 1) != 0) {
+         this.bHasCurtain = true;
+         this.bCurtainOpen = (var4 & 2) != 0;
+         this.bCurtainInside = (var4 & 4) != 0;
       }
 
    }
@@ -953,7 +1039,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
                         this.Damage((int)((float)var2.getDoorDamage() * 6.0F * var6));
                      }
 
-                     float var7 = GameTime.getInstance().getMultiplier() / 1.6F;
+                     float var7 = GameTime.getInstance().getThirtyFPSMultiplier();
                      switch (var1.getPerkLevel(PerkFactory.Perks.Fitness)) {
                         case 0:
                            var1.exert(0.01F * var7);
@@ -1112,133 +1198,173 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       }
    }
 
-   public void ToggleDoorActual(IsoGameCharacter var1) {
-      if (Core.bDebug && DebugOptions.instance.CheatDoorUnlock.getValue()) {
-         this.Locked = false;
-         this.setLockedByKey(false);
-      }
-
-      if (this.isHoppable()) {
-         this.Locked = false;
-         this.setLockedByKey(false);
-      }
-
-      if (this.isBarricaded()) {
-         if (var1 != null) {
-            this.playDoorSound(var1.getEmitter(), "Blocked");
-            var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBarricaded"), 255, 255, 255, 256.0F);
-            this.setRenderEffect(RenderEffectType.Hit_Door, true);
-         }
-
+   public boolean couldBeOpen(IsoGameCharacter var1) {
+      if (var1 instanceof IsoAnimal) {
+         return false;
+      } else if (this.isBarricaded()) {
+         return false;
+      } else if (this.isLockedByKey() && var1 instanceof IsoPlayer && (var1.getCurrentSquare().Is(IsoFlagType.exterior) || this.getProperties().Is("forceLocked") || this.getModData().rawget("CustomLock") != null && this.getModData().rawget("CustomLock") instanceof Boolean && (Boolean)this.getModData().rawget("CustomLock")) && var1.getInventory().haveThisKeyId(this.getKeyId()) == null) {
+         return false;
+      } else if (this.isObstructed()) {
+         return false;
       } else {
-         this.checkKeyId();
-         if (this.Locked && !this.lockedByKey && this.getKeyId() != -1) {
-            this.lockedByKey = true;
-         }
+         return !"Tutorial".equals(Core.getInstance().getGameMode()) || !this.isLockedByKey();
+      }
+   }
 
-         if (!this.open && var1 instanceof IsoPlayer) {
-            ((IsoPlayer)var1).TimeSinceOpenDoor = 0.0F;
-         }
-
-         this.DirtySlice();
-         IsoGridSquare.RecalcLightTime = -1;
-         GameTime.instance.lightSourceUpdate = 100.0F;
-         this.square.InvalidateSpecialObjectPaths();
-         if (this.isLockedByKey() && var1 != null && var1 instanceof IsoPlayer && (var1.getCurrentSquare().Is(IsoFlagType.exterior) || this.getProperties().Is("forceLocked") || this.getModData().rawget("CustomLock") != null && this.getModData().rawget("CustomLock") instanceof Boolean && (Boolean)this.getModData().rawget("CustomLock")) && !this.open) {
-            if (var1.getInventory().haveThisKeyId(this.getKeyId()) == null) {
-               this.playDoorSound(var1.getEmitter(), "Locked");
-               this.setRenderEffect(RenderEffectType.Hit_Door, true);
-               return;
-            }
-
-            this.playDoorSound(var1.getEmitter(), "Unlock");
-            this.playDoorSound(var1.getEmitter(), "Open");
+   public void ToggleDoorActual(IsoGameCharacter var1) {
+      IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      if (!(var1 instanceof IsoAnimal)) {
+         if (Core.bDebug && DebugOptions.instance.Cheat.Door.Unlock.getValue()) {
             this.Locked = false;
             this.setLockedByKey(false);
          }
 
-         boolean var2 = var1 instanceof IsoPlayer && !var1.getCurrentSquare().isOutside();
-         if ("Tutorial".equals(Core.getInstance().getGameMode()) && this.isLockedByKey()) {
-            var2 = false;
+         if (this.isHoppable()) {
+            this.Locked = false;
+            this.setLockedByKey(false);
          }
 
-         boolean var3;
-         if (var1 instanceof IsoPlayer && this.getSprite().getProperties().Is("GarageDoor")) {
-            var3 = this.getSprite().getProperties().Is("InteriorSide");
-            if (var3) {
-               var2 = this.north ? var1.getY() >= this.getY() : var1.getX() >= this.getX();
-            } else {
-               var2 = this.north ? var1.getY() < this.getY() : var1.getX() < this.getX();
-            }
-         }
-
-         if (this.Locked && !var2 && !this.open) {
-            this.playDoorSound(var1.getEmitter(), "Locked");
-            this.setRenderEffect(RenderEffectType.Hit_Door, true);
-         } else if (this.getSprite().getProperties().Is("DoubleDoor")) {
-            if (isDoubleDoorObstructed(this)) {
-               if (var1 != null) {
-                  this.playDoorSound(var1.getEmitter(), "Blocked");
-                  var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
-               }
-
-            } else {
-               var3 = this.open;
-               toggleDoubleDoor(this, true);
-               if (var3 != this.open) {
-                  this.playDoorSound(var1.getEmitter(), this.open ? "Open" : "Close");
-               }
-
-            }
-         } else if (this.getSprite().getProperties().Is("GarageDoor")) {
-            if (isGarageDoorObstructed(this)) {
-               if (var1 != null) {
-                  this.playDoorSound(var1.getEmitter(), "Blocked");
-                  var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
-               }
-
-            } else {
-               var3 = this.open;
-               toggleGarageDoor(this, true);
-               if (var3 != this.open) {
-                  this.playDoorSound(var1.getEmitter(), this.open ? "Open" : "Close");
-               }
-
-            }
-         } else if (this.isObstructed()) {
+         if (this.isBarricaded()) {
             if (var1 != null) {
                this.playDoorSound(var1.getEmitter(), "Blocked");
-               var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
+               var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBarricaded"), 255, 255, 255, 256.0F);
+               this.setRenderEffect(RenderEffectType.Hit_Door, true);
             }
 
          } else {
-            this.Locked = false;
-            this.setLockedByKey(false);
+            this.checkKeyId();
+            if (this.Locked && !this.lockedByKey && this.getKeyId() != -1) {
+               this.lockedByKey = true;
+            }
+
             if (var1 instanceof IsoPlayer) {
-               for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
-                  LosUtil.cachecleared[var4] = true;
+               if (!this.open) {
+                  ((IsoPlayer)var1).TimeSinceOpenDoor = 0.0F;
+               } else {
+                  ((IsoPlayer)var1).TimeSinceCloseDoor = 0.0F;
                }
-
-               IsoGridSquare.setRecalcLightTime(-1);
             }
 
-            this.open = !this.open;
-            WeatherFxMask.forceMaskUpdateAll();
-            this.sprite = this.closedSprite;
-            if (this.open) {
+            this.DirtySlice();
+            IsoGridSquare.RecalcLightTime = -1.0F;
+            ++Core.dirtyGlobalLightsCount;
+            GameTime.instance.lightSourceUpdate = 100.0F;
+            this.square.InvalidateSpecialObjectPaths();
+            if (this.isLockedByKey() && var1 != null && var1 instanceof IsoPlayer && (var1.getCurrentSquare().Is(IsoFlagType.exterior) || this.getProperties().Is("forceLocked") || this.getModData().rawget("CustomLock") != null && this.getModData().rawget("CustomLock") instanceof Boolean && (Boolean)this.getModData().rawget("CustomLock")) && !this.open) {
+               if (var1.getInventory().haveThisKeyId(this.getKeyId()) == null) {
+                  this.playDoorSound(var1.getEmitter(), "Locked");
+                  this.setRenderEffect(RenderEffectType.Hit_Door, true);
+                  return;
+               }
+
+               this.playDoorSound(var1.getEmitter(), "Unlock");
+               this.playDoorSound(var1.getEmitter(), "Open");
+               this.Locked = false;
+               this.setLockedByKey(false);
+            }
+
+            boolean var3 = var1 instanceof IsoPlayer && !var1.getCurrentSquare().isOutside();
+            if ("Tutorial".equals(Core.getInstance().getGameMode()) && this.isLockedByKey()) {
+               var3 = false;
+            }
+
+            boolean var4;
+            if (var1 instanceof IsoPlayer && this.getSprite().getProperties().Is("GarageDoor")) {
+               var4 = this.getSprite().getProperties().Is("InteriorSide");
+               if (var4) {
+                  var3 = this.north ? var1.getY() >= this.getY() : var1.getX() >= this.getX();
+               } else {
+                  var3 = this.north ? var1.getY() < this.getY() : var1.getX() < this.getX();
+               }
+            }
+
+            if (this.Locked && !var3 && !this.open) {
+               this.playDoorSound(var1.getEmitter(), "Locked");
+               this.setRenderEffect(RenderEffectType.Hit_Door, true);
+            } else if (this.getSprite().getProperties().Is("DoubleDoor")) {
+               if (isDoubleDoorObstructed(this)) {
+                  if (var1 != null) {
+                     this.playDoorSound(var1.getEmitter(), "Blocked");
+                     var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
+                  }
+
+               } else {
+                  var4 = this.open;
+                  toggleDoubleDoor(this, true);
+                  if (var4 != this.open) {
+                     this.playDoorSound(var1.getEmitter(), this.open ? "Open" : "Close");
+                     if (var2 != null && var2.isLocalPlayer()) {
+                        var2.triggerMusicIntensityEvent(this.open ? "DoorOpen" : "DoorClose");
+                     }
+                  }
+
+               }
+            } else if (this.getSprite().getProperties().Is("GarageDoor")) {
+               if (isGarageDoorObstructed(this)) {
+                  if (var1 != null) {
+                     this.playDoorSound(var1.getEmitter(), "Blocked");
+                     var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
+                  }
+
+               } else {
+                  var4 = this.open;
+                  toggleGarageDoor(this, true);
+                  if (var4 != this.open) {
+                     this.playDoorSound(var1.getEmitter(), this.open ? "Open" : "Close");
+                  }
+
+                  if (var2 != null && var2.isLocalPlayer()) {
+                     var2.triggerMusicIntensityEvent(this.open ? "DoorOpen" : "DoorClose");
+                  }
+
+               }
+            } else if (this.isObstructed()) {
                if (var1 != null) {
-                  this.playDoorSound(var1.getEmitter(), "Open");
+                  this.playDoorSound(var1.getEmitter(), "Blocked");
+                  var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
                }
 
-               this.sprite = this.openSprite;
-            } else if (var1 != null) {
-               this.playDoorSound(var1.getEmitter(), "Close");
-            }
+            } else {
+               this.Locked = false;
+               this.setLockedByKey(false);
+               if (var1 instanceof IsoPlayer) {
+                  for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
+                     LosUtil.cachecleared[var5] = true;
+                  }
 
-            this.square.RecalcProperties();
-            this.syncIsoObject(false, (byte)(this.open ? 1 : 0), (UdpConnection)null, (ByteBuffer)null);
-            PolygonalMap2.instance.squareChanged(this.square);
-            LuaEventManager.triggerEvent("OnContainerUpdate");
+                  IsoGridSquare.setRecalcLightTime(-1.0F);
+               }
+
+               this.open = !this.open;
+               WeatherFxMask.forceMaskUpdateAll();
+               this.sprite = this.closedSprite;
+               if (this.open) {
+                  if (var1 != null) {
+                     this.playDoorSound(var1.getEmitter(), "Open");
+                  }
+
+                  this.sprite = this.openSprite;
+               } else if (var1 != null) {
+                  this.playDoorSound(var1.getEmitter(), "Close");
+               }
+
+               this.square.RecalcProperties();
+               this.syncIsoObject(false, (byte)(this.open ? 1 : 0), (UdpConnection)null, (ByteBuffer)null);
+               PolygonalMap2.instance.squareChanged(this.square);
+               LuaEventManager.triggerEvent("OnContainerUpdate");
+               this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+               if (var2 != null && var2.isLocalPlayer()) {
+                  var2.triggerMusicIntensityEvent(this.open ? "DoorOpen" : "DoorClose");
+               }
+
+               SpriteModel var6 = this.getSpriteModel();
+               if (var6 != null && var6.animationName != null) {
+                  IsoObjectAnimations.getInstance().addObject(this, var6, this.open ? "Open" : "Close");
+               }
+
+               this.setAnimating(true);
+            }
          }
       }
    }
@@ -1347,7 +1473,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
             LosUtil.cachecleared[var14] = true;
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          GameTime.instance.lightSourceUpdate = 100.0F;
          LuaEventManager.triggerEvent("OnContainerUpdate");
          WeatherFxMask.forceMaskUpdateAll();
@@ -1366,7 +1492,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
             LosUtil.cachecleared[var1] = true;
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          this.open = !this.open;
          this.sprite = this.closedSprite;
          if (this.open) {
@@ -1484,6 +1610,15 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       }
    }
 
+   public void syncDoorGarage(ArrayList<IsoObject> var1) {
+      if (GameClient.bClient) {
+         INetworkPacket.send(PacketTypes.PacketType.SyncDoorGarage, var1, this.open);
+      } else if (GameServer.bServer) {
+         INetworkPacket.sendToAll(PacketTypes.PacketType.SyncDoorGarage, (UdpConnection)null, var1, this.open);
+      }
+
+   }
+
    public void setKeyId(int var1) {
       if (this.keyId != var1 && GameClient.bClient) {
          this.keyId = var1;
@@ -1502,7 +1637,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       boolean var2 = var1 != this.lockedByKey;
       this.lockedByKey = var1;
       this.Locked = var1;
-      if (!GameServer.bServer && var2) {
+      if (var2) {
          if (var1) {
             this.syncIsoObject(false, (byte)3, (UdpConnection)null, (ByteBuffer)null);
          } else {
@@ -1873,30 +2008,22 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
 
    private void initCurtainSprites() {
       if (this.curtainN == null) {
-         this.curtainW = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainW.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_16");
-         this.curtainW.def.setScale(0.8F, 0.8F);
-         this.curtainWopen = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainWopen.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_20");
-         this.curtainWopen.def.setScale(0.8F, 0.8F);
-         this.curtainE = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainE.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_17");
-         this.curtainE.def.setScale(0.8F, 0.8F);
-         this.curtainEopen = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainEopen.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_21");
-         this.curtainEopen.def.setScale(0.8F, 0.8F);
-         this.curtainN = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainN.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_18");
-         this.curtainN.def.setScale(0.8F, 0.8F);
-         this.curtainNopen = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainNopen.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_22");
-         this.curtainNopen.def.setScale(0.8F, 0.8F);
-         this.curtainS = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainS.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_19");
-         this.curtainS.def.setScale(0.8F, 0.8F);
-         this.curtainSopen = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         this.curtainSopen.LoadFramesNoDirPageSimple("fixtures_windows_curtains_01_23");
-         this.curtainSopen.def.setScale(0.8F, 0.8F);
+         this.curtainW = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_16").newInstance();
+         this.curtainW.setScale(0.8F, 0.8F);
+         this.curtainWopen = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_20").newInstance();
+         this.curtainWopen.setScale(0.8F, 0.8F);
+         this.curtainE = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_17").newInstance();
+         this.curtainE.setScale(0.8F, 0.8F);
+         this.curtainEopen = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_21").newInstance();
+         this.curtainEopen.setScale(0.8F, 0.8F);
+         this.curtainN = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_18").newInstance();
+         this.curtainN.setScale(0.8F, 0.8F);
+         this.curtainNopen = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_22").newInstance();
+         this.curtainNopen.setScale(0.8F, 0.8F);
+         this.curtainS = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_19").newInstance();
+         this.curtainS.setScale(0.8F, 0.8F);
+         this.curtainSopen = IsoSpriteManager.instance.getSprite("fixtures_windows_curtains_01_23").newInstance();
+         this.curtainSopen.setScale(0.8F, 0.8F);
       }
    }
 
@@ -1917,7 +2044,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
             }
 
             GameTime.instance.lightSourceUpdate = 100.0F;
-            IsoGridSquare.setRecalcLightTime(-1);
+            IsoGridSquare.setRecalcLightTime(-1.0F);
             if (this.square != null) {
                this.square.RecalcProperties();
                this.square.RecalcAllWithNeighbours(true);
@@ -1985,20 +2112,23 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
          this.bHasCurtain = true;
          this.bCurtainInside = var1;
          this.bCurtainOpen = true;
+         if (!GameClient.bClient) {
+            InventoryItem var3 = var2.getInventory().FindAndReturn("Sheet");
+            var2.getInventory().Remove(var3);
+            if (GameServer.bServer) {
+               GameServer.sendRemoveItemFromContainer(var2.getInventory(), var3);
+            }
+         }
+
          if (GameServer.bServer) {
             this.sendObjectChange("addSheet", new Object[]{"inside", var1});
-            if (var2 != null) {
-               var2.sendObjectChange("removeOneOf", new Object[]{"type", "Sheet"});
-            }
          } else if (var2 != null) {
-            var2.getInventory().RemoveOneOf("Sheet");
-
-            for(int var3 = 0; var3 < IsoPlayer.numPlayers; ++var3) {
-               LosUtil.cachecleared[var3] = true;
+            for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
+               LosUtil.cachecleared[var4] = true;
             }
 
             GameTime.instance.lightSourceUpdate = 100.0F;
-            IsoGridSquare.setRecalcLightTime(-1);
+            IsoGridSquare.setRecalcLightTime(-1.0F);
             if (this.square != null) {
                this.square.RecalcProperties();
             }
@@ -2010,20 +2140,20 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
    public void removeSheet(IsoGameCharacter var1) {
       if (this.bHasCurtain) {
          this.bHasCurtain = false;
+         InventoryItem var2 = var1.getInventory().AddItem("Base.Sheet");
+         if (GameServer.bServer) {
+            GameServer.sendAddItemToContainer(var1.getInventory(), var2);
+         }
+
          if (GameServer.bServer) {
             this.sendObjectChange("removeSheet");
-            if (var1 != null) {
-               var1.sendObjectChange("addItemOfType", new Object[]{"type", "Base.Sheet"});
-            }
          } else if (var1 != null) {
-            var1.getInventory().AddItem("Base.Sheet");
-
-            for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
-               LosUtil.cachecleared[var2] = true;
+            for(int var3 = 0; var3 < IsoPlayer.numPlayers; ++var3) {
+               LosUtil.cachecleared[var3] = true;
             }
 
             GameTime.instance.lightSourceUpdate = 100.0F;
-            IsoGridSquare.setRecalcLightTime(-1);
+            IsoGridSquare.setRecalcLightTime(-1.0F);
             if (this.square != null) {
                this.square.RecalcProperties();
             }
@@ -2190,10 +2320,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
          if (var3 == null) {
             return false;
          } else if (!var3.isSolid() && !var3.isSolidTrans() && !var3.Has(IsoObjectType.tree)) {
-            int var4 = (var3.x - 1) / 10;
-            int var5 = (var3.y - 1) / 10;
-            int var6 = (int)Math.ceil((double)(((float)var3.x + 1.0F) / 10.0F));
-            int var7 = (int)Math.ceil((double)(((float)var3.y + 1.0F) / 10.0F));
+            int var4 = (var3.x - 1) / 8;
+            int var5 = (var3.y - 1) / 8;
+            int var6 = (int)Math.ceil((double)(((float)var3.x + 1.0F) / 8.0F));
+            int var7 = (int)Math.ceil((double)(((float)var3.y + 1.0F) / 8.0F));
 
             for(int var8 = var5; var8 <= var7; ++var8) {
                for(int var9 = var4; var9 <= var6; ++var9) {
@@ -2258,6 +2388,23 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
             }
          }
 
+         SpriteModel var11;
+         if (var7 != null) {
+            var11 = var7.getSpriteModel();
+            if (var11 != null && var11.animationName != null) {
+               IsoObjectAnimations.getInstance().addObject(var7, var11, !var6 ? "Open" : "Close");
+               var7.setAnimating(true);
+            }
+         }
+
+         if (var10 != null) {
+            var11 = var10.getSpriteModel();
+            if (var11 != null && var11.animationName != null) {
+               IsoObjectAnimations.getInstance().addObject(var10, var11, !var6 ? "Open" : "Close");
+               var10.setAnimating(true);
+            }
+         }
+
       }
    }
 
@@ -2291,6 +2438,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
          var0.getSquare().RecalcAllWithNeighbours(true);
          if (var1 != 2 && var1 != 3) {
             PolygonalMap2.instance.squareChanged(var0.getSquare());
+            var0.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          } else {
             IsoGridSquare var9 = var0.getSquare();
             int[] var10;
@@ -2354,6 +2502,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
                var9.getObjects().add(var19);
                var9.getSpecialObjects().add(var19);
                var9.RecalcProperties();
+               var9.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_ADD);
             }
 
             if (!GameClient.bClient) {
@@ -2397,9 +2546,7 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
 
    public static IsoObject getDoubleDoorObject(IsoObject var0, int var1) {
       int var2 = getDoubleDoorIndex(var0);
-      if (var2 == -1) {
-         return null;
-      } else {
+      if (var2 != -1 && var1 > 0) {
          IsoDoor var3 = var0 instanceof IsoDoor ? (IsoDoor)var0 : null;
          IsoThumpable var4 = var0 instanceof IsoThumpable ? (IsoThumpable)var0 : null;
          boolean var5 = var3 == null ? var4.north : var3.north;
@@ -2454,6 +2601,8 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
 
             return null;
          }
+      } else {
+         return null;
       }
    }
 
@@ -2485,58 +2634,69 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
             var8 = DoubleDoorWestClosedYOffset;
          }
 
-         int var9 = var6.getX() - var7[var1 - 1];
-         int var10 = var6.getY() - var8[var1 - 1];
-         int var11 = var9;
-         int var12 = var10 + (var4 ? 0 : -3);
-         int var13 = var9 + (var4 ? 4 : 2);
-         int var14 = var12 + (var4 ? 2 : 4);
-         int var15 = var6.getZ();
-
+         boolean var9 = getDoubleDoorObject(var0, 1) != null;
+         boolean var10 = getDoubleDoorObject(var0, 4) != null;
+         int var11 = var6.getX() - var7[var1 - 1];
+         int var12 = var6.getY() - var8[var1 - 1];
+         int var13 = var11;
+         int var14 = var12;
+         int var17 = var6.getZ();
+         int var15;
          int var16;
-         int var17;
-         for(var16 = var12; var16 < var14; ++var16) {
-            for(var17 = var11; var17 < var13; ++var17) {
-               IsoGridSquare var18 = IsoWorld.instance.CurrentCell.getGridSquare(var17, var16, var15);
-               if (var18 != null && (var18.isSolid() || var18.isSolidTrans() || var18.Has(IsoObjectType.tree))) {
-                  return true;
-               }
-            }
-         }
-
          if (var4) {
-            if (hasSomething4x4(var9, var10, var9 + 1, var10 + 1, var15)) {
+            var15 = var11 + 4;
+            var16 = var12 + 2;
+            if (var9 && hasSomething4x4(var11, var12, var11 + 1, var12 + 1, var17)) {
                return true;
             }
 
-            if (hasSomething4x4(var9 + 2, var10, var9 + 3, var10 + 1, var15)) {
+            if (var10 && hasSomething4x4(var11 + 2, var12, var11 + 3, var12 + 1, var17)) {
                return true;
+            }
+
+            if (!var9) {
+               var13 = var11 + 2;
+            }
+
+            if (!var10) {
+               var15 -= 2;
             }
          } else {
-            if (hasSomething4x4(var9, var10 - 1, var9 + 1, var10, var15)) {
+            var14 = var12 - 3;
+            var15 = var11 + 2;
+            var16 = var14 + 4;
+            if (var9 && hasSomething4x4(var11, var12 - 1, var11 + 1, var12, var17)) {
                return true;
             }
 
-            if (hasSomething4x4(var9, var10 - 3, var9 + 1, var10 - 2, var15)) {
+            if (var10 && hasSomething4x4(var11, var12 - 3, var11 + 1, var12 - 2, var17)) {
                return true;
+            }
+
+            if (!var9) {
+               var16 -= 2;
+            }
+
+            if (!var10) {
+               var14 += 2;
             }
          }
 
-         var16 = (var11 - 4) / 10;
-         var17 = (var12 - 4) / 10;
-         int var27 = (int)Math.ceil((double)((var13 + 4) / 10));
-         int var19 = (int)Math.ceil((double)((var14 + 4) / 10));
+         int var18 = PZMath.fastfloor(((float)var13 - 4.0F) / 8.0F);
+         int var19 = PZMath.fastfloor(((float)var14 - 4.0F) / 8.0F);
+         int var20 = (int)Math.ceil((double)(((float)var15 + 4.0F) / 8.0F));
+         int var21 = (int)Math.ceil((double)(((float)var16 + 4.0F) / 8.0F));
 
-         for(int var20 = var17; var20 <= var19; ++var20) {
-            for(int var21 = var16; var21 <= var27; ++var21) {
-               IsoChunk var22 = GameServer.bServer ? ServerMap.instance.getChunk(var21, var20) : IsoWorld.instance.CurrentCell.getChunk(var21, var20);
-               if (var22 != null) {
-                  for(int var23 = 0; var23 < var22.vehicles.size(); ++var23) {
-                     BaseVehicle var24 = (BaseVehicle)var22.vehicles.get(var23);
+         for(int var22 = var19; var22 <= var21; ++var22) {
+            for(int var23 = var18; var23 <= var20; ++var23) {
+               IsoChunk var24 = GameServer.bServer ? ServerMap.instance.getChunk(var23, var22) : IsoWorld.instance.CurrentCell.getChunk(var23, var22);
+               if (var24 != null) {
+                  for(int var25 = 0; var25 < var24.vehicles.size(); ++var25) {
+                     BaseVehicle var26 = (BaseVehicle)var24.vehicles.get(var25);
 
-                     for(int var25 = var12; var25 < var14; ++var25) {
-                        for(int var26 = var11; var26 < var13; ++var26) {
-                           if (var24.isIntersectingSquare(var26, var25, var15)) {
+                     for(int var27 = var14; var27 < var16; ++var27) {
+                        for(int var28 = var13; var28 < var15; ++var28) {
+                           if (var26.isIntersectingSquare(var28, var27, var17)) {
                               return true;
                            }
                         }
@@ -2547,6 +2707,14 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
          }
 
          return false;
+      }
+   }
+
+   private static boolean hasSolidObjects(IsoGridSquare var0) {
+      if (var0 == null) {
+         return false;
+      } else {
+         return var0.isSolid() || var0.isSolidTrans() || var0.Has(IsoObjectType.tree);
       }
    }
 
@@ -2575,12 +2743,16 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       IsoGridSquare var6 = IsoWorld.instance.CurrentCell.getGridSquare(var2, var1, var4);
       IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare(var2, var3, var4);
       IsoGridSquare var8 = IsoWorld.instance.CurrentCell.getGridSquare(var0, var3, var4);
-      if (isSomethingTo(var5, var6)) {
-         return true;
-      } else if (isSomethingTo(var5, var7)) {
-         return true;
+      if (!hasSolidObjects(var5) && !hasSolidObjects(var6) && !hasSolidObjects(var7) && !hasSolidObjects(var8)) {
+         if (isSomethingTo(var5, var6)) {
+            return true;
+         } else if (isSomethingTo(var5, var7)) {
+            return true;
+         } else {
+            return isSomethingTo(var5, var8);
+         }
       } else {
-         return isSomethingTo(var5, var8);
+         return true;
       }
    }
 
@@ -2741,6 +2913,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       }
    }
 
+   public void changeSprite(IsoDoor var1) {
+      var1.sprite = var1.open ? var1.openSprite : var1.closedSprite;
+   }
+
    private static void toggleGarageDoorObject(IsoObject var0) {
       int var1 = getGarageDoorIndex(var0);
       if (var1 != -1) {
@@ -2760,31 +2936,44 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
          }
 
          var0.getSquare().RecalcAllWithNeighbours(true);
-         var0.syncIsoObject(false, (byte)(var4 ? 0 : 1), (UdpConnection)null, (ByteBuffer)null);
          PolygonalMap2.instance.squareChanged(var0.getSquare());
+         var0.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
       }
    }
 
    public static void toggleGarageDoor(IsoObject var0, boolean var1) {
       int var2 = getGarageDoorIndex(var0);
-      if (var2 != -1) {
-         toggleGarageDoorObject(var0);
-
-         for(IsoObject var3 = getGarageDoorPrev(var0); var3 != null; var3 = getGarageDoorPrev(var3)) {
-            toggleGarageDoorObject(var3);
-         }
-
-         for(IsoObject var4 = getGarageDoorNext(var0); var4 != null; var4 = getGarageDoorNext(var4)) {
-            toggleGarageDoorObject(var4);
-         }
-
-         for(int var5 = 0; var5 < IsoPlayer.numPlayers; ++var5) {
-            LosUtil.cachecleared[var5] = true;
-         }
-
-         IsoGridSquare.setRecalcLightTime(-1);
-         LuaEventManager.triggerEvent("OnContainerUpdate");
+      ArrayList var3 = new ArrayList();
+      var3.add(var0);
+      IsoDoor var4 = var0 instanceof IsoDoor ? (IsoDoor)var0 : null;
+      if (var0 instanceof IsoThumpable var10000) {
+         ;
+      } else {
+         var10000 = null;
       }
+
+      toggleGarageDoorObject(var0);
+
+      for(IsoObject var6 = getGarageDoorPrev(var0); var6 != null; var6 = getGarageDoorPrev(var6)) {
+         toggleGarageDoorObject(var6);
+         var3.add(var6);
+      }
+
+      for(IsoObject var7 = getGarageDoorNext(var0); var7 != null; var7 = getGarageDoorNext(var7)) {
+         toggleGarageDoorObject(var7);
+         var3.add(var7);
+      }
+
+      if (GameClient.bClient || GameServer.bServer) {
+         var4.syncDoorGarage(var3);
+      }
+
+      for(int var8 = 0; var8 < IsoPlayer.numPlayers; ++var8) {
+         LosUtil.cachecleared[var8] = true;
+      }
+
+      IsoGridSquare.setRecalcLightTime(-1.0F);
+      LuaEventManager.triggerEvent("OnContainerUpdate");
    }
 
    private static boolean isGarageDoorObstructed(IsoObject var0) {
@@ -2823,10 +3012,10 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
                }
             }
 
-            int var22 = (var6 - 4) / 10;
-            int var23 = (var7 - 4) / 10;
-            int var12 = (int)Math.ceil((double)((var8 + 4) / 10));
-            int var13 = (int)Math.ceil((double)((var9 + 4) / 10));
+            int var22 = (var6 - 4) / 8;
+            int var23 = (var7 - 4) / 8;
+            int var12 = (int)Math.ceil((double)((var8 + 4) / 8));
+            int var13 = (int)Math.ceil((double)((var9 + 4) / 8));
             int var14 = var0.square.z;
 
             for(int var15 = var23; var15 <= var13; ++var15) {
@@ -2913,12 +3102,59 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
       return this;
    }
 
+   public int getRenderEffectObjectCount() {
+      int var1 = getDoubleDoorIndex(this);
+      if (var1 != -1) {
+         return 2;
+      } else {
+         int var2 = getGarageDoorIndex(this);
+         if (var2 == -1) {
+            return 1;
+         } else {
+            Object var3 = this;
+
+            int var4;
+            for(var4 = 1; (var3 = getGarageDoorPrev((IsoObject)var3)) != null; ++var4) {
+            }
+
+            for(var3 = this; (var3 = getGarageDoorNext((IsoObject)var3)) != null; ++var4) {
+            }
+
+            return var4;
+         }
+      }
+   }
+
+   public IsoObject getRenderEffectObjectByIndex(int var1) {
+      int var2 = getDoubleDoorIndex(this);
+      if (var2 != -1) {
+         return getDoubleDoorObject(this, var1);
+      } else {
+         int var3 = getGarageDoorIndex(this);
+         if (var3 == -1) {
+            return this;
+         } else {
+            IsoObject var4 = getGarageDoorFirst(this);
+
+            for(int var5 = 0; var4 != null && var5 != var1; ++var5) {
+               var4 = getGarageDoorNext(var4);
+            }
+
+            return var4;
+         }
+      }
+   }
+
    public String getThumpSound() {
       switch (this.getSoundPrefix()) {
+         case "MetalGate":
+            return "ZombieThumpWireFence";
+         case "MetalPoleGate":
+         case "MetalPoleGateDouble":
+            return "ZombieThumpMetalPoleGate";
          case "GarageDoor":
             return "ZombieThumpGarageDoor";
          case "MetalDoor":
-         case "MetalGate":
          case "PrisonMetalDoor":
             return "ZombieThumpMetal";
          case "SlidingGlassDoor":
@@ -2939,6 +3175,15 @@ public class IsoDoor extends IsoObject implements BarricadeAble, Thumpable {
 
    private void playDoorSound(BaseCharacterSoundEmitter var1, String var2) {
       var1.playSound(this.getSoundPrefix() + var2, this);
+   }
+
+   public SpriteModel getSpriteModel() {
+      if (this.bHasCurtain) {
+         return null;
+      } else {
+         int var1 = getDoubleDoorIndex(this);
+         return (var1 == 1 || var1 == 4) && getDoubleDoorObject(this, var1 == 1 ? 2 : 3) == null ? null : super.getSpriteModel();
+      }
    }
 
    public static enum DoorType {

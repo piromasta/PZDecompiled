@@ -24,8 +24,6 @@ public interface ILuaGameCharacterDamage {
 
    void StopBurning();
 
-   void sendStopBurning();
-
    int getLastHitCount();
 
    void setLastHitCount(int var1);

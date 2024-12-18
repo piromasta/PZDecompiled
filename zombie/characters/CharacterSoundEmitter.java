@@ -7,6 +7,7 @@ import fmod.fmod.FMODSoundEmitter;
 import fmod.fmod.FMODVoice;
 import fmod.fmod.FMOD_STUDIO_PARAMETER_DESCRIPTION;
 import zombie.SoundManager;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.debug.DebugType;
@@ -69,7 +70,7 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
          for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
             IsoPlayer var2 = IsoPlayer.players[var1];
             if (var2 != null && var2 != this.character && !var2.Traits.Deaf.isSet()) {
-               if ((int)var2.getZ() < (int)this.character.getZ()) {
+               if (PZMath.fastfloor(var2.getZ()) < PZMath.fastfloor(this.character.getZ())) {
                   return CharacterSoundEmitter.footstep.upstairs;
                }
                break;
@@ -140,7 +141,7 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
          return 0L;
       } else {
          if (DebugLog.isEnabled(DebugType.Sound)) {
-            DebugLog.Sound.debugln("Playing sound: " + var1 + (this.character.isZombie() ? " for zombie" : " for player"));
+            DebugLog.Sound.debugln("Playing sound: %s for %s", var1, this.character.getClass().getSimpleName());
          }
 
          return this.extra.playSound(var1);
@@ -152,7 +153,7 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
          return 0L;
       } else {
          if (DebugLog.isEnabled(DebugType.Sound)) {
-            DebugLog.Sound.debugln("Playing sound: " + var1 + (this.character.isZombie() ? " for zombie" : " for player"));
+            DebugLog.Sound.debugln("Playing sound: %s for %s", var1, this.character.getClass().getSimpleName());
          }
 
          return this.extra.playSound(var1, var2);
@@ -164,7 +165,7 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
          return 0L;
       } else {
          if (DebugLog.isEnabled(DebugType.Sound)) {
-            DebugLog.Sound.debugln("Playing sound: " + var1 + (this.character.isZombie() ? " for zombie" : " for player"));
+            DebugLog.Sound.debugln("Playing sound: %s for %s", var1, this.character.getClass().getSimpleName());
          }
 
          return GameServer.bServer ? 0L : this.extra.playSound(var1, var2);
@@ -176,7 +177,7 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
          return 0L;
       } else {
          if (DebugLog.isEnabled(DebugType.Sound)) {
-            DebugLog.Sound.debugln("Playing sound: " + var1 + (this.character.isZombie() ? " for zombie" : " for player"));
+            DebugLog.Sound.debugln("Playing sound: %s for %s", var1, this.character.getClass().getSimpleName());
          }
 
          return this.extra.playSoundImpl(var1, false, var2);
@@ -259,6 +260,12 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
       this.vocals.stopOrTriggerSound(var1);
    }
 
+   public void stopOrTriggerSoundLocal(long var1) {
+      this.extra.stopOrTriggerSoundLocal(var1);
+      this.footsteps.stopOrTriggerSoundLocal(var1);
+      this.vocals.stopOrTriggerSoundLocal(var1);
+   }
+
    public void stopOrTriggerSoundByName(String var1) {
       this.extra.stopOrTriggerSoundByName(var1);
       this.footsteps.stopOrTriggerSoundByName(var1);
@@ -292,6 +299,10 @@ public final class CharacterSoundEmitter extends BaseCharacterSoundEmitter imple
 
    public void setParameterValue(long var1, FMOD_STUDIO_PARAMETER_DESCRIPTION var3, float var4) {
       this.extra.setParameterValue(var1, var3, var4);
+   }
+
+   public void setParameterValueByName(long var1, String var3, float var4) {
+      this.extra.setParameterValueByName(var1, var3, var4);
    }
 
    static enum footstep {

@@ -58,7 +58,7 @@ public final class HairOutfitDefinitions {
                while(var3.advance()) {
                   KahluaTableImpl var7 = (KahluaTableImpl)Type.tryCastTo(var3.getValue(), KahluaTableImpl.class);
                   if (var7 != null) {
-                     HaircutOutfitDefinition var6 = new HaircutOutfitDefinition(var7.rawgetStr("outfit"), initStringChance(var7.rawgetStr("haircut")), initStringChance(var7.rawgetStr("beard")), initStringChance(var7.rawgetStr("haircutColor")));
+                     HaircutOutfitDefinition var6 = new HaircutOutfitDefinition(var7.rawgetStr("outfit"), initStringChance(var7.rawgetStr("haircut")), initStringChance(var7.rawgetStr("femaleHaircut")), initStringChance(var7.rawgetStr("maleHaircut")), initStringChance(var7.rawgetStr("beard")), initStringChance(var7.rawgetStr("haircutColor")));
                      this.m_outfitDefinition.add(var6);
                   }
                }
@@ -114,11 +114,55 @@ public final class HairOutfitDefinitions {
          for(int var6 = 0; var6 < instance.m_outfitDefinition.size() && !var5; ++var6) {
             HaircutOutfitDefinition var7 = (HaircutOutfitDefinition)instance.m_outfitDefinition.get(var6);
             if (var7.outfit.equals(var1) && var7.haircutChance != null) {
+               return this.getRandomHaircutFromOutfitDef(var7, var4, var3);
+            }
+         }
+
+         return var4;
+      }
+   }
+
+   public String getRandomHaircutFromOutfitDef(HaircutOutfitDefinition var1, String var2, ArrayList<HairStyle> var3) {
+      float var4 = OutfitRNG.Next(0.0F, 100.0F);
+      float var5 = 0.0F;
+
+      for(int var6 = 0; var6 < var1.haircutChance.size(); ++var6) {
+         StringChance var7 = (StringChance)var1.haircutChance.get(var6);
+         var5 += var7.chance;
+         if (var4 < var5) {
+            var2 = var7.str;
+            if ("null".equalsIgnoreCase(var7.str)) {
+               var2 = "";
+            }
+
+            if ("random".equalsIgnoreCase(var7.str)) {
+               var2 = ((HairStyle)OutfitRNG.pickRandom(var3)).name;
+            }
+
+            return var2;
+         }
+      }
+
+      return var2;
+   }
+
+   public String getRandomFemaleHaircut(String var1, ArrayList<HairStyle> var2) {
+      ArrayList var3 = (ArrayList)this.m_tempHairStyles.get();
+      this.getValidHairStylesForOutfit(var1, var2, var3);
+      if (var3.isEmpty()) {
+         return "";
+      } else {
+         String var4 = ((HairStyle)OutfitRNG.pickRandom(var3)).name;
+         boolean var5 = false;
+
+         for(int var6 = 0; var6 < instance.m_outfitDefinition.size() && !var5; ++var6) {
+            HaircutOutfitDefinition var7 = (HaircutOutfitDefinition)instance.m_outfitDefinition.get(var6);
+            if (var7.outfit.equals(var1) && var7.femaleHaircutChance != null) {
                float var8 = OutfitRNG.Next(0.0F, 100.0F);
                float var9 = 0.0F;
 
-               for(int var10 = 0; var10 < var7.haircutChance.size(); ++var10) {
-                  StringChance var11 = (StringChance)var7.haircutChance.get(var10);
+               for(int var10 = 0; var10 < var7.femaleHaircutChance.size(); ++var10) {
+                  StringChance var11 = (StringChance)var7.femaleHaircutChance.get(var10);
                   var9 += var11.chance;
                   if (var8 < var9) {
                      var4 = var11.str;
@@ -134,6 +178,49 @@ public final class HairOutfitDefinitions {
                      break;
                   }
                }
+            } else if (var7.outfit.equals(var1) && var7.femaleHaircutChance == null && var7.haircutChance != null) {
+               return this.getRandomHaircutFromOutfitDef(var7, var4, var3);
+            }
+         }
+
+         return var4;
+      }
+   }
+
+   public String getRandomMaleHaircut(String var1, ArrayList<HairStyle> var2) {
+      ArrayList var3 = (ArrayList)this.m_tempHairStyles.get();
+      this.getValidHairStylesForOutfit(var1, var2, var3);
+      if (var3.isEmpty()) {
+         return "";
+      } else {
+         String var4 = ((HairStyle)OutfitRNG.pickRandom(var3)).name;
+         boolean var5 = false;
+
+         for(int var6 = 0; var6 < instance.m_outfitDefinition.size() && !var5; ++var6) {
+            HaircutOutfitDefinition var7 = (HaircutOutfitDefinition)instance.m_outfitDefinition.get(var6);
+            if (var7.outfit.equals(var1) && var7.maleHaircutChance != null) {
+               float var8 = OutfitRNG.Next(0.0F, 100.0F);
+               float var9 = 0.0F;
+
+               for(int var10 = 0; var10 < var7.maleHaircutChance.size(); ++var10) {
+                  StringChance var11 = (StringChance)var7.maleHaircutChance.get(var10);
+                  var9 += var11.chance;
+                  if (var8 < var9) {
+                     var4 = var11.str;
+                     if ("null".equalsIgnoreCase(var11.str)) {
+                        var4 = "";
+                     }
+
+                     if ("random".equalsIgnoreCase(var11.str)) {
+                        var4 = ((HairStyle)OutfitRNG.pickRandom(var3)).name;
+                     }
+
+                     var5 = true;
+                     break;
+                  }
+               }
+            } else if (var7.outfit.equals(var1) && var7.maleHaircutChance == null && var7.haircutChance != null) {
+               return this.getRandomHaircutFromOutfitDef(var7, var4, var3);
             }
          }
 
@@ -256,14 +343,18 @@ public final class HairOutfitDefinitions {
    public static final class HaircutOutfitDefinition {
       public String outfit;
       public ArrayList<StringChance> haircutChance;
+      public ArrayList<StringChance> femaleHaircutChance;
+      public ArrayList<StringChance> maleHaircutChance;
       public ArrayList<StringChance> beardChance;
       public ArrayList<StringChance> haircutColor;
 
-      public HaircutOutfitDefinition(String var1, ArrayList<StringChance> var2, ArrayList<StringChance> var3, ArrayList<StringChance> var4) {
+      public HaircutOutfitDefinition(String var1, ArrayList<StringChance> var2, ArrayList<StringChance> var3, ArrayList<StringChance> var4, ArrayList<StringChance> var5, ArrayList<StringChance> var6) {
          this.outfit = var1;
          this.haircutChance = var2;
-         this.beardChance = var3;
-         this.haircutColor = var4;
+         this.femaleHaircutChance = var3;
+         this.maleHaircutChance = var4;
+         this.beardChance = var5;
+         this.haircutColor = var6;
       }
    }
 

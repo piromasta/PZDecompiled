@@ -17,6 +17,10 @@ public final class ZombieSittingState extends State {
    }
 
    public void enter(IsoGameCharacter var1) {
+      IsoZombie var2 = (IsoZombie)var1;
+      var2.setSitAgainstWall(true);
+      var2.setOnFloor(true);
+      var2.setKnockedDown(false);
    }
 
    public void execute(IsoGameCharacter var1) {

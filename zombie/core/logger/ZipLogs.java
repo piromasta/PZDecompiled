@@ -77,9 +77,6 @@ public final class ZipLogs {
          addToZip(var1, "/addition/translationProblems.txt", "translationProblems.txt");
          addToZip(var1, "/addition/gamepadBinding.config", "gamepadBinding.config");
          addFilelistToZip(var1, "/addition/mods.txt", "mods");
-         addDirToZipLua(var1, "/lua", "Lua");
-         addDirToZip(var1, "/db", "db");
-         addDirToZip(var1, "/server", "Server");
          addDirToZip(var1, "/statistic", "Statistic");
          if (!var0) {
             addSaveOldToZip(var1, "/save_old/map_t.bin", "map_t.bin");

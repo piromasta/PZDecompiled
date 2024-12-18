@@ -14,4 +14,6 @@ public interface ITemplateBuilder {
    void RegisterKey(String var1, IReplace var2);
 
    void Reset();
+
+   void CopyFrom(Object var1);
 }

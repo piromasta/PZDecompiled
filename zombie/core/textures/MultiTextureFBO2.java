@@ -2,31 +2,36 @@ package zombie.core.textures;
 
 import java.util.ArrayList;
 import java.util.function.Consumer;
+import zombie.CombatManager;
 import zombie.GameTime;
 import zombie.IndieGL;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
+import zombie.core.SceneShaderStore;
 import zombie.core.SpriteRenderer;
 import zombie.core.utils.ImageUtils;
 import zombie.debug.DebugLog;
+import zombie.debug.DebugOptions;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoUtils;
 import zombie.iso.PlayerCamera;
 import zombie.iso.sprite.IsoCursor;
+import zombie.iso.sprite.IsoReticle;
 import zombie.network.GameServer;
 import zombie.network.ServerGUI;
 import zombie.util.Type;
 
 public final class MultiTextureFBO2 {
-   private final float[] zoomLevelsDefault = new float[]{2.5F, 2.25F, 2.0F, 1.75F, 1.5F, 1.25F, 1.0F, 0.75F, 0.5F};
+   private final float[] zoomLevelsDefault = new float[]{2.5F, 2.25F, 2.0F, 1.75F, 1.5F, 1.25F, 1.0F, 0.75F, 0.5F, 0.25F};
    private float[] zoomLevels;
    public TextureFBO Current;
    public volatile TextureFBO FBOrendered = null;
-   public final float[] zoom = new float[4];
-   public final float[] targetZoom = new float[4];
-   public final float[] startZoom = new float[4];
+   private final float[] zoom = new float[4];
+   private final float[] targetZoom = new float[4];
+   private final float[] startZoom = new float[4];
    private float zoomedInLevel;
    private float zoomedOutLevel;
    public final boolean[] bAutoZoom = new boolean[4];
@@ -40,11 +45,32 @@ public final class MultiTextureFBO2 {
    }
 
    public int getWidth(int var1) {
-      return (int)((float)IsoCamera.getScreenWidth(var1) * this.zoom[var1] * ((float)Core.TileScale / 2.0F));
+      return (int)((float)IsoCamera.getScreenWidth(var1) * this.getDisplayZoom(var1) * ((float)Core.TileScale / 2.0F));
    }
 
    public int getHeight(int var1) {
-      return (int)((float)IsoCamera.getScreenHeight(var1) * this.zoom[var1] * ((float)Core.TileScale / 2.0F));
+      return (int)((float)IsoCamera.getScreenHeight(var1) * this.getDisplayZoom(var1) * ((float)Core.TileScale / 2.0F));
+   }
+
+   public void setZoom(int var1, float var2) {
+      this.zoom[var1] = var2;
+   }
+
+   public void setZoomAndTargetZoom(int var1, float var2) {
+      this.zoom[var1] = var2;
+      this.targetZoom[var1] = var2;
+   }
+
+   public float getZoom(int var1) {
+      return this.zoom[var1];
+   }
+
+   public float getTargetZoom(int var1) {
+      return this.targetZoom[var1];
+   }
+
+   public float getDisplayZoom(int var1) {
+      return (float)Core.width > Core.initialWidth ? this.zoom[var1] * (Core.initialWidth / (float)Core.width) : this.zoom[var1];
    }
 
    public void setTargetZoom(int var1, float var2) {
@@ -64,6 +90,15 @@ public final class MultiTextureFBO2 {
       }
 
       return var1;
+   }
+
+   public void setZoomLevels(Double... var1) {
+      this.zoomLevels = new float[var1.length];
+
+      for(int var2 = 0; var2 < var1.length; ++var2) {
+         this.zoomLevels[var2] = var1[var2].floatValue();
+      }
+
    }
 
    public void setZoomLevelsFromOption(String var1) {
@@ -108,11 +143,7 @@ public final class MultiTextureFBO2 {
 
             for(int var14 = 0; var14 < var3.size(); ++var14) {
                var5 = IsoPlayer.getPlayerIndex();
-               if (Core.getInstance().getOffscreenHeight(var5) > 1440) {
-                  this.zoomLevels[var14] = (float)(Integer)var3.get(var14) / 100.0F - 0.25F;
-               } else {
-                  this.zoomLevels[var14] = (float)(Integer)var3.get(var14) / 100.0F;
-               }
+               this.zoomLevels[var14] = (float)(Integer)var3.get(var14) / 100.0F;
             }
 
          }
@@ -152,38 +183,39 @@ public final class MultiTextureFBO2 {
          this.zoom[var1] = this.targetZoom[var1] = 1.0F;
       }
 
-      float var2;
-      if (this.bAutoZoom[var1] && IsoCamera.CamCharacter != null && this.bZoomEnabled) {
-         var2 = IsoUtils.DistanceTo(IsoCamera.getRightClickOffX(), IsoCamera.getRightClickOffY(), 0.0F, 0.0F);
-         float var3 = var2 / 300.0F;
-         if (var3 > 1.0F) {
-            var3 = 1.0F;
+      IsoGameCharacter var2 = IsoCamera.getCameraCharacter();
+      float var3;
+      if (this.bAutoZoom[var1] && var2 != null && this.bZoomEnabled) {
+         var3 = IsoUtils.DistanceTo(IsoCamera.getRightClickOffX(), IsoCamera.getRightClickOffY(), 0.0F, 0.0F);
+         float var4 = var3 / 300.0F;
+         if (var4 > 1.0F) {
+            var4 = 1.0F;
          }
 
-         float var4 = this.shouldAutoZoomIn() ? this.zoomedInLevel : this.zoomedOutLevel;
-         var4 += var3;
-         if (var4 > this.zoomLevels[0]) {
-            var4 = this.zoomLevels[0];
+         float var5 = this.shouldAutoZoomIn() ? this.zoomedInLevel : this.zoomedOutLevel;
+         var5 += var4;
+         if (var5 > this.zoomLevels[0]) {
+            var5 = this.zoomLevels[0];
          }
 
-         if (IsoCamera.CamCharacter.getVehicle() != null) {
-            var4 = this.getMaxZoom();
+         if (var2.getVehicle() != null) {
+            var5 = this.getMaxZoom();
          }
 
-         this.setTargetZoom(var1, var4);
+         this.setTargetZoom(var1, var5);
       }
 
-      var2 = 0.004F * GameTime.instance.getMultiplier() / GameTime.instance.getTrueMultiplier() * (Core.TileScale == 2 ? 1.5F : 1.5F);
+      var3 = 0.004F * GameTime.instance.getMultiplier() / GameTime.instance.getTrueMultiplier() * (Core.TileScale == 2 ? 1.5F : 1.5F);
       if (!this.bAutoZoom[var1]) {
-         var2 *= 5.0F;
+         var3 *= 5.0F;
       } else if (this.targetZoom[var1] > this.zoom[var1]) {
-         var2 *= 1.0F;
+         var3 *= 1.0F;
       }
 
       float[] var10000;
       if (this.targetZoom[var1] > this.zoom[var1]) {
          var10000 = this.zoom;
-         var10000[var1] += var2;
+         var10000[var1] += var3;
          IsoPlayer.players[var1].dirtyRecalcGridStackTime = 2.0F;
          if (this.zoom[var1] > this.targetZoom[var1] || Math.abs(this.zoom[var1] - this.targetZoom[var1]) < 0.001F) {
             this.zoom[var1] = this.targetZoom[var1];
@@ -192,7 +224,7 @@ public final class MultiTextureFBO2 {
 
       if (this.targetZoom[var1] < this.zoom[var1]) {
          var10000 = this.zoom;
-         var10000[var1] -= var2;
+         var10000[var1] -= var3;
          IsoPlayer.players[var1].dirtyRecalcGridStackTime = 2.0F;
          if (this.zoom[var1] < this.targetZoom[var1] || Math.abs(this.zoom[var1] - this.targetZoom[var1]) < 0.001F) {
             this.zoom[var1] = this.targetZoom[var1];
@@ -203,21 +235,22 @@ public final class MultiTextureFBO2 {
    }
 
    private boolean shouldAutoZoomIn() {
-      if (IsoCamera.CamCharacter == null) {
+      IsoGameCharacter var1 = IsoCamera.getCameraCharacter();
+      if (var1 == null) {
          return false;
       } else {
-         IsoGridSquare var1 = IsoCamera.CamCharacter.getCurrentSquare();
-         if (var1 != null && !var1.isOutside()) {
+         IsoGridSquare var2 = var1.getCurrentSquare();
+         if (var2 != null && !var2.isOutside()) {
             return true;
          } else {
-            IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(IsoCamera.CamCharacter, IsoPlayer.class);
-            if (var2 == null) {
+            IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+            if (var3 == null) {
                return false;
-            } else if (!var2.isRunning() && !var2.isSprinting()) {
-               if (var2.closestZombie < 6.0F && var2.isTargetedByZombie()) {
+            } else if (!var3.isRunning() && !var3.isSprinting()) {
+               if (var3.closestZombie < 6.0F && var3.isTargetedByZombie()) {
                   return true;
                } else {
-                  return var2.lastTargeted < (float)(PerformanceSettings.getLockFPS() * 4);
+                  return var3.lastTargeted < (float)(PerformanceSettings.getLockFPS() * 4);
                }
             } else {
                return false;
@@ -259,8 +292,8 @@ public final class MultiTextureFBO2 {
          var1 = Math.max(var1, IsoPlayer.numPlayers - 1);
 
          for(var2 = 0; var2 <= var1; ++var2) {
-            if (Core.getInstance().RenderShader != null) {
-               IndieGL.StartShader(Core.getInstance().RenderShader, var2);
+            if (SceneShaderStore.WeatherShader != null && DebugOptions.instance.FBORenderChunk.UseWeatherShader.getValue()) {
+               IndieGL.StartShader(SceneShaderStore.WeatherShader, var2);
             }
 
             int var3 = IsoCamera.getScreenLeft(var2);
@@ -274,11 +307,18 @@ public final class MultiTextureFBO2 {
             }
          }
 
-         if (Core.getInstance().RenderShader != null) {
+         if (SceneShaderStore.WeatherShader != null) {
             IndieGL.EndShader();
          }
 
-         IsoCursor.getInstance().render(0);
+         switch (CombatManager.targetReticleMode) {
+            case 1:
+               IsoReticle.getInstance().render(0);
+               break;
+            default:
+               IsoCursor.getInstance().render(0);
+         }
+
       }
    }
 

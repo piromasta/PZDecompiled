@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
 import zombie.GameWindow;
+import zombie.characters.Capability;
 import zombie.characters.Faction;
 import zombie.characters.IsoPlayer;
 import zombie.chat.ChatBase;
@@ -30,6 +31,7 @@ import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
+import zombie.debug.DebugLog;
 import zombie.iso.areas.SafeHouse;
 import zombie.network.PacketTypes;
 import zombie.network.ServerOptions;
@@ -127,7 +129,7 @@ public class ChatServer {
          this.sendInitPlayerChatPacket(var3);
          this.addDefaultChats(var1);
          logger.write("Player joined to default chats", "info");
-         if (var3.accessLevel == 32) {
+         if (var3.role.haveCapability(Capability.AdminChat)) {
             this.joinAdminChat(var1);
          }
 
@@ -148,7 +150,8 @@ public class ChatServer {
             players.add(var1);
          }
 
-         logger.write("Player " + var2.getUsername() + "(" + var1 + ") joined to chat server successfully", "info");
+         DebugLog.DetailedInfo.trace("Player " + var2.getUsername() + "(" + var1 + ") joined to chat server successfully", "info");
+         logger.write("Player " + var2.getOnlineID() + "(" + var1 + ") joined to chat server successfully", "info");
       } else {
          logger.write("Player or connection is not found on server!", "error");
          logger.write((var3 == null ? "connection = null " : "") + (var2 == null ? "player = null" : ""), "error");
@@ -193,9 +196,10 @@ public class ChatServer {
             var6.addMember(var4.getOnlineID());
             var6.addMember(var5.getOnlineID());
             chats.put(var6.getID(), var6);
+            DebugLog.DetailedInfo.trace("Whisper chat (id = " + var6.getID() + ") between '" + var4.getUsername() + "' and '" + var5.getUsername() + "' started", "info");
             ZLogger var10000 = logger;
             int var10001 = var6.getID();
-            var10000.write("Whisper chat (id = " + var10001 + ") between '" + var4.getUsername() + "' and '" + var5.getUsername() + "' started", "info");
+            var10000.write("Whisper chat (id = " + var10001 + ") between '" + var4.getOnlineID() + "' and '" + var5.getOnlineID() + "' started", "info");
          }
       }
    }

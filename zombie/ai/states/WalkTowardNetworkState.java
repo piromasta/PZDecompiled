@@ -5,6 +5,7 @@ import zombie.ai.State;
 import zombie.audio.parameters.ParameterZombieState;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
+import zombie.core.math.PZMath;
 import zombie.gameStates.IngameState;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoMovingObject;
@@ -13,8 +14,9 @@ import zombie.iso.IsoWorld;
 import zombie.network.GameServer;
 import zombie.network.NetworkVariables;
 import zombie.network.ServerMap;
-import zombie.vehicles.PathFindBehavior2;
-import zombie.vehicles.PolygonalMap2;
+import zombie.pathfind.Path;
+import zombie.pathfind.PathFindBehavior2;
+import zombie.pathfind.PolygonalMap2;
 
 public class WalkTowardNetworkState extends State {
    static WalkTowardNetworkState _instance = new WalkTowardNetworkState();
@@ -37,23 +39,23 @@ public class WalkTowardNetworkState extends State {
    public void execute(IsoGameCharacter var1) {
       IsoZombie var2 = (IsoZombie)var1;
       PathFindBehavior2 var3 = var2.getPathFindBehavior2();
-      var2.vectorToTarget.x = var2.networkAI.targetX - var2.x;
-      var2.vectorToTarget.y = var2.networkAI.targetY - var2.y;
-      var3.walkingOnTheSpot.reset(var2.x, var2.y);
-      if (var2.z != (float)var2.networkAI.targetZ || var2.networkAI.predictionType != NetworkVariables.PredictionTypes.Thump && var2.networkAI.predictionType != NetworkVariables.PredictionTypes.Climb) {
-         if (var2.z == (float)var2.networkAI.targetZ && !PolygonalMap2.instance.lineClearCollide(var2.x, var2.y, var2.networkAI.targetX, var2.networkAI.targetY, var2.networkAI.targetZ, (IsoMovingObject)null)) {
+      var2.vectorToTarget.x = var2.networkAI.targetX - var2.getX();
+      var2.vectorToTarget.y = var2.networkAI.targetY - var2.getY();
+      var3.walkingOnTheSpot.reset(var2.getX(), var2.getY());
+      if (var2.getZ() != (float)var2.networkAI.targetZ || var2.networkAI.predictionType != NetworkVariables.PredictionTypes.Thump && var2.networkAI.predictionType != NetworkVariables.PredictionTypes.Climb) {
+         if (var2.getZ() == (float)var2.networkAI.targetZ && !PolygonalMap2.instance.lineClearCollide(var2.getX(), var2.getY(), var2.networkAI.targetX, var2.networkAI.targetY, var2.networkAI.targetZ, (IsoMovingObject)null)) {
             if (var2.networkAI.usePathFind) {
                var3.reset();
-               var2.setPath2((PolygonalMap2.Path)null);
+               var2.setPath2((Path)null);
                var2.networkAI.usePathFind = false;
             }
 
             var3.moveToPoint(var2.networkAI.targetX, var2.networkAI.targetY, 1.0F);
-            var2.setVariable("bMoving", IsoUtils.DistanceManhatten(var2.networkAI.targetX, var2.networkAI.targetY, var2.nx, var2.ny) > 0.5F);
+            var2.setVariable("bMoving", IsoUtils.DistanceManhatten(var2.networkAI.targetX, var2.networkAI.targetY, var2.getNextX(), var2.getNextY()) > 0.5F);
          } else {
             if (!var2.networkAI.usePathFind) {
                var3.pathToLocationF(var2.networkAI.targetX, var2.networkAI.targetY, (float)var2.networkAI.targetZ);
-               var3.walkingOnTheSpot.reset(var2.x, var2.y);
+               var3.walkingOnTheSpot.reset(var2.getX(), var2.getY());
                var2.networkAI.usePathFind = true;
             }
 
@@ -64,15 +66,15 @@ public class WalkTowardNetworkState extends State {
             }
 
             if (var4 == PathFindBehavior2.BehaviorResult.Succeeded) {
-               int var5 = (int)var2.getPathFindBehavior2().getTargetX();
-               int var6 = (int)var2.getPathFindBehavior2().getTargetY();
-               IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var5 / 10, var6 / 10) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var5, var6, 0);
+               int var5 = PZMath.fastfloor(var2.getPathFindBehavior2().getTargetX());
+               int var6 = PZMath.fastfloor(var2.getPathFindBehavior2().getTargetY());
+               IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var5 / 8, var6 / 8) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(var5, var6, 0);
                if (var7 == null) {
                   var2.setVariable("bMoving", true);
                   return;
                }
 
-               var2.setPath2((PolygonalMap2.Path)null);
+               var2.setPath2((Path)null);
                var2.setVariable("bMoving", true);
                return;
             }
@@ -80,12 +82,12 @@ public class WalkTowardNetworkState extends State {
       } else {
          if (var2.networkAI.usePathFind) {
             var3.reset();
-            var2.setPath2((PolygonalMap2.Path)null);
+            var2.setPath2((Path)null);
             var2.networkAI.usePathFind = false;
          }
 
          var3.moveToPoint(var2.networkAI.targetX, var2.networkAI.targetY, 1.0F);
-         var2.setVariable("bMoving", IsoUtils.DistanceManhatten(var2.networkAI.targetX, var2.networkAI.targetY, var2.nx, var2.ny) > 0.5F);
+         var2.setVariable("bMoving", IsoUtils.DistanceManhatten(var2.networkAI.targetX, var2.networkAI.targetY, var2.getNextX(), var2.getNextY()) > 0.5F);
       }
 
       if (!((IsoZombie)var1).bCrawling) {

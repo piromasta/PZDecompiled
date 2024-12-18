@@ -3,6 +3,7 @@ package zombie.iso.weather.fx;
 import java.util.function.Consumer;
 import org.lwjgl.util.Rectangle;
 import zombie.core.Color;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.textures.Texture;
 import zombie.iso.IsoCamera;
@@ -126,6 +127,10 @@ public abstract class WeatherParticle {
    }
 
    public void render(float var1, float var2) {
-      SpriteRenderer.instance.render(this.texture, var1 + (float)this.bounds.getX(), var2 + (float)this.bounds.getY(), this.oWidth, this.oHeight, this.color.r, this.color.g, this.color.b, this.renderAlpha, (Consumer)null);
+      if (PerformanceSettings.FBORenderChunk) {
+         IsoWeatherFX.instance.getDrawer(this.parent.id).addParticle(this.texture, var1 + (float)this.bounds.getX(), var2 + (float)this.bounds.getY(), this.oWidth, this.oHeight, this.color.r, this.color.g, this.color.b, this.renderAlpha);
+      } else {
+         SpriteRenderer.instance.render(this.texture, var1 + (float)this.bounds.getX(), var2 + (float)this.bounds.getY(), this.oWidth, this.oHeight, this.color.r, this.color.g, this.color.b, this.renderAlpha, (Consumer)null);
+      }
    }
 }

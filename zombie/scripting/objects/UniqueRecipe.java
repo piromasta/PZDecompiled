@@ -1,6 +1,7 @@
 package zombie.scripting.objects;
 
 import java.util.ArrayList;
+import zombie.scripting.ScriptType;
 
 public final class UniqueRecipe extends BaseScriptObject {
    private String name = null;
@@ -11,7 +12,15 @@ public final class UniqueRecipe extends BaseScriptObject {
    private int boredomBonus = 0;
 
    public UniqueRecipe(String var1) {
+      super(ScriptType.UniqueRecipe);
       this.setName(var1);
+   }
+
+   public void Load(String var1, String var2) throws Exception {
+      String[] var3 = var2.split("[{}]");
+      String[] var4 = var3[1].split(",");
+      super.LoadCommonBlock(var2);
+      this.Load(var1, var4);
    }
 
    public void Load(String var1, String[] var2) {

@@ -10,6 +10,6 @@ public final class ParameterWaterSupply extends FMODGlobalParameter {
    }
 
    public float calculateCurrentValue() {
-      return GameTime.instance.NightsSurvived < SandboxOptions.instance.getWaterShutModifier() ? 1.0F : 0.0F;
+      return (float)(GameTime.getInstance().getWorldAgeHours() / 24.0 + (double)((SandboxOptions.instance.TimeSinceApo.getValue() - 1) * 30)) < (float)SandboxOptions.instance.getWaterShutModifier() ? 1.0F : 0.0F;
    }
 }

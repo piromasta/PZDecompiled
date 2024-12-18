@@ -26,7 +26,7 @@ public final class PlayerOnGroundState extends State {
       if (!GameServer.bServer && var1.isDead()) {
          var1.die();
       } else {
-         var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getMultiplier() / 1.6F);
+         var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getThirtyFPSMultiplier());
       }
 
    }

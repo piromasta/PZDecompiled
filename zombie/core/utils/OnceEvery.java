@@ -1,7 +1,7 @@
 package zombie.core.utils;
 
 import zombie.GameTime;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 
 public final class OnceEvery {
    private long initialDelayMillis;

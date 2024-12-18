@@ -2,7 +2,7 @@ package zombie.characters;
 
 import zombie.Lua.LuaEventManager;
 import zombie.core.Color;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoPushableObject;

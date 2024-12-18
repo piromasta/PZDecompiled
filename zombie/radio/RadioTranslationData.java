@@ -10,7 +10,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import zombie.core.Language;
+import zombie.core.Languages;
 import zombie.core.Translator;
+import zombie.util.StringUtils;
 
 public final class RadioTranslationData {
    private String filePath;
@@ -145,84 +147,123 @@ public final class RadioTranslationData {
       RadioTranslationData var1 = new RadioTranslationData(var0);
       File var2 = new File(var0);
       if (var2.exists() && !var2.isDirectory()) {
+         Language var3 = parseLanguageFromFilename(var2.getName());
+         String var4 = var3 == null ? null : var3.charset();
+
          try {
-            FileInputStream var3 = new FileInputStream(var0);
+            FileInputStream var5 = new FileInputStream(var0);
 
             try {
-               BufferedReader var4 = new BufferedReader(new InputStreamReader(var3));
-               String var5 = null;
+               InputStreamReader var6 = new InputStreamReader(var5, var4);
 
-               while((var5 = var4.readLine()) != null) {
-                  String[] var6 = var5.split("=");
-                  if (var6.length > 1) {
-                     String var7 = var6[0].trim();
-                     String var8 = "";
+               try {
+                  BufferedReader var7 = new BufferedReader(var6);
 
-                     for(int var9 = 1; var9 < var6.length; ++var9) {
-                        var8 = var8 + var6[var9];
-                     }
+                  try {
+                     String var8 = null;
 
-                     var8 = var8.trim();
-                     if (var7.equals("guid")) {
-                        var1.guid = var8;
-                     } else if (var7.equals("language")) {
-                        var1.language = var8;
-                     } else if (var7.equals("version")) {
-                        var1.version = Integer.parseInt(var8);
-                     } else if (var7.equals("translator")) {
-                        String[] var20 = var8.split(",");
-                        if (var20.length > 0) {
-                           String[] var10 = var20;
-                           int var11 = var20.length;
+                     while((var8 = var7.readLine()) != null) {
+                        String[] var9 = var8.split("=");
+                        if (var9.length > 1) {
+                           String var10 = var9[0].trim();
+                           String var11 = "";
 
-                           for(int var12 = 0; var12 < var11; ++var12) {
-                              String var13 = var10[var12];
-                              var1.translators.add(var13);
+                           for(int var12 = 1; var12 < var9.length; ++var12) {
+                              var11 = var11 + var9[var12];
+                           }
+
+                           var11 = var11.trim();
+                           if (var10.equals("guid")) {
+                              var1.guid = var11;
+                           } else if (var10.equals("language")) {
+                              var1.language = var11;
+                           } else if (var10.equals("version")) {
+                              var1.version = Integer.parseInt(var11);
+                           } else if (var10.equals("translator")) {
+                              String[] var27 = var11.split(",");
+                              if (var27.length > 0) {
+                                 String[] var13 = var27;
+                                 int var14 = var27.length;
+
+                                 for(int var15 = 0; var15 < var14; ++var15) {
+                                    String var16 = var13[var15];
+                                    var1.translators.add(var16);
+                                 }
+                              }
                            }
                         }
+
+                        var8 = var8.trim();
+                        if (var8.equals("[/Info]")) {
+                           break;
+                        }
                      }
+                  } catch (Throwable var20) {
+                     try {
+                        var7.close();
+                     } catch (Throwable var19) {
+                        var20.addSuppressed(var19);
+                     }
+
+                     throw var20;
                   }
 
-                  var5 = var5.trim();
-                  if (var5.equals("[/Info]")) {
-                     break;
+                  var7.close();
+               } catch (Throwable var21) {
+                  try {
+                     var6.close();
+                  } catch (Throwable var18) {
+                     var21.addSuppressed(var18);
                   }
+
+                  throw var21;
                }
-            } catch (Throwable var15) {
+
+               var6.close();
+            } catch (Throwable var22) {
                try {
-                  var3.close();
-               } catch (Throwable var14) {
-                  var15.addSuppressed(var14);
+                  var5.close();
+               } catch (Throwable var17) {
+                  var22.addSuppressed(var17);
                }
 
-               throw var15;
+               throw var22;
             }
 
-            var3.close();
-         } catch (Exception var16) {
-            var16.printStackTrace();
+            var5.close();
+         } catch (Exception var23) {
+            var23.printStackTrace();
          }
       }
 
-      boolean var17 = false;
+      boolean var24 = false;
       if (var1.language != null) {
-         Iterator var18 = Translator.getAvailableLanguage().iterator();
+         Iterator var25 = Translator.getAvailableLanguage().iterator();
 
-         while(var18.hasNext()) {
-            Language var19 = (Language)var18.next();
-            if (var19.toString().equals(var1.language)) {
-               var1.languageEnum = var19;
-               var17 = true;
+         while(var25.hasNext()) {
+            Language var26 = (Language)var25.next();
+            if (var26.toString().equals(var1.language)) {
+               var1.languageEnum = var26;
+               var24 = true;
                break;
             }
          }
       }
 
-      if (!var17 && var1.language != null) {
+      if (!var24 && var1.language != null) {
          System.out.println("Language " + var1.language + " not found");
          return null;
       } else {
          return var1.guid != null && var1.language != null && var1.version >= 0 ? var1 : null;
+      }
+   }
+
+   private static Language parseLanguageFromFilename(String var0) {
+      if (!StringUtils.startsWithIgnoreCase(var0, "RadioData_")) {
+         return null;
+      } else {
+         String var1 = var0.replaceFirst("RadioData_", "").replace(".txt", "");
+         return Languages.instance.getByName(var1);
       }
    }
 }

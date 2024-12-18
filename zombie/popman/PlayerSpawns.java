@@ -1,6 +1,7 @@
 package zombie.popman;
 
 import java.util.ArrayList;
+import zombie.SandboxOptions;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoWorld;
@@ -52,6 +53,7 @@ final class PlayerSpawns {
       public int y;
       public long counter;
       public BuildingDef building;
+      public RoomDef room;
 
       public PlayerSpawn(int var1, int var2, int var3) {
          this.x = var1;
@@ -60,18 +62,49 @@ final class PlayerSpawns {
          RoomDef var4 = IsoWorld.instance.getMetaGrid().getRoomAt(var1, var2, var3);
          if (var4 != null) {
             this.building = var4.getBuilding();
+            this.room = var4;
          }
 
       }
 
       public boolean allowZombie(IsoGridSquare var1) {
-         if (this.building == null) {
-            return true;
-         } else if (var1.getBuilding() != null && this.building == var1.getBuilding().getDef()) {
-            return false;
-         } else {
-            return var1.getX() < this.building.getX() - 15 || var1.getX() >= this.building.getX2() + 15 || var1.getY() < this.building.getY() - 15 || var1.getY() >= this.building.getY2() + 15;
+         switch (SandboxOptions.instance.Lore.PlayerSpawnZombieRemoval.getValue()) {
+            case 1:
+               if (this.building == null) {
+                  return true;
+               }
+
+               if (var1.getBuilding() != null && this.building == var1.getBuilding().getDef()) {
+                  return false;
+               }
+
+               if (var1.getX() >= this.building.getX() - 15 && var1.getX() < this.building.getX2() + 15 && var1.getY() >= this.building.getY() - 15 && var1.getY() < this.building.getY2() + 15) {
+                  return false;
+               }
+               break;
+            case 2:
+               if (this.building == null) {
+                  return true;
+               }
+
+               if (var1.getBuilding() != null && this.building == var1.getBuilding().getDef()) {
+                  return false;
+               }
+               break;
+            case 3:
+               if (this.room == null) {
+                  return true;
+               }
+
+               if (var1.getRoom() != null && this.room == var1.getRoom().getRoomDef()) {
+                  return false;
+               }
+               break;
+            case 4:
+               return true;
          }
+
+         return true;
       }
    }
 }

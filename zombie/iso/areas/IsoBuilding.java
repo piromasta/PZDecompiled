@@ -8,8 +8,8 @@ import java.util.Vector;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
-import zombie.core.Rand;
 import zombie.core.opengl.RenderSettings;
+import zombie.core.random.Rand;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.ItemType;
 import zombie.iso.BuildingDef;
@@ -512,6 +512,16 @@ public final class IsoBuilding extends IsoArea {
       }
    }
 
+   public boolean hasRoom(String var1) {
+      for(int var2 = 0; var2 < this.Rooms.size(); ++var2) {
+         if (var1.equals(((IsoRoom)this.Rooms.get(var2)).getName())) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
    public ItemContainer getRandomContainer(String var1) {
       RandomContainerChoices.clear();
       String[] var2 = null;
@@ -535,6 +545,27 @@ public final class IsoBuilding extends IsoArea {
             ItemContainer var6 = (ItemContainer)var4.Containers.get(var5);
             if (var1 == null || RandomContainerChoices.contains(var6.getType())) {
                tempContainer.add(var6);
+            }
+         }
+      }
+
+      if (tempContainer.isEmpty()) {
+         return null;
+      } else {
+         return (ItemContainer)tempContainer.get(Rand.Next(tempContainer.size()));
+      }
+   }
+
+   public ItemContainer getRandomContainerSingle(String var1) {
+      tempContainer.clear();
+
+      for(int var2 = 0; var2 < this.Rooms.size(); ++var2) {
+         IsoRoom var3 = (IsoRoom)this.Rooms.get(var2);
+
+         for(int var4 = 0; var4 < var3.Containers.size(); ++var4) {
+            ItemContainer var5 = (ItemContainer)var3.Containers.get(var4);
+            if (var1 == null || var1.equals(var5.getType())) {
+               tempContainer.add(var5);
             }
          }
       }
@@ -587,5 +618,13 @@ public final class IsoBuilding extends IsoArea {
          }
       }
 
+   }
+
+   public boolean hasBasement() {
+      return false;
+   }
+
+   public boolean isEntirelyEmptyOutside() {
+      return this.getDef() != null && this.getDef().isEntirelyEmptyOutside();
    }
 }

@@ -1,18 +1,19 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Role;
 import zombie.characters.skills.PerkFactory;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
-import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
-import zombie.network.packets.AddXp;
+import zombie.network.packets.INetworkPacket;
 
 @CommandName(
    name = "addxp"
@@ -23,11 +24,11 @@ import zombie.network.packets.AddXp;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_AddXp"
 )
-@RequiredRight(
-   requiredRights = 60
+@RequiredCapability(
+   requiredCapability = Capability.AddXP
 )
 public class AddXPCommand extends CommandBase {
-   public AddXPCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public AddXPCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -47,24 +48,24 @@ public class AddXPCommand extends CommandBase {
          } else {
             var5 = var7[0].trim();
             if (PerkFactory.Perks.FromString(var5) == PerkFactory.Perks.MAX) {
-               String var14 = this.connection == null ? "\n" : " LINE ";
-               StringBuilder var15 = new StringBuilder();
+               String var13 = this.connection == null ? "\n" : " LINE ";
+               StringBuilder var14 = new StringBuilder();
 
-               for(int var16 = 0; var16 < PerkFactory.PerkList.size(); ++var16) {
-                  if (PerkFactory.PerkList.get(var16) != PerkFactory.Perks.Passiv) {
-                     var15.append(PerkFactory.PerkList.get(var16));
-                     if (var16 < PerkFactory.PerkList.size()) {
-                        var15.append(var14);
+               for(int var10 = 0; var10 < PerkFactory.PerkList.size(); ++var10) {
+                  if (PerkFactory.PerkList.get(var10) != PerkFactory.Perks.Passiv) {
+                     var14.append(PerkFactory.PerkList.get(var10));
+                     if (var10 < PerkFactory.PerkList.size()) {
+                        var14.append(var13);
                      }
                   }
                }
 
-               return "List of available perks :" + var14 + var15.toString();
+               return "List of available perks :" + var13 + var14.toString();
             } else {
-               int var13;
+               int var12;
                try {
-                  var13 = Integer.parseInt(var7[1]);
-               } catch (NumberFormatException var12) {
+                  var12 = Integer.parseInt(var7[1]);
+               } catch (NumberFormatException var11) {
                   return this.getHelp();
                }
 
@@ -73,14 +74,9 @@ public class AddXPCommand extends CommandBase {
                   var4 = var8.getDisplayName();
                   UdpConnection var9 = GameServer.getConnectionFromPlayer(var8);
                   if (var9 != null) {
-                     AddXp var10 = new AddXp();
-                     var10.set(var3, PerkFactory.Perks.FromString(var5), var13);
-                     ByteBufferWriter var11 = var9.startPacket();
-                     PacketTypes.PacketType.AddXP.doPacket(var11);
-                     var10.write(var11);
-                     PacketTypes.PacketType.AddXP.send(var9);
-                     LoggerManager.getLogger("admin").write(this.getExecutorUsername() + " added " + var13 + " " + var5 + " xp's to " + var4);
-                     return "Added " + var13 + " " + var5 + " xp's to " + var4;
+                     INetworkPacket.send(var9, PacketTypes.PacketType.AddXP, var3, PerkFactory.Perks.FromString(var5), var12);
+                     LoggerManager.getLogger("admin").write(this.getExecutorUsername() + " added " + var12 + " " + var5 + " xp's to " + var4);
+                     return "Added " + var12 + " " + var5 + " xp's to " + var4;
                   }
                }
 

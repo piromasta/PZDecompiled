@@ -1,13 +1,11 @@
 package zombie.iso.objects;
 
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
+import java.util.ArrayList;
 import zombie.AmbientStreamManager;
 import zombie.SandboxOptions;
 import zombie.SoundManager;
-import zombie.SystemDisabler;
 import zombie.WorldSoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.ai.states.ThumpState;
@@ -17,12 +15,12 @@ import zombie.characters.IsoLivingCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.opengl.Shader;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.types.HandWeapon;
@@ -38,6 +36,7 @@ import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.IsoRoom;
 import zombie.iso.areas.SafeHouse;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.objects.interfaces.Thumpable;
 import zombie.iso.sprite.IsoSprite;
@@ -45,11 +44,10 @@ import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
-import zombie.network.PacketTypes;
 import zombie.network.ServerOptions;
+import zombie.pathfind.PolygonalMap2;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
-import zombie.vehicles.PolygonalMap2;
 
 public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
    public int Health = 75;
@@ -162,13 +160,17 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
 
    public void WeaponHit(IsoGameCharacter var1, HandWeapon var2) {
       IsoPlayer var3 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
+      Thumpable var4 = this.getThumpableFor(var1);
       if (GameClient.bClient) {
          if (var3 != null) {
+            if (var2 != ((IsoLivingCharacter)var1).bareHands && !this.isInvincible() && !(var4 instanceof IsoBarricade)) {
+               this.Health = 0;
+            }
+
             GameClient.instance.sendWeaponHit(var3, var2, this);
          }
 
-      } else {
-         Thumpable var4 = this.getThumpableFor(var1);
+      } else if (var4 != null) {
          if (var4 != null) {
             if (var4 instanceof IsoBarricade) {
                ((IsoBarricade)var4).WeaponHit(var1, var2);
@@ -200,6 +202,10 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
                   }
 
                   WorldSoundManager.instance.addSound(var1, this.square.getX(), this.square.getY(), this.square.getZ(), 20, 20, false, 0.0F, 15.0F);
+                  if (var3 != null && var2 != ((IsoLivingCharacter)var1).bareHands && !this.isInvincible()) {
+                     this.Health = 0;
+                  }
+
                   if (!this.isDestroyed() && this.Health <= 0) {
                      this.smashWindow();
                      this.addBrokenGlass(var1);
@@ -214,7 +220,7 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
    public void smashWindow(boolean var1, boolean var2) {
       if (!this.destroyed) {
          if (GameClient.bClient && !var1) {
-            GameClient.instance.smashWindow(this, 1);
+            GameClient.instance.smashWindow(this);
          }
 
          if (!var1) {
@@ -231,7 +237,6 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
          this.sprite = this.smashedSprite;
          if (this.getAttachedAnimSprite() != null) {
             this.getSquare().removeBlood(false, true);
-            System.out.println(this.wallBloodSplats);
 
             for(int var3 = 0; var3 < this.getAttachedAnimSprite().size(); ++var3) {
                IsoSprite var4 = ((IsoSpriteInstance)this.getAttachedAnimSprite().get(var3)).parentSprite;
@@ -248,10 +253,11 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
          }
 
          if (GameServer.bServer && !var1) {
-            GameServer.smashWindow(this, 1);
+            GameServer.smashWindow(this);
          }
 
          this.square.InvalidateSpecialObjectPaths();
+         PolygonalMap2.instance.squareChanged(this.square);
       }
    }
 
@@ -498,7 +504,7 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
          }
 
          if (GameServer.bServer) {
-            GameServer.smashWindow(this, 1);
+            GameServer.smashWindow(this);
             GameServer.PlayWorldSoundServer((IsoGameCharacter)var1, "SmashWindow", false, var1.getCurrentSquare(), 0.2F, 20.0F, 1.1F, true);
          }
 
@@ -536,70 +542,25 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
       super.load(var1, var2, var3);
       this.open = var1.get() == 1;
       this.north = var1.get() == 1;
-      int var4;
-      if (var2 >= 87) {
-         this.Health = var1.getInt();
-      } else {
-         var4 = var1.getInt();
-         this.Health = var1.getInt();
-         int var5 = var1.getInt();
-         if (var2 >= 49) {
-            short var6 = var1.getShort();
-         } else {
-            Math.max(var5, var4 * 1000);
-         }
-
-         this.OldNumPlanks = var4;
-      }
-
+      this.Health = var1.getInt();
       this.Locked = var1.get() == 1;
       this.PermaLocked = var1.get() == 1;
       this.destroyed = var1.get() == 1;
-      if (var2 >= 64) {
-         this.glassRemoved = var1.get() == 1;
-         if (var1.get() == 1) {
-            this.openSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
+      this.glassRemoved = var1.get() == 1;
+      if (var1.get() == 1) {
+         this.openSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
+      }
 
-         if (var1.get() == 1) {
-            this.closedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
+      if (var1.get() == 1) {
+         this.closedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
+      }
 
-         if (var1.get() == 1) {
-            this.smashedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
+      if (var1.get() == 1) {
+         this.smashedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
+      }
 
-         if (var1.get() == 1) {
-            this.glassRemovedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
-      } else {
-         if (var1.getInt() == 1) {
-            this.openSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
-
-         if (var1.getInt() == 1) {
-            this.closedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
-
-         if (var1.getInt() == 1) {
-            this.smashedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
-         }
-
-         if (this.closedSprite != null) {
-            if (this.destroyed && this.closedSprite.getProperties().Is("SmashedTileOffset")) {
-               var4 = Integer.parseInt(this.closedSprite.getProperties().Val("SmashedTileOffset"));
-               this.closedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, this.closedSprite, -var4);
-            }
-
-            if (this.closedSprite.getProperties().Is("GlassRemovedOffset")) {
-               var4 = Integer.parseInt(this.closedSprite.getProperties().Val("GlassRemovedOffset"));
-               this.glassRemovedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, this.closedSprite, var4);
-            }
-         }
-
-         if (this.glassRemovedSprite == null) {
-            this.glassRemovedSprite = this.smashedSprite != null ? this.smashedSprite : this.closedSprite;
-         }
+      if (var1.get() == 1) {
+         this.glassRemovedSprite = IsoSprite.getSprite(IsoSpriteManager.instance, var1.getInt());
       }
 
       this.MaxHealth = var1.getInt();
@@ -626,10 +587,6 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
             this.glassRemovedSprite.AddProperties(this.closedSprite);
             this.glassRemovedSprite.setType(this.closedSprite.getType());
          }
-      }
-
-      if (SystemDisabler.doObjectStateSyncEnable && GameClient.bClient) {
-         GameClient.instance.objectSyncReq.putRequestLoad(this.square);
       }
 
    }
@@ -774,15 +731,14 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
          var2 = var4;
       }
 
-      for(int var6 = 0; var6 < var2.getSpecialObjects().size(); ++var6) {
-         IsoObject var5 = (IsoObject)var2.getSpecialObjects().get(var6);
+      for(int var7 = 0; var7 < var2.getSpecialObjects().size(); ++var7) {
+         IsoObject var5 = (IsoObject)var2.getSpecialObjects().get(var7);
          if (var5 instanceof IsoCurtain) {
             var2.transmitRemoveItemFromSquare(var5);
             if (var1 != null) {
+               InventoryItem var6 = var1.getInventory().AddItem(var5.getName());
                if (GameServer.bServer) {
-                  var1.sendObjectChange("addItemOfType", new Object[]{"type", var5.getName()});
-               } else {
-                  var1.getInventory().AddItem(var5.getName());
+                  GameServer.sendAddItemToContainer(var1.getInventory(), var6);
                }
             }
             break;
@@ -827,33 +783,36 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
 
       if (var2.getCurtain(var3) == null) {
          if (var2 != null) {
-            int var6 = 16;
+            int var7 = 16;
             if (var3 == IsoObjectType.curtainE) {
-               ++var6;
+               ++var7;
             }
 
             if (var3 == IsoObjectType.curtainS) {
-               var6 += 3;
+               var7 += 3;
             }
 
             if (var3 == IsoObjectType.curtainN) {
-               var6 += 2;
+               var7 += 2;
             }
 
-            var6 += 4;
-            IsoCurtain var5 = new IsoCurtain(this.getCell(), var2, "fixtures_windows_curtains_01_" + var6, this.north);
+            var7 += 4;
+            IsoCurtain var5 = new IsoCurtain(this.getCell(), var2, "fixtures_windows_curtains_01_" + var7, this.north);
             var2.AddSpecialTileObject(var5);
             if (!var5.open) {
                var5.ToggleDoorSilent();
             }
 
+            if (!GameClient.bClient && var1 != null) {
+               InventoryItem var6 = var1.getInventory().FindAndReturn("Sheet");
+               var1.getInventory().Remove(var6);
+               if (GameServer.bServer) {
+                  GameServer.sendRemoveItemFromContainer(var1.getInventory(), var6);
+               }
+            }
+
             if (GameServer.bServer) {
                var5.transmitCompleteItemToClients();
-               if (var1 != null) {
-                  var1.sendObjectChange("removeOneOf", new Object[]{"type", "Sheet"});
-               }
-            } else if (var1 != null) {
-               var1.getInventory().RemoveOneOf("Sheet");
             }
 
          }
@@ -861,8 +820,9 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
    }
 
    public void ToggleWindow(IsoGameCharacter var1) {
+      IsoPlayer var2 = (IsoPlayer)Type.tryCastTo(var1, IsoPlayer.class);
       this.DirtySlice();
-      IsoGridSquare.setRecalcLightTime(-1);
+      IsoGridSquare.setRecalcLightTime(-1.0F);
       if (!this.PermaLocked) {
          if (!this.destroyed) {
             if (var1 == null || this.getBarricadeForCharacter(var1) == null) {
@@ -882,85 +842,52 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
                this.syncIsoObject(false, (byte)(this.open ? 1 : 0), (UdpConnection)null, (ByteBuffer)null);
                PolygonalMap2.instance.squareChanged(this.square);
                LuaEventManager.triggerEvent("OnContainerUpdate");
+               if (var2 != null && var2.isLocalPlayer()) {
+                  var2.triggerMusicIntensityEvent(this.open ? "WindowOpen" : "WindowClose");
+               }
+
             }
          }
       }
    }
 
    public void syncIsoObjectSend(ByteBufferWriter var1) {
+      byte var2 = (byte)this.getObjectIndex();
       var1.putInt(this.square.getX());
       var1.putInt(this.square.getY());
       var1.putInt(this.square.getZ());
-      byte var2 = (byte)this.square.getObjects().indexOf(this);
       var1.putByte(var2);
       var1.putByte((byte)1);
+      var1.putByte((byte)0);
       var1.putByte((byte)(this.open ? 1 : 0));
       var1.putByte((byte)(this.destroyed ? 1 : 0));
       var1.putByte((byte)(this.Locked ? 1 : 0));
       var1.putByte((byte)(this.PermaLocked ? 1 : 0));
+      var1.putByte((byte)(this.glassRemoved ? 1 : 0));
+      var1.putInt(this.Health);
    }
 
-   public void syncIsoObject(boolean var1, byte var2, UdpConnection var3, ByteBuffer var4) {
-      if (this.square == null) {
-         System.out.println("ERROR: " + this.getClass().getSimpleName() + " square is null");
-      } else if (this.getObjectIndex() == -1) {
-         PrintStream var10000 = System.out;
-         String var10001 = this.getClass().getSimpleName();
-         var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
-      } else {
-         if (GameClient.bClient && !var1) {
-            ByteBufferWriter var12 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.SyncIsoObject.doPacket(var12);
-            this.syncIsoObjectSend(var12);
-            PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
-         } else if (GameServer.bServer && !var1) {
-            Iterator var11 = GameServer.udpEngine.connections.iterator();
-
-            while(var11.hasNext()) {
-               UdpConnection var13 = (UdpConnection)var11.next();
-               ByteBufferWriter var14 = var13.startPacket();
-               PacketTypes.PacketType.SyncIsoObject.doPacket(var14);
-               this.syncIsoObjectSend(var14);
-               PacketTypes.PacketType.SyncIsoObject.send(var13);
-            }
-         } else if (var1) {
-            boolean var5 = var4.get() == 1;
-            boolean var6 = var4.get() == 1;
-            boolean var7 = var4.get() == 1;
-            if (var2 == 1) {
-               this.open = true;
-               this.sprite = this.openSprite;
-            } else if (var2 == 0) {
-               this.open = false;
-               this.sprite = this.closedSprite;
-            }
-
-            if (var5) {
-               this.destroyed = true;
-               this.sprite = this.smashedSprite;
-            }
-
-            this.Locked = var6;
-            this.PermaLocked = var7;
-            if (GameServer.bServer) {
-               Iterator var8 = GameServer.udpEngine.connections.iterator();
-
-               while(var8.hasNext()) {
-                  UdpConnection var9 = (UdpConnection)var8.next();
-                  if (var3 != null && var9.getConnectedGUID() != var3.getConnectedGUID()) {
-                     ByteBufferWriter var10 = var9.startPacket();
-                     PacketTypes.PacketType.SyncIsoObject.doPacket(var10);
-                     this.syncIsoObjectSend(var10);
-                     PacketTypes.PacketType.SyncIsoObject.send(var9);
-                  }
-               }
-            }
-
-            this.square.RecalcProperties();
-            LuaEventManager.triggerEvent("OnContainerUpdate");
+   public void syncIsoObjectReceive(ByteBuffer var1) {
+      this.open = var1.get() == 1;
+      this.destroyed = var1.get() == 1;
+      this.Locked = var1.get() == 1;
+      this.PermaLocked = var1.get() == 1;
+      this.glassRemoved = var1.get() == 1;
+      this.Health = var1.getInt();
+      if (this.destroyed) {
+         if (this.glassRemoved) {
+            this.sprite = this.glassRemovedSprite;
+         } else {
+            this.sprite = this.smashedSprite;
          }
-
+      } else if (this.open) {
+         this.sprite = this.openSprite;
+      } else {
+         this.sprite = this.closedSprite;
       }
+
+      this.square.RecalcProperties();
+      LuaEventManager.triggerEvent("OnContainerUpdate");
    }
 
    public static boolean isTopOfSheetRopeHere(IsoGridSquare var0) {
@@ -1113,7 +1040,7 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
       if (var1.getProperties().Is(IsoFlagType.solidfloor)) {
       }
 
-      while(var1 != null && (GameServer.bServer || var0.getInventory().contains(var3))) {
+      for(; var1 != null && (GameServer.bServer || var0.getInventory().contains(var3)); var1.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_ADD)) {
          String var12 = "crafted_01_" + var6;
          if (var5 > 0) {
             if (var8) {
@@ -1151,18 +1078,17 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
 
          var1.RecalcProperties();
          var1.getProperties().UnSet(IsoFlagType.solidtrans);
+         ArrayList var14;
+         if (var5 == 0 && !var1.getProperties().Is("TieSheetRope")) {
+            var14 = var0.getInventory().RemoveAll("Nails", 1);
+            if (GameServer.bServer) {
+               GameServer.sendRemoveItemsFromContainer(var0.getInventory(), var14);
+            }
+         }
+
+         var14 = var0.getInventory().RemoveAll(var3, 1);
          if (GameServer.bServer) {
-            if (var5 == 0) {
-               var0.sendObjectChange("removeOneOf", new Object[]{"type", "Nails"});
-            }
-
-            var0.sendObjectChange("removeOneOf", new Object[]{"type", var3});
-         } else {
-            if (var5 == 0) {
-               var0.getInventory().RemoveOneOf("Nails");
-            }
-
-            var0.getInventory().RemoveOneOf(var3);
+            GameServer.sendRemoveItemsFromContainer(var0.getInventory(), var14);
          }
 
          ++var5;
@@ -1536,7 +1462,7 @@ public class IsoWindow extends IsoObject implements BarricadeAble, Thumpable {
 
    public void removeBrokenGlass() {
       if (GameClient.bClient) {
-         GameClient.instance.smashWindow(this, 2);
+         GameClient.instance.removeBrokenGlass(this);
       } else {
          this.setGlassRemoved(true);
       }

@@ -58,7 +58,10 @@ public final class UIServerToolbox extends NewWindow implements ICoopServerMessa
             CoopMaster.instance.invokeServer("get-parameter", "steam-id", new ICoopServerMessageListener() {
                public void OnCoopServerMessage(String var1, String var2, String var3) {
                   UIServerToolbox.this.steamID = var3;
-                  UIServerToolbox.this.PrintLine(Translator.getText("IGUI_ServerToolBox_SteamID", UIServerToolbox.this.steamID));
+                  if (System.getProperty("zomboid.stream") == null || !System.getProperty("zomboid.stream").equals("1")) {
+                     UIServerToolbox.this.PrintLine(Translator.getText("IGUI_ServerToolBox_SteamID", UIServerToolbox.this.steamID));
+                  }
+
                   UIServerToolbox.this.PrintLine("");
                   UIServerToolbox.this.PrintLine(Translator.getText("IGUI_ServerToolBox_Invite1"));
                   UIServerToolbox.this.PrintLine("");
@@ -80,7 +83,10 @@ public final class UIServerToolbox extends NewWindow implements ICoopServerMessa
          super.render();
          this.DrawTextCentre(Translator.getText("IGUI_ServerToolBox_Title"), this.getWidth() / 2.0, 2.0, 1.0, 1.0, 1.0, 1.0);
          String var1 = "null".equals(this.externalAddress) ? Translator.getText("IGUI_ServerToolBox_IPUnknown") : this.externalAddress;
-         this.DrawText(Translator.getText("IGUI_ServerToolBox_ExternalIP", var1), 7.0, 19.0, 0.699999988079071, 0.699999988079071, 1.0, 1.0);
+         if (System.getProperty("zomboid.stream") == null || !System.getProperty("zomboid.stream").equals("1")) {
+            this.DrawText(Translator.getText("IGUI_ServerToolBox_ExternalIP", var1), 7.0, 19.0, 0.699999988079071, 0.699999988079071, 1.0, 1.0);
+         }
+
          if (!this.incomingConnections.isEmpty()) {
             String var2 = (String)this.incomingConnections.get(0);
             if (var2 != null) {

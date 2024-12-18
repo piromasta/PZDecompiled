@@ -1,27 +1,22 @@
 package zombie.savefile;
 
-import java.io.IOException;
-import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import zombie.characters.IsoPlayer;
 import zombie.core.logger.ExceptionLogger;
-import zombie.core.network.ByteBufferWriter;
-import zombie.core.raknet.UdpConnection;
 import zombie.core.utils.UpdateLimit;
-import zombie.debug.DebugLog;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoWorld;
 import zombie.network.GameClient;
 import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 
 public final class ClientPlayerDB {
    private static ClientPlayerDB instance = null;
    private static boolean allow = false;
-   private NetworkCharacterProfile networkProfile = null;
+   public NetworkCharacterProfile networkProfile = null;
    private UpdateLimit saveToDBPeriod4Network = new UpdateLimit(30000L);
-   private static ByteBuffer SliceBuffer4NetworkPlayer = ByteBuffer.allocate(65536);
    private boolean forceSavePlayers;
    public boolean canSavePlayers = false;
 
@@ -101,118 +96,14 @@ public final class ClientPlayerDB {
       return var1;
    }
 
-   public void clientLoadNetworkCharacter(ByteBuffer var1, UdpConnection var2) {
-      boolean var3 = var1.get() == 1;
-      int var4 = var1.getInt();
-      if (var3) {
-         float var5 = var1.getFloat();
-         float var6 = var1.getFloat();
-         float var7 = var1.getFloat();
-         int var8 = var1.getInt();
-         boolean var9 = var1.get() == 1;
-         int var10 = var1.getInt();
-         byte[] var11 = new byte[var10];
-         var1.get(var11);
-         if (this.networkProfile != null) {
-            ++this.networkProfile.playerCount;
-            switch (this.networkProfile.playerCount) {
-               case 2:
-                  this.networkProfile.worldVersion[1] = var8;
-                  this.networkProfile.character[1] = var11;
-                  this.networkProfile.x[1] = var5;
-                  this.networkProfile.y[1] = var6;
-                  this.networkProfile.z[1] = var7;
-                  this.networkProfile.isDead[1] = var9;
-                  break;
-               case 3:
-                  this.networkProfile.worldVersion[2] = var8;
-                  this.networkProfile.character[2] = var11;
-                  this.networkProfile.x[2] = var5;
-                  this.networkProfile.y[2] = var6;
-                  this.networkProfile.z[2] = var7;
-                  this.networkProfile.isDead[2] = var9;
-                  break;
-               case 4:
-                  this.networkProfile.worldVersion[3] = var8;
-                  this.networkProfile.character[3] = var11;
-                  this.networkProfile.x[3] = var5;
-                  this.networkProfile.y[3] = var6;
-                  this.networkProfile.z[3] = var7;
-                  this.networkProfile.isDead[3] = var9;
-            }
-         } else {
-            this.networkProfile = new NetworkCharacterProfile();
-            this.networkProfile.playerCount = 1;
-            this.networkProfile.username = GameClient.username;
-            this.networkProfile.server = GameClient.ip;
-            this.networkProfile.character[0] = var11;
-            this.networkProfile.worldVersion[0] = var8;
-            this.networkProfile.x[0] = var5;
-            this.networkProfile.y[0] = var6;
-            this.networkProfile.z[0] = var7;
-            this.networkProfile.isDead[0] = var9;
-         }
-
-         ByteBufferWriter var12 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.LoadPlayerProfile.doPacket(var12);
-         var12.putByte((byte)(var4 + 1));
-         PacketTypes.PacketType.LoadPlayerProfile.send(GameClient.connection);
-      } else if (this.networkProfile != null) {
-         this.networkProfile.isLoaded = true;
-      } else {
-         this.networkProfile = new NetworkCharacterProfile();
-         this.networkProfile.isLoaded = true;
-         this.networkProfile.playerCount = 0;
-         this.networkProfile.username = GameClient.username;
-         this.networkProfile.server = GameClient.ip;
-         this.networkProfile.character[0] = null;
-         this.networkProfile.worldVersion[0] = IsoWorld.getWorldVersion();
-      }
-
-   }
-
    private boolean isClientLoadNetworkCharacterCompleted() {
       return this.networkProfile != null && this.networkProfile.isLoaded;
    }
 
    public void clientSendNetworkPlayerInt(IsoPlayer var1) {
       if (GameClient.connection != null) {
-         try {
-            ByteBufferWriter var2 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.SendPlayerProfile.doPacket(var2);
-            var2.putByte((byte)(var1.serverPlayerIndex - 1));
-            String var10000 = var1.getDescriptor().getForename();
-            String var7 = var10000 + " " + var1.getDescriptor().getSurname();
-            var2.putUTF(var7);
-            var2.putFloat(var1.x);
-            var2.putFloat(var1.y);
-            var2.putFloat(var1.z);
-            var2.putByte((byte)(var1.isDead() ? 1 : 0));
-            SliceBuffer4NetworkPlayer.rewind();
-            var1.save(SliceBuffer4NetworkPlayer);
-            byte[] var4 = new byte[SliceBuffer4NetworkPlayer.position()];
-            SliceBuffer4NetworkPlayer.rewind();
-            SliceBuffer4NetworkPlayer.get(var4);
-            var2.putInt(IsoWorld.getWorldVersion());
-            var2.putInt(SliceBuffer4NetworkPlayer.position());
-            var2.bb.put(var4);
-            PacketTypes.PacketType.SendPlayerProfile.send(GameClient.connection);
-         } catch (IOException var5) {
-            GameClient.connection.cancelPacket();
-            ExceptionLogger.logException(var5);
-         } catch (BufferOverflowException var6) {
-            GameClient.connection.cancelPacket();
-            int var3 = SliceBuffer4NetworkPlayer.capacity();
-            if (var3 > 2097152) {
-               DebugLog.log("FATAL ERROR: The player " + var1.getUsername() + " cannot be saved");
-               ExceptionLogger.logException(var6);
-               return;
-            }
-
-            SliceBuffer4NetworkPlayer = ByteBuffer.allocate(var3 * 2);
-            this.clientSendNetworkPlayerInt(var1);
-         }
-
+         INetworkPacket.send(PacketTypes.PacketType.SyncInventory, var1);
+         INetworkPacket.send(PacketTypes.PacketType.PlayerDamage, var1);
       }
    }
 
@@ -230,21 +121,18 @@ public final class ClientPlayerDB {
             this.networkProfile = null;
          }
 
-         ByteBufferWriter var1 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.LoadPlayerProfile.doPacket(var1);
-         var1.putByte((byte)0);
-         PacketTypes.PacketType.LoadPlayerProfile.send(GameClient.connection);
-         int var2 = 200;
+         INetworkPacket.send(PacketTypes.PacketType.LoadPlayerProfile);
+         int var1 = 200;
 
-         while(var2-- > 0) {
+         while(var1-- > 0) {
             if (this.isClientLoadNetworkCharacterCompleted()) {
                return this.networkProfile.playerCount > 0;
             }
 
             try {
                Thread.sleep(50L);
-            } catch (InterruptedException var4) {
-               ExceptionLogger.logException(var4);
+            } catch (InterruptedException var3) {
+               ExceptionLogger.logException(var3);
             }
          }
 
@@ -304,8 +192,8 @@ public final class ClientPlayerDB {
 
    public boolean loadNetworkPlayerInfo(int var1) {
       if (this.networkProfile != null && this.networkProfile.isLoaded && this.networkProfile.username.equals(GameClient.username) && this.networkProfile.server.equals(GameClient.ip) && var1 >= 1 && var1 <= 4 && var1 <= this.networkProfile.playerCount) {
-         int var2 = (int)(this.networkProfile.x[var1 - 1] / 10.0F) + IsoWorld.saveoffsetx * 30;
-         int var3 = (int)(this.networkProfile.y[var1 - 1] / 10.0F) + IsoWorld.saveoffsety * 30;
+         int var2 = (int)(this.networkProfile.x[var1 - 1] / 8.0F) + IsoWorld.saveoffsetx * 30;
+         int var3 = (int)(this.networkProfile.y[var1 - 1] / 8.0F) + IsoWorld.saveoffsety * 30;
          IsoChunkMap.WorldXA = (int)this.networkProfile.x[var1 - 1];
          IsoChunkMap.WorldYA = (int)this.networkProfile.y[var1 - 1];
          IsoChunkMap.WorldZA = (int)this.networkProfile.z[var1 - 1];
@@ -343,17 +231,17 @@ public final class ClientPlayerDB {
       return 2;
    }
 
-   private final class NetworkCharacterProfile {
-      boolean isLoaded = false;
-      final byte[][] character = new byte[4][];
-      String username;
-      String server;
-      int playerCount = 0;
-      final int[] worldVersion = new int[4];
-      final float[] x = new float[4];
-      final float[] y = new float[4];
-      final float[] z = new float[4];
-      final boolean[] isDead = new boolean[4];
+   public static final class NetworkCharacterProfile {
+      public boolean isLoaded = false;
+      public final byte[][] character = new byte[4][];
+      public String username;
+      public String server;
+      public int playerCount = 0;
+      public final int[] worldVersion = new int[4];
+      public final float[] x = new float[4];
+      public final float[] y = new float[4];
+      public final float[] z = new float[4];
+      public final boolean[] isDead = new boolean[4];
 
       public NetworkCharacterProfile() {
       }

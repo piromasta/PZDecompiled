@@ -9,6 +9,7 @@ import zombie.erosion.obj.ErosionObjOverlaySprites;
 import zombie.erosion.obj.ErosionObjSprites;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class StreetCracks extends ErosionCategory {
    private ArrayList<ErosionObj> objs = new ArrayList();
@@ -18,25 +19,25 @@ public final class StreetCracks extends ErosionCategory {
    public StreetCracks() {
    }
 
-   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5) {
+   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6) {
       return false;
    }
 
-   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6) {
-      int var7 = var2.noiseMainInt;
-      int var8 = this.spawnChance[var7];
-      if (var8 == 0) {
+   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7) {
+      int var8 = var2.noiseMainInt;
+      int var9 = this.spawnChance[var8];
+      if (var9 == 0) {
          return false;
-      } else if (var2.rand(var1.x, var1.y, 101) >= var8) {
+      } else if (var2.rand(var1.x, var1.y, 101) >= var9) {
          return false;
       } else {
-         CategoryData var9 = (CategoryData)this.setCatModData(var2);
-         var9.gameObj = var2.rand(var1.x, var1.y, this.crackObjs.size());
-         var9.maxStage = var7 > 65 ? 2 : (var7 > 55 ? 1 : 0);
-         var9.stage = 0;
-         var9.spawnTime = 50 + (100 - var7);
+         CategoryData var10 = (CategoryData)this.setCatModData(var2);
+         var10.gameObj = var2.rand(var1.x, var1.y, this.crackObjs.size());
+         var10.maxStage = var8 > 65 ? 2 : (var8 > 55 ? 1 : 0);
+         var10.stage = 0;
+         var10.spawnTime = 50 + (100 - var8);
          if (var2.magicNum > 0.5F) {
-            var9.hasGrass = true;
+            var10.hasGrass = true;
          }
 
          return true;

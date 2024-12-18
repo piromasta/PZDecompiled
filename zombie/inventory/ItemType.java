@@ -11,7 +11,8 @@ public enum ItemType {
    KeyRing(7),
    Moveable(8),
    AlarmClock(9),
-   AlarmClockClothing(10);
+   AlarmClockClothing(10),
+   Animal(11);
 
    private int index;
 

@@ -10,8 +10,8 @@ import zombie.characters.BodyDamage.BodyPart;
 import zombie.characters.Moodles.MoodleType;
 import zombie.core.Core;
 import zombie.core.network.ByteBufferWriter;
-import zombie.core.raknet.UdpConnection;
 import zombie.debug.DebugLog;
+import zombie.network.packets.BodyDamageUpdatePacket;
 
 public class BodyDamageSync {
    public static final byte BD_Health = 1;
@@ -19,7 +19,7 @@ public class BodyDamageSync {
    public static final byte BD_bitten = 3;
    public static final byte BD_bleeding = 4;
    public static final byte BD_IsBleedingStemmed = 5;
-   public static final byte BD_IsCortorised = 6;
+   public static final byte BD_IsCauterized = 6;
    public static final byte BD_scratched = 7;
    public static final byte BD_stitched = 8;
    public static final byte BD_deepWounded = 9;
@@ -55,14 +55,12 @@ public class BodyDamageSync {
    public static final byte BD_cut = 39;
    public static final byte BD_cutTime = 40;
    public static final byte BD_stiffness = 41;
+   public static final byte BD_MaxParam = 42;
    public static final byte BD_BodyDamage = 50;
-   private static final byte BD_START = 64;
-   private static final byte BD_END = 65;
-   private static final byte PKT_START_UPDATING = 1;
-   private static final byte PKT_STOP_UPDATING = 2;
-   private static final byte PKT_UPDATE = 3;
+   public static final byte BD_START = 64;
+   public static final byte BD_END = 65;
    public static BodyDamageSync instance = new BodyDamageSync();
-   private ArrayList<Updater> updaters = new ArrayList();
+   private final ArrayList<Updater> updaters = new ArrayList();
 
    public BodyDamageSync() {
    }
@@ -111,26 +109,24 @@ public class BodyDamageSync {
       }
    }
 
-   public void startReceivingUpdates(short var1) {
+   public void startReceivingUpdates(IsoPlayer var1) {
       if (GameClient.bClient) {
-         noise("start receiving updates from " + var1 + " to " + IsoPlayer.players[0].getOnlineID());
-         ByteBufferWriter var2 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.BodyDamageUpdate.doPacket(var2);
-         var2.putByte((byte)1);
-         var2.putShort(IsoPlayer.players[0].getOnlineID());
-         var2.putShort(var1);
+         BodyDamageUpdatePacket var2 = new BodyDamageUpdatePacket();
+         var2.setStart(var1);
+         ByteBufferWriter var3 = GameClient.connection.startPacket();
+         PacketTypes.PacketType.BodyDamageUpdate.doPacket(var3);
+         var2.write(var3);
          PacketTypes.PacketType.BodyDamageUpdate.send(GameClient.connection);
       }
    }
 
-   public void stopReceivingUpdates(short var1) {
+   public void stopReceivingUpdates(IsoPlayer var1) {
       if (GameClient.bClient) {
-         noise("stop receiving updates from " + var1 + " to " + IsoPlayer.players[0].getOnlineID());
-         ByteBufferWriter var2 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.BodyDamageUpdate.doPacket(var2);
-         var2.putByte((byte)2);
-         var2.putShort(IsoPlayer.players[0].getOnlineID());
-         var2.putShort(var1);
+         BodyDamageUpdatePacket var2 = new BodyDamageUpdatePacket();
+         var2.setStop(var1);
+         ByteBufferWriter var3 = GameClient.connection.startPacket();
+         PacketTypes.PacketType.BodyDamageUpdate.doPacket(var3);
+         var2.write(var3);
          PacketTypes.PacketType.BodyDamageUpdate.send(GameClient.connection);
       }
    }
@@ -142,124 +138,6 @@ public class BodyDamageSync {
             var2.update();
          }
 
-      }
-   }
-
-   public void serverPacket(ByteBuffer var1) {
-      byte var2 = var1.get();
-      short var3;
-      short var4;
-      Long var5;
-      UdpConnection var6;
-      ByteBufferWriter var7;
-      if (var2 == 1) {
-         var3 = var1.getShort();
-         var4 = var1.getShort();
-         var5 = (Long)GameServer.IDToAddressMap.get(var4);
-         if (var5 != null) {
-            var6 = GameServer.udpEngine.getActiveConnection(var5);
-            if (var6 != null) {
-               var7 = var6.startPacket();
-               PacketTypes.PacketType.BodyDamageUpdate.doPacket(var7);
-               var7.putByte((byte)1);
-               var7.putShort(var3);
-               var7.putShort(var4);
-               PacketTypes.PacketType.BodyDamageUpdate.send(var6);
-            }
-         }
-      } else if (var2 == 2) {
-         var3 = var1.getShort();
-         var4 = var1.getShort();
-         var5 = (Long)GameServer.IDToAddressMap.get(var4);
-         if (var5 != null) {
-            var6 = GameServer.udpEngine.getActiveConnection(var5);
-            if (var6 != null) {
-               var7 = var6.startPacket();
-               PacketTypes.PacketType.BodyDamageUpdate.doPacket(var7);
-               var7.putByte((byte)2);
-               var7.putShort(var3);
-               var7.putShort(var4);
-               PacketTypes.PacketType.BodyDamageUpdate.send(var6);
-            }
-         }
-      } else if (var2 == 3) {
-         var3 = var1.getShort();
-         var4 = var1.getShort();
-         var5 = (Long)GameServer.IDToAddressMap.get(var4);
-         if (var5 != null) {
-            var6 = GameServer.udpEngine.getActiveConnection(var5);
-            if (var6 != null) {
-               var7 = var6.startPacket();
-               PacketTypes.PacketType.BodyDamageUpdate.doPacket(var7);
-               var7.putByte((byte)3);
-               var7.putShort(var3);
-               var7.putShort(var4);
-               var7.bb.put(var1);
-               PacketTypes.PacketType.BodyDamageUpdate.send(var6);
-            }
-         }
-      }
-   }
-
-   public void clientPacket(ByteBuffer var1) {
-      byte var2 = var1.get();
-      short var3;
-      short var4;
-      short var11;
-      IsoPlayer var12;
-      if (var2 == 1) {
-         var3 = var1.getShort();
-         var4 = var1.getShort();
-
-         for(var11 = 0; var11 < IsoPlayer.numPlayers; ++var11) {
-            var12 = IsoPlayer.players[var11];
-            noise("looking for " + var4 + " testing player ID=" + var12.getOnlineID());
-            if (var12 != null && var12.isAlive() && var12.getOnlineID() == var4) {
-               this.startSendingUpdates(var11, var3);
-               break;
-            }
-         }
-
-      } else if (var2 == 2) {
-         var3 = var1.getShort();
-         var4 = var1.getShort();
-
-         for(var11 = 0; var11 < IsoPlayer.numPlayers; ++var11) {
-            var12 = IsoPlayer.players[var11];
-            if (var12 != null && var12.getOnlineID() == var4) {
-               this.stopSendingUpdates(var11, var3);
-               break;
-            }
-         }
-
-      } else if (var2 == 3) {
-         var3 = var1.getShort();
-         var4 = var1.getShort();
-         GameClient var10000 = GameClient.instance;
-         IsoPlayer var5 = (IsoPlayer)GameClient.IDToPlayerMap.get(var3);
-         if (var5 != null) {
-            BodyDamage var6 = var5.getBodyDamageRemote();
-            byte var7 = var1.get();
-            if (var7 == 50) {
-               var6.setOverallBodyHealth(var1.getFloat());
-               var6.setRemotePainLevel(var1.get());
-               var6.IsFakeInfected = var1.get() == 1;
-               var6.InfectionLevel = var1.getFloat();
-               var7 = var1.get();
-            }
-
-            while(var7 == 64) {
-               byte var8 = var1.get();
-               BodyPart var9 = (BodyPart)var6.BodyParts.get(var8);
-
-               for(byte var10 = var1.get(); var10 != 65; var10 = var1.get()) {
-                  var9.sync(var1, var10);
-               }
-
-               var7 = var1.get();
-            }
-
-         }
       }
    }
 
@@ -300,13 +178,14 @@ public class BodyDamageSync {
 
             if (bb.position() > 0) {
                bb.put((byte)65);
-               ByteBufferWriter var5 = GameClient.connection.startPacket();
-               PacketTypes.PacketType.BodyDamageUpdate.doPacket(var5);
-               var5.putByte((byte)3);
-               var5.putShort(IsoPlayer.players[this.localIndex].getOnlineID());
-               var5.putShort(this.remoteID);
-               var5.bb.put(bb.array(), 0, bb.position());
-               PacketTypes.PacketType.BodyDamageUpdate.send(GameClient.connection);
+               if (IsoPlayer.players[this.localIndex] != null && GameClient.IDToPlayerMap.get(this.remoteID) != null) {
+                  BodyDamageUpdatePacket var6 = new BodyDamageUpdatePacket();
+                  var6.setUpdate(IsoPlayer.players[this.localIndex], (IsoPlayer)GameClient.IDToPlayerMap.get(this.remoteID), bb);
+                  ByteBufferWriter var5 = GameClient.connection.startPacket();
+                  PacketTypes.PacketType.BodyDamageUpdate.doPacket(var5);
+                  var6.write(var5);
+                  PacketTypes.PacketType.BodyDamageUpdate.send(GameClient.connection);
+               }
             }
 
          }

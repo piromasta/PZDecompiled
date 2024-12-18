@@ -1,17 +1,15 @@
 package zombie.core.skinnedmodel.model;
 
-import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import org.joml.Matrix4f;
-import org.lwjgl.util.vector.Vector3f;
-import org.lwjglx.BufferUtils;
-import zombie.core.Core;
+import org.joml.Vector3f;
+import zombie.core.PerformanceSettings;
 import zombie.core.math.PZMath;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.advancedanimation.AnimatedModel;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
-import zombie.core.textures.Texture;
-import zombie.debug.DebugLog;
+import zombie.core.skinnedmodel.shader.Shader;
 import zombie.popman.ObjectPool;
 import zombie.scripting.objects.ModelAttachment;
 import zombie.util.IPooledObject;
@@ -20,81 +18,68 @@ import zombie.util.StringUtils;
 import zombie.util.Type;
 import zombie.vehicles.BaseVehicle;
 
-public final class ModelInstanceRenderData {
-   private static final Vector3f tempVector3f = new Vector3f();
-   public Model model;
-   public Texture tex;
+public final class ModelInstanceRenderData extends AnimatedModel.AnimatedModelInstanceRenderData {
    public float depthBias;
    public float hue;
    public float tintR;
    public float tintG;
    public float tintB;
    public int parentBone;
-   public FloatBuffer matrixPalette;
-   public final Matrix4f xfrm = new Matrix4f();
    public SoftwareModelMeshInstance softwareMesh;
-   public ModelInstance modelInstance;
    public boolean m_muzzleFlash = false;
    protected ModelInstanceDebugRenderData m_debugRenderData;
+   public static boolean INVERT_ATTACHMENT_SELF_TRANSFORM = false;
    private static final ObjectPool<ModelInstanceRenderData> pool = new ObjectPool(ModelInstanceRenderData::new);
 
    public ModelInstanceRenderData() {
    }
 
-   public ModelInstanceRenderData init(ModelInstance var1) {
+   public ModelInstanceRenderData init() {
+      super.init();
+
+      assert this.modelInstance.character == null || this.modelInstance.AnimPlayer != null;
+
+      if (this.modelInstance.getTextureInitializer() != null) {
+         this.modelInstance.getTextureInitializer().renderMain();
+      }
+
+      return this;
+   }
+
+   public void initModel(ModelInstance var1, AnimatedModel.AnimatedModelInstanceRenderData var2) {
+      super.initModel(var1, var2);
       this.model = var1.model;
       this.tex = var1.tex;
       this.depthBias = var1.depthBias;
       this.hue = var1.hue;
       this.parentBone = var1.parentBone;
-
-      assert var1.character == null || var1.AnimPlayer != null;
-
+      this.softwareMesh = var1.softwareMesh;
       this.m_muzzleFlash = false;
-      this.xfrm.identity();
-      if (var1.AnimPlayer != null && !this.model.bStatic) {
-         SkinningData var2 = (SkinningData)this.model.Tag;
-         if (Core.bDebug && var2 == null) {
-            DebugLog.General.warn("skinningData is null, matrixPalette may be invalid");
-         }
-
-         org.lwjgl.util.vector.Matrix4f[] var3 = var1.AnimPlayer.getSkinTransforms(var2);
-         if (this.matrixPalette == null || this.matrixPalette.capacity() < var3.length * 16) {
-            this.matrixPalette = BufferUtils.createFloatBuffer(var3.length * 16);
-         }
-
-         this.matrixPalette.clear();
-
-         for(int var4 = 0; var4 < var3.length; ++var4) {
-            var3[var4].store(this.matrixPalette);
-         }
-
-         this.matrixPalette.flip();
-      }
-
-      VehicleSubModelInstance var5 = (VehicleSubModelInstance)Type.tryCastTo(var1, VehicleSubModelInstance.class);
-      if (var1 instanceof VehicleModelInstance || var5 != null) {
+      ++var1.renderRefCount;
+      VehicleSubModelInstance var3 = (VehicleSubModelInstance)Type.tryCastTo(var1, VehicleSubModelInstance.class);
+      if (var1 instanceof VehicleModelInstance || var3 != null) {
          if (var1 instanceof VehicleModelInstance) {
             this.xfrm.set(((BaseVehicle)var1.object).renderTransform);
          } else {
-            this.xfrm.set(var5.modelInfo.renderTransform);
+            this.xfrm.set(var3.modelInfo.renderTransform);
          }
 
-         if (var1.model.Mesh != null && var1.model.Mesh.isReady() && var1.model.Mesh.m_transform != null) {
-            var1.model.Mesh.m_transform.transpose();
-            this.xfrm.mul(var1.model.Mesh.m_transform);
-            var1.model.Mesh.m_transform.transpose();
-         }
+         postMultiplyMeshTransform(this.xfrm, var1.model.Mesh);
       }
 
-      this.softwareMesh = var1.softwareMesh;
-      this.modelInstance = var1;
-      ++var1.renderRefCount;
-      if (var1.getTextureInitializer() != null) {
-         var1.getTextureInitializer().renderMain();
+   }
+
+   public void UpdateCharacter(Shader var1) {
+      super.UpdateCharacter(var1);
+      if (!PerformanceSettings.FBORenderChunk) {
+         this.properties.SetFloat("targetDepth", 0.5F);
+      } else if (this.modelInstance.parent != null) {
+         this.properties.SetFloat("targetDepth", this.modelInstance.parent.targetDepth);
       }
 
-      return this;
+      this.properties.SetFloat("DepthBias", this.depthBias / 50.0F);
+      this.properties.SetFloat("HueShift", this.hue);
+      this.properties.SetVector3("TintColour", this.tintR, this.tintG, this.tintB);
    }
 
    public void renderDebug() {
@@ -110,6 +95,7 @@ public final class ModelInstanceRenderData {
       this.tintB = this.modelInstance.tintB;
       this.tex = this.modelInstance.tex;
       if (this.tex != null || this.modelInstance.model.tex != null) {
+         this.properties.SetVector3("TintColour", this.tintR, this.tintG, this.tintB);
          this.model.DrawChar(var1, this);
       }
    }
@@ -126,68 +112,53 @@ public final class ModelInstanceRenderData {
 
    public static Matrix4f makeAttachmentTransform(ModelAttachment var0, Matrix4f var1) {
       var1.translation(var0.getOffset());
-      org.joml.Vector3f var2 = var0.getRotate();
+      Vector3f var2 = var0.getRotate();
       var1.rotateXYZ(var2.x * 0.017453292F, var2.y * 0.017453292F, var2.z * 0.017453292F);
+      var1.scale(var0.getScale());
       return var1;
    }
 
    public static void applyBoneTransform(ModelInstance var0, String var1, Matrix4f var2) {
       if (var0 != null && var0.AnimPlayer != null) {
+         Matrix4f var3 = (Matrix4f)((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).alloc();
+         makeBoneTransform(var0.AnimPlayer, var1, var3);
+         var3.mul(var2, var2);
+         ((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).release(var3);
+      }
+   }
+
+   public static void makeBoneTransform(AnimationPlayer var0, String var1, Matrix4f var2) {
+      var2.identity();
+      if (var0 != null) {
          if (!StringUtils.isNullOrWhitespace(var1)) {
-            int var3 = var0.AnimPlayer.getSkinningBoneIndex(var1, -1);
+            int var3 = var0.getSkinningBoneIndex(var1, -1);
             if (var3 != -1) {
-               org.lwjgl.util.vector.Matrix4f var4 = var0.AnimPlayer.GetPropBoneMatrix(var3);
-               Matrix4f var5 = (Matrix4f)((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).alloc();
-               PZMath.convertMatrix(var4, var5);
-               var5.transpose();
-               var2.mul(var5);
-               ((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).release(var5);
+               org.lwjgl.util.vector.Matrix4f var4 = var0.GetPropBoneMatrix(var3);
+               PZMath.convertMatrix(var4, var2);
+               var2.transpose();
             }
          }
       }
    }
 
-   public ModelInstanceRenderData transformToParent(ModelInstanceRenderData var1) {
-      if (!(this.modelInstance instanceof VehicleModelInstance) && !(this.modelInstance instanceof VehicleSubModelInstance)) {
-         if (var1 == null) {
-            return this;
-         } else {
-            this.xfrm.set(var1.xfrm);
-            this.xfrm.transpose();
-            Matrix4f var2 = (Matrix4f)((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).alloc();
-            ModelAttachment var3 = var1.modelInstance.getAttachmentById(this.modelInstance.attachmentNameParent);
-            if (var3 == null) {
-               if (this.modelInstance.parentBoneName != null && var1.modelInstance.AnimPlayer != null) {
-                  applyBoneTransform(var1.modelInstance, this.modelInstance.parentBoneName, this.xfrm);
-               }
-            } else {
-               applyBoneTransform(var1.modelInstance, var3.getBone(), this.xfrm);
-               makeAttachmentTransform(var3, var2);
-               this.xfrm.mul(var2);
-            }
-
-            ModelAttachment var4 = this.modelInstance.getAttachmentById(this.modelInstance.attachmentNameSelf);
-            if (var4 != null) {
-               makeAttachmentTransform(var4, var2);
-               var2.invert();
-               this.xfrm.mul(var2);
-            }
-
-            if (this.modelInstance.model.Mesh != null && this.modelInstance.model.Mesh.isReady() && this.modelInstance.model.Mesh.m_transform != null) {
-               this.xfrm.mul(this.modelInstance.model.Mesh.m_transform);
-            }
-
-            if (this.modelInstance.scale != 1.0F) {
-               this.xfrm.scale(this.modelInstance.scale);
-            }
-
-            this.xfrm.transpose();
-            ((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).release(var2);
-            return this;
-         }
-      } else {
-         return this;
+   public static Matrix4f preMultiplyMeshTransform(Matrix4f var0, ModelMesh var1) {
+      if (var1 != null && var1.isReady() && var1.m_transform != null) {
+         var1.m_transform.transpose();
+         var1.m_transform.mul(var0, var0);
+         var1.m_transform.transpose();
       }
+
+      return var0;
+   }
+
+   public static Matrix4f postMultiplyMeshTransform(Matrix4f var0, ModelMesh var1) {
+      if (var1 != null && var1.isReady() && var1.m_transform != null) {
+         var1.m_transform.transpose();
+         var0.mul(var1.m_transform);
+         var1.m_transform.transpose();
+      }
+
+      return var0;
    }
 
    private void testOnBackItem(ModelInstance var1) {
@@ -213,7 +184,10 @@ public final class ModelInstanceRenderData {
             var5 = var1.getAttachmentById(var3.getId());
             if (var5 != null) {
                makeAttachmentTransform(var5, var6);
-               var6.invert();
+               if (INVERT_ATTACHMENT_SELF_TRANSFORM) {
+                  var6.invert();
+               }
+
                this.xfrm.transpose();
                this.xfrm.mul(var6);
                this.xfrm.transpose();
@@ -228,7 +202,7 @@ public final class ModelInstanceRenderData {
       return (ModelInstanceRenderData)pool.alloc();
    }
 
-   public static void release(ArrayList<ModelInstanceRenderData> var0) {
+   public static synchronized void release(ArrayList<ModelInstanceRenderData> var0) {
       for(int var1 = 0; var1 < var0.size(); ++var1) {
          ModelInstanceRenderData var2 = (ModelInstanceRenderData)var0.get(var1);
          if (var2.modelInstance.getTextureInitializer() != null) {

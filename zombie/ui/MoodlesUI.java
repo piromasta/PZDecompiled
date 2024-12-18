@@ -21,15 +21,8 @@ public final class MoodlesUI extends UIElement {
    private static final float OFFSCREEN_Y = 10000.0F;
    public Stack<Rectangle> nestedItems = new Stack();
    float alpha = 1.0F;
-   Texture Back_Bad_1 = null;
-   Texture Back_Bad_2 = null;
-   Texture Back_Bad_3 = null;
-   Texture Back_Bad_4 = null;
-   Texture Back_Good_1 = null;
-   Texture Back_Good_2 = null;
-   Texture Back_Good_3 = null;
-   Texture Back_Good_4 = null;
-   Texture Back_Neutral = null;
+   Texture Border = null;
+   Texture Background = null;
    Texture Endurance = null;
    Texture Bleeding = null;
    Texture Angry = null;
@@ -51,6 +44,8 @@ public final class MoodlesUI extends UIElement {
    Texture Zombie = null;
    Texture Windchill = null;
    Texture CantSprint = null;
+   Texture Uncomfortable = null;
+   Texture NoxiousSmell = null;
    Texture FoodEaten = null;
    Texture Hyperthermia = null;
    Texture Hypothermia = null;
@@ -58,16 +53,12 @@ public final class MoodlesUI extends UIElement {
    public static Texture plusGreen;
    public static Texture minusRed;
    public static Texture minusGreen;
-   public static Texture chevronUp;
-   public static Texture chevronUpBorder;
-   public static Texture chevronDown;
-   public static Texture chevronDownBorder;
-   float MoodleDistY = 36.0F;
+   float MoodleDistY = 74.0F;
    boolean MouseOver = false;
    int MouseOverSlot = 0;
    int NumUsedSlots = 0;
    private int DebugKeyDelay = 0;
-   private int DistFromRighEdge = 46;
+   private int DistFromRighEdge = 10;
    private int[] GoodBadNeutral;
    private int[] MoodleLevel;
    private float[] MoodleOscilationLevel;
@@ -99,54 +90,47 @@ public final class MoodlesUI extends UIElement {
       this.UseCharacter = null;
       this.alphaIncrease = true;
       this.x = (double)(Core.getInstance().getScreenWidth() - this.DistFromRighEdge);
-      this.y = 100.0;
-      this.width = 32.0F;
-      this.height = 500.0F;
-      this.Back_Bad_1 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Bad_1.png");
-      this.Back_Bad_2 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Bad_2.png");
-      this.Back_Bad_3 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Bad_3.png");
-      this.Back_Bad_4 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Bad_4.png");
-      this.Back_Good_1 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Good_1.png");
-      this.Back_Good_2 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Good_2.png");
-      this.Back_Good_3 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Good_3.png");
-      this.Back_Good_4 = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Good_4.png");
-      this.Back_Neutral = Texture.getSharedTexture("media/ui/Moodles/Moodle_Bkg_Bad_1.png");
-      this.Endurance = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Endurance.png");
-      this.Tired = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Tired.png");
-      this.Hungry = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Hungry.png");
-      this.Panic = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Panic.png");
-      this.Sick = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Sick.png");
-      this.Bored = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Bored.png");
-      this.Unhappy = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Unhappy.png");
-      this.Bleeding = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Bleeding.png");
-      this.Wet = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Wet.png");
-      this.HasACold = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Cold.png");
-      this.Angry = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Angry.png");
-      this.Stress = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Stressed.png");
-      this.Thirst = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Thirsty.png");
-      this.Injured = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Injured.png");
-      this.Pain = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Pain.png");
-      this.HeavyLoad = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_HeavyLoad.png");
-      this.Drunk = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Drunk.png");
-      this.Dead = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Dead.png");
-      this.Zombie = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Zombie.png");
-      this.FoodEaten = Texture.getSharedTexture("media/ui/Moodles/Moodle_Icon_Hungry.png");
-      this.Hyperthermia = Texture.getSharedTexture("media/ui/weather/Moodle_Icon_TempHot.png");
-      this.Hypothermia = Texture.getSharedTexture("media/ui/weather/Moodle_Icon_TempCold.png");
-      this.Windchill = Texture.getSharedTexture("media/ui/Moodle_Icon_Windchill.png");
-      this.CantSprint = Texture.getSharedTexture("media/ui/Moodle_Icon_CantSprint.png");
-      plusRed = Texture.getSharedTexture("media/ui/Moodle_internal_plus_red.png");
-      minusRed = Texture.getSharedTexture("media/ui/Moodle_internal_minus_red.png");
-      plusGreen = Texture.getSharedTexture("media/ui/Moodle_internal_plus_green.png");
-      minusGreen = Texture.getSharedTexture("media/ui/Moodle_internal_minus_green.png");
-      chevronUp = Texture.getSharedTexture("media/ui/Moodle_chevron_up.png");
-      chevronUpBorder = Texture.getSharedTexture("media/ui/Moodle_chevron_up_border.png");
-      chevronDown = Texture.getSharedTexture("media/ui/Moodle_chevron_down.png");
-      chevronDownBorder = Texture.getSharedTexture("media/ui/Moodle_chevron_down_border.png");
+      this.y = 120.0;
+      this.width = 64.0F;
+      this.height = (float)Core.getInstance().getScreenHeight();
+      int var1 = 0;
+      var1 |= 64;
+      this.Border = Texture.getSharedTexture("media/ui/Moodles/Border.png", var1);
+      this.Background = Texture.getSharedTexture("media/ui/Moodles/Background.png", var1);
+      this.Endurance = Texture.getSharedTexture("media/ui/Moodles/Status_DifficultyBreathing.png", var1);
+      this.Tired = Texture.getSharedTexture("media/ui/Moodles/Mood_Sleepy.png", var1);
+      this.Hungry = Texture.getSharedTexture("media/ui/Moodles/Status_Hunger.png", var1);
+      this.Panic = Texture.getSharedTexture("media/ui/Moodles/Mood_Panicked.png", var1);
+      this.Sick = Texture.getSharedTexture("media/ui/Moodles/Mood_Nauseous.png", var1);
+      this.Bored = Texture.getSharedTexture("media/ui/Moodles/Mood_Bored.png", var1);
+      this.Unhappy = Texture.getSharedTexture("media/ui/Moodles/Mood_Sad.png", var1);
+      this.Bleeding = Texture.getSharedTexture("media/ui/Moodles/Status_Bleeding.png", var1);
+      this.Wet = Texture.getSharedTexture("media/ui/Moodles/Status_Wet.png", var1);
+      this.HasACold = Texture.getSharedTexture("media/ui/Moodles/Mood_Ill.png", var1);
+      this.Angry = Texture.getSharedTexture("media/ui/Moodles/Mood_Angry.png", var1);
+      this.Stress = Texture.getSharedTexture("media/ui/Moodles/Mood_Stressed.png", var1);
+      this.Thirst = Texture.getSharedTexture("media/ui/Moodles/Status_Thirst.png", var1);
+      this.Injured = Texture.getSharedTexture("media/ui/Moodles/Status_InjuredMinor.png", var1);
+      this.Pain = Texture.getSharedTexture("media/ui/Moodles/Mood_Pained.png", var1);
+      this.HeavyLoad = Texture.getSharedTexture("media/ui/Moodles/Status_HeavyLoad.png", var1);
+      this.Drunk = Texture.getSharedTexture("media/ui/Moodles/Mood_Drunk.png", var1);
+      this.Dead = Texture.getSharedTexture("media/ui/Moodles/Mood_Dead.png", var1);
+      this.Zombie = Texture.getSharedTexture("media/ui/Moodles/Mood_Zombified.png", var1);
+      this.NoxiousSmell = Texture.getSharedTexture("media/ui/Moodles/Mood_NoxiousSmell.png", var1);
+      this.FoodEaten = Texture.getSharedTexture("media/ui/Moodles/Status_Hunger.png", var1);
+      this.Hyperthermia = Texture.getSharedTexture("media/ui/Moodles/Status_TemperatureHot.png", var1);
+      this.Hypothermia = Texture.getSharedTexture("media/ui/Moodles/Status_TemperatureLow.png", var1);
+      this.Windchill = Texture.getSharedTexture("media/ui/Moodles/Status_Windchill.png", var1);
+      this.CantSprint = Texture.getSharedTexture("media/ui/Moodles/Status_MovementRestricted.png", var1);
+      this.Uncomfortable = Texture.getSharedTexture("media/ui/Moodles/Mood_Discomfort.png", var1);
+      plusRed = Texture.getSharedTexture("media/ui/Moodle_internal_plus_red.png", var1);
+      minusRed = Texture.getSharedTexture("media/ui/Moodle_internal_minus_red.png", var1);
+      plusGreen = Texture.getSharedTexture("media/ui/Moodle_internal_plus_green.png", var1);
+      minusGreen = Texture.getSharedTexture("media/ui/Moodle_internal_minus_green.png", var1);
 
-      for(int var1 = 0; var1 < MoodleType.ToIndex(MoodleType.MAX); ++var1) {
-         this.MoodleSlotsPos[var1] = 10000.0F;
-         this.MoodleSlotsDesiredPos[var1] = 10000.0F;
+      for(int var2 = 0; var2 < MoodleType.ToIndex(MoodleType.MAX); ++var2) {
+         this.MoodleSlotsPos[var2] = 10000.0F;
+         this.MoodleSlotsDesiredPos[var2] = 10000.0F;
       }
 
       this.clientW = this.width;
@@ -193,7 +177,35 @@ public final class MoodlesUI extends UIElement {
    }
 
    public void render() {
+      switch (Core.getInstance().getOptionMoodleSize()) {
+         case 1:
+            this.width = 32.0F;
+            break;
+         case 2:
+            this.width = 48.0F;
+            break;
+         case 3:
+            this.width = 64.0F;
+            break;
+         case 4:
+            this.width = 80.0F;
+            break;
+         case 5:
+            this.width = 96.0F;
+            break;
+         case 6:
+            this.width = 128.0F;
+            break;
+         case 7:
+            this.width = (float)(TextManager.instance.font.getLineHeight() * 3);
+      }
+
       if (this.UseCharacter != null) {
+         if (this.MoodleDistY != 10.0F + this.width) {
+            this.UseCharacter.getMoodles().setMoodlesStateChanged(true);
+            this.update();
+         }
+
          float var1 = (float)(UIManager.getMillisSinceLastRender() / 33.3);
          this.OscilatorStep += this.OscilatorRate * var1 * 0.5F;
          this.Oscilator = (float)Math.sin((double)this.OscilatorStep);
@@ -201,121 +213,98 @@ public final class MoodlesUI extends UIElement {
 
          for(int var3 = 0; var3 < MoodleType.ToIndex(MoodleType.MAX); ++var3) {
             if (this.MoodleSlotsPos[var3] != 10000.0F) {
-               float var4;
-               Texture var5;
-               Texture var6;
-               var4 = this.Oscilator * this.OscilatorScalar * this.MoodleOscilationLevel[var3];
-               var5 = this.Back_Neutral;
-               var6 = this.Tired;
-               label93:
+               float var4 = this.Oscilator * this.OscilatorScalar * this.MoodleOscilationLevel[var3];
+               Texture var5 = this.Tired;
+               Color var6 = new Color(Color.gray);
                switch (this.GoodBadNeutral[var3]) {
                   case 0:
-                     var5 = this.Back_Neutral;
+                     var6 = new Color(Color.gray);
                      break;
                   case 1:
-                     switch (this.MoodleLevel[var3]) {
-                        case 1:
-                           var5 = this.Back_Good_1;
-                           break label93;
-                        case 2:
-                           var5 = this.Back_Good_2;
-                           break label93;
-                        case 3:
-                           var5 = this.Back_Good_3;
-                           break label93;
-                        case 4:
-                           var5 = this.Back_Good_4;
-                        default:
-                           break label93;
-                     }
+                     var6 = Color.abgrToColor(Color.lerpABGR(Color.colorToABGR(new Color(Color.gray)), Color.colorToABGR(Core.getInstance().getGoodHighlitedColor().toColor()), (float)this.MoodleLevel[var3] / 4.0F), var6);
+                     break;
                   case 2:
-                     switch (this.MoodleLevel[var3]) {
-                        case 1:
-                           var5 = this.Back_Bad_1;
-                           break;
-                        case 2:
-                           var5 = this.Back_Bad_2;
-                           break;
-                        case 3:
-                           var5 = this.Back_Bad_3;
-                           break;
-                        case 4:
-                           var5 = this.Back_Bad_4;
-                     }
+                     var6 = Color.abgrToColor(Color.lerpABGR(Color.colorToABGR(new Color(Color.gray)), Color.colorToABGR(Core.getInstance().getBadHighlitedColor().toColor()), (float)this.MoodleLevel[var3] / 4.0F), var6);
                }
 
                switch (var3) {
                   case 0:
-                     var6 = this.Endurance;
+                     var5 = this.Endurance;
                      break;
                   case 1:
-                     var6 = this.Tired;
+                     var5 = this.Tired;
                      break;
                   case 2:
-                     var6 = this.Hungry;
+                     var5 = this.Hungry;
                      break;
                   case 3:
-                     var6 = this.Panic;
+                     var5 = this.Panic;
                      break;
                   case 4:
-                     var6 = this.Sick;
+                     var5 = this.Sick;
                      break;
                   case 5:
-                     var6 = this.Bored;
+                     var5 = this.Bored;
                      break;
                   case 6:
-                     var6 = this.Unhappy;
+                     var5 = this.Unhappy;
                      break;
                   case 7:
-                     var6 = this.Bleeding;
+                     var5 = this.Bleeding;
                      break;
                   case 8:
-                     var6 = this.Wet;
+                     var5 = this.Wet;
                      break;
                   case 9:
-                     var6 = this.HasACold;
+                     var5 = this.HasACold;
                      break;
                   case 10:
-                     var6 = this.Angry;
+                     var5 = this.Angry;
                      break;
                   case 11:
-                     var6 = this.Stress;
+                     var5 = this.Stress;
                      break;
                   case 12:
-                     var6 = this.Thirst;
+                     var5 = this.Thirst;
                      break;
                   case 13:
-                     var6 = this.Injured;
+                     var5 = this.Injured;
                      break;
                   case 14:
-                     var6 = this.Pain;
+                     var5 = this.Pain;
                      break;
                   case 15:
-                     var6 = this.HeavyLoad;
+                     var5 = this.HeavyLoad;
                      break;
                   case 16:
-                     var6 = this.Drunk;
+                     var5 = this.Drunk;
                      break;
                   case 17:
-                     var6 = this.Dead;
+                     var5 = this.Dead;
                      break;
                   case 18:
-                     var6 = this.Zombie;
+                     var5 = this.Zombie;
                      break;
                   case 19:
-                     var6 = this.FoodEaten;
+                     var5 = this.FoodEaten;
                      break;
                   case 20:
-                     var6 = this.Hyperthermia;
+                     var5 = this.Hyperthermia;
                      break;
                   case 21:
-                     var6 = this.Hypothermia;
+                     var5 = this.Hypothermia;
                      break;
                   case 22:
-                     var6 = this.Windchill;
+                     var5 = this.Windchill;
                      break;
                   case 23:
-                     var6 = this.CantSprint;
+                     var5 = this.CantSprint;
+                     break;
+                  case 24:
+                     var5 = this.Uncomfortable;
+                     break;
+                  case 25:
+                     var5 = this.NoxiousSmell;
                }
 
                if (MoodleType.FromIndex(var3).name().equals(Core.getInstance().getBlinkingMoodle())) {
@@ -338,34 +327,35 @@ public final class MoodlesUI extends UIElement {
                   this.alpha = 1.0F;
                }
 
-               this.DrawTexture(var5, (double)((int)var4), (double)((int)this.MoodleSlotsPos[var3]), (double)this.alpha);
-               this.DrawTexture(var6, (double)((int)var4), (double)((int)this.MoodleSlotsPos[var3]), (double)this.alpha);
-               int var9;
-               int var10;
-               if (this.UseCharacter.getMoodles().getMoodleChevronCount(var3) > 0) {
-                  boolean var7 = this.UseCharacter.getMoodles().getMoodleChevronIsUp(var3);
-                  Color var8 = this.UseCharacter.getMoodles().getMoodleChevronColor(var3);
-                  var8.a = this.alpha;
-
-                  for(var9 = 0; var9 < this.UseCharacter.getMoodles().getMoodleChevronCount(var3); ++var9) {
-                     var10 = var9 * 4;
-                     this.DrawTextureCol(var7 ? chevronUp : chevronDown, (double)((int)var4 + 16), (double)((int)this.MoodleSlotsPos[var3] + 20 - var10), var8);
-                     this.DrawTextureCol(var7 ? chevronUpBorder : chevronDownBorder, (double)((int)var4 + 16), (double)((int)this.MoodleSlotsPos[var3] + 20 - var10), var8);
-                  }
-               }
-
+               short var7 = 9985;
+               short var8 = 9729;
+               this.Background.getTextureId().setMinFilter(var7);
+               this.Background.getTextureId().setMagFilter(var8);
+               this.Border.getTextureId().setMinFilter(var7);
+               this.Border.getTextureId().setMagFilter(var8);
+               this.DrawTextureScaledCol(this.Background, (double)((int)var4), (double)((int)this.MoodleSlotsPos[var3]), (double)this.width, (double)this.width, var6);
+               this.DrawTextureScaled(this.Border, (double)((int)var4), (double)((int)this.MoodleSlotsPos[var3]), (double)this.width, (double)this.width, (double)this.alpha);
+               float var9 = this.width;
+               double var10 = Math.ceil((double)((this.width - var9) / 2.0F));
+               var5.getTextureId().setMinFilter(var7);
+               var5.getTextureId().setMagFilter(var8);
+               this.DrawTextureScaled(var5, (double)((int)((double)var4 + var10)), (double)((int)((double)this.MoodleSlotsPos[var3] + var10)), (double)var9, (double)var9, (double)this.alpha);
                if (this.MouseOver && var2 == this.MouseOverSlot) {
-                  String var15 = this.UseCharacter.getMoodles().getMoodleDisplayString(var3);
-                  String var16 = this.UseCharacter.getMoodles().getMoodleDescriptionString(var3);
-                  var9 = TextManager.instance.font.getWidth(var15);
-                  var10 = TextManager.instance.font.getWidth(var16);
-                  int var11 = Math.max(var9, var10);
-                  int var12 = TextManager.instance.font.getLineHeight();
-                  int var13 = (int)this.MoodleSlotsPos[var3] + 1;
-                  int var14 = (2 + var12) * 2;
-                  this.DrawTextureScaledColor((Texture)null, -10.0 - (double)var11 - 6.0, (double)var13 - 2.0, (double)var11 + 12.0, (double)var14, 0.0, 0.0, 0.0, 0.6);
-                  this.DrawTextRight(var15, -10.0, (double)var13, 1.0, 1.0, 1.0, 1.0);
-                  this.DrawTextRight(var16, -10.0, (double)(var13 + var12), 0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0);
+                  String var12 = this.UseCharacter.getMoodles().getMoodleDisplayString(var3);
+                  String var13 = this.UseCharacter.getMoodles().getMoodleDescriptionString(var3);
+                  int var14 = TextManager.instance.font.getWidth(var12);
+                  int var15 = TextManager.instance.font.getWidth(var13);
+                  int var16 = Math.max(var14, var15);
+                  int var17 = TextManager.instance.font.getLineHeight();
+                  int var18 = (int)this.MoodleSlotsPos[var3] + 1;
+                  int var19 = (2 + var17) * 2;
+                  if (this.width > (float)var19) {
+                     var18 = (int)((float)var18 + (this.width - (float)var19) / 2.0F);
+                  }
+
+                  this.DrawTextureScaledColor((Texture)null, -10.0 - (double)var16 - 6.0, (double)var18 - 2.0, (double)var16 + 12.0, (double)var19, 0.0, 0.0, 0.0, 0.6);
+                  this.DrawTextRight(var12, -10.0, (double)var18, 1.0, 1.0, 1.0, 1.0);
+                  this.DrawTextRight(var13, -10.0, (double)(var18 + var17), 0.800000011920929, 0.800000011920929, 0.800000011920929, 1.0);
                }
 
                ++var2;
@@ -381,6 +371,7 @@ public final class MoodlesUI extends UIElement {
    }
 
    public void update() {
+      this.MoodleDistY = 10.0F + this.width;
       super.update();
       if (this.UseCharacter != null) {
          if (!this.CurrentlyAnimating()) {
@@ -407,7 +398,11 @@ public final class MoodlesUI extends UIElement {
             var2 = 0;
 
             for(int var3 = 0; var3 < MoodleType.ToIndex(MoodleType.MAX); ++var3) {
-               if (this.UseCharacter.getMoodles().getMoodleLevel(var3) > 0) {
+               if (MoodleType.FromIndex(var3) == MoodleType.FoodEaten && this.UseCharacter.getMoodles().getMoodleLevel(var3) < 3) {
+                  this.MoodleSlotsPos[var3] = 10000.0F;
+                  this.MoodleSlotsDesiredPos[var3] = 10000.0F;
+                  this.MoodleOscilationLevel[var3] = 0.0F;
+               } else if (this.UseCharacter.getMoodles().getMoodleLevel(var3) > 0) {
                   boolean var4 = false;
                   if (this.MoodleLevel[var3] != this.UseCharacter.getMoodles().getMoodleLevel(var3)) {
                      var4 = true;

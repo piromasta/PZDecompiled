@@ -1,12 +1,14 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.commands.AltCommandArgs;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
 import zombie.commands.CommandNames;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.logger.ZLogger;
 import zombie.core.raknet.UdpConnection;
@@ -28,13 +30,13 @@ import zombie.network.Userlog;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_Kick"
 )
-@RequiredRight(
-   requiredRights = 56
+@RequiredCapability(
+   requiredCapability = Capability.KickUser
 )
 public class KickUserCommand extends CommandBase {
    private String reason = "";
 
-   public KickUserCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public KickUserCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -59,11 +61,10 @@ public class KickUserCommand extends CommandBase {
                if ("".equals(this.reason)) {
                   GameServer.kick(var4, "UI_Policy_Kick", (String)null);
                } else {
-                  GameServer.kick(var4, "You have been kicked from this server for the following reason: " + this.reason, (String)null);
+                  GameServer.kick(var4, "UI_Policy_KickReason", this.reason);
                }
 
                var4.forceDisconnect("command-kick");
-               GameServer.addDisconnect(var4);
                break;
             }
          }

@@ -24,6 +24,7 @@ public class WorldMapSymbols {
    private final Quaternionf m_layoutRotation = new Quaternionf();
    private boolean m_layoutIsometric = true;
    private boolean m_layoutMiniMapSymbols = false;
+   private final ArrayList<IWorldMapSymbolListener> m_listeners = new ArrayList();
 
    public WorldMapSymbols() {
    }
@@ -55,8 +56,7 @@ public class WorldMapSymbols {
       var13.m_g = var10;
       var13.m_b = var11;
       var13.m_a = var12;
-      this.m_symbols.add(var13);
-      this.m_layoutWorldScale = 0.0F;
+      this.addSymbol(var13);
       return var13;
    }
 
@@ -90,23 +90,55 @@ public class WorldMapSymbols {
       var11.m_g = var8;
       var11.m_b = var9;
       var11.m_a = var10;
-      this.m_symbols.add(var11);
-      this.m_layoutWorldScale = 0.0F;
+      this.addSymbol(var11);
       return var11;
    }
 
+   public void addSymbol(WorldMapBaseSymbol var1) {
+      if (!this.m_symbols.contains(var1)) {
+         this.m_symbols.add(var1);
+         this.m_layoutWorldScale = 0.0F;
+         this.m_listeners.forEach((var1x) -> {
+            var1x.onAdd(var1);
+         });
+      }
+   }
+
+   public int indexOf(WorldMapBaseSymbol var1) {
+      return this.m_symbols.indexOf(var1);
+   }
+
+   public void removeSymbol(WorldMapBaseSymbol var1) {
+      int var2 = this.m_symbols.indexOf(var1);
+      if (var2 != -1) {
+         this.removeSymbolByIndex(var2);
+      }
+
+   }
+
    public void removeSymbolByIndex(int var1) {
-      WorldMapBaseSymbol var2 = (WorldMapBaseSymbol)this.m_symbols.remove(var1);
+      WorldMapBaseSymbol var2 = (WorldMapBaseSymbol)this.m_symbols.get(var1);
+      this.m_listeners.forEach((var1x) -> {
+         var1x.onBeforeRemove(var2);
+      });
+      this.m_symbols.remove(var1);
+      this.m_listeners.forEach((var1x) -> {
+         var1x.onAfterRemove(var2);
+      });
       var2.release();
+      this.m_layoutWorldScale = 0.0F;
    }
 
    public void clear() {
+      this.m_listeners.forEach(IWorldMapSymbolListener::onBeforeClear);
+
       for(int var1 = 0; var1 < this.m_symbols.size(); ++var1) {
          ((WorldMapBaseSymbol)this.m_symbols.get(var1)).release();
       }
 
       this.m_symbols.clear();
       this.m_layoutWorldScale = 0.0F;
+      this.m_listeners.forEach(IWorldMapSymbolListener::onAfterClear);
    }
 
    public void invalidateLayout() {
@@ -235,12 +267,25 @@ public class WorldMapSymbols {
 
    public void save(ByteBuffer var1) throws IOException {
       var1.putShort((short)1);
-      var1.putInt(this.m_symbols.size());
+      int var2 = 0;
 
-      for(int var2 = 0; var2 < this.m_symbols.size(); ++var2) {
-         WorldMapBaseSymbol var3 = (WorldMapBaseSymbol)this.m_symbols.get(var2);
-         var1.put((byte)var3.getType().index());
-         var3.save(var1);
+      int var3;
+      WorldMapBaseSymbol var4;
+      for(var3 = 0; var3 < this.m_symbols.size(); ++var3) {
+         var4 = (WorldMapBaseSymbol)this.m_symbols.get(var3);
+         if (var4.getNetworkInfo() == null) {
+            ++var2;
+         }
+      }
+
+      var1.putInt(var2);
+
+      for(var3 = 0; var3 < this.m_symbols.size(); ++var3) {
+         var4 = (WorldMapBaseSymbol)this.m_symbols.get(var3);
+         if (var4.getNetworkInfo() == null) {
+            var1.put((byte)var4.getType().index());
+            var4.save(var1);
+         }
       }
 
    }
@@ -272,6 +317,10 @@ public class WorldMapSymbols {
       }
    }
 
+   public void addListener(IWorldMapSymbolListener var1) {
+      this.m_listeners.add(var1);
+   }
+
    public static enum WorldMapSymbolType {
       NONE(-1),
       Text(0),
@@ -283,7 +332,7 @@ public class WorldMapSymbols {
          this.m_type = (byte)var3;
       }
 
-      int index() {
+      public int index() {
          return this.m_type;
       }
    }

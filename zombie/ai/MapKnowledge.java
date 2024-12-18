@@ -2,7 +2,6 @@ package zombie.ai;
 
 import java.util.ArrayList;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoObject;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
@@ -99,11 +98,11 @@ public final class MapKnowledge {
 
    }
 
-   public void setKnownBlockedWindowFrame(IsoObject var1, boolean var2) {
+   public void setKnownBlockedWindowFrame(IsoWindowFrame var1, boolean var2) {
       IsoGridSquare var3 = var1.getSquare();
-      if (IsoWindowFrame.isWindowFrame(var1, true)) {
+      if (var1.getNorth()) {
          this.setKnownBlockedEdgeN(var3.x, var3.y, var3.z, var2);
-      } else if (IsoWindowFrame.isWindowFrame(var1, false)) {
+      } else {
          this.setKnownBlockedEdgeW(var3.x, var3.y, var3.z, var2);
       }
 

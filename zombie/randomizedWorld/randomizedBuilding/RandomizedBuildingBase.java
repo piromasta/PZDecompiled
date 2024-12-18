@@ -3,6 +3,7 @@ package zombie.randomizedWorld.randomizedBuilding;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Objects;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.SandboxOptions;
 import zombie.VirtualZombieManager;
@@ -13,14 +14,17 @@ import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.visual.HumanVisual;
 import zombie.core.skinnedmodel.visual.IHumanVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
+import zombie.core.stash.StashSystem;
+import zombie.debug.DebugLog;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.ItemPickerJava;
+import zombie.inventory.ItemSpawner;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.WeaponPart;
 import zombie.iso.BuildingDef;
@@ -47,6 +51,7 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
    protected static final int KBBuildingX = 10744;
    protected static final int KBBuildingY = 9409;
    private boolean alwaysDo = false;
+   public static int maximumRoomCount = 500;
    private static HashMap<String, String> weaponsList = new HashMap();
 
    public RandomizedBuildingBase() {
@@ -78,6 +83,9 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
    public boolean isValid(BuildingDef var1, boolean var2) {
       this.debugLine = "";
       if (GameClient.bClient) {
+         return false;
+      } else if (StashSystem.isStashBuilding(var1)) {
+         this.debugLine = "Stash buildings are invalid";
          return false;
       } else if (var1.isAllExplored() && !var2) {
          return false;
@@ -151,99 +159,128 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
    }
 
    public static void ChunkLoaded(IsoBuilding var0) {
+      boolean var1 = false;
       if (!GameClient.bClient && var0.def != null && !var0.def.seen && var0.def.isFullyStreamedIn()) {
+         int var2 = var0.Rooms.size();
+         boolean var3 = var2 > maximumRoomCount;
          if (GameServer.bServer && GameServer.Players.isEmpty()) {
             return;
          }
 
-         for(int var1 = 0; var1 < var0.Rooms.size(); ++var1) {
-            if (((IsoRoom)var0.Rooms.get(var1)).def.bExplored) {
+         for(int var4 = 0; var4 < var2; ++var4) {
+            if (((IsoRoom)var0.Rooms.get(var4)).def.bExplored) {
                return;
-            }
-         }
-
-         if (!var0.def.isAnyChunkNewlyLoaded()) {
-            var0.def.seen = true;
-            return;
-         }
-
-         ArrayList var5 = new ArrayList();
-
-         for(int var2 = 0; var2 < IsoWorld.instance.getRandomizedBuildingList().size(); ++var2) {
-            RandomizedBuildingBase var3 = (RandomizedBuildingBase)IsoWorld.instance.getRandomizedBuildingList().get(var2);
-            if (var3.isAlwaysDo() && var3.isValid(var0.def, false)) {
-               var5.add(var3);
             }
          }
 
          var0.def.seen = true;
-         if (var0.def.x == 10744 && var0.def.y == 9409 && Rand.Next(100) < 31) {
-            RBKateAndBaldspot var8 = new RBKateAndBaldspot();
-            var8.randomizeBuilding(var0.def);
+         if (!var0.def.isAnyChunkNewlyLoaded()) {
             return;
          }
 
+         ArrayList var8 = new ArrayList();
+         int var5;
          RandomizedBuildingBase var6;
-         if (!var5.isEmpty()) {
-            var6 = (RandomizedBuildingBase)var5.get(Rand.Next(0, var5.size()));
-            if (var6 != null) {
-               var6.randomizeBuilding(var0.def);
-               return;
+         if (!var3) {
+            for(var5 = 0; var5 < IsoWorld.instance.getRandomizedBuildingList().size(); ++var5) {
+               var6 = (RandomizedBuildingBase)IsoWorld.instance.getRandomizedBuildingList().get(var5);
+               if (var6.reallyAlwaysForce && var6.isValid(var0.def, false)) {
+                  var6.randomizeBuilding(var0.def);
+               } else if (var6.isAlwaysDo() && var6.isValid(var0.def, false)) {
+                  var8.add(var6);
+               }
             }
          }
 
-         if (GameServer.bServer && SpawnPoints.instance.isSpawnBuilding(var0.getDef())) {
+         if (var3) {
+            DebugLog.log("Building is too large for a  Building Story with " + var2 + " rooms  at " + var0.def.x + ", " + var0.def.y + " and is rejected.");
             return;
          }
 
-         var6 = IsoWorld.instance.getRBBasic();
+         if (var0.def.x == 10744 && var0.def.y == 9409 && Rand.Next(100) < 31) {
+            RBKateAndBaldspot var11 = new RBKateAndBaldspot();
+            var11.randomizeBuilding(var0.def);
+            return;
+         }
+
+         if (!var8.isEmpty()) {
+            for(var5 = 0; var5 < var8.size(); ++var5) {
+               var6 = (RandomizedBuildingBase)var8.get(var5);
+               if (var6 != null) {
+                  var6.randomizeBuilding(var0.def);
+               }
+            }
+         }
+
+         if (SpawnPoints.instance.isSpawnBuilding(var0.getDef())) {
+            return;
+         }
+
+         RandomizedBuildingBase var9 = IsoWorld.instance.getRBBasic();
          if ("Tutorial".equals(Core.GameMode)) {
             return;
          }
 
          try {
-            int var7 = 10;
+            int var10 = 10;
             switch (SandboxOptions.instance.SurvivorHouseChance.getValue()) {
                case 1:
                   return;
                case 2:
-                  var7 -= 5;
+                  var10 -= 5;
                case 3:
                default:
                   break;
                case 4:
-                  var7 += 5;
+                  var10 += 5;
                   break;
                case 5:
-                  var7 += 10;
+                  var10 += 10;
                   break;
                case 6:
-                  var7 += 20;
+                  var10 += 20;
             }
 
-            if (Rand.Next(100) <= var7) {
+            if (SandboxOptions.instance.SurvivorHouseChance.getValue() == 7 || Rand.Next(100) <= var10) {
                if (totalChance == 0) {
                   initAllRBMapChance();
                }
 
-               var6 = getRandomStory();
-               if (var6 == null) {
+               var9 = getRandomStory();
+               if (var9 == null) {
                   return;
                }
             }
 
-            if (var6.isValid(var0.def, false) && var6.isTimeValid(false)) {
-               var6.randomizeBuilding(var0.def);
+            if (var9.isValid(var0.def, false) && var9.isTimeValid(false)) {
+               var9.randomizeBuilding(var0.def);
             }
-         } catch (Exception var4) {
-            var4.printStackTrace();
+         } catch (Exception var7) {
+            var7.printStackTrace();
          }
       }
 
    }
 
    public int getChance() {
-      return this.chance;
+      return this.getChance((IsoGridSquare)null);
+   }
+
+   public int getChance(IsoGridSquare var1) {
+      int var2;
+      if (Objects.equals(this.name, "Rat Infested House")) {
+         var2 = SandboxOptions.instance.getCurrentRatIndex() / 10;
+         if (var2 < 0) {
+            var2 = 1;
+         }
+
+         return var2;
+      } else if (Objects.equals(this.name, "Trashed Building")) {
+         var2 = SandboxOptions.instance.getCurrentLootedChance(var1);
+         return var2;
+      } else {
+         return this.chance;
+      }
    }
 
    public void setChance(int var1) {
@@ -412,7 +449,9 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
             for(int var11 = 1; var11 <= var10; ++var11) {
                int var12 = Rand.Next(var9.len()) + 1;
                WeaponPart var13 = (WeaponPart)InventoryItemFactory.CreateItem((String)var9.rawget(var12));
-               var7.attachWeaponPart(var13);
+               if (var13 != null && !var13.getScriptItem().OBSOLETE) {
+                  var7.attachWeaponPart(var13);
+               }
             }
          }
 
@@ -459,7 +498,7 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
       for(int var2 = var1.x - 1; var2 < var1.x + var1.x2 + 1; ++var2) {
          for(int var3 = var1.y - 1; var3 < var1.y + var1.y2 + 1; ++var3) {
             for(int var4 = 0; var4 < 8; ++var4) {
-               IsoGridSquare var5 = this.getSq(var2, var3, var4);
+               IsoGridSquare var5 = getSq(var2, var3, var4);
                if (var5 != null) {
                   for(int var6 = 0; var6 < var5.getMovingObjects().size(); ++var6) {
                      var5.getMovingObjects().remove(var6);
@@ -544,19 +583,27 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
       return this.addWorldItem(var1, var2, var3, var4, var5, 0);
    }
 
+   public InventoryItem addWorldItem(String var1, IsoGridSquare var2, float var3, float var4, float var5, boolean var6) {
+      return var6 ? this.addWorldItem(var1, var2, var3, var4, var5, Rand.Next(360)) : this.addWorldItem(var1, var2, var3, var4, var5, 0);
+   }
+
    public InventoryItem addWorldItem(String var1, IsoGridSquare var2, float var3, float var4, float var5, int var6) {
       if (var1 != null && var2 != null) {
-         InventoryItem var7 = InventoryItemFactory.CreateItem(var1);
-         if (var7 != null) {
-            var7.setAutoAge();
-            var7.setWorldZRotation(var6);
-            if (var7 instanceof HandWeapon) {
-               var7.setCondition(Rand.Next(2, var7.getConditionMax()));
-            }
-
-            return var2.AddWorldInventoryItem(var7, var3, var4, var5);
-         } else {
+         if (SandboxOptions.instance.RemoveStoryLoot.getValue() && ItemPickerJava.getLootModifier(var1) == 0.0F) {
             return null;
+         } else {
+            InventoryItem var7 = InventoryItemFactory.CreateItem(var1);
+            if (var7 != null) {
+               var7.setAutoAge();
+               var7.setWorldZRotation(var6);
+               if (var7 instanceof HandWeapon) {
+                  var7.setCondition(Rand.Next(2, var7.getConditionMax()), false);
+               }
+
+               return ItemSpawner.spawnItem(var7, var2, var3, var4, var5);
+            } else {
+               return null;
+            }
          }
       } else {
          return null;
@@ -564,18 +611,30 @@ public class RandomizedBuildingBase extends RandomizedWorldBase {
    }
 
    public InventoryItem addWorldItem(String var1, IsoGridSquare var2, IsoObject var3) {
-      if (var1 != null && var2 != null) {
-         float var4 = 0.0F;
-         if (var3 != null) {
-            var4 = var3.getSurfaceOffsetNoTable() / 96.0F;
-         }
+      return this.addWorldItem(var1, var2, var3, false);
+   }
 
-         InventoryItem var5 = InventoryItemFactory.CreateItem(var1);
-         if (var5 != null) {
-            var5.setAutoAge();
-            return var2.AddWorldInventoryItem(var5, Rand.Next(0.3F, 0.9F), Rand.Next(0.3F, 0.9F), var4);
-         } else {
+   public InventoryItem addWorldItem(String var1, IsoGridSquare var2, IsoObject var3, boolean var4) {
+      if (var1 != null && var2 != null) {
+         if (SandboxOptions.instance.RemoveStoryLoot.getValue() && ItemPickerJava.getLootModifier(var1) == 0.0F) {
             return null;
+         } else {
+            float var5 = 0.0F;
+            if (var3 != null) {
+               var5 = var3.getSurfaceOffsetNoTable() / 96.0F;
+            }
+
+            InventoryItem var6 = InventoryItemFactory.CreateItem(var1);
+            if (var6 != null) {
+               var6.setAutoAge();
+               if (var4) {
+                  var6.randomizeWorldZRotation();
+               }
+
+               return ItemSpawner.spawnItem(var6, var2, Rand.Next(0.3F, 0.9F), Rand.Next(0.3F, 0.9F), var5);
+            } else {
+               return null;
+            }
          }
       } else {
          return null;

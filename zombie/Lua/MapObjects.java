@@ -248,8 +248,8 @@ public final class MapObjects {
          IsoChunk var2 = GameServer.bServer ? ServerMap.instance.getChunk(var0, var1) : IsoWorld.instance.CurrentCell.getChunk(var0, var1);
          if (var2 != null) {
             for(int var3 = 0; var3 <= var2.maxLevel; ++var3) {
-               for(int var4 = 0; var4 < 10; ++var4) {
-                  for(int var5 = 0; var5 < 10; ++var5) {
+               for(int var4 = 0; var4 < 8; ++var4) {
+                  for(int var5 = 0; var5 < 8; ++var5) {
                      IsoGridSquare var6 = var2.getGridSquare(var4, var5, var3);
                      if (var6 != null && !var6.getObjects().isEmpty()) {
                         loadGridSquare(var6);

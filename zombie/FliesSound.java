@@ -8,6 +8,7 @@ import zombie.characters.IsoPlayer;
 import zombie.characters.BodyDamage.BodyDamage;
 import zombie.core.Core;
 import zombie.core.SpriteRenderer;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
@@ -17,8 +18,9 @@ import zombie.iso.IsoWorld;
 import zombie.iso.areas.IsoBuilding;
 
 public final class FliesSound {
+   public static int maxCorpseCount = 25;
    public static final FliesSound instance = new FliesSound();
-   private static final IsoGridSquare[] tempSquares = new IsoGridSquare[100];
+   private static final IsoGridSquare[] tempSquares = new IsoGridSquare[64];
    private final PlayerData[] playerData = new PlayerData[4];
    private final ArrayList<FadeEmitter> fadeEmitters = new ArrayList();
    private float fliesVolume = -1.0F;
@@ -58,31 +60,32 @@ public final class FliesSound {
    }
 
    public void render() {
-      IsoChunkMap var1 = IsoWorld.instance.CurrentCell.ChunkMap[0];
+      byte var1 = 8;
+      IsoChunkMap var2 = IsoWorld.instance.CurrentCell.ChunkMap[0];
 
-      for(int var2 = 0; var2 < IsoChunkMap.ChunkGridWidth; ++var2) {
-         for(int var3 = 0; var3 < IsoChunkMap.ChunkGridWidth; ++var3) {
-            IsoChunk var4 = var1.getChunk(var3, var2);
-            if (var4 != null) {
-               ChunkData var5 = var4.corpseData;
-               if (var5 != null) {
-                  int var6 = (int)IsoPlayer.players[0].z;
-                  ChunkLevelData var7 = var5.levelData[var6];
+      for(int var3 = 0; var3 < IsoChunkMap.ChunkGridWidth; ++var3) {
+         for(int var4 = 0; var4 < IsoChunkMap.ChunkGridWidth; ++var4) {
+            IsoChunk var5 = var2.getChunk(var4, var3);
+            if (var5 != null) {
+               ChunkData var6 = var5.corpseData;
+               if (var6 != null) {
+                  int var7 = PZMath.fastfloor(IsoPlayer.players[0].getZ());
+                  ChunkLevelData var8 = var6.levelData[var7 + 32];
 
-                  for(int var8 = 0; var8 < var7.emitters.length; ++var8) {
-                     FadeEmitter var9 = var7.emitters[var8];
-                     if (var9 != null && var9.emitter != null) {
-                        this.paintSquare(var9.sq.x, var9.sq.y, var9.sq.z, 0.0F, 1.0F, 0.0F, 1.0F);
+                  for(int var9 = 0; var9 < var8.emitters.length; ++var9) {
+                     FadeEmitter var10 = var8.emitters[var9];
+                     if (var10 != null && var10.emitter != null) {
+                        this.paintSquare(var10.sq.x, var10.sq.y, var10.sq.z, 0.0F, 1.0F, 0.0F, 1.0F);
                      }
 
-                     if (var7.refCount[var8] > 0) {
-                        this.paintSquare(var4.wx * 10 + 5, var4.wy * 10 + 5, 0, 0.0F, 0.0F, 1.0F, 1.0F);
+                     if (var8.refCount[var9] > 0) {
+                        this.paintSquare(var5.wx * var1 + var1 / 2, var5.wy * var1 + var1 / 2, 0, 0.0F, 0.0F, 1.0F, 1.0F);
                      }
                   }
 
-                  IsoBuilding var10 = IsoPlayer.players[0].getCurrentBuilding();
-                  if (var10 != null && var7.buildingCorpseCount != null && var7.buildingCorpseCount.containsKey(var10)) {
-                     this.paintSquare(var4.wx * 10 + 5, var4.wy * 10 + 5, var6, 1.0F, 0.0F, 0.0F, 1.0F);
+                  IsoBuilding var11 = IsoPlayer.players[0].getCurrentBuilding();
+                  if (var11 != null && var8.buildingCorpseCount != null && var8.buildingCorpseCount.containsKey(var11)) {
+                     this.paintSquare(var5.wx * var1 + var1 / 2, var5.wy * var1 + var1 / 2, var7, 1.0F, 0.0F, 0.0F, 1.0F);
                   }
                }
             }
@@ -109,13 +112,13 @@ public final class FliesSound {
    }
 
    public void corpseAdded(int var1, int var2, int var3) {
-      if (var3 >= 0 && var3 < 8) {
+      if (var3 >= -32 && var3 <= 31) {
          ChunkData var4 = this.getChunkData(var1, var2);
          if (var4 != null) {
             var4.corpseAdded(var1, var2, var3);
 
             for(int var5 = 0; var5 < this.playerData.length; ++var5) {
-               if (var4.levelData[var3].refCount[var5] > 0) {
+               if (var4.levelData[var3 + 32].refCount[var5] > 0) {
                   this.playerData[var5].forceUpdate = true;
                }
             }
@@ -127,13 +130,13 @@ public final class FliesSound {
    }
 
    public void corpseRemoved(int var1, int var2, int var3) {
-      if (var3 >= 0 && var3 < 8) {
+      if (var3 >= -32 && var3 <= 31) {
          ChunkData var4 = this.getChunkData(var1, var2);
          if (var4 != null) {
             var4.corpseRemoved(var1, var2, var3);
 
             for(int var5 = 0; var5 < this.playerData.length; ++var5) {
-               if (var4.levelData[var3].refCount[var5] > 0) {
+               if (var4.levelData[var3 + 32].refCount[var5] > 0) {
                   this.playerData[var5].forceUpdate = true;
                }
             }
@@ -145,23 +148,52 @@ public final class FliesSound {
    }
 
    public int getCorpseCount(IsoGameCharacter var1) {
-      return var1 != null && var1.getCurrentSquare() != null ? this.getCorpseCount((int)var1.getX() / 10, (int)var1.getY() / 10, (int)var1.getZ(), var1.getBuilding()) : 0;
+      return var1 != null && var1.getCurrentSquare() != null ? this.getCorpseCount(PZMath.fastfloor(var1.getX()) / 8, PZMath.fastfloor(var1.getY()) / 8, PZMath.fastfloor(var1.getZ()), var1.getBuilding()) : 0;
    }
 
    private int getCorpseCount(int var1, int var2, int var3, IsoBuilding var4) {
       int var5 = 0;
 
-      for(int var6 = -1; var6 <= 1; ++var6) {
-         for(int var7 = -1; var7 <= 1; ++var7) {
-            ChunkData var8 = this.getChunkData((var1 + var7) * 10, (var2 + var6) * 10);
+      int var6;
+      int var7;
+      for(var6 = -1; var6 <= 1; ++var6) {
+         for(var7 = -1; var7 <= 1; ++var7) {
+            ChunkData var8 = this.getChunkData((var1 + var7) * 8, (var2 + var6) * 8);
             if (var8 != null) {
-               ChunkLevelData var9 = var8.levelData[var3];
+               ChunkLevelData var9 = var8.levelData[var3 + 32];
                if (var4 == null) {
                   var5 += var9.corpseCount;
                } else if (var9.buildingCorpseCount != null) {
                   Integer var10 = (Integer)var9.buildingCorpseCount.get(var4);
                   if (var10 != null) {
                      var5 += var10;
+                  }
+               }
+
+               if (var5 >= maxCorpseCount) {
+                  return var5;
+               }
+            }
+         }
+      }
+
+      if (SandboxOptions.instance.ZombieHealthImpact.getValue()) {
+         var6 = var1 * 8;
+         var7 = var2 * 8;
+         byte var12 = 12;
+
+         for(int var13 = -1 * var12; var13 <= var12; ++var13) {
+            for(int var14 = -1 * var12; var14 <= var12; ++var14) {
+               IsoGridSquare var11 = IsoWorld.instance.getCell().getGridSquare(var6 + var14, var7 + var13, var3);
+               if (var11 != null) {
+                  if (var4 == null && var11.getBuilding() == null) {
+                     var5 += var11.getZombieCount();
+                  } else if (var4 == var11.getBuilding()) {
+                     var5 += var11.getZombieCount();
+                  }
+
+                  if (var5 >= maxCorpseCount) {
+                     return var5;
                   }
                }
             }
@@ -191,7 +223,7 @@ public final class FliesSound {
          if (var2 != null && var2.getBuilding() != this.building) {
             return false;
          } else {
-            return (int)var1.getX() / 10 == this.wx && (int)var1.getY() / 10 == this.wy && (int)var1.getZ() == this.z;
+            return PZMath.fastfloor(var1.getX()) / 8 == this.wx && PZMath.fastfloor(var1.getY()) / 8 == this.wy && PZMath.fastfloor(var1.getZ()) == this.z;
          }
       }
 
@@ -202,8 +234,8 @@ public final class FliesSound {
             int var3 = this.wy;
             int var4 = this.z;
             IsoGridSquare var5 = var1.getCurrentSquare();
-            this.wx = var5.getX() / 10;
-            this.wy = var5.getY() / 10;
+            this.wx = var5.getX() / 8;
+            this.wy = var5.getY() / 8;
             this.z = var5.getZ();
             this.building = var5.getBuilding();
 
@@ -213,9 +245,9 @@ public final class FliesSound {
             ChunkLevelData var9;
             for(var6 = -1; var6 <= 1; ++var6) {
                for(var7 = -1; var7 <= 1; ++var7) {
-                  var8 = FliesSound.this.getChunkData((this.wx + var7) * 10, (this.wy + var6) * 10);
+                  var8 = FliesSound.this.getChunkData((this.wx + var7) * 8, (this.wy + var6) * 8);
                   if (var8 != null) {
-                     var9 = var8.levelData[this.z];
+                     var9 = var8.levelData[this.z + 32];
                      var9.update(this.wx + var7, this.wy + var6, this.z, var1);
                   }
                }
@@ -224,9 +256,9 @@ public final class FliesSound {
             if (var4 != -1) {
                for(var6 = -1; var6 <= 1; ++var6) {
                   for(var7 = -1; var7 <= 1; ++var7) {
-                     var8 = FliesSound.this.getChunkData((var2 + var7) * 10, (var3 + var6) * 10);
+                     var8 = FliesSound.this.getChunkData((var2 + var7) * 8, (var3 + var6) * 8);
                      if (var8 != null) {
-                        var9 = var8.levelData[var4];
+                        var9 = var8.levelData[var4 + 32];
                         var9.deref(var1);
                      }
                   }
@@ -259,13 +291,13 @@ public final class FliesSound {
             return true;
          } else {
             if (this.volume < this.targetVolume) {
-               this.volume += 0.01F * (GameTime.getInstance().getMultiplier() / 1.6F);
+               this.volume += 0.01F * GameTime.getInstance().getThirtyFPSMultiplier();
                if (this.volume >= this.targetVolume) {
                   this.volume = this.targetVolume;
                   return true;
                }
             } else {
-               this.volume += -0.01F * (GameTime.getInstance().getMultiplier() / 1.6F);
+               this.volume += -0.01F * GameTime.getInstance().getThirtyFPSMultiplier();
                if (this.volume <= 0.0F) {
                   this.volume = 0.0F;
                   this.emitter.stopAll();
@@ -290,7 +322,7 @@ public final class FliesSound {
    public class ChunkData {
       private int wx;
       private int wy;
-      private final ChunkLevelData[] levelData = new ChunkLevelData[8];
+      private final ChunkLevelData[] levelData = new ChunkLevelData[64];
 
       private ChunkData(int var2, int var3) {
          this.wx = var2;
@@ -305,17 +337,17 @@ public final class FliesSound {
       private void corpseAdded(int var1, int var2, int var3) {
          IsoGridSquare var4 = IsoWorld.instance.CurrentCell.getGridSquare(var1, var2, var3);
          IsoBuilding var5 = var4 == null ? null : var4.getBuilding();
-         int var6 = var1 - this.wx * 10;
-         int var7 = var2 - this.wy * 10;
-         this.levelData[var3].corpseAdded(var6, var7, var5);
+         int var6 = var1 - this.wx * 8;
+         int var7 = var2 - this.wy * 8;
+         this.levelData[var3 + 32].corpseAdded(var6, var7, var5);
       }
 
       private void corpseRemoved(int var1, int var2, int var3) {
          IsoGridSquare var4 = IsoWorld.instance.CurrentCell.getGridSquare(var1, var2, var3);
          IsoBuilding var5 = var4 == null ? null : var4.getBuilding();
-         int var6 = var1 - this.wx * 10;
-         int var7 = var2 - this.wy * 10;
-         this.levelData[var3].corpseRemoved(var6, var7, var5);
+         int var6 = var1 - this.wx * 8;
+         int var7 = var2 - this.wy * 8;
+         this.levelData[var3 + 32].corpseRemoved(var6, var7, var5);
       }
 
       private void Reset() {
@@ -370,23 +402,24 @@ public final class FliesSound {
       }
 
       IsoGridSquare calcSoundPos(int var1, int var2, int var3, IsoBuilding var4) {
-         IsoChunk var5 = IsoWorld.instance.CurrentCell.getChunkForGridSquare(var1 * 10, var2 * 10, var3);
-         if (var5 == null) {
+         byte var5 = 8;
+         IsoChunk var6 = IsoWorld.instance.CurrentCell.getChunkForGridSquare(var1 * var5, var2 * var5, var3);
+         if (var6 == null) {
             return null;
          } else {
-            int var6 = 0;
+            int var7 = 0;
 
-            for(int var7 = 0; var7 < 10; ++var7) {
-               for(int var8 = 0; var8 < 10; ++var8) {
-                  IsoGridSquare var9 = var5.getGridSquare(var8, var7, var3);
-                  if (var9 != null && !var9.getStaticMovingObjects().isEmpty() && var9.getBuilding() == var4) {
-                     FliesSound.tempSquares[var6++] = var9;
+            for(int var8 = 0; var8 < var5; ++var8) {
+               for(int var9 = 0; var9 < var5; ++var9) {
+                  IsoGridSquare var10 = var6.getGridSquare(var9, var8, var3);
+                  if (var10 != null && !var10.getStaticMovingObjects().isEmpty() && var10.getBuilding() == var4) {
+                     FliesSound.tempSquares[var7++] = var10;
                   }
                }
             }
 
-            if (var6 > 0) {
-               return FliesSound.tempSquares[var6 / 2];
+            if (var7 > 0) {
+               return FliesSound.tempSquares[var7 / 2];
             } else {
                return null;
             }

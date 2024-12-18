@@ -1,5 +1,8 @@
 package zombie.network;
 
+import zombie.core.secure.PZcrypt;
+import zombie.core.textures.Texture;
+
 public class Server {
    private String name = "My Server";
    private String ip = "127.0.0.1";
@@ -21,8 +24,24 @@ public class Server {
    private String steamId = null;
    private String ping = null;
    private boolean hosted = false;
+   private boolean needSave = false;
+   private boolean savePwd = true;
+   private int authType = 1;
+   private int loginScreenId = -1;
+   private Texture serverIcon = null;
+   private Texture serverLoginScreen = null;
+   private Texture serverLoadingScreen = null;
+   private int serverCustomizationLastUpdate = 0;
 
    public Server() {
+   }
+
+   public boolean getNeedSave() {
+      return this.needSave;
+   }
+
+   public void setNeedSave(boolean var1) {
+      this.needSave = var1;
    }
 
    public String getPort() {
@@ -79,6 +98,15 @@ public class Server {
 
    public void setPwd(String var1) {
       this.pwd = var1;
+   }
+
+   public void setPwd(String var1, boolean var2) {
+      if (var2) {
+         this.setPwd(PZcrypt.hash(ServerWorldDatabase.encrypt(var1)));
+      } else {
+         this.setPwd(var1);
+      }
+
    }
 
    public boolean getUseSteamRelay() {
@@ -183,5 +211,69 @@ public class Server {
 
    public void setHosted(boolean var1) {
       this.hosted = var1;
+   }
+
+   public boolean isSavePwd() {
+      return this.savePwd;
+   }
+
+   public void setSavePwd(boolean var1) {
+      this.savePwd = var1;
+   }
+
+   public int getAuthType() {
+      return this.authType;
+   }
+
+   public void setAuthType(int var1) {
+      this.authType = var1;
+   }
+
+   public int getLoginScreenId() {
+      return this.loginScreenId;
+   }
+
+   public void setLoginScreenId(int var1) {
+      this.loginScreenId = var1;
+   }
+
+   public void setServerIcon(Texture var1) {
+      this.serverIcon = var1;
+   }
+
+   public void setServerLoadingScreen(Texture var1) {
+      this.serverLoadingScreen = var1;
+   }
+
+   public void setServerLoginScreen(Texture var1) {
+      this.serverLoginScreen = var1;
+   }
+
+   public Texture getServerIcon() {
+      return this.serverIcon;
+   }
+
+   public Texture getServerLoadingScreen() {
+      return this.serverLoadingScreen;
+   }
+
+   public Texture getServerLoginScreen() {
+      return this.serverLoginScreen;
+   }
+
+   public int getServerCustomizationLastUpdate() {
+      return this.serverCustomizationLastUpdate;
+   }
+
+   public int getTimeFromServerCustomizationLastUpdate() {
+      return this.serverCustomizationLastUpdate == 0 ? 1000000 : (int)(System.currentTimeMillis() / 1000L - (long)this.serverCustomizationLastUpdate);
+   }
+
+   public void setServerCustomizationLastUpdate(int var1) {
+      this.serverCustomizationLastUpdate = var1;
+   }
+
+   public void updateServerCustomizationLastUpdate() {
+      this.serverCustomizationLastUpdate = (int)(System.currentTimeMillis() / 1000L);
    }
 }

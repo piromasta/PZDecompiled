@@ -56,7 +56,7 @@ public final class MeshAssetManager extends AssetManager {
    }
 
    private static boolean isWatched(String var0) {
-      if (!StringUtils.endsWithIgnoreCase(var0, ".fbx") && !StringUtils.endsWithIgnoreCase(var0, ".x")) {
+      if (!StringUtils.endsWithIgnoreCase(var0, ".fbx") && !StringUtils.endsWithIgnoreCase(var0, ".glb") && !StringUtils.endsWithIgnoreCase(var0, ".x")) {
          return false;
       } else {
          String var1 = ZomboidFileSystem.instance.getString(var0);
@@ -73,6 +73,7 @@ public final class MeshAssetManager extends AssetManager {
             ModelMesh.MeshAssetParams var3 = new ModelMesh.MeshAssetParams();
             var3.animationsMesh = var2.m_animationsMesh;
             var3.bStatic = var2.bStatic;
+            var3.postProcess = var2.postProcess;
             instance.reload(var1x, var3);
          }
 

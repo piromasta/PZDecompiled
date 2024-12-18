@@ -1,23 +1,25 @@
 package zombie.core.skinnedmodel.advancedanimation;
 
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import zombie.debug.DebugLog;
 
 public abstract class AnimationVariableSlotCallback<VariableType> extends AnimationVariableSlot {
-   private final CallbackGet<VariableType> m_callbackGet;
-   private final CallbackSet<VariableType> m_callbackSet;
+   private final Supplier<VariableType> m_callbackGet;
+   private final Consumer<VariableType> m_callbackSet;
 
-   protected AnimationVariableSlotCallback(String var1, CallbackGet<VariableType> var2) {
-      this(var1, var2, (CallbackSet)null);
+   protected AnimationVariableSlotCallback(String var1, Supplier<VariableType> var2) {
+      this(var1, var2, (Consumer)null);
    }
 
-   protected AnimationVariableSlotCallback(String var1, CallbackGet<VariableType> var2, CallbackSet<VariableType> var3) {
+   protected AnimationVariableSlotCallback(String var1, Supplier<VariableType> var2, Consumer<VariableType> var3) {
       super(var1);
       this.m_callbackGet = var2;
       this.m_callbackSet = var3;
    }
 
    public VariableType getValue() {
-      return this.m_callbackGet.call();
+      return this.m_callbackGet.get();
    }
 
    public abstract VariableType getDefaultValue();
@@ -27,7 +29,7 @@ public abstract class AnimationVariableSlotCallback<VariableType> extends Animat
          DebugLog.General.warn("Trying to set read-only variable \"%s\"", super.getKey());
          return false;
       } else {
-         this.m_callbackSet.call(var1);
+         this.m_callbackSet.accept(var1);
          return true;
       }
    }
@@ -41,13 +43,5 @@ public abstract class AnimationVariableSlotCallback<VariableType> extends Animat
          this.trySetValue(this.getDefaultValue());
       }
 
-   }
-
-   public interface CallbackGet<VariableType> {
-      VariableType call();
-   }
-
-   public interface CallbackSet<VariableType> {
-      void call(VariableType var1);
    }
 }

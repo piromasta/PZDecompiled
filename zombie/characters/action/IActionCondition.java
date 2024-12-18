@@ -12,6 +12,8 @@ public interface IActionCondition {
 
    IActionCondition clone();
 
+   String toString(String var1);
+
    static IActionCondition createInstance(Element var0) {
       IFactory var1 = (IFactory)s_factoryMap.get(var0.getNodeName());
       return var1 != null ? var1.create(var0) : null;

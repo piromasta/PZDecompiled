@@ -7,10 +7,11 @@ import zombie.SoundManager;
 import zombie.WorldSoundManager;
 import zombie.ai.sadisticAIDirector.SleepingEvent;
 import zombie.audio.BaseSoundEmitter;
+import zombie.characters.BaseCharacterSoundEmitter;
 import zombie.characters.IsoPlayer;
-import zombie.core.Rand;
 import zombie.core.Translator;
-import zombie.core.network.ByteBufferWriter;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.core.utils.OnceEvery;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.ItemContainer;
@@ -18,17 +19,17 @@ import zombie.inventory.ItemSoundManager;
 import zombie.inventory.ItemType;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoObject;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoWorldInventoryObject;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.scripting.objects.Item;
 import zombie.ui.ObjectTooltip;
 
-public final class AlarmClock extends InventoryItem {
+public final class AlarmClock extends InventoryItem implements IAlarmClock {
    private int alarmHour = -1;
    private int alarmMinutes = -1;
    private boolean alarmSet = false;
@@ -38,8 +39,7 @@ public final class AlarmClock extends InventoryItem {
    private String alarmSound = "AlarmClockLoop";
    private int soundRadius = 40;
    private boolean isDigital = true;
-   public static short PacketPlayer = 1;
-   public static short PacketWorld = 2;
+   IsoPlayer playerOwner = null;
    private static final OnceEvery sendEvery = new OnceEvery(2.0F);
 
    public AlarmClock(String var1, String var2, String var3, String var4) {
@@ -134,16 +134,22 @@ public final class AlarmClock extends InventoryItem {
       IsoGridSquare var2 = this.getAlarmSquare();
       if (var2 != null) {
          var1.setPos((float)var2.x + 0.5F, (float)var2.y + 0.5F, (float)var2.z);
-         if (!var1.isPlaying(this.ringSound)) {
-            if (this.alarmSound == null || "".equals(this.alarmSound)) {
-               this.alarmSound = "AlarmClockLoop";
-            }
+         if (this.alarmSound == null || "".equals(this.alarmSound)) {
+            this.alarmSound = "AlarmClockLoop";
+         }
 
+         if (this.isInLocalPlayerInventory()) {
+            this.playerOwner = this.getOwnerPlayer(this.getContainer());
+            BaseCharacterSoundEmitter var3 = this.playerOwner.getEmitter();
+            if (!var3.isPlaying(this.ringSound)) {
+               this.ringSound = var3.playSound(this.alarmSound, this.playerOwner);
+            }
+         } else if (!var1.isPlaying(this.ringSound)) {
             this.ringSound = var1.playSoundImpl(this.alarmSound, var2);
          }
 
          if (GameClient.bClient && sendEvery.Check() && this.isInLocalPlayerInventory()) {
-            GameClient.instance.sendWorldSound((Object)null, var2.x, var2.y, var2.z, this.getSoundRadius(), 3, false, 0.0F, 1.0F);
+            WorldSoundManager.instance.addSound((Object)null, var2.x, var2.y, var2.z, this.getSoundRadius(), 3, false, 0.0F, 1.0F);
          }
 
          this.wakeUpPlayers(var2);
@@ -162,10 +168,7 @@ public final class AlarmClock extends InventoryItem {
                IsoGridSquare var7 = var6.getCurrentSquare();
                if (var7.z >= var3 && var7.z < var4) {
                   float var8 = IsoUtils.DistanceToSquared((float)var1.x, (float)var1.y, (float)var7.x, (float)var7.y);
-                  if (var6.Traits.HardOfHearing.isSet()) {
-                     var8 *= 4.5F;
-                  }
-
+                  var8 *= PZMath.pow(var6.getHearDistanceModifier(), 2.0F);
                   if (!(var8 > (float)(var2 * var2))) {
                      this.wakeUp(var6);
                   }
@@ -215,6 +218,7 @@ public final class AlarmClock extends InventoryItem {
       var1.putInt(this.alarmMinutes);
       var1.put((byte)(this.alarmSet ? 1 : 0));
       var1.putFloat((float)this.ringSince);
+      var1.putInt(this.forceDontRing);
    }
 
    public void load(ByteBuffer var1, int var2) throws IOException {
@@ -223,6 +227,10 @@ public final class AlarmClock extends InventoryItem {
       this.alarmMinutes = var1.getInt();
       this.alarmSet = var1.get() == 1;
       this.ringSince = (double)var1.getFloat();
+      if (var2 >= 205) {
+         this.forceDontRing = var1.getInt();
+      }
+
       this.ringSound = -1L;
    }
 
@@ -267,6 +275,10 @@ public final class AlarmClock extends InventoryItem {
       this.forceDontRing = -1;
    }
 
+   public void setForceDontRing(int var1) {
+      this.forceDontRing = var1;
+   }
+
    public int getHour() {
       return this.alarmHour;
    }
@@ -287,79 +299,36 @@ public final class AlarmClock extends InventoryItem {
 
    }
 
-   private IsoPlayer getOwnerPlayer(ItemContainer var1) {
-      if (var1 == null) {
-         return null;
-      } else {
-         IsoObject var2 = var1.getParent();
-         return var2 instanceof IsoPlayer ? (IsoPlayer)var2 : null;
-      }
-   }
-
    public void syncAlarmClock_Player(IsoPlayer var1) {
-      if (GameClient.bClient) {
-         ByteBufferWriter var2 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.SyncAlarmClock.doPacket(var2);
-         var2.putShort(PacketPlayer);
-         var2.putShort((short)var1.getPlayerNum());
-         var2.putInt(this.id);
-         var2.putByte((byte)0);
-         var2.putInt(this.alarmHour);
-         var2.putInt(this.alarmMinutes);
-         var2.putByte((byte)(this.alarmSet ? 1 : 0));
-         PacketTypes.PacketType.SyncAlarmClock.send(GameClient.connection);
-      }
-
+      INetworkPacket.send(PacketTypes.PacketType.SyncPlayerAlarmClock, var1, this.id, false, this.alarmHour, this.alarmMinutes, this.alarmSet, this.forceDontRing);
    }
 
    public void syncAlarmClock_World() {
-      if (GameClient.bClient) {
-         ByteBufferWriter var1 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.SyncAlarmClock.doPacket(var1);
-         var1.putShort(PacketWorld);
-         var1.putInt(this.worldItem.square.getX());
-         var1.putInt(this.worldItem.square.getY());
-         var1.putInt(this.worldItem.square.getZ());
-         var1.putInt(this.id);
-         var1.putByte((byte)0);
-         var1.putInt(this.alarmHour);
-         var1.putInt(this.alarmMinutes);
-         var1.putByte((byte)(this.alarmSet ? 1 : 0));
-         PacketTypes.PacketType.SyncAlarmClock.send(GameClient.connection);
-      }
-
+      INetworkPacket.send(PacketTypes.PacketType.SyncWorldAlarmClock, this.worldItem.square.getX(), this.worldItem.square.getY(), (byte)this.worldItem.square.getZ(), this.id, false, this.alarmHour, this.alarmMinutes, this.alarmSet, this.forceDontRing);
    }
 
    public void syncStopRinging() {
-      if (GameClient.bClient) {
-         ByteBufferWriter var1 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.SyncAlarmClock.doPacket(var1);
-         IsoPlayer var2 = this.getOwnerPlayer(this.container);
-         if (var2 != null) {
-            var1.putShort(PacketPlayer);
-            var1.putShort((short)var2.getPlayerNum());
-         } else if (this.getWorldItem() != null) {
-            var1.putShort(PacketWorld);
-            var1.putInt(this.worldItem.square.getX());
-            var1.putInt(this.worldItem.square.getY());
-            var1.putInt(this.worldItem.square.getZ());
-         } else {
-            assert false;
-         }
-
-         var1.putInt(this.id);
-         var1.putByte((byte)1);
-         PacketTypes.PacketType.SyncAlarmClock.send(GameClient.connection);
+      IsoPlayer var1 = this.getOwnerPlayer(this.container);
+      if (var1 != null) {
+         INetworkPacket.sendToRelative(PacketTypes.PacketType.SyncPlayerAlarmClock, var1.getX(), var1.getY(), var1, this.id, true, 0, 0, false, this.forceDontRing);
+      } else if (this.getWorldItem() != null) {
+         INetworkPacket.sendToRelative(PacketTypes.PacketType.SyncWorldAlarmClock, (float)this.worldItem.square.getX(), (float)this.worldItem.square.getY(), this.worldItem.square.getX(), this.worldItem.square.getY(), (byte)this.worldItem.square.getZ(), this.id, true, 0, 0, false, this.forceDontRing);
       }
+
    }
 
    public void stopRinging() {
+      if (this.playerOwner != null) {
+         BaseCharacterSoundEmitter var1 = this.playerOwner.getEmitter();
+         var1.stopSound(this.ringSound);
+      }
+
       if (this.ringSound != -1L) {
          this.ringSound = -1L;
-         IsoGridSquare var1 = this.getAlarmSquare();
-         if (var1 != null) {
-            BaseSoundEmitter var2 = IsoWorld.instance.getFreeEmitter((float)var1.x + 0.5F, (float)var1.y + 0.5F, (float)var1.z);
-            var2.playSoundImpl("AlarmClockRingingStop", var1);
+         IsoGridSquare var3 = this.getAlarmSquare();
+         if (var3 != null) {
+            BaseSoundEmitter var2 = IsoWorld.instance.getFreeEmitter((float)var3.x + 0.5F, (float)var3.y + 0.5F, (float)var3.z);
+            var2.playSoundImpl("AlarmClockRingingStop", var3);
          }
       }
 

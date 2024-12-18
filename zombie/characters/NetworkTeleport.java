@@ -1,15 +1,14 @@
 package zombie.characters;
 
 import zombie.Lua.LuaManager;
-import zombie.core.Core;
-import zombie.debug.DebugOptions;
+import zombie.core.math.PZMath;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
 import zombie.network.MPStatisticClient;
 import zombie.network.NetworkVariables;
-import zombie.network.packets.PlayerPacket;
+import zombie.network.packets.character.PlayerPacket;
 
 public class NetworkTeleport {
    public static boolean enable = true;
@@ -46,10 +45,6 @@ public class NetworkTeleport {
       this.startTime = System.currentTimeMillis();
       this.duration = (long)(1000.0 * (double)var6);
       var1.setTeleport(this);
-      if (Core.bDebug && var1.getNetworkCharacterAI() != null && DebugOptions.instance.MultiplayerShowTeleport.getValue()) {
-         var1.getNetworkCharacterAI().setTeleportDebug(new NetworkTeleportDebug(var1.getOnlineID(), var1.x, var1.y, var1.z, var3, var4, (float)var5, var1.getNetworkCharacterAI().predictionType));
-      }
-
    }
 
    public void process(int var1) {
@@ -128,7 +123,7 @@ public class NetworkTeleport {
                }
             }
 
-            IsoGridSquare var9 = LuaManager.GlobalObject.getCell().getGridSquare((int)var2, (int)var3, var4);
+            IsoGridSquare var9 = LuaManager.GlobalObject.getCell().getGridSquare(PZMath.fastfloor(var2), PZMath.fastfloor(var3), PZMath.fastfloor((float)var4));
             if (var9 != null) {
                for(int var8 = 0; var8 < 4; ++var8) {
                   if (var9.isCanSee(var8)) {
@@ -166,7 +161,7 @@ public class NetworkTeleport {
       if (!enable) {
          return false;
       } else {
-         if (LuaManager.GlobalObject.getCell().getGridSquare((int)var1.x, (int)var1.y, var1.z) == null) {
+         if (LuaManager.GlobalObject.getCell().getGridSquare(PZMath.fastfloor(var1.x), PZMath.fastfloor(var1.y), PZMath.fastfloor((float)var1.z)) == null) {
             var0.setX(var1.x);
             var0.setY(var1.y);
             var0.setZ((float)var1.z);
@@ -188,7 +183,7 @@ public class NetworkTeleport {
                }
             }
 
-            var8 = LuaManager.GlobalObject.getCell().getGridSquare((int)var1.x, (int)var1.y, var1.z);
+            var8 = LuaManager.GlobalObject.getCell().getGridSquare(PZMath.fastfloor(var1.x), PZMath.fastfloor(var1.y), PZMath.fastfloor((float)var1.z));
             if (var8 != null) {
                for(int var5 = 0; var5 < 4; ++var5) {
                   if (var8.isCanSee(var5)) {
@@ -214,7 +209,7 @@ public class NetworkTeleport {
                MPStatisticClient.getInstance().incrementRemotePlayersTeleports();
             }
 
-            IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var0.x, (double)var0.y, (double)var0.z);
+            IsoGridSquare var7 = IsoWorld.instance.CurrentCell.getGridSquare((double)var0.getX(), (double)var0.getY(), (double)var0.getZ());
             if (var7 == null) {
                var8 = IsoWorld.instance.CurrentCell.getGridSquare((double)var1.realx, (double)var1.realy, (double)var1.realz);
                var0.setAlphaAndTarget(0.0F);

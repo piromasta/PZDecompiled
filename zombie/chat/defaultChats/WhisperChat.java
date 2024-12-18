@@ -99,7 +99,7 @@ public class WhisperChat extends ChatBase {
                throw new RuntimeException("Wrong id");
             }
 
-            DebugLog.log("Wrong id in whisper chat. Whisper chat not inited for players: " + this.player1 + " " + this.player2);
+            DebugLog.DetailedInfo.trace("Wrong id in whisper chat. Whisper chat not inited for players: " + this.player1 + " " + this.player2);
             return;
          }
 

@@ -240,6 +240,132 @@ public final class PlayerDBHelper {
       }
    }
 
+   public static boolean containsNetworkPlayer(String var0, String var1, String var2) throws SQLException {
+      if (Core.getInstance().isNoSave()) {
+         return false;
+      } else {
+         File var3 = new File(var0 + File.separator + "players.db");
+         if (!var3.exists()) {
+            return false;
+         } else {
+            var3.setReadable(true, false);
+            Connection var4 = PZSQLUtils.getConnection(var3.getAbsolutePath());
+
+            boolean var8;
+            label77: {
+               try {
+                  label78: {
+                     String var5 = "SELECT id FROM networkPlayers WHERE world = ? and username = ?";
+                     PreparedStatement var6 = var4.prepareStatement(var5);
+
+                     label79: {
+                        try {
+                           var6.setString(1, var2);
+                           var6.setString(2, var1);
+                           ResultSet var7 = var6.executeQuery();
+                           if (var7.next()) {
+                              var8 = true;
+                              break label79;
+                           }
+                        } catch (Throwable var11) {
+                           if (var6 != null) {
+                              try {
+                                 var6.close();
+                              } catch (Throwable var10) {
+                                 var11.addSuppressed(var10);
+                              }
+                           }
+
+                           throw var11;
+                        }
+
+                        if (var6 != null) {
+                           var6.close();
+                        }
+                        break label78;
+                     }
+
+                     if (var6 != null) {
+                        var6.close();
+                     }
+                     break label77;
+                  }
+               } catch (Throwable var12) {
+                  if (var4 != null) {
+                     try {
+                        var4.close();
+                     } catch (Throwable var9) {
+                        var12.addSuppressed(var9);
+                     }
+                  }
+
+                  throw var12;
+               }
+
+               if (var4 != null) {
+                  var4.close();
+               }
+
+               return false;
+            }
+
+            if (var4 != null) {
+               var4.close();
+            }
+
+            return var8;
+         }
+      }
+   }
+
+   public static void removePlayer(String var0, String var1, String var2) throws SQLException {
+      File var3 = new File(var0 + File.separator + "players.db");
+      if (var3.exists()) {
+         var3.setReadable(true, false);
+         Connection var4 = PZSQLUtils.getConnection(var3.getAbsolutePath());
+
+         try {
+            String var5 = "DELETE FROM networkPlayers WHERE world = ? and username = ?";
+            PreparedStatement var6 = var4.prepareStatement(var5);
+
+            try {
+               var6.setString(1, var2);
+               var6.setString(2, var1);
+               var6.executeUpdate();
+            } catch (Throwable var11) {
+               if (var6 != null) {
+                  try {
+                     var6.close();
+                  } catch (Throwable var10) {
+                     var11.addSuppressed(var10);
+                  }
+               }
+
+               throw var11;
+            }
+
+            if (var6 != null) {
+               var6.close();
+            }
+         } catch (Throwable var12) {
+            if (var4 != null) {
+               try {
+                  var4.close();
+               } catch (Throwable var9) {
+                  var12.addSuppressed(var9);
+               }
+            }
+
+            throw var12;
+         }
+
+         if (var4 != null) {
+            var4.close();
+         }
+
+      }
+   }
+
    public static void setPlayer1(String var0, int var1) throws SQLException {
       if (!Core.getInstance().isNoSave()) {
          if (var1 != 1) {
@@ -277,8 +403,8 @@ public final class PlayerDBHelper {
                               if (var9 != null) {
                                  try {
                                     var9.close();
-                                 } catch (Throwable var16) {
-                                    var20.addSuppressed(var16);
+                                 } catch (Throwable var13) {
+                                    var20.addSuppressed(var13);
                                  }
                               }
 
@@ -301,16 +427,16 @@ public final class PlayerDBHelper {
                                  var9.setInt(1, var7 + 1);
                                  var9.setInt(2, 1);
                                  var9.executeUpdate();
-                              } catch (Throwable var17) {
+                              } catch (Throwable var19) {
                                  if (var9 != null) {
                                     try {
                                        var9.close();
-                                    } catch (Throwable var13) {
-                                       var17.addSuppressed(var13);
+                                    } catch (Throwable var16) {
+                                       var19.addSuppressed(var16);
                                     }
                                  }
 
-                                 throw var17;
+                                 throw var19;
                               }
 
                               if (var9 != null) {
@@ -360,16 +486,16 @@ public final class PlayerDBHelper {
                                  var9.setInt(1, 1);
                                  var9.setInt(2, var1);
                                  var9.executeUpdate();
-                              } catch (Throwable var19) {
+                              } catch (Throwable var17) {
                                  if (var9 != null) {
                                     try {
                                        var9.close();
                                     } catch (Throwable var15) {
-                                       var19.addSuppressed(var15);
+                                       var17.addSuppressed(var15);
                                     }
                                  }
 
-                                 throw var19;
+                                 throw var17;
                               }
 
                               if (var9 != null) {

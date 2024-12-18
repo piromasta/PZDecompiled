@@ -1,9 +1,15 @@
 package zombie.characters.WornItems;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.function.Consumer;
+import zombie.GameWindow;
+import zombie.core.Color;
+import zombie.core.ImmutableColor;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
+import zombie.core.textures.Texture;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
@@ -162,7 +168,7 @@ public final class WornItems {
       for(int var2 = 0; var2 < this.items.size(); ++var2) {
          InventoryItem var3 = ((WornItem)this.items.get(var2)).getItem();
          int var4 = var3.getVisual().getHolesNumber();
-         var3.setCondition(var3.getConditionMax() - var4 * 3);
+         var3.setConditionNoSound(var3.getConditionMax() - var4 * 3);
          var1.AddItem(var3);
       }
 
@@ -188,5 +194,60 @@ public final class WornItems {
       }
 
       return -1;
+   }
+
+   public void save(ByteBuffer var1) throws IOException {
+      short var2 = (short)this.items.size();
+      var1.putShort(var2);
+
+      for(int var3 = 0; var3 < var2; ++var3) {
+         WornItem var4 = (WornItem)this.items.get(var3);
+         GameWindow.WriteStringUTF(var1, var4.getLocation());
+         GameWindow.WriteStringUTF(var1, var4.getItem().getType());
+         GameWindow.WriteStringUTF(var1, var4.getItem().getTex().getName());
+         var4.getItem().col.save(var1);
+         var1.putInt(var4.getItem().getVisual().getBaseTexture());
+         var1.putInt(var4.getItem().getVisual().getTextureChoice());
+         ImmutableColor var5 = var4.getItem().getVisual().getTint();
+         var1.putFloat(var5.r);
+         var1.putFloat(var5.g);
+         var1.putFloat(var5.b);
+         var1.putFloat(var5.a);
+      }
+
+   }
+
+   public void load(ByteBuffer var1, int var2) throws IOException {
+      short var3 = var1.getShort();
+      this.items.clear();
+
+      for(int var4 = 0; var4 < var3; ++var4) {
+         String var5 = GameWindow.ReadString(var1);
+         String var6 = GameWindow.ReadString(var1);
+         String var7 = GameWindow.ReadString(var1);
+         Color var8 = new Color();
+         var8.load(var1, var2);
+         int var9 = var1.getInt();
+         int var10 = var1.getInt();
+         ImmutableColor var11 = new ImmutableColor(var1.getFloat(), var1.getFloat(), var1.getFloat(), var1.getFloat());
+         InventoryItem var12 = InventoryItemFactory.CreateItem(var6);
+         if (var12 != null) {
+            var12.setTexture(Texture.trygetTexture(var7));
+            if (var12.getTex() == null) {
+               var12.setTexture(Texture.getSharedTexture("media/inventory/Question_On.png"));
+            }
+
+            String var13 = var7.replace("Item_", "media/inventory/world/WItem_");
+            var13 = var13 + ".png";
+            var12.setWorldTexture(var13);
+            var12.setColor(var8);
+            var12.getVisual().m_Tint = new ImmutableColor(var8);
+            var12.getVisual().setBaseTexture(var9);
+            var12.getVisual().setTextureChoice(var10);
+            var12.getVisual().setTint(var11);
+            this.items.add(new WornItem(var5, var12));
+         }
+      }
+
    }
 }

@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 
 public final class RBTSSewing extends RBTableStoryBase {
@@ -27,6 +27,10 @@ public final class RBTSSewing extends RBTableStoryBase {
 
          if (Rand.NextBool(2)) {
             this.addWorldItem("Base.Thread", this.table1.getSquare(), 0.899F, 0.914F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(75, 95));
+         }
+
+         if (Rand.NextBool(2)) {
+            this.addWorldItem("Base.Needle", this.table1.getSquare(), 0.945F, 0.586F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(75, 95));
          }
       } else if (var2 == 1) {
          String var3 = "Base.Jumper_DiamondPatternTINT";

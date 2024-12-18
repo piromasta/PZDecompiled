@@ -9,6 +9,9 @@ import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.textures.TextureDraw;
+import zombie.debug.DebugLog;
+import zombie.debug.LogSeverity;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoWorld;
@@ -20,7 +23,6 @@ import zombie.vehicles.VehicleManager;
 
 public final class WorldSimulation {
    public static WorldSimulation instance = new WorldSimulation();
-   public static final boolean LEVEL_ZERO_ONLY = true;
    public HashMap<Integer, IsoMovingObject> physicsObjectMap = new HashMap();
    public boolean created = false;
    public float offsetX = 0.0F;
@@ -36,14 +38,16 @@ public final class WorldSimulation {
    private final float[] wheelRotation = new float[4];
    private final float[] wheelSkidInfo = new float[4];
    private final float[] wheelSuspensionLength = new float[4];
+   private float localTime = 0.0F;
+   public float periodSec = 0.0F;
 
    public WorldSimulation() {
    }
 
    public void create() {
       if (!this.created) {
-         this.offsetX = (float)(IsoWorld.instance.MetaGrid.getMinX() * 300);
-         this.offsetY = (float)(IsoWorld.instance.MetaGrid.getMinY() * 300);
+         this.offsetX = (float)(IsoWorld.instance.MetaGrid.getMinX() * IsoCell.CellSizeInSquares);
+         this.offsetY = (float)(IsoWorld.instance.MetaGrid.getMinY() * IsoCell.CellSizeInSquares);
          this.time = GameTime.getServerTimeMills();
          IsoChunkMap var1 = IsoWorld.instance.CurrentCell.ChunkMap[0];
          Bullet.initWorld((int)this.offsetX, (int)this.offsetY, var1.getWorldXMin(), var1.getWorldYMin(), IsoChunkMap.ChunkGridWidth);
@@ -63,11 +67,36 @@ public final class WorldSimulation {
       Bullet.destroyWorld();
    }
 
-   private void updatePhysic(float var1) {
+   private void updatePhysic() {
       MPStatistic.getInstance().Bullet.Start();
-      Bullet.stepSimulation(var1, 2, 0.016666668F);
+      int var1 = 0;
+      this.localTime += GameTime.instance.getRealworldSecondsSinceLastUpdate();
+      if (this.localTime >= 0.01F) {
+         var1 = (int)(this.localTime / 0.01F);
+         this.localTime -= (float)var1 * 0.01F;
+
+         for(int var2 = 0; var2 < var1; ++var2) {
+            ArrayList var3 = IsoWorld.instance.CurrentCell.getVehicles();
+
+            for(int var4 = 0; var4 < var3.size(); ++var4) {
+               BaseVehicle var5 = (BaseVehicle)var3.get(var4);
+               var5.applyImpulseFromHitZombies();
+               var5.applyImpulseFromProneCharacters();
+            }
+
+            Bullet.stepSimulation(0.01F, 0, 0.0F);
+         }
+
+         this.periodSec = (float)var1 * 0.01F;
+      }
+
+      if (Math.abs(this.time - GameTime.getServerTimeMills()) > 100L) {
+         this.time = GameTime.getServerTimeMills();
+      } else {
+         this.time += (long)(10.0F * (float)var1);
+      }
+
       MPStatistic.getInstance().Bullet.End();
-      this.time = GameTime.getServerTimeMills();
    }
 
    public void update() {
@@ -76,7 +105,15 @@ public final class WorldSimulation {
 
    private void updateInternal() {
       if (this.created) {
-         this.updatePhysic(GameTime.instance.getRealworldSecondsSinceLastUpdate());
+         this.updatePhysic();
+         if (GameClient.bClient) {
+            try {
+               VehicleManager.instance.clientUpdate();
+            } catch (Exception var23) {
+               DebugLog.Vehicle.printException(var23, "VehicleManager.clientUpdate was failed", LogSeverity.Error);
+            }
+         }
+
          this.collideVehicles.clear();
          int var1 = Bullet.getVehicleCount();
          int var2 = 0;
@@ -129,7 +166,7 @@ public final class WorldSimulation {
 
                var20 = (int)(var7 * 100.0F + var8 * 100.0F + var9 * 100.0F + var10 * 100.0F + var11 * 100.0F + var12 * 100.0F + var13 * 100.0F);
                BaseVehicle var21 = VehicleManager.instance.getVehicleByID((short)var6);
-               if (var21 != null && (!GameClient.bClient || !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.Remote) && !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.RemoteCollide))) {
+               if (var21 != null && (!GameClient.bClient || var21 == null || !(var21.timeSinceLastAuth <= 0.0F) || !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.Remote) && !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.RemoteCollide))) {
                   if (var21.VehicleID == var6 && var18 > 0.5F) {
                      this.collideVehicles.add(var21);
                      var21.authSimulationHash = var20;
@@ -155,7 +192,7 @@ public final class WorldSimulation {
                      }
                   }
 
-                  if (!GameClient.bClient || !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.Server) && !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.Remote) && !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.RemoteCollide)) {
+                  if (!GameClient.bClient || var21 == null || !(var21.timeSinceLastAuth <= 0.0F) || !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.Server) && !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.Remote) && !var21.isNetPlayerAuthorization(BaseVehicle.Authorization.RemoteCollide)) {
                      if (this.compareTransform(this.tempTransform, var21.getPoly().t)) {
                         var21.polyDirty = true;
                      }
@@ -176,17 +213,17 @@ public final class WorldSimulation {
          }
 
          if (GameClient.bClient) {
-            IsoPlayer var23 = IsoPlayer.players[IsoPlayer.getPlayerIndex()];
-            if (var23 != null) {
-               BaseVehicle var26 = var23.getVehicle();
-               if (var26 != null && var26.isNetPlayerId(var23.getOnlineID()) && this.collideVehicles.contains(var26)) {
-                  Iterator var24 = this.collideVehicles.iterator();
+            IsoPlayer var24 = IsoPlayer.players[IsoPlayer.getPlayerIndex()];
+            if (var24 != null) {
+               BaseVehicle var27 = var24.getVehicle();
+               if (var27 != null && var27.isNetPlayerId(var24.getOnlineID()) && this.collideVehicles.contains(var27)) {
+                  Iterator var25 = this.collideVehicles.iterator();
 
-                  while(var24.hasNext()) {
-                     BaseVehicle var25 = (BaseVehicle)var24.next();
-                     if (var25.DistTo(var26) < 8.0F && var25.isNetPlayerAuthorization(BaseVehicle.Authorization.Server)) {
-                        VehicleManager.instance.sendCollide(var25, var23, true);
-                        var25.authorizationClientCollide(var23);
+                  while(var25.hasNext()) {
+                     BaseVehicle var26 = (BaseVehicle)var25.next();
+                     if (var26.DistTo(var27) < 8.0F && var26.isNetPlayerAuthorization(BaseVehicle.Authorization.Server)) {
+                        VehicleManager.instance.sendCollide(var26, var24, true);
+                        var26.authorizationClientCollide(var24);
                      }
                   }
                }
@@ -205,13 +242,13 @@ public final class WorldSimulation {
             var9 = this.ff[var4++];
             var7 += this.offsetX;
             var9 += this.offsetY;
-            IsoMovingObject var27 = (IsoMovingObject)this.physicsObjectMap.get(var6);
-            if (var27 != null) {
-               var27.removeFromSquare();
-               var27.setX(var7 + 0.18F);
-               var27.setY(var9);
-               var27.setZ(Math.max(0.0F, var8 / 3.0F / 0.82F));
-               var27.setCurrent(IsoWorld.instance.getCell().getGridSquare((double)var27.getX(), (double)var27.getY(), (double)var27.getZ()));
+            IsoMovingObject var28 = (IsoMovingObject)this.physicsObjectMap.get(var6);
+            if (var28 != null) {
+               var28.removeFromSquare();
+               var28.setX(var7 + 0.18F);
+               var28.setY(var9);
+               var28.setZ(Math.max(0.0F, var8 / 3.0F / 0.8164967F));
+               var28.setCurrent(IsoWorld.instance.getCell().getGridSquare((double)var28.getX(), (double)var28.getY(), (double)var28.getZ()));
             }
          }
 
@@ -231,10 +268,6 @@ public final class WorldSimulation {
       } else {
          return true;
       }
-   }
-
-   public int setOwnVehiclePhysics(int var1, float[] var2) {
-      return Bullet.setOwnVehiclePhysics(var1, var2);
    }
 
    public void activateChunkMap(int var1) {
@@ -278,6 +311,7 @@ public final class WorldSimulation {
    public static TextureDraw.GenericDrawer getDrawer(int var0) {
       PhysicsDebugRenderer var1 = PhysicsDebugRenderer.alloc();
       var1.init(IsoPlayer.players[var0]);
+      IsoPlayer.players[var0].physicsDebugRenderer = var1;
       return var1;
    }
 

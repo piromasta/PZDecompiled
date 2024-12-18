@@ -2,13 +2,13 @@ package zombie.randomizedWorld.randomizedVehicleStory;
 
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.Vector2;
 import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.zones.Zone;
 import zombie.vehicles.BaseVehicle;
 
 public final class RVSFlippedCrash extends RandomizedVehicleStoryBase {
@@ -16,14 +16,14 @@ public final class RVSFlippedCrash extends RandomizedVehicleStoryBase {
       this.name = "Flipped Crash";
       this.minZoneWidth = 8;
       this.minZoneHeight = 8;
-      this.setChance(4);
+      this.setChance(40);
    }
 
-   public void randomizeVehicleStory(IsoMetaGrid.Zone var1, IsoChunk var2) {
+   public void randomizeVehicleStory(Zone var1, IsoChunk var2) {
       this.callVehicleStorySpawner(var1, var2, 0.0F);
    }
 
-   public boolean initVehicleStorySpawner(IsoMetaGrid.Zone var1, IsoChunk var2, boolean var3) {
+   public boolean initVehicleStorySpawner(Zone var1, IsoChunk var2, boolean var3) {
       VehicleStorySpawner var4 = VehicleStorySpawner.getInstance();
       var4.clear();
       float var5 = 0.5235988F;
@@ -43,12 +43,13 @@ public final class RVSFlippedCrash extends RandomizedVehicleStoryBase {
       IsoGridSquare var3 = var2.square;
       if (var3 != null) {
          float var4 = var2.z;
-         IsoMetaGrid.Zone var5 = (IsoMetaGrid.Zone)var1.getParameter("zone", IsoMetaGrid.Zone.class);
+         Zone var5 = (Zone)var1.getParameter("zone", Zone.class);
          boolean var6 = var1.getParameterBoolean("burnt");
          switch (var2.id) {
             case "vehicle1":
                BaseVehicle var9 = this.addVehicleFlipped(var5, var2.position.x, var2.position.y, var4 + 0.25F, var2.direction, var6 ? "normalburnt" : "bad", (String)null, (Integer)null, (String)null);
                if (var9 != null) {
+                  var9.setAlarmed(false);
                   int var10 = Rand.Next(4);
                   String var11 = null;
                   switch (var10) {

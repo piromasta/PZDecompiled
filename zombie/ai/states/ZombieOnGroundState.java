@@ -6,9 +6,10 @@ import zombie.audio.parameters.ParameterZombieState;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.model.Model;
+import zombie.iso.IsoMovingObject;
 import zombie.iso.Vector3;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.network.GameClient;
@@ -27,15 +28,23 @@ public final class ZombieOnGroundState extends State {
 
    public void enter(IsoGameCharacter var1) {
       IsoZombie var2 = (IsoZombie)var1;
-      var1.setCollidable(false);
-      if (!var1.isDead()) {
-         var1.setOnFloor(true);
+      var2.setCollidable(false);
+      if (!var2.isDead()) {
+         var2.setOnFloor(true);
       }
 
-      if (!var1.isDead() && !var2.isFakeDead()) {
+      if (!var2.isDead() && !var2.isFakeDead()) {
+         var2.setStaggerBack(false);
+         var2.setKnockedDown(false);
+         if (var2.isAlive()) {
+            var2.setHitReaction("");
+         }
+
+         var2.setEatBodyTarget((IsoMovingObject)null, false);
+         var2.setSitAgainstWall(false);
          if (!var2.isBecomeCrawler()) {
             if (!"Tutorial".equals(Core.GameMode)) {
-               var1.setReanimateTimer((float)(Rand.Next(60) + 30));
+               var2.setReanimateTimer((float)(Rand.Next(60) + 30));
             }
 
             if (GameClient.bClient && var2.isReanimatedPlayer()) {
@@ -45,13 +54,13 @@ public final class ZombieOnGroundState extends State {
             var2.parameterZombieState.setState(ParameterZombieState.State.Idle);
          }
       } else {
-         var1.die();
+         var2.die();
       }
    }
 
    public void execute(IsoGameCharacter var1) {
       IsoZombie var2 = (IsoZombie)var1;
-      if (!var1.isDead() && !var2.isFakeDead()) {
+      if (!var2.isDead() && !var2.isFakeDead()) {
          if (var2.isBecomeCrawler()) {
             if (!var2.isBeingSteppedOn() && !var2.isUnderVehicle()) {
                var2.setCrawler(true);
@@ -60,24 +69,24 @@ public final class ZombieOnGroundState extends State {
                var2.setBecomeCrawler(false);
             }
          } else {
-            if (var1.hasAnimationPlayer()) {
-               var1.getAnimationPlayer().setTargetToAngle();
+            if (var2.hasAnimationPlayer()) {
+               var2.getAnimationPlayer().setTargetToAngle();
             }
 
-            var1.setReanimateTimer(var1.getReanimateTimer() - GameTime.getInstance().getMultiplier() / 1.6F);
-            if (var1.getReanimateTimer() <= 2.0F) {
+            var2.setReanimateTimer(var2.getReanimateTimer() - GameTime.getInstance().getThirtyFPSMultiplier());
+            if (var2.getReanimateTimer() <= 2.0F) {
                if (GameClient.bClient) {
-                  if (var1.isBeingSteppedOn() && !var2.isReanimatedPlayer()) {
-                     var1.setReanimateTimer((float)(Rand.Next(60) + 30));
+                  if (var2.isBeingSteppedOn() && !var2.isReanimatedPlayer()) {
+                     var2.setReanimateTimer((float)(Rand.Next(60) + 30));
                   }
-               } else if (var1.isBeingSteppedOn() && var2.getReanimatedPlayer() == null) {
-                  var1.setReanimateTimer((float)(Rand.Next(60) + 30));
+               } else if (var2.isBeingSteppedOn() && var2.getReanimatedPlayer() == null) {
+                  var2.setReanimateTimer((float)(Rand.Next(60) + 30));
                }
             }
 
          }
       } else {
-         var1.die();
+         var2.die();
       }
    }
 
@@ -105,9 +114,9 @@ public final class ZombieOnGroundState extends State {
 
       for(int var6 = 1; var6 <= 10; ++var6) {
          float var7 = (float)var6 / 10.0F;
-         tempVector.x = var0.x;
-         tempVector.y = var0.y;
-         tempVector.z = var0.z;
+         tempVector.x = var0.getX();
+         tempVector.y = var0.getY();
+         tempVector.z = var0.getZ();
          Vector3 var10000 = tempVector;
          var10000.x += var0.getForwardDirection().x * var5 * var7;
          var10000 = tempVector;

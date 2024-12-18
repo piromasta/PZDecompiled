@@ -9,10 +9,10 @@ import zombie.iso.IsoObject;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoMannequin;
 import zombie.iso.objects.IsoWorldInventoryObject;
-import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.objects.Item;
-import zombie.util.Type;
+import zombie.util.StringUtils;
 import zombie.vehicles.VehiclePart;
 
 public final class ItemUser {
@@ -22,77 +22,64 @@ public final class ItemUser {
    }
 
    public static void UseItem(InventoryItem var0) {
-      DrainableComboItem var1 = (DrainableComboItem)Type.tryCastTo(var0, DrainableComboItem.class);
-      if (var1 != null) {
-         var1.setDelta(var1.getDelta() - var1.getUseDelta());
-         int var3;
-         InventoryItem var4;
-         if (var1.uses > 1) {
-            int var2 = var1.uses - 1;
-            var1.uses = 1;
-            CreateItem(var1.getFullType(), tempItems);
-            var3 = 0;
-            if (var3 < tempItems.size()) {
-               var4 = (InventoryItem)tempItems.get(var3);
-               var4.setUses(var2);
-               AddItem(var1, var4);
-            }
-         }
-
-         if (var1.getDelta() <= 1.0E-4F) {
-            var1.setDelta(0.0F);
-            if (var1.getReplaceOnDeplete() == null) {
-               UseItem(var1, false, false);
-            } else {
-               String var5 = var1.getReplaceOnDepleteFullType();
-               CreateItem(var5, tempItems);
-
-               for(var3 = 0; var3 < tempItems.size(); ++var3) {
-                  var4 = (InventoryItem)tempItems.get(var3);
-                  var4.setFavorite(var1.isFavorite());
-                  AddItem(var1, var4);
-               }
-
-               RemoveItem(var1);
-            }
-         }
-
-         var1.updateWeight();
-      } else {
-         UseItem(var0, false, false);
-      }
-
+      UseItem(var0, false, false, 1, false, false);
    }
 
-   public static void UseItem(InventoryItem var0, boolean var1, boolean var2) {
-      if (var0.isDisappearOnUse() || var1) {
-         --var0.uses;
-         if (var0.replaceOnUse != null && !var2 && !var1) {
-            String var3 = var0.replaceOnUse;
-            if (!var3.contains(".")) {
-               var3 = var0.module + "." + var3;
+   public static int UseItem(InventoryItem var0, boolean var1, boolean var2, int var3, boolean var4, boolean var5) {
+      if (!var0.isDisappearOnUse() && !var1 && !var5) {
+         return 0;
+      } else {
+         int var6 = Math.min(var0.uses, var3);
+         if (!var4) {
+            var0.uses -= var6;
+         }
+
+         String var7;
+         int var8;
+         InventoryItem var9;
+         if (var0.replaceOnUse != null && !var2 && !var1 && !var5) {
+            var7 = var0.replaceOnUse;
+            if (!var7.contains(".")) {
+               var7 = var0.module + "." + var7;
             }
 
-            CreateItem(var3, tempItems);
+            CreateItem(var7, tempItems);
 
-            for(int var4 = 0; var4 < tempItems.size(); ++var4) {
-               InventoryItem var5 = (InventoryItem)tempItems.get(var4);
-               var5.setConditionFromModData(var0);
-               AddItem(var0, var5);
-               var5.setFavorite(var0.isFavorite());
+            for(var8 = 0; var8 < tempItems.size(); ++var8) {
+               var9 = (InventoryItem)tempItems.get(var8);
+               var9.setConditionFromModData(var0);
+               AddItem(var0, var9);
+               var9.setFavorite(var0.isFavorite());
             }
          }
 
-         if (var0.uses <= 0) {
-            if (var0.keepOnDeplete) {
-               return;
+         if (var0 instanceof DrainableComboItem && !StringUtils.isNullOrEmpty(((DrainableComboItem)var0).getReplaceOnDeplete()) && var0.uses <= 0) {
+            var7 = ((DrainableComboItem)var0).getReplaceOnDeplete();
+            if (!var7.contains(".")) {
+               var7 = var0.module + "." + var7;
             }
 
+            CreateItem(var7, tempItems);
+
+            for(var8 = 0; var8 < tempItems.size(); ++var8) {
+               var9 = (InventoryItem)tempItems.get(var8);
+               var9.setConditionFromModData(var0);
+               AddItem(var0, var9);
+               var9.setFavorite(var0.isFavorite());
+            }
+         }
+
+         if (var5) {
             RemoveItem(var0);
-         } else if (GameClient.bClient && !var0.isInPlayerInventory()) {
-            GameClient.instance.sendItemStats(var0);
+         } else if (var0.uses <= 0) {
+            if (!var0.isKeepOnDeplete()) {
+               RemoveItem(var0);
+            }
+         } else if (GameServer.bServer) {
+            GameServer.sendItemStats(var0);
          }
 
+         return var6;
       }
    }
 
@@ -127,8 +114,8 @@ public final class ItemUser {
       } else {
          if (var0.container != null) {
             VehiclePart var3 = var0.container.vehiclePart;
-            if (!var0.isInPlayerInventory() && GameClient.bClient) {
-               var0.container.addItemOnServer(var1);
+            if (GameServer.bServer) {
+               GameServer.sendAddItemToContainer(var0.container, var1);
             }
 
             var0.container.AddItem(var1);
@@ -161,7 +148,7 @@ public final class ItemUser {
             VehiclePart var3 = var0.container.vehiclePart;
             if (var2 instanceof IsoGameCharacter) {
                IsoGameCharacter var4 = (IsoGameCharacter)var2;
-               if (var0 instanceof Clothing) {
+               if (var0 instanceof Clothing && var0.isWorn()) {
                   ((Clothing)var0).Unwear();
                }
 
@@ -169,14 +156,19 @@ public final class ItemUser {
                if (var4.getClothingItem_Back() == var0) {
                   var4.setClothingItem_Back((InventoryItem)null);
                }
-            } else if (!var0.isInPlayerInventory() && GameClient.bClient) {
-               var0.container.removeItemOnServer(var0);
             }
 
-            var0.container.Items.remove(var0);
-            var0.container.setDirty(true);
-            var0.container.setDrawDirty(true);
-            var0.container = null;
+            if (GameServer.bServer) {
+               GameServer.sendRemoveItemFromContainer(var0.container, var0);
+            }
+
+            if (var0.container != null) {
+               var0.container.Items.remove(var0);
+               var0.container.setDirty(true);
+               var0.container.setDrawDirty(true);
+               var0.container = null;
+            }
+
             if (var2 instanceof IsoDeadBody) {
                ((IsoDeadBody)var2).checkClothing(var0);
             }

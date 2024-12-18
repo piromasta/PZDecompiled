@@ -12,12 +12,13 @@ import zombie.config.BooleanConfigOption;
 import zombie.config.ConfigFile;
 import zombie.config.ConfigOption;
 import zombie.config.DoubleConfigOption;
+import zombie.config.EnumConfigOption;
 import zombie.config.IntegerConfigOption;
 import zombie.config.StringConfigOption;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.Translator;
 import zombie.core.logger.LoggerManager;
+import zombie.core.random.Rand;
 import zombie.debug.DebugLog;
 
 public class ServerOptions {
@@ -28,19 +29,27 @@ public class ServerOptions {
    private ArrayList<ServerOption> options = new ArrayList();
    private HashMap<String, ServerOption> optionByName = new HashMap();
    public BooleanServerOption PVP = new BooleanServerOption(this, "PVP", true);
+   public BooleanServerOption PVPLogToolChat = new BooleanServerOption(this, "PVPLogToolChat", true);
+   public BooleanServerOption PVPLogToolFile = new BooleanServerOption(this, "PVPLogToolFile", true);
    public BooleanServerOption PauseEmpty = new BooleanServerOption(this, "PauseEmpty", true);
    public BooleanServerOption GlobalChat = new BooleanServerOption(this, "GlobalChat", true);
    public StringServerOption ChatStreams = new StringServerOption(this, "ChatStreams", "s,r,a,w,y,sh,f,all", -1);
    public BooleanServerOption Open = new BooleanServerOption(this, "Open", true);
    public TextServerOption ServerWelcomeMessage = new TextServerOption(this, "ServerWelcomeMessage", "Welcome to Project Zomboid Multiplayer! <LINE> <LINE> To interact with the Chat panel: press Tab, T, or Enter. <LINE> <LINE> The Tab key will change the target stream of the message. <LINE> <LINE> Global Streams: /all <LINE> Local Streams: /say, /yell <LINE> Special Steams: /whisper, /safehouse, /faction. <LINE> <LINE> Press the Up arrow to cycle through your message history. Click the Gear icon to customize chat. <LINE> <LINE> Happy surviving!", -1);
+   public StringServerOption ServerImageLoginScreen = new StringServerOption(this, "ServerImageLoginScreen", "", -1);
+   public StringServerOption ServerImageLoadingScreen = new StringServerOption(this, "ServerImageLoadingScreen", "", -1);
+   public StringServerOption ServerImageIcon = new StringServerOption(this, "ServerImageIcon", "", -1);
    public BooleanServerOption AutoCreateUserInWhiteList = new BooleanServerOption(this, "AutoCreateUserInWhiteList", false);
    public BooleanServerOption DisplayUserName = new BooleanServerOption(this, "DisplayUserName", true);
    public BooleanServerOption ShowFirstAndLastName = new BooleanServerOption(this, "ShowFirstAndLastName", false);
+   public BooleanServerOption UsernameDisguises = new BooleanServerOption(this, "UsernameDisguises", false);
+   public BooleanServerOption HideDisguisedUserName = new BooleanServerOption(this, "HideDisguisedUserName", false);
    public StringServerOption SpawnPoint = new StringServerOption(this, "SpawnPoint", "0,0,0", -1);
    public BooleanServerOption SafetySystem = new BooleanServerOption(this, "SafetySystem", true);
    public BooleanServerOption ShowSafety = new BooleanServerOption(this, "ShowSafety", true);
    public IntegerServerOption SafetyToggleTimer = new IntegerServerOption(this, "SafetyToggleTimer", 0, 1000, 2);
    public IntegerServerOption SafetyCooldownTimer = new IntegerServerOption(this, "SafetyCooldownTimer", 0, 1000, 3);
+   public IntegerServerOption SafetyDisconnectDelay = new IntegerServerOption(this, "SafetyDisconnectDelay", 0, 60, 60);
    public StringServerOption SpawnItems = new StringServerOption(this, "SpawnItems", "", -1);
    public IntegerServerOption DefaultPort = new IntegerServerOption(this, "DefaultPort", 0, 65535, 16261);
    public IntegerServerOption UDPPort = new IntegerServerOption(this, "UDPPort", 0, 65535, 16262);
@@ -54,13 +63,10 @@ public class ServerOptions {
    public TextServerOption PublicDescription = new TextServerOption(this, "PublicDescription", "", 256);
    public IntegerServerOption MaxPlayers = new IntegerServerOption(this, "MaxPlayers", 1, 100, 32);
    public IntegerServerOption PingLimit = new IntegerServerOption(this, "PingLimit", 100, 2147483647, 400);
-   public IntegerServerOption HoursForLootRespawn = new IntegerServerOption(this, "HoursForLootRespawn", 0, 2147483647, 0);
-   public IntegerServerOption MaxItemsForLootRespawn = new IntegerServerOption(this, "MaxItemsForLootRespawn", 1, 2147483647, 4);
-   public BooleanServerOption ConstructionPreventsLootRespawn = new BooleanServerOption(this, "ConstructionPreventsLootRespawn", true);
+   public BooleanServerOption SafehousePreventsLootRespawn = new BooleanServerOption(this, "SafehousePreventsLootRespawn", true);
    public BooleanServerOption DropOffWhiteListAfterDeath = new BooleanServerOption(this, "DropOffWhiteListAfterDeath", false);
    public BooleanServerOption NoFire = new BooleanServerOption(this, "NoFire", false);
    public BooleanServerOption AnnounceDeath = new BooleanServerOption(this, "AnnounceDeath", false);
-   public DoubleServerOption MinutesPerPage = new DoubleServerOption(this, "MinutesPerPage", 0.0, 60.0, 1.0);
    public IntegerServerOption SaveWorldEveryMinutes = new IntegerServerOption(this, "SaveWorldEveryMinutes", 0, 2147483647, 0);
    public BooleanServerOption PlayerSafehouse = new BooleanServerOption(this, "PlayerSafehouse", false);
    public BooleanServerOption AdminSafehouse = new BooleanServerOption(this, "AdminSafehouse", false);
@@ -71,9 +77,13 @@ public class ServerOptions {
    public IntegerServerOption SafehouseDaySurvivedToClaim = new IntegerServerOption(this, "SafehouseDaySurvivedToClaim", 0, 2147483647, 0);
    public IntegerServerOption SafeHouseRemovalTime = new IntegerServerOption(this, "SafeHouseRemovalTime", 0, 2147483647, 144);
    public BooleanServerOption SafehouseAllowNonResidential = new BooleanServerOption(this, "SafehouseAllowNonResidential", false);
+   public BooleanServerOption SafehouseDisableDisguises = new BooleanServerOption(this, "SafehouseDisableDisguises", true);
+   public IntegerServerOption MaxSafezoneSize = new IntegerServerOption(this, "MaxSafezoneSize", 0, 2147483647, 20000);
    public BooleanServerOption AllowDestructionBySledgehammer = new BooleanServerOption(this, "AllowDestructionBySledgehammer", true);
    public BooleanServerOption SledgehammerOnlyInSafehouse = new BooleanServerOption(this, "SledgehammerOnlyInSafehouse", false);
-   public BooleanServerOption KickFastPlayers = new BooleanServerOption(this, "KickFastPlayers", false);
+   public IntegerServerOption WarStartDelay = new IntegerServerOption(this, "WarStartDelay", 60, 2147483647, 600);
+   public IntegerServerOption WarDuration = new IntegerServerOption(this, "WarDuration", 60, 2147483647, 3600);
+   public IntegerServerOption WarSafehouseHitPoints = new IntegerServerOption(this, "WarSafehouseHitPoints", 0, 2147483647, 3);
    public StringServerOption ServerPlayerID = new StringServerOption(this, "ServerPlayerID", Integer.toString(Rand.Next(2147483647)), -1);
    public IntegerServerOption RCONPort = new IntegerServerOption(this, "RCONPort", 0, 65535, 27015);
    public StringServerOption RCONPassword = new StringServerOption(this, "RCONPassword", "", -1);
@@ -88,6 +98,7 @@ public class ServerOptions {
    public BooleanServerOption SleepNeeded = new BooleanServerOption(this, "SleepNeeded", false);
    public BooleanServerOption KnockedDownAllowed = new BooleanServerOption(this, "KnockedDownAllowed", true);
    public BooleanServerOption SneakModeHideFromOtherPlayers = new BooleanServerOption(this, "SneakModeHideFromOtherPlayers", true);
+   public BooleanServerOption UltraSpeedDoesnotAffectToAnimals = new BooleanServerOption(this, "UltraSpeedDoesnotAffectToAnimals", false);
    public StringServerOption WorkshopItems = new StringServerOption(this, "WorkshopItems", "", -1);
    public StringServerOption SteamScoreboard = new StringServerOption(this, "SteamScoreboard", "true", -1);
    public BooleanServerOption SteamVAC = new BooleanServerOption(this, "SteamVAC", true);
@@ -134,38 +145,23 @@ public class ServerOptions {
    public BooleanServerOption BackupsOnStart = new BooleanServerOption(this, "BackupsOnStart", true);
    public BooleanServerOption BackupsOnVersionChange = new BooleanServerOption(this, "BackupsOnVersionChange", true);
    public IntegerServerOption BackupsPeriod = new IntegerServerOption(this, "BackupsPeriod", 0, 1500, 0);
-   public BooleanServerOption AntiCheatProtectionType1 = new BooleanServerOption(this, "AntiCheatProtectionType1", true);
-   public BooleanServerOption AntiCheatProtectionType2 = new BooleanServerOption(this, "AntiCheatProtectionType2", true);
-   public BooleanServerOption AntiCheatProtectionType3 = new BooleanServerOption(this, "AntiCheatProtectionType3", true);
-   public BooleanServerOption AntiCheatProtectionType4 = new BooleanServerOption(this, "AntiCheatProtectionType4", true);
-   public BooleanServerOption AntiCheatProtectionType5 = new BooleanServerOption(this, "AntiCheatProtectionType5", true);
-   public BooleanServerOption AntiCheatProtectionType6 = new BooleanServerOption(this, "AntiCheatProtectionType6", true);
-   public BooleanServerOption AntiCheatProtectionType7 = new BooleanServerOption(this, "AntiCheatProtectionType7", true);
-   public BooleanServerOption AntiCheatProtectionType8 = new BooleanServerOption(this, "AntiCheatProtectionType8", true);
-   public BooleanServerOption AntiCheatProtectionType9 = new BooleanServerOption(this, "AntiCheatProtectionType9", true);
-   public BooleanServerOption AntiCheatProtectionType10 = new BooleanServerOption(this, "AntiCheatProtectionType10", true);
-   public BooleanServerOption AntiCheatProtectionType11 = new BooleanServerOption(this, "AntiCheatProtectionType11", true);
-   public BooleanServerOption AntiCheatProtectionType12 = new BooleanServerOption(this, "AntiCheatProtectionType12", true);
-   public BooleanServerOption AntiCheatProtectionType13 = new BooleanServerOption(this, "AntiCheatProtectionType13", true);
-   public BooleanServerOption AntiCheatProtectionType14 = new BooleanServerOption(this, "AntiCheatProtectionType14", true);
-   public BooleanServerOption AntiCheatProtectionType15 = new BooleanServerOption(this, "AntiCheatProtectionType15", true);
-   public BooleanServerOption AntiCheatProtectionType16 = new BooleanServerOption(this, "AntiCheatProtectionType16", true);
-   public BooleanServerOption AntiCheatProtectionType17 = new BooleanServerOption(this, "AntiCheatProtectionType17", true);
-   public BooleanServerOption AntiCheatProtectionType18 = new BooleanServerOption(this, "AntiCheatProtectionType18", true);
-   public BooleanServerOption AntiCheatProtectionType19 = new BooleanServerOption(this, "AntiCheatProtectionType19", true);
-   public BooleanServerOption AntiCheatProtectionType20 = new BooleanServerOption(this, "AntiCheatProtectionType20", true);
-   public BooleanServerOption AntiCheatProtectionType21 = new BooleanServerOption(this, "AntiCheatProtectionType21", true);
-   public BooleanServerOption AntiCheatProtectionType22 = new BooleanServerOption(this, "AntiCheatProtectionType22", true);
-   public BooleanServerOption AntiCheatProtectionType23 = new BooleanServerOption(this, "AntiCheatProtectionType23", true);
-   public BooleanServerOption AntiCheatProtectionType24 = new BooleanServerOption(this, "AntiCheatProtectionType24", true);
-   public DoubleServerOption AntiCheatProtectionType2ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType2ThresholdMultiplier", 1.0, 10.0, 3.0);
-   public DoubleServerOption AntiCheatProtectionType3ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType3ThresholdMultiplier", 1.0, 10.0, 1.0);
-   public DoubleServerOption AntiCheatProtectionType4ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType4ThresholdMultiplier", 1.0, 10.0, 1.0);
-   public DoubleServerOption AntiCheatProtectionType9ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType9ThresholdMultiplier", 1.0, 10.0, 1.0);
-   public DoubleServerOption AntiCheatProtectionType15ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType15ThresholdMultiplier", 1.0, 10.0, 1.0);
-   public DoubleServerOption AntiCheatProtectionType20ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType20ThresholdMultiplier", 1.0, 10.0, 1.0);
-   public DoubleServerOption AntiCheatProtectionType22ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType22ThresholdMultiplier", 1.0, 10.0, 1.0);
-   public DoubleServerOption AntiCheatProtectionType24ThresholdMultiplier = new DoubleServerOption(this, "AntiCheatProtectionType24ThresholdMultiplier", 1.0, 10.0, 6.0);
+   public BooleanServerOption DisableVehicleTowing = new BooleanServerOption(this, "DisableVehicleTowing", false);
+   public BooleanServerOption DisableTrailerTowing = new BooleanServerOption(this, "DisableTrailerTowing", false);
+   public BooleanServerOption DisableBurntTowing = new BooleanServerOption(this, "DisableBurntTowing", false);
+   public EnumServerOption AntiCheatSafety = new EnumServerOption(this, "AntiCheatSafety", 3, 1);
+   public EnumServerOption AntiCheatMovement = new EnumServerOption(this, "AntiCheatMovement", 3, 2);
+   public EnumServerOption AntiCheatHit = new EnumServerOption(this, "AntiCheatHit", 3, 3);
+   public EnumServerOption AntiCheatPacket = new EnumServerOption(this, "AntiCheatPacket", 3, 3);
+   public EnumServerOption AntiCheatPermission = new EnumServerOption(this, "AntiCheatPermission", 3, 2);
+   public EnumServerOption AntiCheatXP = new EnumServerOption(this, "AntiCheatXP", 3, 2);
+   public EnumServerOption AntiCheatFire = new EnumServerOption(this, "AntiCheatFire", 3, 2);
+   public EnumServerOption AntiCheatSafeHouse = new EnumServerOption(this, "AntiCheatSafeHouse", 3, 1);
+   public EnumServerOption AntiCheatRecipe = new EnumServerOption(this, "AntiCheatRecipe", 3, 2);
+   public EnumServerOption AntiCheatPlayer = new EnumServerOption(this, "AntiCheatPlayer", 3, 2);
+   public EnumServerOption AntiCheatChecksum = new EnumServerOption(this, "AntiCheatChecksum", 3, 2);
+   public EnumServerOption AntiCheatTime = new EnumServerOption(this, "AntiCheatTime", 3, 2);
+   public EnumServerOption AntiCheatItem = new EnumServerOption(this, "AntiCheatItem", 3, 2);
+   public EnumServerOption AntiCheatServerCustomization = new EnumServerOption(this, "AntiCheatServerCustomization", 3, 1);
    public static ArrayList<String> cardList = null;
 
    public ServerOptions() {
@@ -246,7 +242,7 @@ public class ServerOptions {
 
    private void initSpawnRegionsFile(File var1) {
       if (!var1.exists()) {
-         DebugLog.log("creating server spawnregions file \"" + var1.getPath() + "\"");
+         DebugLog.DetailedInfo.trace("creating server spawnregions file \"" + var1.getPath() + "\"");
 
          try {
             var1.createNewFile();
@@ -365,7 +361,7 @@ public class ServerOptions {
          cardList.add("a Five of Clubs");
          cardList.add("a Six of Clubs");
          cardList.add("a Seven of Clubs");
-         cardList.add("a Height of Clubs");
+         cardList.add("an Eight of Clubs");
          cardList.add("a Nine of Clubs");
          cardList.add("a Ten of Clubs");
          cardList.add("the Jack of Clubs");
@@ -378,7 +374,7 @@ public class ServerOptions {
          cardList.add("a Five of Diamonds");
          cardList.add("a Six of Diamonds");
          cardList.add("a Seven of Diamonds");
-         cardList.add("a Height of Diamonds");
+         cardList.add("an Eight of Diamonds");
          cardList.add("a Nine of Diamonds");
          cardList.add("a Ten of Diamonds");
          cardList.add("the Jack of Diamonds");
@@ -391,7 +387,7 @@ public class ServerOptions {
          cardList.add("a Five of Hearts");
          cardList.add("a Six of Hearts");
          cardList.add("a Seven of Hearts");
-         cardList.add("a Height of Hearts");
+         cardList.add("an Eight of Hearts");
          cardList.add("a Nine of Hearts");
          cardList.add("a Ten of Hearts");
          cardList.add("the Jack of Hearts");
@@ -404,7 +400,7 @@ public class ServerOptions {
          cardList.add("a Five of Spades");
          cardList.add("a Six of Spades");
          cardList.add("a Seven of Spades");
-         cardList.add("a Height of Spades");
+         cardList.add("an Eight of Spades");
          cardList.add("a Nine of Spades");
          cardList.add("a Ten of Spades");
          cardList.add("the Jack of Spades");
@@ -474,6 +470,10 @@ public class ServerOptions {
 
    public int getMaxPlayers() {
       return Math.min(100, getInstance().MaxPlayers.getValue());
+   }
+
+   public int getMaxPlayersForEstablishingConnection() {
+      return 100;
    }
 
    public static class BooleanServerOption extends BooleanConfigOption implements ServerOption {
@@ -563,6 +563,29 @@ public class ServerOptions {
             return var2;
          } else {
             return var2 == null ? var1 : var1 + "\\n" + var2;
+         }
+      }
+   }
+
+   public static class EnumServerOption extends EnumConfigOption implements ServerOption {
+      public EnumServerOption(ServerOptions var1, String var2, int var3, int var4) {
+         super(var2, var3, var4);
+         var1.addOption(this);
+      }
+
+      public ConfigOption asConfigOption() {
+         return this;
+      }
+
+      public String getTooltip() {
+         return Translator.getTextOrNull("UI_ServerOption_" + this.name + "_tooltip");
+      }
+
+      public String getValueTranslationByIndex(int var1) {
+         if (var1 >= 1 && var1 <= this.getNumValues()) {
+            return Translator.getTextOrNull("UI_ServerOption_AntiCheat_option" + var1);
+         } else {
+            throw new ArrayIndexOutOfBoundsException();
          }
       }
    }

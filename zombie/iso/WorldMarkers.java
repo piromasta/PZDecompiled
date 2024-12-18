@@ -6,10 +6,12 @@ import java.util.function.Consumer;
 import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.math.PZMath;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.iso.fboRenderChunk.FBORenderWorldMarkers;
 import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
 import zombie.iso.weather.ClimateManager;
@@ -560,6 +562,13 @@ public final class WorldMarkers {
 
          }
       }
+   }
+
+   public void renderGridSquareMarkers() {
+      if (PerformanceSettings.FBORenderChunk) {
+         FBORenderWorldMarkers.getInstance().render(this.gridSquareMarkers);
+      }
+
    }
 
    public void debugRender() {
@@ -1247,6 +1256,8 @@ public final class WorldMarkers {
 
    public static final class GridSquareMarker {
       private int ID;
+      private String textureName;
+      private String overlayTextureName;
       private IsoSpriteInstance sprite;
       private IsoSpriteInstance spriteOverlay;
       private float orig_x;
@@ -1293,6 +1304,8 @@ public final class WorldMarkers {
             var1 = "circle_center";
          }
 
+         this.textureName = var1;
+         this.overlayTextureName = var2;
          Texture var7 = Texture.getSharedTexture("media/textures/highlights/" + var1 + ".png");
          float var8 = (float)var7.getWidth();
          float var9 = 64.0F * (float)Core.TileScale;
@@ -1467,6 +1480,26 @@ public final class WorldMarkers {
          }
 
          this.x = this.orig_x - (var2 - 0.5F);
+      }
+
+      public float getOriginalX() {
+         return this.orig_x;
+      }
+
+      public float getOriginalY() {
+         return this.orig_y;
+      }
+
+      public float getOriginalZ() {
+         return this.orig_z;
+      }
+
+      public String getTextureName() {
+         return this.textureName;
+      }
+
+      public String getOverlayTextureName() {
+         return this.overlayTextureName;
       }
    }
 }

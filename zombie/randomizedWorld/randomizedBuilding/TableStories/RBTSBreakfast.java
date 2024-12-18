@@ -1,6 +1,7 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 
 public final class RBTSBreakfast extends RBTableStoryBase {
@@ -18,7 +19,7 @@ public final class RBTSBreakfast extends RBTableStoryBase {
          int var3;
          if (this.westTable) {
             var2 = this.getBowlOrMug();
-            this.addWorldItem(var2, this.table1.getSquare(), 0.6875F, 0.7437F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
+            ItemSpawner.spawnItem(var2, this.table1.getSquare(), 0.6875F, 0.7437F, this.table1.getSurfaceOffsetNoTable() / 96.0F);
             if (Rand.NextBool(3)) {
                this.addWorldItem("Base.Spoon", this.table1.getSquare(), 0.3359F, 0.8765F, this.table1.getSurfaceOffsetNoTable() / 96.0F, Rand.Next(260, 275));
             }
@@ -120,23 +121,7 @@ public final class RBTSBreakfast extends RBTableStoryBase {
       if (var1) {
          return Rand.NextBool(4) ? "Base.Bowl" : "Base.CerealBowl";
       } else {
-         int var2 = Rand.Next(0, 6);
-         switch (var2) {
-            case 0:
-               return "Base.Mugl";
-            case 1:
-               return "Base.MugRed";
-            case 2:
-               return "Base.MugWhite";
-            case 3:
-               return "Base.HotDrink";
-            case 4:
-               return "Base.HotDrinkRed";
-            case 5:
-               return "Base.HotDrinkWhite";
-            default:
-               return "Base.Bowl";
-         }
+         return "Base.Bowl";
       }
    }
 }

@@ -26,8 +26,9 @@ import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.network.GameClient;
+import zombie.network.GameServer;
 import zombie.network.PacketTypes;
-import zombie.network.packets.ZombiePacket;
+import zombie.network.packets.character.ZombiePacket;
 
 public class NetworkZombieSimulator {
    public static final int MAX_ZOMBIES_PER_UPDATE = 300;
@@ -72,10 +73,12 @@ public class NetworkZombieSimulator {
    }
 
    public void addExtraUpdate(IsoZombie var1) {
-      if (var1.authOwner == GameClient.connection && !this.ExtraSendQueue.contains(var1)) {
-         this.ExtraSendQueue.add(var1);
-      }
+      if (GameClient.bClient || GameServer.bServer) {
+         if (var1.authOwner == GameClient.connection && !this.ExtraSendQueue.contains(var1)) {
+            this.ExtraSendQueue.add(var1);
+         }
 
+      }
    }
 
    public void add(short var1) {
@@ -120,7 +123,6 @@ public class NetworkZombieSimulator {
       var1.lastRemoteUpdate = 0;
       var1.authOwner = GameClient.connection;
       var1.authOwnerPlayer = IsoPlayer.getInstance();
-      var1.networkAI.setUpdateTimer(0.0F);
       var1.AllowRepathDelay = 0.0F;
       var1.networkAI.mindSync.restorePFBTarget();
    }
@@ -180,16 +182,16 @@ public class NetworkZombieSimulator {
                      var4.setFakeDead(false);
                      var4.OnlineID = var3.id;
                      GameClient.IDToZombieMap.put(var3.id, var4);
-                     var4.lx = var4.nx = var4.x = var3.realX;
-                     var4.ly = var4.ny = var4.y = var3.realY;
-                     var4.lz = var4.z = (float)var3.realZ;
+                     var4.setLastX(var4.setNextX(var4.setX(var3.realX)));
+                     var4.setLastY(var4.setNextY(var4.setY(var3.realY)));
+                     var4.setLastZ(var4.setZ((float)var3.realZ));
                      var4.setForwardDirection(var4.dir.ToVector());
                      var4.setCurrent(var5);
                      var4.networkAI.targetX = var3.x;
                      var4.networkAI.targetY = var3.y;
                      var4.networkAI.targetZ = var3.z;
                      var4.networkAI.predictionType = var3.moveType;
-                     var4.networkAI.reanimatedBodyID = var3.reanimatedBodyID;
+                     var4.networkAI.reanimatedBodyID.set(var3.reanimatedBodyID);
                      NetworkZombieVariables.setInt(var4, (short)0, var3.realHealth);
                      NetworkZombieVariables.setInt(var4, (short)2, var3.speedMod);
                      NetworkZombieVariables.setInt(var4, (short)1, var3.target);
@@ -204,7 +206,7 @@ public class NetworkZombieSimulator {
                      var4.setWalkType(var3.walkType.toString());
                      var4.realState = var3.realState;
                      if (var4.isReanimatedPlayer()) {
-                        IsoDeadBody var6 = IsoDeadBody.getDeadBody(var4.networkAI.reanimatedBodyID);
+                        IsoDeadBody var6 = (IsoDeadBody)var4.networkAI.reanimatedBodyID.getObject();
                         if (var6 != null) {
                            var4.setDir(var6.getDir());
                            var4.setForwardDirection(var6.getDir().ToVector());
@@ -324,9 +326,9 @@ public class NetworkZombieSimulator {
             var4.zombiePacket.set(var4);
             if (var4.OnlineID != -1) {
                var4.zombiePacket.write(this.bb);
-               var4.networkAI.targetX = var4.realx = var4.x;
-               var4.networkAI.targetY = var4.realy = var4.y;
-               var4.networkAI.targetZ = var4.realz = (byte)((int)var4.z);
+               var4.networkAI.targetX = var4.realx = var4.getX();
+               var4.networkAI.targetY = var4.realy = var4.getY();
+               var4.networkAI.targetZ = var4.realz = (byte)((int)var4.getZ());
                var4.realdir = var4.getDir();
                ++var10;
                if (var10 >= 300) {
@@ -370,9 +372,9 @@ public class NetworkZombieSimulator {
                var13.zombiePacket.set(var13);
                if (var13.OnlineID != -1) {
                   var13.zombiePacket.write(this.bb);
-                  var13.networkAI.targetX = var13.realx = var13.x;
-                  var13.networkAI.targetY = var13.realy = var13.y;
-                  var13.networkAI.targetZ = var13.realz = (byte)((int)var13.z);
+                  var13.networkAI.targetX = var13.realx = var13.getX();
+                  var13.networkAI.targetY = var13.realy = var13.getY();
+                  var13.networkAI.targetZ = var13.realz = (byte)((int)var13.getZ());
                   var13.realdir = var13.getDir();
                   ++var11;
                }

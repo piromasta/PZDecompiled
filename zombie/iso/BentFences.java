@@ -10,7 +10,7 @@ import zombie.MapCollisionData;
 import zombie.iso.areas.isoregion.IsoRegions;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
-import zombie.vehicles.PolygonalMap2;
+import zombie.pathfind.PolygonalMap2;
 
 public class BentFences {
    private static final BentFences instance = new BentFences();

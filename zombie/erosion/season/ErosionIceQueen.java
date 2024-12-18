@@ -1,8 +1,11 @@
 package zombie.erosion.season;
 
 import java.util.ArrayList;
+import java.util.Iterator;
+import zombie.core.math.PZMath;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.util.StringUtils;
 
 public final class ErosionIceQueen {
    public static ErosionIceQueen instance;
@@ -35,13 +38,35 @@ public final class ErosionIceQueen {
    public ErosionIceQueen(IsoSpriteManager var1) {
       instance = this;
       this.SprMngr = var1;
-      this.setRoofSnow();
+      this.readTileProperties();
+   }
 
-      for(int var2 = 0; var2 < 10; ++var2) {
-         this.addSprite("vegetation_ornamental_01_" + var2, "f_bushes_2_" + (var2 + 10));
-         this.addSprite("f_bushes_2_" + var2, "f_bushes_2_" + (var2 + 10));
+   private void readTileProperties() {
+      ArrayList var1 = new ArrayList(IsoSpriteManager.instance.NamedMap.values());
+      Iterator var2 = var1.iterator();
+
+      while(var2.hasNext()) {
+         IsoSprite var3 = (IsoSprite)var2.next();
+         if (var3.Properties.Is("SnowTile")) {
+            String var4 = var3.Properties.Val("SnowTile");
+            if (!StringUtils.isNullOrWhitespace(var4)) {
+               var4 = this.fixTileName(var4);
+               this.addSprite(var3.name, var4);
+            }
+         }
       }
 
+   }
+
+   private String fixTileName(String var1) {
+      int var2 = var1.lastIndexOf(95);
+      if (var2 == -1) {
+         return var1;
+      } else {
+         String var3 = var1.substring(0, var2);
+         int var4 = PZMath.tryParseInt(var1.substring(var2 + 1).trim(), -1);
+         return var4 == -1 ? var1 : var3 + "_" + var4;
+      }
    }
 
    private void setRoofSnowA() {

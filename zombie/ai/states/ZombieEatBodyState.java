@@ -8,7 +8,7 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.objects.IsoDeadBody;
 import zombie.iso.objects.IsoZombieGiblets;
@@ -61,7 +61,7 @@ public final class ZombieEatBodyState extends State {
       }
 
       if (Rand.Next(Rand.AdjustForFramerate(450)) == 0) {
-         var2.getCurrentSquare().getChunk().addBloodSplat(var2.x + Rand.Next(-0.5F, 0.5F), var2.y + Rand.Next(-0.5F, 0.5F), var2.z, Rand.Next(8));
+         var2.getCurrentSquare().getChunk().addBloodSplat(var2.getX() + Rand.Next(-0.5F, 0.5F), var2.getY() + Rand.Next(-0.5F, 0.5F), var2.getZ(), Rand.Next(8));
          if (Rand.Next(6) == 0) {
             new IsoZombieGiblets(IsoZombieGiblets.GibletType.B, var2.getCell(), var2.getX(), var2.getY(), var2.getZ() + 0.3F, Rand.Next(-0.2F, 0.2F) * 1.5F, Rand.Next(-0.2F, 0.2F) * 1.5F);
          } else {

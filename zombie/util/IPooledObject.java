@@ -3,9 +3,9 @@ package zombie.util;
 import java.util.List;
 
 public interface IPooledObject {
-   Pool<IPooledObject> getPool();
+   Pool.PoolReference getPoolReference();
 
-   void setPool(Pool<IPooledObject> var1);
+   void setPool(Pool.PoolReference var1);
 
    void release();
 
@@ -16,29 +16,28 @@ public interface IPooledObject {
    default void onReleased() {
    }
 
-   static void release(IPooledObject[] var0) {
+   static <E extends IPooledObject> E[] release(E[] var0) {
       int var1 = 0;
 
       for(int var2 = var0.length; var1 < var2; ++var1) {
          Pool.tryRelease(var0[var1]);
       }
 
+      return null;
    }
 
-   static void tryReleaseAndBlank(IPooledObject[] var0) {
-      if (var0 != null) {
-         releaseAndBlank(var0);
-      }
-
+   static <E extends IPooledObject> E[] tryReleaseAndBlank(E[] var0) {
+      return var0 != null ? releaseAndBlank(var0) : null;
    }
 
-   static void releaseAndBlank(IPooledObject[] var0) {
+   static <E extends IPooledObject> E[] releaseAndBlank(E[] var0) {
       int var1 = 0;
 
       for(int var2 = var0.length; var1 < var2; ++var1) {
          var0[var1] = Pool.tryRelease(var0[var1]);
       }
 
+      return null;
    }
 
    static void release(List<? extends IPooledObject> var0) {

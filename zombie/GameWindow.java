@@ -21,11 +21,15 @@ import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL20;
 import org.lwjglx.LWJGLException;
 import org.lwjglx.input.Controller;
 import org.lwjglx.opengl.Display;
@@ -37,14 +41,17 @@ import zombie.asset.AssetManagers;
 import zombie.audio.BaseSoundBank;
 import zombie.audio.DummySoundBank;
 import zombie.characters.IsoPlayer;
+import zombie.characters.animals.AnimalPopulationManager;
 import zombie.characters.professions.ProfessionFactory;
 import zombie.characters.skills.CustomPerks;
 import zombie.characters.skills.PerkFactory;
 import zombie.characters.traits.TraitFactory;
 import zombie.core.Core;
 import zombie.core.Languages;
+import zombie.core.PZForkJoinPool;
 import zombie.core.PerformanceSettings;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
 import zombie.core.ThreadGroups;
 import zombie.core.Translator;
@@ -59,11 +66,15 @@ import zombie.core.profiling.PerformanceProfileFrameProbe;
 import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.raknet.RakNetPeerInterface;
 import zombie.core.raknet.VoiceManager;
+import zombie.core.random.RandLua;
+import zombie.core.random.RandStandard;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.core.skinnedmodel.model.IsoObjectAnimations;
 import zombie.core.skinnedmodel.population.BeardStyles;
 import zombie.core.skinnedmodel.population.ClothingDecals;
 import zombie.core.skinnedmodel.population.HairStyles;
 import zombie.core.skinnedmodel.population.OutfitManager;
+import zombie.core.skinnedmodel.population.VoiceStyles;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureID;
 import zombie.core.textures.TexturePackPage;
@@ -71,9 +82,12 @@ import zombie.core.znet.ServerBrowser;
 import zombie.core.znet.SteamFriends;
 import zombie.core.znet.SteamUtils;
 import zombie.core.znet.SteamWorkshop;
+import zombie.debug.DebugContext;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
+import zombie.debug.DebugType;
 import zombie.debug.LineDrawer;
+import zombie.entity.GameEntityManager;
 import zombie.fileSystem.FileSystem;
 import zombie.fileSystem.FileSystemImpl;
 import zombie.gameStates.GameLoadingState;
@@ -87,16 +101,23 @@ import zombie.input.GameKeyboard;
 import zombie.input.JoypadManager;
 import zombie.input.Mouse;
 import zombie.inventory.types.MapItem;
+import zombie.iso.FishSchoolManager;
+import zombie.iso.InstanceTracker;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoObjectPicker;
 import zombie.iso.IsoWorld;
 import zombie.iso.LightingJNI;
 import zombie.iso.LightingThread;
+import zombie.iso.MetaTracker;
 import zombie.iso.SliceY;
 import zombie.iso.WorldStreamer;
+import zombie.iso.worldgen.WGParams;
 import zombie.network.CoopMaster;
+import zombie.network.CustomizationManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.pathfind.PolygonalMap2;
+import zombie.pathfind.nativeCode.PathfindNative;
 import zombie.popman.ZombiePopulationManager;
 import zombie.radio.ZomboidRadio;
 import zombie.sandbox.CustomSandboxOptions;
@@ -104,15 +125,22 @@ import zombie.savefile.ClientPlayerDB;
 import zombie.savefile.PlayerDB;
 import zombie.savefile.SavefileThumbnail;
 import zombie.scripting.ScriptManager;
+import zombie.seams.SeamManager;
+import zombie.seating.SeatingManager;
 import zombie.spnetwork.SinglePlayerClient;
 import zombie.spnetwork.SinglePlayerServer;
+import zombie.spriteModel.SpriteModelManager;
+import zombie.tileDepth.TileDepthMapManager;
+import zombie.tileDepth.TileDepthTextureAssignmentManager;
+import zombie.tileDepth.TileDepthTextureManager;
+import zombie.tileDepth.TileGeometryManager;
+import zombie.tileDepth.TileSeamManager;
 import zombie.ui.TextManager;
 import zombie.ui.UIDebugConsole;
 import zombie.ui.UIManager;
 import zombie.util.PZSQLUtils;
 import zombie.util.PublicServerUtil;
 import zombie.vehicles.Clipper;
-import zombie.vehicles.PolygonalMap2;
 import zombie.world.moddata.GlobalModData;
 import zombie.worldMap.WorldMapJNI;
 import zombie.worldMap.WorldMapVisited;
@@ -140,6 +168,7 @@ public final class GameWindow {
    public static AssetManagers assetManagers;
    public static boolean bGameThreadExited;
    public static Thread GameThread;
+   private static long UpdateTime;
    public static final ArrayList<TexturePack> texturePacks;
    public static final FileSystem.TexturePackTextures texturePackTextures;
 
@@ -164,24 +193,33 @@ public final class GameWindow {
       LoadTexturePack("Mechanics", var2);
       LoadTexturePack("WeatherFx", var2);
       setTexturePackLookup();
+      MainScreenState.preloadBackgroundTextures();
       PerkFactory.init();
       CustomPerks.instance.init();
       DoLoadingText(Translator.getText("UI_Loading_Scripts"));
       ScriptManager.instance.Load();
+      CustomizationManager.getInstance().load();
+      SpriteModelManager.getInstance().init();
       DoLoadingText(Translator.getText("UI_Loading_Clothing"));
       ClothingDecals.init();
       BeardStyles.init();
       HairStyles.init();
       OutfitManager.init();
+      VoiceStyles.init();
       DoLoadingText("");
       TraitFactory.init();
       ProfessionFactory.init();
-      Rand.init();
+      RandStandard.INSTANCE.init();
+      RandLua.INSTANCE.init();
       TexturePackPage.bIgnoreWorldItemTextures = false;
       TextureID.bUseCompression = TextureID.bUseCompressionOption;
       MuzzleFlash.init();
       Mouse.initCustomCursor();
-      if (!Core.bDebug) {
+      TileGeometryManager.getInstance().init();
+      TileDepthTextureAssignmentManager.getInstance().init();
+      SeamManager.getInstance().init();
+      SeatingManager.getInstance().init();
+      if (!Core.bDebug || !DebugOptions.instance.UIDisableLogoState.getValue()) {
          states.States.add(new TISLogoState());
       }
 
@@ -238,24 +276,33 @@ public final class GameWindow {
    }
 
    private static void logic() {
+      Display.imGuiNewFrame();
+      if (Core.bDebug) {
+         try {
+            DebugContext.instance.tickFrameStart();
+         } catch (Exception var6) {
+            var6.printStackTrace();
+         }
+      }
+
       if (GameClient.bClient) {
          try {
             GameClient.instance.update();
-         } catch (Exception var3) {
-            ExceptionLogger.logException(var3);
+         } catch (Exception var5) {
+            ExceptionLogger.logException(var5);
          }
       }
 
       try {
          SinglePlayerServer.update();
          SinglePlayerClient.update();
-      } catch (Throwable var2) {
-         ExceptionLogger.logException(var2);
+      } catch (Throwable var4) {
+         ExceptionLogger.logException(var4);
       }
 
-      SteamUtils.runLoop();
-      Mouse.update();
-      GameKeyboard.update();
+      GameProfiler.getInstance().invokeAndMeasure("Steam Loop", SteamUtils::runLoop);
+      GameProfiler.getInstance().invokeAndMeasure("Mouse", Mouse::update);
+      GameProfiler.getInstance().invokeAndMeasure("Keyboard", GameKeyboard::update);
       GameInput.updateGameThread();
       if (CoopMaster.instance != null) {
          CoopMaster.instance.update();
@@ -263,66 +310,103 @@ public final class GameWindow {
 
       if (IsoPlayer.players[0] != null) {
          IsoPlayer.setInstance(IsoPlayer.players[0]);
-         IsoCamera.CamCharacter = IsoPlayer.players[0];
+         IsoCamera.setCameraCharacter(IsoPlayer.players[0]);
       }
 
-      UIManager.update();
-      VoiceManager.instance.update();
+      GameProfiler.getInstance().invokeAndMeasure("UI", UIManager::update);
+      CompletableFuture var0 = null;
+      if (DebugOptions.instance.ThreadSound.getValue()) {
+         var0 = CompletableFuture.runAsync(() -> {
+            VoiceManager.instance.update();
+            SoundManager.instance.Update();
+         }, PZForkJoinPool.commonPool());
+      }
+
       LineDrawer.clear();
       if (JoypadManager.instance.isAPressed(-1)) {
-         for(int var0 = 0; var0 < JoypadManager.instance.JoypadList.size(); ++var0) {
-            JoypadManager.Joypad var1 = (JoypadManager.Joypad)JoypadManager.instance.JoypadList.get(var0);
-            if (var1.isAPressed()) {
+         for(int var1 = 0; var1 < JoypadManager.instance.JoypadList.size(); ++var1) {
+            JoypadManager.Joypad var2 = (JoypadManager.Joypad)JoypadManager.instance.JoypadList.get(var1);
+            if (var2.isAPressed()) {
                if (ActivatedJoyPad == null) {
-                  ActivatedJoyPad = var1;
+                  ActivatedJoyPad = var2;
                }
 
                if (IsoPlayer.getInstance() != null) {
-                  LuaEventManager.triggerEvent("OnJoypadActivate", var1.getID());
+                  LuaEventManager.triggerEvent("OnJoypadActivate", var2.getID());
                } else {
-                  LuaEventManager.triggerEvent("OnJoypadActivateUI", var1.getID());
+                  LuaEventManager.triggerEvent("OnJoypadActivateUI", var2.getID());
                }
                break;
             }
          }
       }
 
-      SoundManager.instance.Update();
-      boolean var4 = true;
-      if (GameTime.isGamePaused()) {
-         var4 = false;
-      }
-
-      MapCollisionData.instance.updateGameState();
-      Mouse.setCursorVisible(true);
-      if (var4) {
+      boolean var7 = !GameTime.isGamePaused();
+      GameProfiler var10000 = GameProfiler.getInstance();
+      MapCollisionData var10002 = MapCollisionData.instance;
+      Objects.requireNonNull(var10002);
+      var10000.invokeAndMeasure("Collision Data", var10002::updateGameState);
+      CombatManager.getInstance().update(var7);
+      Mouse.setCursorVisible(Core.getInstance().displayCursor);
+      if (var7) {
          states.update();
       } else {
          IsoCamera.updateAll();
-         if (IngameState.instance != null && (states.current == IngameState.instance || states.States.contains(IngameState.instance))) {
+         if (isIngameState()) {
             LuaEventManager.triggerEvent("OnTickEvenPaused", 0.0);
          }
       }
 
-      UIManager.resize();
+      if (var0 != null) {
+         var0.join();
+      } else {
+         var10000 = GameProfiler.getInstance();
+         VoiceManager var8 = VoiceManager.instance;
+         Objects.requireNonNull(var8);
+         var10000.invokeAndMeasure("Voice", var8::update);
+         var10000 = GameProfiler.getInstance();
+         BaseSoundManager var9 = SoundManager.instance;
+         Objects.requireNonNull(var9);
+         var10000.invokeAndMeasure("Sound", var9::Update);
+      }
+
+      GameProfiler.getInstance().invokeAndMeasure("UI Resize", UIManager::resize);
       fileSystem.updateAsyncTransactions();
-      if (GameKeyboard.isKeyPressed(Core.getInstance().getKey("Take screenshot"))) {
+      if (GameKeyboard.isKeyPressed("Take screenshot")) {
          Core.getInstance().TakeFullScreenshot((String)null);
       }
 
+      if (Core.bDebug) {
+         try {
+            DebugContext.instance.tick();
+         } catch (Exception var3) {
+            var3.printStackTrace();
+         }
+      }
+
+   }
+
+   public static boolean isIngameState() {
+      return IngameState.instance != null && (states.current == IngameState.instance || states.States.contains(IngameState.instance));
    }
 
    public static void render() {
       ++IsoCamera.frameState.frameCount;
+      IsoCamera.frameState.updateUnPausedAccumulator();
       renderInternal();
    }
 
    protected static void renderInternal() {
+      SpriteRenderer.instance.NewFrame();
       if (!PerformanceSettings.LightingThread && LightingJNI.init && !LightingJNI.WaitingForMain()) {
-         LightingJNI.DoLightingUpdateNew(System.nanoTime());
+         LightingJNI.DoLightingUpdateNew(System.nanoTime(), Core.dirtyGlobalLightsCount > 0);
+         if (Core.dirtyGlobalLightsCount > 0) {
+            --Core.dirtyGlobalLightsCount;
+         }
       }
 
       IsoObjectPicker.Instance.StartRender();
+      LightingJNI.preUpdate();
       GameWindow.s_performance.statesRender.invokeAndMeasure(states, GameStateMachine::render);
    }
 
@@ -416,19 +500,32 @@ public final class GameWindow {
    private static void mainThread() {
       mainThreadInit();
       enter();
+      RenderThread.invokeOnRenderContext(() -> {
+         GL20.glUseProgram(0);
+         ShaderHelper.forgetCurrentlyBound();
+      });
       RenderThread.setWaitForRenderState(true);
       run_ez();
    }
 
    private static void mainThreadInit() {
       String var0 = System.getProperty("debug");
-      String var1 = System.getProperty("nosave");
-      if (var1 != null) {
+      String var1 = System.getProperty("imguidebugviewports");
+      String var2 = System.getProperty("imgui");
+      String var3 = System.getProperty("nosave");
+      if (var3 != null) {
          Core.getInstance().setNoSave(true);
       }
 
       if (var0 != null) {
          Core.bDebug = true;
+         if (var1 != null) {
+            Core.bUseViewports = true;
+         }
+
+         if (var2 != null) {
+            Core.bImGui = true;
+         }
       }
 
       if (!Core.SoundDisabled) {
@@ -450,27 +547,27 @@ public final class GameWindow {
 
       try {
          ZomboidFileSystem.instance.init();
-      } catch (Exception var7) {
-         throw new RuntimeException(var7);
+      } catch (Exception var9) {
+         throw new RuntimeException(var9);
       }
 
       DebugFileWatcher.instance.init();
-      String var2 = System.getProperty("server");
-      String var3 = System.getProperty("client");
-      String var4 = System.getProperty("nozombies");
-      if (var4 != null) {
+      String var4 = System.getProperty("server");
+      String var5 = System.getProperty("client");
+      String var6 = System.getProperty("nozombies");
+      if (var6 != null) {
          IsoWorld.NoZombies = true;
       }
 
-      if (var2 != null && var2.equals("true")) {
+      if (var4 != null && var4.equals("true")) {
          GameServer.bServer = true;
       }
 
       try {
          renameSaveFolders();
          init();
-      } catch (Exception var6) {
-         throw new RuntimeException(var6);
+      } catch (Exception var8) {
+         throw new RuntimeException(var8);
       }
    }
 
@@ -534,7 +631,7 @@ public final class GameWindow {
          } else {
             long var6 = var4 - var0;
             var0 = var4;
-            if (PerformanceSettings.isUncappedFPS()) {
+            if (PerformanceSettings.instance.isFramerateUncapped()) {
                frameStep();
             } else {
                var2 += var6;
@@ -580,6 +677,8 @@ public final class GameWindow {
          LoadTexturePack("Overlays2x", var0);
          LoadTexturePack("JumboTrees2x", var0);
          LoadTexturePack("Tiles2x.floor", var0 & -5);
+         LoadTexturePack("B42ChunKCaching2x", var0);
+         LoadTexturePack("B42ChunKCaching2x.floor", var0 & -5);
       }
 
       setTexturePackLookup();
@@ -595,28 +694,58 @@ public final class GameWindow {
             PublicServerUtil.init();
          }
 
+         TileDepthTextureManager.getInstance().init();
+         TileDepthMapManager.instance.init();
+         TileSeamManager.instance.init();
          VoiceManager.instance.InitVMClient();
          DoLoadingText(Translator.getText("UI_Loading_OnGameBoot"));
          LuaEventManager.triggerEvent("OnGameBoot");
+         UIManager.setShowLuaDebuggerOnError(true);
+         if (Core.bDebug) {
+            DebugContext.instance.init();
+         }
+
       }
    }
 
    private static void frameStep() {
+      long var0 = System.nanoTime();
+
       try {
          ++IsoCamera.frameState.frameCount;
+         IsoCamera.frameState.updateUnPausedAccumulator();
          GameWindow.s_performance.frameStep.start();
          s_fpsTracking.frameStep();
          GameWindow.s_performance.logic.invokeAndMeasure(GameWindow::logic);
-         Core.getInstance().setScreenSize(RenderThread.getDisplayWidth(), RenderThread.getDisplayHeight());
+         if (!Core.isUseGameViewport()) {
+            Core.getInstance().setScreenSize(RenderThread.getDisplayWidth(), RenderThread.getDisplayHeight());
+         }
+
+         IsoWorld.instance.FinishAnimation();
+         if (!GameServer.bServer) {
+            GameProfiler var10000 = GameProfiler.getInstance();
+            IsoObjectAnimations var10002 = IsoObjectAnimations.getInstance();
+            Objects.requireNonNull(var10002);
+            var10000.invokeAndMeasure("IsoObjectAnimations.update", var10002::update);
+         }
+
          renderInternal();
          if (doRenderEvent) {
-            LuaEventManager.triggerEvent("OnRenderTick");
+            GameProfiler.getInstance().invokeAndMeasure("On Render", GameWindow::onRender);
          }
 
          Core.getInstance().DoFrameReady();
-         LightingThread.instance.update();
+         GameProfiler.getInstance().invokeAndMeasure("Lighting", LightingThread.instance, LightingThread::update);
+         if (states.current instanceof GameLoadingState) {
+            if (GameLoadingState.loader == null || !GameLoadingState.loader.isAlive()) {
+               LuaEventManager.RunQueuedEvents();
+            }
+         } else {
+            LuaEventManager.RunQueuedEvents();
+         }
+
          if (Core.bDebug) {
-            if (GameKeyboard.isKeyDown(Core.getInstance().getKey("Toggle Lua Debugger"))) {
+            if (GameKeyboard.isKeyDown("Toggle Lua Debugger")) {
                if (!bLuaDebuggerKeyDown) {
                   UIManager.setShowLuaDebuggerOnError(true);
                   LuaManager.thread.bStep = true;
@@ -630,25 +759,40 @@ public final class GameWindow {
                bLuaDebuggerKeyDown = false;
             }
 
-            if (GameKeyboard.isKeyPressed(Core.getInstance().getKey("ToggleLuaConsole"))) {
-               UIDebugConsole var0 = UIManager.getDebugConsole();
-               if (var0 != null) {
-                  var0.setVisible(!var0.isVisible());
+            if (GameKeyboard.isKeyPressed("ToggleLuaConsole")) {
+               UIDebugConsole var2 = UIManager.getDebugConsole();
+               if (var2 != null) {
+                  var2.setVisible(!var2.isVisible());
                }
             }
          }
-      } catch (OpenGLException var5) {
-         RenderThread.logGLException(var5);
-      } catch (Exception var6) {
-         ExceptionLogger.logException(var6);
+      } catch (OpenGLException var7) {
+         RenderThread.logGLException(var7);
+         if (Core.isImGui()) {
+            Display.imguiEndFrame();
+         }
+      } catch (Exception var8) {
+         ExceptionLogger.logException(var8);
+         if (Core.isImGui()) {
+            Display.imguiEndFrame();
+         }
       } finally {
          GameWindow.s_performance.frameStep.end();
+         UpdateTime = System.nanoTime() - var0;
       }
 
    }
 
+   public static long getUpdateTime() {
+      return UpdateTime;
+   }
+
+   private static void onRender() {
+      LuaEventManager.triggerEvent("OnRenderTick");
+   }
+
    private static void exit() {
-      DebugLog.log("EXITDEBUG: GameWindow.exit 1");
+      DebugType.ExitDebug.debugln("GameWindow.exit 1");
       if (GameClient.bClient) {
          for(int var0 = 0; var0 < IsoPlayer.numPlayers; ++var0) {
             IsoPlayer var1 = IsoPlayer.players[var0];
@@ -707,15 +851,21 @@ public final class GameWindow {
          try {
             LightingThread.instance.stop();
             MapCollisionData.instance.stop();
+            AnimalPopulationManager.getInstance().stop();
             ZombiePopulationManager.instance.stop();
-            PolygonalMap2.instance.stop();
+            if (PathfindNative.USE_NATIVE_CODE) {
+               PathfindNative.instance.stop();
+            } else {
+               PolygonalMap2.instance.stop();
+            }
+
             ZombieSpawnRecorder.instance.quit();
          } catch (Exception var3) {
             var3.printStackTrace();
          }
       }
 
-      DebugLog.log("EXITDEBUG: GameWindow.exit 2");
+      DebugType.ExitDebug.debugln("GameWindow.exit 2");
       if (GameClient.bClient) {
          WorldStreamer.instance.stop();
          GameClient.instance.doDisconnect("exit-saving");
@@ -727,7 +877,7 @@ public final class GameWindow {
          }
       }
 
-      DebugLog.log("EXITDEBUG: GameWindow.exit 3");
+      DebugType.ExitDebug.debugln("GameWindow.exit 3");
       if (PlayerDB.isAvailable()) {
          PlayerDB.getInstance().close();
       }
@@ -736,12 +886,13 @@ public final class GameWindow {
          ClientPlayerDB.getInstance().close();
       }
 
-      DebugLog.log("EXITDEBUG: GameWindow.exit 4");
+      DebugType.ExitDebug.debugln("GameWindow.exit 4");
       GameClient.instance.Shutdown();
       SteamUtils.shutdown();
       ZipLogs.addZipFile(true);
+      PathfindNative.freeMemoryAtExit();
       onGameThreadExited();
-      DebugLog.log("EXITDEBUG: GameWindow.exit 5");
+      DebugType.ExitDebug.debugln("GameWindow.exit 5");
    }
 
    private static void onGameThreadExited() {
@@ -874,30 +1025,31 @@ public final class GameWindow {
 
    private static void checkRequiredLibraries() {
       if (System.getProperty("os.name").startsWith("Win")) {
+         String var4 = "";
+         if ("1".equals(System.getProperty("zomboid.debuglibs.lighting"))) {
+            DebugLog.log("***** Loading debug version of Lighting");
+            var4 = "d";
+         }
+
          String var0;
          String var1;
          String var2;
          String var3;
          if (System.getProperty("sun.arch.data.model").equals("64")) {
-            var0 = "Lighting64";
+            var0 = "Lighting64" + var4;
             var1 = "_CommonRedist\\vcredist\\2010\\vcredist_x64.exe";
             var2 = "_CommonRedist\\vcredist\\2012\\vcredist_x64.exe";
             var3 = "_CommonRedist\\vcredist\\2013\\vcredist_x64.exe";
          } else {
-            var0 = "Lighting32";
+            var0 = "Lighting32" + var4;
             var1 = "_CommonRedist\\vcredist\\2010\\vcredist_x86.exe";
             var2 = "_CommonRedist\\vcredist\\2012\\vcredist_x86.exe";
             var3 = "_CommonRedist\\vcredist\\2013\\vcredist_x86.exe";
          }
 
-         if ("1".equals(System.getProperty("zomboid.debuglibs.lighting"))) {
-            DebugLog.log("***** Loading debug version of Lighting");
-            var0 = var0 + "d";
-         }
-
          try {
             System.loadLibrary(var0);
-         } catch (UnsatisfiedLinkError var5) {
+         } catch (UnsatisfiedLinkError var6) {
             DebugLog.log("Error loading " + var0 + ".dll.  Your system may be missing a required DLL.");
             installRequiredLibrary(var1, "the Microsoft Visual C++ 2010 Redistributable.");
             installRequiredLibrary(var2, "the Microsoft Visual C++ 2012 Redistributable.");
@@ -908,6 +1060,11 @@ public final class GameWindow {
    }
 
    private static void init() throws Exception {
+      Core.getInstance().initGlobalShader();
+      RenderThread.invokeOnRenderContext(() -> {
+         GL20.glUseProgram(SceneShaderStore.DefaultShaderID);
+         ShaderHelper.forgetCurrentlyBound();
+      });
       initFonts();
       checkRequiredLibraries();
       SteamUtils.init();
@@ -919,6 +1076,7 @@ public final class GameWindow {
       ZombiePopulationManager.init();
       PZSQLUtils.init();
       Clipper.init();
+      PathfindNative.init();
       WorldMapJNI.init();
       Bullet.init();
       int var0 = Runtime.getRuntime().availableProcessors();
@@ -942,8 +1100,7 @@ public final class GameWindow {
          Core.getInstance().setOptionPanCameraWhileAiming(true);
          Core.getInstance().setOptionPanCameraWhileDriving(true);
          Core.getInstance().setOptionTextureCompression(true);
-         Core.getInstance();
-         Core.OptionVoiceEnable = false;
+         Core.getInstance().setOptionVoiceEnable(false, false);
       }
 
       DoLoadingText("Loading Translations");
@@ -987,14 +1144,14 @@ public final class GameWindow {
                var3 = new DataOutputStream(var2);
 
                try {
-                  var3.writeInt(195);
+                  var3.writeInt(219);
                   WriteString(var3, Core.GameMap);
                   WriteString(var3, IsoWorld.instance.getDifficulty());
                } catch (Throwable var18) {
                   try {
                      var3.close();
-                  } catch (Throwable var9) {
-                     var18.addSuppressed(var9);
+                  } catch (Throwable var7) {
+                     var18.addSuppressed(var7);
                   }
 
                   throw var18;
@@ -1004,8 +1161,8 @@ public final class GameWindow {
             } catch (Throwable var19) {
                try {
                   var2.close();
-               } catch (Throwable var8) {
-                  var19.addSuppressed(var8);
+               } catch (Throwable var6) {
+                  var19.addSuppressed(var6);
                }
 
                throw var19;
@@ -1025,8 +1182,8 @@ public final class GameWindow {
                } catch (Throwable var16) {
                   try {
                      var22.close();
-                  } catch (Throwable var7) {
-                     var16.addSuppressed(var7);
+                  } catch (Throwable var9) {
+                     var16.addSuppressed(var9);
                   }
 
                   throw var16;
@@ -1036,14 +1193,17 @@ public final class GameWindow {
             } catch (Throwable var17) {
                try {
                   var2.close();
-               } catch (Throwable var6) {
-                  var17.addSuppressed(var6);
+               } catch (Throwable var8) {
+                  var17.addSuppressed(var8);
                }
 
                throw var17;
             }
 
             var2.close();
+            WGParams.instance.save();
+            InstanceTracker.save();
+            MetaTracker.save();
             LuaEventManager.triggerEvent("OnSave");
 
             try {
@@ -1079,6 +1239,8 @@ public final class GameWindow {
                      ExceptionLogger.logException(var13);
                   }
 
+                  AnimalPopulationManager.getInstance().save();
+
                   try {
                      MapCollisionData.instance.save();
                      if (!bLoadedAsClient) {
@@ -1092,6 +1254,8 @@ public final class GameWindow {
                   GlobalModData.instance.save();
                   MapItem.SaveWorldMap();
                   WorldMapVisited.SaveAll();
+                  FishSchoolManager.getInstance().save();
+                  GameEntityManager.Save();
                } catch (IOException var15) {
                   throw new RuntimeException(var15);
                }
@@ -1157,6 +1321,19 @@ public final class GameWindow {
       }
    }
 
+   public static ByteBuffer getEncodedBytesUTF(String var0) {
+      return ((StringUTF)stringUTF.get()).getEncodedBytes(var0);
+   }
+
+   public static void WriteUUID(ByteBuffer var0, UUID var1) {
+      var0.putLong(var1.getMostSignificantBits());
+      var0.putLong(var1.getLeastSignificantBits());
+   }
+
+   public static UUID ReadUUID(ByteBuffer var0) {
+      return new UUID(var0.getLong(), var0.getLong());
+   }
+
    public static void doRenderEvent(boolean var0) {
       doRenderEvent = var0;
    }
@@ -1176,6 +1353,7 @@ public final class GameWindow {
    static {
       assetManagers = new AssetManagers(fileSystem);
       bGameThreadExited = false;
+      UpdateTime = 0L;
       texturePacks = new ArrayList();
       texturePackTextures = new FileSystem.TexturePackTextures();
    }
@@ -1252,6 +1430,11 @@ public final class GameWindow {
          this.charBuffer.clear();
          CoderResult var4 = this.cd.decode(this.byteBuffer, this.charBuffer, true);
          return new String(this.chars, 0, this.charBuffer.position());
+      }
+
+      ByteBuffer getEncodedBytes(String var1) {
+         this.encode(var1);
+         return this.byteBuffer;
       }
 
       void save(ByteBuffer var1, String var2) {

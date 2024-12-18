@@ -5,6 +5,7 @@ import zombie.GameWindow;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
 import zombie.core.ThreadGroups;
+import zombie.core.logger.ExceptionLogger;
 import zombie.network.GameServer;
 import zombie.ui.FPSGraph;
 
@@ -36,29 +37,7 @@ public final class LightingThread {
       if (!GameServer.bServer) {
          if (PerformanceSettings.LightingThread) {
             this.bFinished = false;
-            this.lightingThread = new Thread(ThreadGroups.Workers, () -> {
-               while(!this.bFinished) {
-                  if (IsoWorld.instance.CurrentCell == null) {
-                     return;
-                  }
-
-                  try {
-                     Display.sync(PerformanceSettings.LightingFPS);
-                     LightingJNI.DoLightingUpdateNew(System.nanoTime());
-
-                     while(LightingJNI.WaitingForMain() && !this.bFinished) {
-                        Thread.sleep(13L);
-                     }
-
-                     if (Core.bDebug && FPSGraph.instance != null) {
-                        FPSGraph.instance.addLighting(System.currentTimeMillis());
-                     }
-                  } catch (Exception var2) {
-                     var2.printStackTrace();
-                  }
-               }
-
-            });
+            this.lightingThread = new Thread(ThreadGroups.Workers, this::threadLoop);
             this.lightingThread.setPriority(5);
             this.lightingThread.setDaemon(true);
             this.lightingThread.setName("Lighting Thread");
@@ -66,6 +45,42 @@ public final class LightingThread {
             this.lightingThread.start();
          }
       }
+   }
+
+   private void threadLoop() {
+      while(!this.bFinished) {
+         if (IsoWorld.instance.CurrentCell == null) {
+            return;
+         }
+
+         try {
+            this.runInner();
+         } catch (Exception var2) {
+            ExceptionLogger.logException(var2);
+         }
+      }
+
+   }
+
+   private void runInner() throws Exception {
+      Display.sync(PerformanceSettings.LightingFPS);
+      LightingJNI.DoLightingUpdateNew(System.nanoTime(), Core.dirtyGlobalLightsCount > 0);
+      if (Core.dirtyGlobalLightsCount > 3) {
+         Core.dirtyGlobalLightsCount = 2;
+      }
+
+      if (Core.dirtyGlobalLightsCount > 0) {
+         --Core.dirtyGlobalLightsCount;
+      }
+
+      while(LightingJNI.WaitingForMain() && !this.bFinished) {
+         Thread.sleep(13L);
+      }
+
+      if (Core.bDebug && FPSGraph.instance != null) {
+         FPSGraph.instance.addLighting(System.currentTimeMillis());
+      }
+
    }
 
    public void GameLoadingUpdate() {

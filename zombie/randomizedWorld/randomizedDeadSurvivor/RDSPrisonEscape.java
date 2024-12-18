@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.RoomDef;
 

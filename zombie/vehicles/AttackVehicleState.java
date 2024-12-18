@@ -7,12 +7,14 @@ import zombie.ai.State;
 import zombie.ai.states.ZombieIdleState;
 import zombie.audio.BaseSoundEmitter;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.iso.IsoMovingObject;
 import zombie.network.GameServer;
+import zombie.util.Type;
 
 public final class AttackVehicleState extends State {
    private static final AttackVehicleState _instance = new AttackVehicleState();
@@ -38,13 +40,13 @@ public final class AttackVehicleState extends State {
                var2.changeState(ZombieIdleState.instance());
                var2.setTarget((IsoMovingObject)null);
             } else {
-               var3.setLeaveBodyTimedown(var3.getLeaveBodyTimedown() + GameTime.getInstance().getMultiplier() / 1.6F);
+               var3.setLeaveBodyTimedown(var3.getLeaveBodyTimedown() + GameTime.getInstance().getThirtyFPSMultiplier());
                if (!GameServer.bServer && !Core.SoundDisabled && Rand.Next(Rand.AdjustForFramerate(15)) == 0) {
                   if (this.emitter == null) {
                      this.emitter = new FMODSoundEmitter();
                   }
 
-                  String var6 = var2.isFemale() ? "FemaleZombieEating" : "MaleZombieEating";
+                  String var6 = var2.getDescriptor().getVoicePrefix() + "Eating";
                   if (!this.emitter.isPlaying(var6)) {
                      this.emitter.playSound(var6);
                   }
@@ -62,16 +64,14 @@ public final class AttackVehicleState extends State {
                      var2.AllowRepathDelay = 6.25F;
                   }
 
-               } else if (var5 != null && (Math.abs(var5.x - var1.x) > 0.1F || Math.abs(var5.y - var1.y) > 0.1F)) {
-                  if (!(Math.abs(var4.getCurrentSpeedKmHour()) > 0.8F) || !var4.isCharacterAdjacentTo(var1) && !(var4.DistToSquared(var1) < 16.0F)) {
-                     if (var2.AllowRepathDelay <= 0.0F) {
-                        var1.pathToCharacter(var3);
-                        var2.AllowRepathDelay = 6.25F;
-                     }
-
-                  }
-               } else {
+               } else if (var5 == null || !(Math.abs(var5.x - var1.getX()) > 0.1F) && !(Math.abs(var5.y - var1.getY()) > 0.1F)) {
                   var1.faceThisObject(var3);
+               } else if (!(Math.abs(var4.getCurrentSpeedKmHour()) > 0.8F) || !var4.isCharacterAdjacentTo(var1) && !(var4.DistToSquared(var1) < 16.0F)) {
+                  if (var2.AllowRepathDelay <= 0.0F) {
+                     var1.pathToCharacter(var3);
+                     var2.AllowRepathDelay = 6.25F;
+                  }
+
                }
             }
          }
@@ -85,17 +85,23 @@ public final class AttackVehicleState extends State {
       IsoZombie var3 = (IsoZombie)var1;
       if (var3.target instanceof IsoGameCharacter) {
          IsoGameCharacter var4 = (IsoGameCharacter)var3.target;
-         BaseVehicle var5 = var4.getVehicle();
-         if (var5 != null) {
+         IsoPlayer var5 = (IsoPlayer)Type.tryCastTo(var4, IsoPlayer.class);
+         BaseVehicle var6 = var4.getVehicle();
+         if (var6 != null) {
             if (!var4.isDead()) {
                if (var2.m_EventName.equalsIgnoreCase("AttackCollisionCheck")) {
                   var4.getBodyDamage().AddRandomDamageFromZombie(var3, (String)null);
                   var4.getBodyDamage().Update();
                   if (var4.isDead()) {
-                     if (var4.isFemale()) {
-                        var3.getEmitter().playVocals("FemaleBeingEatenDeath");
+                     if (var5 == null) {
+                        if (var4.isFemale()) {
+                           var3.getEmitter().playVocals("FemaleBeingEatenDeath");
+                        } else {
+                           var3.getEmitter().playVocals("MaleBeingEatenDeath");
+                        }
                      } else {
-                        var3.getEmitter().playVocals("MaleBeingEatenDeath");
+                        var5.setPlayingDeathSound(true);
+                        var5.playerVoiceSound("DeathEaten");
                      }
 
                      var4.setHealth(0.0F);
@@ -108,63 +114,63 @@ public final class AttackVehicleState extends State {
                      }
                   }
                } else if (var2.m_EventName.equalsIgnoreCase("ThumpFrame")) {
-                  VehicleWindow var6 = null;
-                  VehiclePart var7 = null;
-                  int var8 = var5.getSeat(var4);
-                  String var9 = var5.getPassengerArea(var8);
-                  if (var5.isInArea(var9, var1)) {
-                     VehiclePart var10 = var5.getPassengerDoor(var8);
-                     if (var10 != null && var10.getDoor() != null && var10.getInventoryItem() != null && !var10.getDoor().isOpen()) {
-                        var6 = var10.findWindow();
-                        if (var6 != null && !var6.isHittable()) {
-                           var6 = null;
+                  VehicleWindow var7 = null;
+                  VehiclePart var8 = null;
+                  int var9 = var6.getSeat(var4);
+                  String var10 = var6.getPassengerArea(var9);
+                  if (var6.isInArea(var10, var1)) {
+                     VehiclePart var11 = var6.getPassengerDoor(var9);
+                     if (var11 != null && var11.getDoor() != null && var11.getInventoryItem() != null && !var11.getDoor().isOpen()) {
+                        var7 = var11.findWindow();
+                        if (var7 != null && !var7.isHittable()) {
+                           var7 = null;
                         }
 
-                        if (var6 == null) {
-                           var7 = var10;
+                        if (var7 == null) {
+                           var8 = var11;
                         }
                      }
                   } else {
-                     var7 = var5.getNearestBodyworkPart(var1);
-                     if (var7 != null) {
-                        var6 = var7.getWindow();
-                        if (var6 == null) {
-                           var6 = var7.findWindow();
+                     var8 = var6.getNearestBodyworkPart(var1);
+                     if (var8 != null) {
+                        var7 = var8.getWindow();
+                        if (var7 == null) {
+                           var7 = var8.findWindow();
                         }
 
-                        if (var6 != null && !var6.isHittable()) {
-                           var6 = null;
-                        }
-
-                        if (var6 != null) {
+                        if (var7 != null && !var7.isHittable()) {
                            var7 = null;
+                        }
+
+                        if (var7 != null) {
+                           var8 = null;
                         }
                      }
                   }
 
-                  if (var6 != null) {
-                     var6.damage(var3.strength);
-                     var5.setBloodIntensity(var6.part.getId(), var5.getBloodIntensity(var6.part.getId()) + 0.025F);
+                  if (var7 != null) {
+                     var7.damage(var3.strength);
+                     var6.setBloodIntensity(var7.part.getId(), var6.getBloodIntensity(var7.part.getId()) + 0.025F);
                      if (!GameServer.bServer) {
-                        var3.setVehicleHitLocation(var5);
-                        var1.getEmitter().playSound("ZombieThumpVehicleWindow", var5);
+                        var3.setVehicleHitLocation(var6);
+                        var1.getEmitter().playSound("ZombieThumpVehicleWindow", var6);
                      }
 
                      var3.setThumpFlag(3);
                   } else {
                      if (!GameServer.bServer) {
-                        var3.setVehicleHitLocation(var5);
-                        var1.getEmitter().playSound("ZombieThumpVehicle", var5);
+                        var3.setVehicleHitLocation(var6);
+                        var1.getEmitter().playSound("ZombieThumpVehicle", var6);
                      }
 
                      var3.setThumpFlag(1);
                   }
 
-                  var5.setAddThumpWorldSound(true);
-                  if (var7 != null && var7.getWindow() == null && var7.getCondition() > 0) {
-                     var7.setCondition(var7.getCondition() - var3.strength);
-                     var7.doInventoryItemStats(var7.getInventoryItem(), 0);
-                     var5.transmitPartCondition(var7);
+                  var6.setAddThumpWorldSound(true);
+                  if (var8 != null && var8.getWindow() == null && var8.getCondition() > 0) {
+                     var8.setCondition(var8.getCondition() - var3.strength);
+                     var8.doInventoryItemStats(var8.getInventoryItem(), 0);
+                     var6.transmitPartCondition(var8);
                   }
 
                   if (var4.isAsleep()) {

@@ -32,10 +32,16 @@ public final class CustomPerks {
          String var3 = (String)var1.get(var2);
          ChooseGameInfo.Mod var4 = ChooseGameInfo.getAvailableModDetails(var3);
          if (var4 != null) {
-            String var10002 = var4.getDir();
+            String var10002 = var4.getVersionDir();
             File var5 = new File(var10002 + File.separator + "media" + File.separator + "perks.txt");
-            if (var5.exists() && !var5.isDirectory()) {
+            if (var5.exists()) {
                this.readFile(var5.getAbsolutePath());
+            } else {
+               var10002 = var4.getCommonDir();
+               var5 = new File(var10002 + File.separator + "media" + File.separator + "perks.txt");
+               if (var5.exists()) {
+                  this.readFile(var5.getAbsolutePath());
+               }
             }
          }
       }

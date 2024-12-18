@@ -29,16 +29,15 @@ public class BeardStyles {
    public static BeardStyles instance;
 
    public static void init() {
-      String var10000 = ZomboidFileSystem.instance.base.getAbsolutePath();
+      String var10000 = ZomboidFileSystem.instance.base.canonicalFile.getAbsolutePath();
       instance = Parse(var10000 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/beardStyles.xml", File.separatorChar));
       if (instance != null) {
          instance.m_Styles.add(0, new BeardStyle());
          Iterator var0 = ZomboidFileSystem.instance.getModIDs().iterator();
 
          while(true) {
-            String var1;
-            BeardStyles var4;
-            do {
+            while(true) {
+               String var1;
                ChooseGameInfo.Mod var2;
                do {
                   if (!var0.hasNext()) {
@@ -49,24 +48,50 @@ public class BeardStyles {
                   var2 = ChooseGameInfo.getAvailableModDetails(var1);
                } while(var2 == null);
 
-               String var3 = ZomboidFileSystem.instance.getModDir(var1);
-               var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/beardStyles.xml", File.separatorChar));
-            } while(var4 == null);
+               String var3 = var2.getVersionDir();
+               BeardStyles var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/beardStyles.xml", File.separatorChar));
+               Iterator var5;
+               BeardStyle var6;
+               BeardStyle var7;
+               int var8;
+               if (var4 != null) {
+                  var5 = var4.m_Styles.iterator();
 
-            Iterator var5 = var4.m_Styles.iterator();
+                  while(var5.hasNext()) {
+                     var6 = (BeardStyle)var5.next();
+                     var7 = instance.FindStyle(var6.name);
+                     if (var7 == null) {
+                        instance.m_Styles.add(var6);
+                     } else {
+                        if (DebugLog.isEnabled(DebugType.Clothing)) {
+                           DebugLog.Clothing.println("mod \"%s\" overrides beard \"%s\"", var1, var6.name);
+                        }
 
-            while(var5.hasNext()) {
-               BeardStyle var6 = (BeardStyle)var5.next();
-               BeardStyle var7 = instance.FindStyle(var6.name);
-               if (var7 == null) {
-                  instance.m_Styles.add(var6);
-               } else {
-                  if (DebugLog.isEnabled(DebugType.Clothing)) {
-                     DebugLog.Clothing.println("mod \"%s\" overrides beard \"%s\"", var1, var6.name);
+                        var8 = instance.m_Styles.indexOf(var7);
+                        instance.m_Styles.set(var8, var6);
+                     }
                   }
+               } else {
+                  var3 = var2.getCommonDir();
+                  var4 = Parse(var3 + File.separator + ZomboidFileSystem.processFilePath("media/hairStyles/beardStyles.xml", File.separatorChar));
+                  if (var4 != null) {
+                     var5 = var4.m_Styles.iterator();
 
-                  int var8 = instance.m_Styles.indexOf(var7);
-                  instance.m_Styles.set(var8, var6);
+                     while(var5.hasNext()) {
+                        var6 = (BeardStyle)var5.next();
+                        var7 = instance.FindStyle(var6.name);
+                        if (var7 == null) {
+                           instance.m_Styles.add(var6);
+                        } else {
+                           if (DebugLog.isEnabled(DebugType.Clothing)) {
+                              DebugLog.Clothing.println("mod \"%s\" overrides beard \"%s\"", var1, var6.name);
+                           }
+
+                           var8 = instance.m_Styles.indexOf(var7);
+                           instance.m_Styles.set(var8, var6);
+                        }
+                     }
+                  }
                }
             }
          }

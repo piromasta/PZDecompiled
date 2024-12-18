@@ -30,7 +30,7 @@ public final class GameKeyboard {
             bEatKey = new boolean[var0];
          }
 
-         boolean var1 = Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.DoingTextEntry;
+         boolean var1 = Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.isDoingTextEntry();
 
          for(int var2 = 1; var2 < var0; ++var2) {
             bLastDown[var2] = bDown[var2];
@@ -92,19 +92,59 @@ public final class GameKeyboard {
       return isKeyDown(var0) && !wasKeyDown(var0);
    }
 
+   public static boolean isKeyPressed(String var0) {
+      return isKeyPressed(Core.getInstance().getKey(var0)) || isKeyPressed(Core.getInstance().getAltKey(var0));
+   }
+
+   public static int whichKeyPressed(String var0) {
+      if (isKeyPressed(Core.getInstance().getKey(var0))) {
+         return Core.getInstance().getKey(var0);
+      } else {
+         return isKeyPressed(Core.getInstance().getAltKey(var0)) ? Core.getInstance().getAltKey(var0) : 0;
+      }
+   }
+
    public static boolean isKeyDown(int var0) {
-      if (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.DoingTextEntry) {
+      if (var0 >= 10000) {
+         return Mouse.isButtonDownUICheck(var0 - 10000);
+      } else if (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.isDoingTextEntry()) {
          return false;
       } else {
          return bDown == null ? false : bDown[var0];
       }
    }
 
+   public static boolean isKeyDown(String var0) {
+      return isKeyDown(Core.getInstance().getKey(var0)) || isKeyDown(Core.getInstance().getAltKey(var0));
+   }
+
+   public static int whichKeyDown(String var0) {
+      if (isKeyDown(Core.getInstance().getKey(var0))) {
+         return Core.getInstance().getKey(var0);
+      } else {
+         return isKeyDown(Core.getInstance().getAltKey(var0)) ? Core.getInstance().getAltKey(var0) : 0;
+      }
+   }
+
    public static boolean wasKeyDown(int var0) {
-      if (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.DoingTextEntry) {
+      if (var0 >= 10000) {
+         return Mouse.wasButtonDown(var0 - 10000);
+      } else if (Core.CurrentTextEntryBox != null && Core.CurrentTextEntryBox.isDoingTextEntry()) {
          return false;
       } else {
          return bLastDown == null ? false : bLastDown[var0];
+      }
+   }
+
+   public static boolean wasKeyDown(String var0) {
+      return wasKeyDown(Core.getInstance().getKey(var0)) || wasKeyDown(Core.getInstance().getAltKey(var0));
+   }
+
+   public static int whichKeyWasDown(String var0) {
+      if (wasKeyDown(Core.getInstance().getKey(var0))) {
+         return Core.getInstance().getKey(var0);
+      } else {
+         return wasKeyDown(Core.getInstance().getAltKey(var0)) ? Core.getInstance().getAltKey(var0) : 0;
       }
    }
 

@@ -1,34 +1,41 @@
 package zombie.iso.objects;
 
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.ByteBuffer;
-import java.util.Iterator;
+import java.util.function.Consumer;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.SandboxOptions;
-import zombie.SystemDisabler;
 import zombie.WorldSoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
 import zombie.ai.states.ThumpState;
 import zombie.characters.BaseCharacterSoundEmitter;
+import zombie.characters.Capability;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoSurvivor;
 import zombie.characters.IsoZombie;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Translator;
 import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
+import zombie.core.opengl.Shader;
 import zombie.core.properties.PropertyContainer;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.skinnedmodel.model.IsoObjectAnimations;
+import zombie.core.textures.ColorInfo;
+import zombie.core.textures.TextureDraw;
+import zombie.entity.components.fluids.FluidType;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.ItemContainer;
 import zombie.inventory.types.DrainableComboItem;
 import zombie.inventory.types.HandWeapon;
+import zombie.inventory.types.Key;
 import zombie.iso.BrokenFences;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -37,9 +44,12 @@ import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.LosUtil;
+import zombie.iso.SpriteModel;
 import zombie.iso.Vector2;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
+import zombie.iso.enums.MaterialType;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.interfaces.BarricadeAble;
 import zombie.iso.objects.interfaces.Thumpable;
 import zombie.iso.sprite.IsoSprite;
@@ -47,6 +57,9 @@ import zombie.iso.sprite.IsoSpriteManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
+import zombie.pathfind.PolygonalMap2;
+import zombie.util.StringUtils;
 import zombie.util.Type;
 import zombie.util.io.BitHeader;
 import zombie.util.io.BitHeaderRead;
@@ -67,7 +80,7 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    public int Health = 500;
    public int PushedMaxStrength = 0;
    public int PushedStrength = 0;
-   IsoSprite closedSprite;
+   protected IsoSprite closedSprite;
    public boolean north = false;
    private int thumpDmg = 8;
    private float crossSpeed = 1.0F;
@@ -103,6 +116,7 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    public int OldNumPlanks = 0;
    public String thumpSound = "ZombieThumpGeneric";
    public static final Vector2 tempo = new Vector2();
+   private short lastPlayerOnlineId = -1;
 
    public KahluaTable getModData() {
       if (this.modData == null) {
@@ -272,17 +286,17 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public void setSprite(String var1) {
-      this.closedSprite = IsoSpriteManager.instance.getSprite(var1);
-      this.sprite = this.closedSprite;
+      this.setSpriteFromName(var1);
    }
 
    public void setSpriteFromName(String var1) {
-      this.sprite = IsoSpriteManager.instance.getSprite(var1);
+      super.setSpriteFromName(var1);
+      this.closedSprite = this.sprite;
    }
 
    public void setClosedSprite(IsoSprite var1) {
+      this.setSprite(var1);
       this.closedSprite = var1;
-      this.sprite = this.closedSprite;
    }
 
    public void setOpenSprite(IsoSprite var1) {
@@ -429,14 +443,12 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
             this.lastUpdateHours = var1.getFloat();
          }
 
-         if (var2 >= 183) {
-            if (var4.hasFlags(1099511627776L)) {
-               this.haveFuel = true;
-            }
+         if (var4.hasFlags(1099511627776L)) {
+            this.haveFuel = true;
+         }
 
-            if (var4.hasFlags(2199023255552L)) {
-               this.lightSourceOn = true;
-            }
+         if (var4.hasFlags(2199023255552L)) {
+            this.lightSourceOn = true;
          }
       }
 
@@ -449,10 +461,6 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
          }
 
          this.setLightSourceOn(var5);
-      }
-
-      if (SystemDisabler.doObjectStateSyncEnable && GameClient.bClient) {
-         GameClient.instance.objectSyncReq.putRequestLoad(this.square);
       }
 
    }
@@ -998,7 +1006,7 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
                ((IsoBarricade)var4).WeaponHit(var1, var2);
             } else {
                LuaEventManager.triggerEvent("OnWeaponHitThumpable", var1, var2, this);
-               this.Damage(var2.getDoorDamage());
+               this.Damage((float)var2.getDoorDamage());
                if (var2.getDoorHitSound() != null) {
                   if (var3 != null) {
                      var3.setMeleeHitSurface(this.getSoundPrefix());
@@ -1050,74 +1058,102 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
       }
    }
 
-   public void ToggleDoorActual(IsoGameCharacter var1) {
-      if (this.isBarricaded()) {
-         if (var1 != null) {
-            this.playDoorSound(var1.getEmitter(), "Blocked");
-            var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBarricaded"), 255, 255, 255, 256.0F);
-            this.setRenderEffect(RenderEffectType.Hit_Door, true);
-         }
+   public void changeSprite(IsoThumpable var1) {
+      var1.sprite = var1.open ? var1.openSprite : var1.closedSprite;
+   }
 
+   public boolean couldBeOpen(IsoGameCharacter var1) {
+      if (var1 instanceof IsoAnimal) {
+         return false;
+      } else if (this.isBarricaded()) {
+         return false;
       } else if (this.isLockedByKey() && var1 instanceof IsoPlayer && var1.getCurrentSquare().Is(IsoFlagType.exterior) && var1.getInventory().haveThisKeyId(this.getKeyId()) == null) {
-         this.playDoorSound(var1.getEmitter(), "Locked");
-         this.setRenderEffect(RenderEffectType.Hit_Door, true);
+         return false;
+      } else if (this.isLocked() && var1 instanceof IsoPlayer && var1.getCurrentSquare().Is(IsoFlagType.exterior) && !this.open) {
+         return false;
       } else {
-         if (this.isLockedByKey() && var1 instanceof IsoPlayer && var1.getInventory().haveThisKeyId(this.getKeyId()) != null) {
-            this.playDoorSound(var1.getEmitter(), "Unlock");
-            this.setIsLocked(false);
-            this.setLockedByKey(false);
-         }
+         return !this.isObstructed();
+      }
+   }
 
-         this.DirtySlice();
-         this.square.InvalidateSpecialObjectPaths();
-         if (this.Locked && var1 instanceof IsoPlayer && var1.getCurrentSquare().Is(IsoFlagType.exterior) && !this.open) {
+   public void ToggleDoorActual(IsoGameCharacter var1) {
+      if (!(var1 instanceof IsoAnimal)) {
+         if (this.isBarricaded()) {
+            if (var1 != null) {
+               this.playDoorSound(var1.getEmitter(), "Blocked");
+               var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBarricaded"), 255, 255, 255, 256.0F);
+               this.setRenderEffect(RenderEffectType.Hit_Door, true);
+            }
+
+         } else if (this.isLockedByKey() && var1 instanceof IsoPlayer && var1.getCurrentSquare().Is(IsoFlagType.exterior) && var1.getInventory().haveThisKeyId(this.getKeyId()) == null) {
             this.playDoorSound(var1.getEmitter(), "Locked");
             this.setRenderEffect(RenderEffectType.Hit_Door, true);
          } else {
-            if (var1 instanceof IsoPlayer) {
+            if (this.isLockedByKey() && var1 instanceof IsoPlayer && var1.getInventory().haveThisKeyId(this.getKeyId()) != null) {
+               this.playDoorSound(var1.getEmitter(), "Unlock");
+               this.setIsLocked(false);
+               this.setLockedByKey(false);
             }
 
-            for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
-               LosUtil.cachecleared[var2] = true;
-            }
+            this.DirtySlice();
+            this.square.InvalidateSpecialObjectPaths();
+            if (this.Locked && var1 instanceof IsoPlayer && var1.getCurrentSquare().Is(IsoFlagType.exterior) && !this.open) {
+               this.playDoorSound(var1.getEmitter(), "Locked");
+               this.setRenderEffect(RenderEffectType.Hit_Door, true);
+            } else {
+               if (var1 instanceof IsoPlayer) {
+               }
 
-            IsoGridSquare.setRecalcLightTime(-1);
-            GameTime.instance.lightSourceUpdate = 100.0F;
-            if (this.getSprite().getProperties().Is("DoubleDoor")) {
-               if (IsoDoor.isDoubleDoorObstructed(this)) {
+               for(int var2 = 0; var2 < IsoPlayer.numPlayers; ++var2) {
+                  LosUtil.cachecleared[var2] = true;
+               }
+
+               IsoGridSquare.setRecalcLightTime(-1.0F);
+               GameTime.instance.lightSourceUpdate = 100.0F;
+               if (this.getSprite().getProperties().Is("DoubleDoor")) {
+                  if (IsoDoor.isDoubleDoorObstructed(this)) {
+                     if (var1 != null) {
+                        this.playDoorSound(var1.getEmitter(), "Blocked");
+                        var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
+                     }
+
+                  } else {
+                     boolean var4 = this.open;
+                     IsoDoor.toggleDoubleDoor(this, true);
+                     if (var4 != this.open) {
+                        this.playDoorSound(var1.getEmitter(), this.open ? "Open" : "Close");
+                     }
+
+                  }
+               } else if (this.isObstructed()) {
                   if (var1 != null) {
                      this.playDoorSound(var1.getEmitter(), "Blocked");
                      var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
                   }
 
                } else {
-                  boolean var3 = this.open;
-                  IsoDoor.toggleDoubleDoor(this, true);
-                  if (var3 != this.open) {
-                     this.playDoorSound(var1.getEmitter(), this.open ? "Open" : "Close");
+                  this.sprite = this.closedSprite;
+                  this.open = !this.open;
+                  this.setLockedByKey(false);
+                  if (this.open) {
+                     this.playDoorSound(var1.getEmitter(), "Open");
+                     this.sprite = this.openSprite;
+                  } else {
+                     this.playDoorSound(var1.getEmitter(), "Close");
                   }
 
-               }
-            } else if (this.isObstructed()) {
-               if (var1 != null) {
-                  this.playDoorSound(var1.getEmitter(), "Blocked");
-                  var1.setHaloNote(Translator.getText("IGUI_PlayerText_DoorBlocked"), 255, 255, 255, 256.0F);
-               }
+                  this.square.RecalcProperties();
+                  this.syncIsoObject(false, (byte)(this.open ? 1 : 0), (UdpConnection)null, (ByteBuffer)null);
+                  PolygonalMap2.instance.squareChanged(this.square);
+                  LuaEventManager.triggerEvent("OnContainerUpdate");
+                  this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+                  SpriteModel var3 = this.getSpriteModel();
+                  if (var3 != null && var3.animationName != null) {
+                     IsoObjectAnimations.getInstance().addObject(this, var3, this.open ? "Open" : "Close");
+                  }
 
-            } else {
-               this.sprite = this.closedSprite;
-               this.open = !this.open;
-               this.setLockedByKey(false);
-               if (this.open) {
-                  this.playDoorSound(var1.getEmitter(), "Open");
-                  this.sprite = this.openSprite;
-               } else {
-                  this.playDoorSound(var1.getEmitter(), "Close");
+                  this.setAnimating(true);
                }
-
-               this.square.RecalcProperties();
-               this.syncIsoObject(false, (byte)(this.open ? 1 : 0), (UdpConnection)null, (ByteBuffer)null);
-               LuaEventManager.triggerEvent("OnContainerUpdate");
             }
          }
       }
@@ -1135,7 +1171,7 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
             LosUtil.cachecleared[var1] = true;
          }
 
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          this.open = !this.open;
          this.sprite = this.closedSprite;
          if (this.open) {
@@ -1179,9 +1215,9 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
             this.setLifeLeft(1.0F);
             this.setHaveFuel(true);
          } else {
-            this.setLifeLeft(((DrainableComboItem)var7).getUsedDelta());
-            this.setLifeDelta(((DrainableComboItem)var7).getUseDelta());
-            this.setHaveFuel(!"Base.Torch".equals(var7.getFullType()) || ((DrainableComboItem)var7).getUsedDelta() > 0.0F);
+            this.setLifeLeft(((DrainableComboItem)var7).getCurrentUsesFloat());
+            this.setLifeDelta(((DrainableComboItem)var7).getCurrentUsesFloat());
+            this.setHaveFuel(!"Base.Torch".equals(var7.getFullType()) || var7.getCurrentUses() > 0);
          }
 
          var8.removeFromHands(var7);
@@ -1212,8 +1248,8 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
          }
 
          if (var1 instanceof DrainableComboItem) {
-            this.setLifeLeft(((DrainableComboItem)var1).getUsedDelta());
-            this.setLifeDelta(((DrainableComboItem)var1).getUseDelta());
+            this.setLifeLeft(((DrainableComboItem)var1).getCurrentUsesFloat());
+            this.setLifeDelta(((DrainableComboItem)var1).getCurrentUsesFloat());
          } else {
             this.setLifeLeft(1.0F);
          }
@@ -1230,7 +1266,7 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
       if (this.haveFuel()) {
          InventoryItem var2 = InventoryItemFactory.CreateItem(this.getLightSourceFuel());
          if (var2 instanceof DrainableComboItem) {
-            ((DrainableComboItem)var2).setUsedDelta(this.getLifeLeft());
+            var2.setCurrentUses((int)((float)var2.getMaxUses() * this.getLifeLeft()));
          }
 
          if (var1 != null) {
@@ -1346,13 +1382,17 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
             }
          }
 
+         if (this.getFluidContainer() != null && this.getSquare() != null && this.getSquare().isOutside() && this.getFluidContainer().canPlayerEmpty() && this.getFluidContainer().getRainCatcher() > 0.0F) {
+            this.getFluidContainer().addFluid(FluidType.TaintedWater, 0.005F * RainManager.getRainIntensity() * GameTime.instance.getMultiplier() * this.getFluidContainer().getRainCatcher());
+         }
+
       }
    }
 
-   void Damage(int var1) {
+   public void Damage(float var1) {
       if (this.isThumpable()) {
          this.DirtySlice();
-         this.Health -= var1;
+         this.Health = (int)((float)this.Health - var1);
       }
    }
 
@@ -1520,7 +1560,7 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
       this.setLightSourceOn(var1);
       if (this.lightSource != null) {
          this.getLightSource().setActive(var1);
-         IsoGridSquare.setRecalcLightTime(-1);
+         IsoGridSquare.setRecalcLightTime(-1.0F);
          GameTime.instance.lightSourceUpdate = 100.0F;
       }
    }
@@ -1562,108 +1602,58 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public void syncIsoObjectSend(ByteBufferWriter var1) {
-      var1.putInt(this.square.getX());
-      var1.putInt(this.square.getY());
-      var1.putInt(this.square.getZ());
-      byte var2 = (byte)this.square.getObjects().indexOf(this);
-      var1.putByte(var2);
-      var1.putByte((byte)1);
-      var1.putByte((byte)0);
+      super.syncIsoObjectSend(var1);
       var1.putBoolean(this.open);
       var1.putBoolean(this.Locked);
       var1.putBoolean(this.lockedByKey);
+      var1.putBoolean(this.lockedByPadlock);
+      var1.putInt(this.keyId);
+      if (GameClient.bClient) {
+         var1.putShort(IsoPlayer.getInstance().getOnlineID());
+      } else {
+         var1.putShort(this.lastPlayerOnlineId);
+      }
+
    }
 
-   public void syncIsoObject(boolean var1, byte var2, UdpConnection var3, ByteBuffer var4) {
-      if (this.square == null) {
-         System.out.println("ERROR: " + this.getClass().getSimpleName() + " square is null");
-      } else if (this.getObjectIndex() == -1) {
-         PrintStream var10000 = System.out;
-         String var10001 = this.getClass().getSimpleName();
-         var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
-      } else if (this.isDoor()) {
-         boolean var5 = var4 != null && var4.get() == 1;
-         boolean var6 = var4 != null && var4.get() == 1;
-         boolean var7 = var4 != null && var4.get() == 1;
-         short var8 = -1;
-         if ((GameServer.bServer || GameClient.bClient) && var4 != null) {
-            var8 = var4.getShort();
+   public void syncIsoObjectReceive(ByteBuffer var1) {
+      super.syncIsoObjectReceive(var1);
+      boolean var2 = var1.get() == 1;
+      this.Locked = var1.get() == 1;
+      this.lockedByKey = var1.get() == 1;
+      this.lockedByPadlock = var1.get() == 1;
+      this.keyId = var1.getInt();
+      this.lastPlayerOnlineId = var1.getShort();
+      if (GameClient.bClient && this.lastPlayerOnlineId != -1) {
+         IsoPlayer var3 = (IsoPlayer)GameClient.IDToPlayerMap.get(this.lastPlayerOnlineId);
+         if (var3 != null) {
+            var3.networkAI.setNoCollision(1000L);
          }
-
-         if (GameClient.bClient && !var1) {
-            var8 = IsoPlayer.getInstance().getOnlineID();
-            ByteBufferWriter var14 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.SyncIsoObject.doPacket(var14);
-            this.syncIsoObjectSend(var14);
-            var14.putShort(var8);
-            PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
-         } else {
-            UdpConnection var10;
-            ByteBufferWriter var11;
-            Iterator var12;
-            if (GameServer.bServer && !var1) {
-               var12 = GameServer.udpEngine.connections.iterator();
-
-               while(var12.hasNext()) {
-                  var10 = (UdpConnection)var12.next();
-                  var11 = var10.startPacket();
-                  PacketTypes.PacketType.SyncIsoObject.doPacket(var11);
-                  this.syncIsoObjectSend(var11);
-                  var11.putShort(var8);
-                  PacketTypes.PacketType.SyncIsoObject.send(var10);
-               }
-            } else if (var1) {
-               if (GameClient.bClient && var8 != -1) {
-                  IsoPlayer var9 = (IsoPlayer)GameClient.IDToPlayerMap.get(var8);
-                  if (var9 != null) {
-                     var9.networkAI.setNoCollision(1000L);
-                  }
-               }
-
-               if (IsoDoor.getDoubleDoorIndex(this) != -1) {
-                  if (var5 != this.open) {
-                     IsoDoor.toggleDoubleDoor(this, false);
-                  }
-               } else if (var5) {
-                  this.open = true;
-                  this.sprite = this.openSprite;
-               } else {
-                  this.open = false;
-                  this.sprite = this.closedSprite;
-               }
-
-               this.Locked = var6;
-               this.lockedByKey = var7;
-               if (GameServer.bServer) {
-                  var12 = GameServer.udpEngine.connections.iterator();
-
-                  while(var12.hasNext()) {
-                     var10 = (UdpConnection)var12.next();
-                     if (var3 != null && var10.getConnectedGUID() != var3.getConnectedGUID()) {
-                        var11 = var10.startPacket();
-                        PacketTypes.PacketType.SyncIsoObject.doPacket(var11);
-                        this.syncIsoObjectSend(var11);
-                        var11.putShort(var8);
-                        PacketTypes.PacketType.SyncIsoObject.send(var10);
-                     }
-                  }
-               }
-
-               this.square.InvalidateSpecialObjectPaths();
-               this.square.RecalcProperties();
-               this.square.RecalcAllWithNeighbours(true);
-
-               for(int var13 = 0; var13 < IsoPlayer.numPlayers; ++var13) {
-                  LosUtil.cachecleared[var13] = true;
-               }
-
-               IsoGridSquare.setRecalcLightTime(-1);
-               GameTime.instance.lightSourceUpdate = 100.0F;
-               LuaEventManager.triggerEvent("OnContainerUpdate");
-            }
-         }
-
       }
+
+      if (IsoDoor.getDoubleDoorIndex(this) != -1) {
+         if (var2 != this.open) {
+            IsoDoor.toggleDoubleDoor(this, false);
+         }
+      } else if (var2) {
+         this.open = true;
+         this.sprite = this.openSprite;
+      } else {
+         this.open = false;
+         this.sprite = this.closedSprite;
+      }
+
+      this.square.InvalidateSpecialObjectPaths();
+      this.square.RecalcProperties();
+      this.square.RecalcAllWithNeighbours(true);
+
+      for(int var4 = 0; var4 < IsoPlayer.numPlayers; ++var4) {
+         LosUtil.cachecleared[var4] = true;
+      }
+
+      IsoGridSquare.setRecalcLightTime(-1.0F);
+      GameTime.instance.lightSourceUpdate = 100.0F;
+      LuaEventManager.triggerEvent("OnContainerUpdate");
    }
 
    public void addToWorld() {
@@ -1721,7 +1711,11 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public IsoGridSquare getInsideSquare() {
-      return this.north ? this.square.getCell().getGridSquare(this.square.getX(), this.square.getY() - 1, this.square.getZ()) : this.square.getCell().getGridSquare(this.square.getX() - 1, this.square.getY(), this.square.getZ());
+      if (this.square == null) {
+         return null;
+      } else {
+         return this.north ? this.square.getCell().getGridSquare(this.square.getX(), this.square.getY() - 1, this.square.getZ()) : this.square.getCell().getGridSquare(this.square.getX() - 1, this.square.getY(), this.square.getZ());
+      }
    }
 
    public IsoGridSquare getOppositeSquare() {
@@ -2101,11 +2095,16 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
                var4 += 4;
                IsoCurtain var5 = new IsoCurtain(this.getCell(), var2, "fixtures_windows_curtains_01_" + var4, this.north);
                var2.AddSpecialTileObject(var5);
+               if (!GameClient.bClient) {
+                  InventoryItem var6 = var1.getInventory().FindAndReturn("Sheet");
+                  var1.getInventory().Remove(var6);
+                  if (GameServer.bServer) {
+                     GameServer.sendRemoveItemFromContainer(var1.getInventory(), var6);
+                  }
+               }
+
                if (GameServer.bServer) {
                   var5.transmitCompleteItemToClients();
-                  var1.sendObjectChange("removeOneOf", new Object[]{"type", "Sheet"});
-               } else {
-                  var1.getInventory().RemoveOneOf("Sheet");
                }
             }
 
@@ -2144,11 +2143,9 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public void setKeyId(int var1, boolean var2) {
-      if (var2 && this.keyId != var1 && GameClient.bClient) {
+      if (var2 && this.keyId != var1) {
          this.keyId = var1;
          this.syncIsoThumpable();
-      } else {
-         this.keyId = var1;
       }
 
    }
@@ -2180,32 +2177,20 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public void syncIsoThumpable() {
-      ByteBufferWriter var1 = GameClient.connection.startPacket();
-      PacketTypes.PacketType.SyncThumpable.doPacket(var1);
-      var1.putInt(this.square.getX());
-      var1.putInt(this.square.getY());
-      var1.putInt(this.square.getZ());
-      byte var2 = (byte)this.square.getObjects().indexOf(this);
-      if (var2 == -1) {
-         PrintStream var10000 = System.out;
-         int var10001 = this.square.getX();
-         var10000.println("ERROR: Thumpable door not found on square " + var10001 + ", " + this.square.getY() + ", " + this.square.getZ());
-         GameClient.connection.cancelPacket();
-      } else {
-         var1.putByte(var2);
-         var1.putInt(this.getLockedByCode());
-         var1.putByte((byte)(this.lockedByPadlock ? 1 : 0));
-         var1.putInt(this.getKeyId());
-         PacketTypes.PacketType.SyncThumpable.send(GameClient.connection);
+      if (GameServer.bServer) {
+         INetworkPacket.sendToRelative(PacketTypes.PacketType.SyncThumpable, (float)this.square.getX(), (float)this.square.getY(), this);
       }
+
+      if (GameClient.bClient) {
+         INetworkPacket.send(PacketTypes.PacketType.SyncThumpable, this);
+      }
+
    }
 
    public void setLockedByPadlock(boolean var1) {
-      if (this.lockedByPadlock != var1 && GameClient.bClient) {
+      if (this.lockedByPadlock != var1) {
          this.lockedByPadlock = var1;
          this.syncIsoThumpable();
-      } else {
-         this.lockedByPadlock = var1;
       }
 
    }
@@ -2223,17 +2208,15 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public void setLockedByCode(int var1) {
-      if (this.lockedByCode != var1 && GameClient.bClient) {
+      if (this.lockedByCode != var1) {
          this.lockedByCode = var1;
          this.syncIsoThumpable();
-      } else {
-         this.lockedByCode = var1;
       }
 
    }
 
    public boolean isLockedToCharacter(IsoGameCharacter var1) {
-      if (GameClient.bClient && var1 instanceof IsoPlayer && !((IsoPlayer)var1).accessLevel.equals("")) {
+      if (GameClient.bClient && var1 instanceof IsoPlayer && ((IsoPlayer)var1).role.haveCapability(Capability.CanOpenLockedDoors)) {
          return false;
       } else if (this.getLockedByCode() > 0) {
          return true;
@@ -2265,6 +2248,23 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
    }
 
    public String getThumpSound() {
+      if (this.isDoor) {
+         switch (this.getSoundPrefix()) {
+            case "MetalGate":
+               return "ZombieThumpWireFence";
+            case "MetalPoleGate":
+            case "MetalPoleGateDouble":
+               return "ZombieThumpMetalPoleGate";
+            case "GarageDoor":
+               return "ZombieThumpGarageDoor";
+            case "MetalDoor":
+            case "PrisonMetalDoor":
+               return "ZombieThumpMetal";
+            case "SlidingGlassDoor":
+               return "ZombieThumpWindow";
+         }
+      }
+
       return this.thumpSound;
    }
 
@@ -2324,5 +2324,120 @@ public class IsoThumpable extends IsoObject implements BarricadeAble, Thumpable 
 
    private void playDoorSound(BaseCharacterSoundEmitter var1, String var2) {
       var1.playSound(this.getSoundPrefix() + var2, this);
+   }
+
+   public static String GetBreakFurnitureSound(IsoSprite var0) {
+      if (var0 == null) {
+         return "BreakFurniture";
+      } else if (var0.getProperties().valueEqualsIgnoreCase("MoveType", "Vegitation")) {
+         return "BreakPlant";
+      } else {
+         String var1 = var0.getProperties().Val("MaterialType");
+         MaterialType var2 = (MaterialType)StringUtils.tryParseEnum(MaterialType.class, var1, MaterialType.Default);
+         String var10000;
+         switch (var2) {
+            case Ceramic:
+               var10000 = "BreakFurnitureCeramic";
+               break;
+            case Metal:
+            case Metal_Large:
+            case Metal_Light:
+            case Metal_Solid:
+               var10000 = "BreakFurnitureMetal";
+               break;
+            default:
+               var10000 = "BreakFurniture";
+         }
+
+         return var10000;
+      }
+   }
+
+   public static String GetBreakFurnitureSound(String var0) {
+      IsoSprite var1 = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(var0);
+      return GetBreakFurnitureSound(var1);
+   }
+
+   public void checkKeyHighlight() {
+      int var1 = IsoCamera.frameState.playerIndex;
+      Key var2 = Key.highlightDoor[var1];
+      if (var2 != null) {
+         boolean var3 = this.square.isSeen(var1);
+         if (!var3) {
+            IsoGridSquare var4 = this.getOppositeSquare();
+            var3 = var4 != null && var4.isSeen(var1);
+         }
+
+         if (var3 && this.getKeyId() == var2.getKeyId()) {
+            this.setHighlighted(true, false);
+         }
+      }
+
+   }
+
+   public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
+      if (this.isDoor) {
+         int var8 = IsoDoor.getDoubleDoorIndex(this);
+         if (var8 != -1) {
+            IsoObject var9 = null;
+            if (var8 == 2) {
+               var9 = IsoDoor.getDoubleDoorObject(this, 1);
+            } else if (var8 == 3) {
+               var9 = IsoDoor.getDoubleDoorObject(this, 4);
+            }
+
+            if (var9 != null && var9.getSpriteModel() != null) {
+               this.updateRenderInfoForObjectPicker(var1, var2, var3, var4);
+               this.sx = 0.0F;
+               return;
+            }
+         }
+      }
+
+      super.render(var1, var2, var3, var4, var5, var6, var7);
+   }
+
+   public void renderWallTile(IsoDirections var1, float var2, float var3, float var4, ColorInfo var5, boolean var6, boolean var7, Shader var8, Consumer<TextureDraw> var9) {
+      if (this.isDoor) {
+         int var10 = IsoDoor.getDoubleDoorIndex(this);
+         if (var10 != -1) {
+            IsoObject var11 = null;
+            if (var10 == 2) {
+               var11 = IsoDoor.getDoubleDoorObject(this, 1);
+            } else if (var10 == 3) {
+               var11 = IsoDoor.getDoubleDoorObject(this, 4);
+            }
+
+            if (var11 != null && var11.getSpriteModel() != null) {
+               this.updateRenderInfoForObjectPicker(var2, var3, var4, var5);
+               this.sx = 0.0F;
+               return;
+            }
+         }
+      }
+
+      super.renderWallTile(var1, var2, var3, var4, var5, var6, var7, var8, var9);
+   }
+
+   public SpriteModel getSpriteModel() {
+      int var1 = IsoDoor.getDoubleDoorIndex(this);
+      return (var1 == 1 || var1 == 4) && IsoDoor.getDoubleDoorObject(this, var1 == 1 ? 2 : 3) == null ? null : super.getSpriteModel();
+   }
+
+   public void animalHit(IsoAnimal var1) {
+      float var2 = 1000.0F;
+      var2 *= var1.calcDamage();
+      boolean var3 = this.isThumpable;
+      this.setIsThumpable(true);
+      this.Damage(var2);
+      this.setIsThumpable(var3);
+      if (this.Health <= 0) {
+         this.destroy();
+      }
+
+   }
+
+   public String getClosedSpriteTextureName() {
+      return this.closedSprite != null && this.closedSprite.texture != null ? this.closedSprite.texture.getName() : null;
    }
 }

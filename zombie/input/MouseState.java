@@ -1,5 +1,8 @@
 package zombie.input;
 
+import zombie.core.Core;
+import zombie.debug.DebugContext;
+
 public final class MouseState {
    private boolean m_isCreated = false;
    private boolean[] m_buttonDownStates = null;
@@ -22,10 +25,20 @@ public final class MouseState {
          this.m_mouseX = org.lwjglx.input.Mouse.getX();
          this.m_mouseY = org.lwjglx.input.Mouse.getY();
          this.m_wheelDelta = org.lwjglx.input.Mouse.getDWheel();
+         if (Core.isUseGameViewport() && !DebugContext.instance.bFocusedGameViewport) {
+            this.m_wheelDelta = 0;
+            this.m_mouseX = -1;
+            this.m_mouseY = -1;
+         }
+
          this.m_wasPolled = true;
 
          for(int var2 = 0; var2 < this.m_buttonDownStates.length; ++var2) {
-            this.m_buttonDownStates[var2] = org.lwjglx.input.Mouse.isButtonDown(var2);
+            if (Core.isUseGameViewport() && !DebugContext.instance.bFocusedGameViewport) {
+               this.m_buttonDownStates[var2] = false;
+            } else {
+               this.m_buttonDownStates[var2] = org.lwjglx.input.Mouse.isButtonDown(var2);
+            }
          }
 
       }
@@ -62,11 +75,11 @@ public final class MouseState {
    }
 
    public int getX() {
-      return this.m_mouseX;
+      return DebugContext.isUsingGameViewportWindow() ? DebugContext.instance.getViewportMouseX() : this.m_mouseX;
    }
 
    public int getY() {
-      return this.m_mouseY;
+      return DebugContext.isUsingGameViewportWindow() ? DebugContext.instance.getViewportMouseY() : this.m_mouseY;
    }
 
    public int getDWheel() {

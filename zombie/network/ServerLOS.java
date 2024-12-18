@@ -2,6 +2,7 @@ package zombie.network;
 
 import java.util.ArrayList;
 import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.core.textures.ColorInfo;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.LosUtil;
@@ -9,10 +10,12 @@ import zombie.iso.LosUtil;
 public class ServerLOS {
    public static ServerLOS instance;
    private LOSThread thread;
-   private ArrayList<PlayerData> playersMain = new ArrayList();
-   private ArrayList<PlayerData> playersLOS = new ArrayList();
+   private final ArrayList<PlayerData> playersMain = new ArrayList();
+   private final ArrayList<PlayerData> playersLOS = new ArrayList();
    private boolean bMapLoading = false;
    private boolean bSuspended = false;
+   private static final int PD_SIZE_IN_CHUNKS = 12;
+   private static final int PD_SIZE_IN_SQUARES = 96;
    boolean bWasSuspended;
 
    public ServerLOS() {
@@ -60,10 +63,14 @@ public class ServerLOS {
    public boolean isCouldSee(IsoPlayer var1, IsoGridSquare var2) {
       PlayerData var3 = this.findData(var1);
       if (var3 != null) {
-         int var4 = var2.x - var3.px + 50;
-         int var5 = var2.y - var3.py + 50;
-         if (var4 >= 0 && var4 < 100 && var5 >= 0 && var5 < 100) {
-            return var3.visible[var4][var5][var2.z];
+         int var4 = var3.px - 48;
+         int var5 = var3.py - 48;
+         int var6 = var3.pz - LosUtil.ZSIZE / 2;
+         int var7 = var2.x - var4;
+         int var8 = var2.y - var5;
+         int var9 = var2.z - var6;
+         if (var7 >= 0 && var7 < 96 && var8 >= 0 && var8 < 96 && var9 >= 0 && var9 < LosUtil.ZSIZE) {
+            return var3.visible[var7][var8][var9];
          }
       }
 
@@ -149,7 +156,7 @@ public class ServerLOS {
    }
 
    private class LOSThread extends Thread {
-      public Object notifier = new Object();
+      public final Object notifier = new Object();
 
       private LOSThread() {
       }
@@ -202,13 +209,13 @@ public class ServerLOS {
 
       private void calcLOS(PlayerData var1) {
          boolean var2 = false;
-         if (var1.px == (int)var1.player.getX() && var1.py == (int)var1.player.getY() && var1.pz == (int)var1.player.getZ()) {
+         if (var1.px == PZMath.fastfloor(var1.player.getX()) && var1.py == PZMath.fastfloor(var1.player.getY()) && var1.pz == PZMath.fastfloor(var1.player.getZ())) {
             var2 = true;
          }
 
-         var1.px = (int)var1.player.getX();
-         var1.py = (int)var1.player.getY();
-         var1.pz = (int)var1.player.getZ();
+         var1.px = PZMath.fastfloor(var1.player.getX());
+         var1.py = PZMath.fastfloor(var1.player.getY());
+         var1.pz = PZMath.fastfloor(var1.player.getZ());
          var1.player.initLightInfo2();
          if (!var2) {
             byte var3 = 0;
@@ -228,15 +235,24 @@ public class ServerLOS {
                IsoPlayer.players[var3] = var1.player;
                var4 = var1.px;
                var5 = var1.py;
+               var6 = var1.pz;
+               int var7 = var4 - 48;
+               int var8 = var7 + 96;
+               int var9 = var5 - 48;
+               int var10 = var9 + 96;
+               int var11 = var6 - LosUtil.ZSIZE / 2;
+               int var12 = var11 + LosUtil.ZSIZE;
 
-               for(var6 = -50; var6 < 50; ++var6) {
-                  for(int var7 = -50; var7 < 50; ++var7) {
-                     for(int var8 = 0; var8 < 8; ++var8) {
-                        IsoGridSquare var9 = ServerMap.instance.getGridSquare(var6 + var4, var7 + var5, var8);
-                        if (var9 != null) {
-                           var9.CalcVisibility(var3);
-                           var1.visible[var6 + 50][var7 + 50][var8] = var9.isCouldSee(var3);
-                           var9.checkRoomSeen(var3);
+               for(int var13 = var7; var13 < var8; ++var13) {
+                  for(int var14 = var9; var14 < var10; ++var14) {
+                     for(int var15 = var11; var15 < var12; ++var15) {
+                        IsoGridSquare var16 = ServerMap.instance.getGridSquare(var13, var14, var15);
+                        if (var16 != null) {
+                           var16.CalcVisibility(var3);
+                           var1.visible[var13 - var7][var14 - var9][var15 - var11] = var16.isCouldSee(var3);
+                           var16.checkRoomSeen(var3);
+                        } else {
+                           var1.visible[var13 - var7][var14 - var9][var15 - var11] = false;
                         }
                      }
                   }
@@ -270,7 +286,7 @@ public class ServerLOS {
       }
    }
 
-   private class PlayerData {
+   private static final class PlayerData {
       public IsoPlayer player;
       public UpdateStatus status;
       public int px;
@@ -278,10 +294,10 @@ public class ServerLOS {
       public int pz;
       public boolean[][][] visible;
 
-      public PlayerData(IsoPlayer var2) {
+      public PlayerData(IsoPlayer var1) {
          this.status = ServerLOS.UpdateStatus.NeverDone;
-         this.visible = new boolean[100][100][8];
-         this.player = var2;
+         this.visible = new boolean[96][96][LosUtil.ZSIZE];
+         this.player = var1;
       }
    }
 

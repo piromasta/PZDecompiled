@@ -5,9 +5,10 @@ import zombie.GameTime;
 import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
-import zombie.core.Rand;
+import zombie.core.SceneShaderStore;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderSettings;
+import zombie.core.random.Rand;
 import zombie.debug.LineDrawer;
 import zombie.iso.IsoUtils;
 import zombie.iso.Vector2;
@@ -300,7 +301,7 @@ public class WorldFlares {
             var1.CM_Ambient = var1.CM_Ambient > var9 ? var1.CM_Ambient : var9;
             float var10 = ClimateManager.lerp(var8, 0.6F * var4.intensity, var1.CM_DayLightStrength);
             var1.CM_DayLightStrength = var1.CM_DayLightStrength > var10 ? var1.CM_DayLightStrength : var10;
-            if (Core.getInstance().RenderShader != null && Core.getInstance().getOffscreenBuffer() != null) {
+            if (SceneShaderStore.WeatherShader != null && Core.getInstance().getOffscreenBuffer() != null) {
                float var11 = ClimateManager.lerp(var8, 1.0F * var5, var1.CM_Desaturation);
                var1.CM_Desaturation = var1.CM_Desaturation > var11 ? var1.CM_Desaturation : var11;
             }

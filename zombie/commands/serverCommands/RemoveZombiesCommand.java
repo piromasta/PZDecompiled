@@ -1,11 +1,13 @@
 package zombie.commands.serverCommands;
 
+import zombie.characters.Capability;
 import zombie.characters.IsoZombie;
+import zombie.characters.Role;
 import zombie.commands.CommandArgs;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.logger.LoggerManager;
 import zombie.core.math.PZMath;
 import zombie.core.raknet.UdpConnection;
@@ -27,11 +29,11 @@ import zombie.util.Type;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_RemoveZombies"
 )
-@RequiredRight(
-   requiredRights = 56
+@RequiredCapability(
+   requiredCapability = Capability.ManipulateZombie
 )
 public class RemoveZombiesCommand extends CommandBase {
-   public RemoveZombiesCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public RemoveZombiesCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 
@@ -78,7 +80,7 @@ public class RemoveZombiesCommand extends CommandBase {
       if (var6) {
          GameServer.removeZombiesConnection = this.connection;
          return "Zombies removed.";
-      } else if (var4 >= 0 && var4 < 8) {
+      } else if (var4 > -32 && var4 < 32) {
          for(var8 = var3 - var1; var8 <= var3 + var1; ++var8) {
             for(int var13 = var2 - var1; var13 <= var2 + var1; ++var13) {
                IsoGridSquare var14 = IsoWorld.instance.CurrentCell.getGridSquare(var13, var8, var4);

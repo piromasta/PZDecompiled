@@ -11,6 +11,7 @@ import zombie.AmbientStreamManager;
 import zombie.ChunkMapFilenames;
 import zombie.GameTime;
 import zombie.GameWindow;
+import zombie.SandboxOptions;
 import zombie.SoundManager;
 import zombie.ZomboidFileSystem;
 import zombie.Lua.LuaEventManager;
@@ -19,15 +20,22 @@ import zombie.characters.IsoPlayer;
 import zombie.chat.ChatManager;
 import zombie.chat.ChatUtility;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.ThreadGroups;
 import zombie.core.Translator;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
+import zombie.core.physics.Bullet;
+import zombie.core.physics.RagdollSettingsManager;
 import zombie.core.raknet.UdpConnection;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.population.OutfitManager;
 import zombie.core.skinnedmodel.runtime.RuntimeAnimationScript;
+import zombie.core.textures.AnimatedTexture;
+import zombie.core.textures.AnimatedTextures;
 import zombie.core.textures.Texture;
+import zombie.core.znet.ServerBrowser;
 import zombie.core.znet.SteamUtils;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
@@ -36,7 +44,6 @@ import zombie.globalObjects.SGlobalObjects;
 import zombie.input.GameKeyboard;
 import zombie.input.JoypadManager;
 import zombie.input.Mouse;
-import zombie.inventory.RecipeManager;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoObjectPicker;
@@ -44,29 +51,36 @@ import zombie.iso.IsoPuddles;
 import zombie.iso.IsoWater;
 import zombie.iso.IsoWorld;
 import zombie.iso.LosUtil;
+import zombie.iso.WorldConverter;
 import zombie.iso.WorldStreamer;
 import zombie.iso.areas.SafeHouse;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
 import zombie.iso.sprite.SkyBox;
 import zombie.iso.weather.ClimateManager;
 import zombie.modding.ActiveMods;
 import zombie.modding.ActiveModsFile;
+import zombie.network.CustomizationManager;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.NetworkAIParams;
 import zombie.network.ServerOptions;
+import zombie.savefile.SavefileNaming;
 import zombie.scripting.ScriptManager;
+import zombie.ui.ScreenFader;
 import zombie.ui.TextManager;
 import zombie.ui.TutorialManager;
 import zombie.ui.UIFont;
 import zombie.ui.UIManager;
 import zombie.vehicles.BaseVehicle;
 import zombie.world.WorldDictionary;
+import zombie.worldMap.WorldMapImages;
+import zombie.worldMap.WorldMapVisited;
 
 public final class GameLoadingState extends GameState {
    public static Thread loader = null;
    public static boolean newGame = true;
    private static long startTime;
-   public static boolean build23Stop = false;
+   public static boolean worldVersionError = false;
    public static boolean unexpectedError = false;
    public static String GameLoadingString = "";
    public static boolean playerWrongIP = false;
@@ -79,6 +93,9 @@ public final class GameLoadingState extends GameState {
    private final Object assetLock2 = "Asset Lock 2";
    private String text;
    private float width;
+   private static final ScreenFader screenFader = new ScreenFader();
+   private AnimatedTexture animatedTexture;
+   private long progressFadeStartMS = 0L;
    public static boolean playerCreated = false;
    public static boolean bDone = false;
    public static boolean convertingWorld = false;
@@ -97,6 +114,14 @@ public final class GameLoadingState extends GameState {
    }
 
    public void enter() {
+      try {
+         WorldMapImages.Reset();
+         WorldMapVisited.Reset();
+         LuaManager.releaseAllVideoTextures();
+      } catch (Exception var8) {
+         ExceptionLogger.logException(var8);
+      }
+
       if (GameClient.bClient) {
          this.text = Translator.getText("UI_DirectConnectionPortWarning", ServerOptions.getInstance().UDPPort.getValue());
          this.width = (float)(TextManager.instance.MeasureStringX(UIFont.NewMedium, this.text) + 8);
@@ -106,7 +131,7 @@ public final class GameLoadingState extends GameState {
       GameWindow.OkToSaveOnExit = false;
       bShowedUI = false;
       ChunkMapFilenames.instance.clear();
-      DebugLog.log("Savefile name is \"" + Core.GameSaveWorld + "\"");
+      DebugLog.DetailedInfo.trace("Savefile name is \"" + Core.GameSaveWorld + "\"");
       GameLoadingString = "";
 
       try {
@@ -116,7 +141,7 @@ public final class GameLoadingState extends GameState {
          ExceptionLogger.logException(var7);
       }
 
-      RecipeManager.LoadedAfterLua();
+      ScriptManager.instance.LoadedAfterLua();
       Core.getInstance().initFBOs();
       Core.getInstance().initShaders();
       SkyBox.getInstance();
@@ -128,6 +153,7 @@ public final class GameLoadingState extends GameState {
 
          for(Core.GameMode = "Multiplayer"; GameClient.instance.ID == -1; GameClient.instance.update()) {
             try {
+               LuaEventManager.RunQueuedEvents();
                Thread.sleep(10L);
             } catch (InterruptedException var6) {
                var6.printStackTrace();
@@ -164,6 +190,10 @@ public final class GameLoadingState extends GameState {
          System.exit(-1);
       }
 
+      if (!Core.getInstance().isNoSave()) {
+         SavefileNaming.ensureSubdirectoriesExist(ZomboidFileSystem.instance.getCurrentSaveDir());
+      }
+
       try {
          if (!GameClient.bClient && !GameServer.bServer && !Core.bTutorial && !Core.isLastStand() && !"Multiplayer".equals(Core.GameMode)) {
             String var10004 = ZomboidFileSystem.instance.getCacheDir();
@@ -175,13 +205,14 @@ public final class GameLoadingState extends GameState {
             var2.close();
          }
       } catch (IOException var3) {
-         var3.printStackTrace();
+         ExceptionLogger.logException(var3);
       }
 
       bDone = false;
       this.bForceDone = false;
       IsoChunkMap.CalcChunkWidth();
-      LosUtil.init(IsoChunkMap.ChunkGridWidth * 10, IsoChunkMap.ChunkGridWidth * 10);
+      Core.setInitialSize();
+      LosUtil.init(IsoChunkMap.ChunkGridWidth * 8, IsoChunkMap.ChunkGridWidth * 8);
       this.Time = 0.0F;
       this.Stage = 0;
       this.clickToSkipAlpha = 1.0F;
@@ -191,15 +222,15 @@ public final class GameLoadingState extends GameState {
       SoundManager.instance.setMusicState("Loading");
       LuaEventManager.triggerEvent("OnPreMapLoad");
       newGame = true;
-      build23Stop = false;
+      worldVersionError = false;
       unexpectedError = false;
       mapDownloadFailed = false;
       playerCreated = false;
       convertingWorld = false;
       convertingFileCount = 0;
       convertingFileMax = -1;
-      File var8 = ZomboidFileSystem.instance.getFileInCurrentSave("map_ver.bin");
-      if (var8.exists()) {
+      File var9 = ZomboidFileSystem.instance.getFileInCurrentSave("map_ver.bin");
+      if (var9.exists()) {
          newGame = false;
       }
 
@@ -207,15 +238,30 @@ public final class GameLoadingState extends GameState {
          newGame = false;
       }
 
+      if (!newGame) {
+         this.Stage = -1;
+         CustomizationManager.getInstance().pickRandomCustomBackground();
+         screenFader.startFadeFromBlack();
+         this.progressFadeStartMS = 0L;
+      }
+
       WorldDictionary.setIsNewGame(newGame);
       GameKeyboard.bNoEventsWhileLoading = true;
+      ServerBrowser.setSuppressLuaCallbacks(true);
       loader = new Thread(ThreadGroups.Workers, new Runnable() {
          public void run() {
+            LuaManager.thread.debugOwnerThread = Thread.currentThread();
+            LuaManager.debugthread.debugOwnerThread = Thread.currentThread();
+
             try {
                this.runInner();
-            } catch (Throwable var2) {
+            } catch (Throwable var5) {
                GameLoadingState.unexpectedError = true;
-               ExceptionLogger.logException(var2);
+               ExceptionLogger.logException(var5);
+            } finally {
+               LuaManager.thread.debugOwnerThread = GameWindow.GameThread;
+               LuaManager.debugthread.debugOwnerThread = GameWindow.GameThread;
+               UIManager.bSuspend = false;
             }
 
          }
@@ -241,13 +287,14 @@ public final class GameLoadingState extends GameState {
             TutorialManager.instance = new TutorialManager();
             GameTime.setInstance(new GameTime());
             ClimateManager.setInstance(new ClimateManager());
+            RagdollSettingsManager.setInstance(new RagdollSettingsManager());
             IsoWorld.instance = new IsoWorld();
             DebugOptions.testThreadCrash(0);
             IsoWorld.instance.init();
             if (GameWindow.bServerDisconnected) {
                GameLoadingState.bDone = true;
             } else if (!GameLoadingState.playerWrongIP) {
-               if (!GameLoadingState.build23Stop) {
+               if (!GameLoadingState.worldVersionError) {
                   LuaEventManager.triggerEvent("OnGameTimeLoaded");
                   SGlobalObjects.initSystems();
                   CGlobalObjects.initSystems();
@@ -261,8 +308,8 @@ public final class GameLoadingState extends GameState {
                   if (!GameServer.bServer) {
                      var2 = ZomboidFileSystem.instance.getFileInCurrentSave("map_ver.bin");
                      boolean var3 = !var2.exists();
-                     if (var3 || IsoWorld.SavedWorldVersion != 195) {
-                        if (!var3 && IsoWorld.SavedWorldVersion != 195) {
+                     if (var3 || IsoWorld.SavedWorldVersion != 219) {
+                        if (!var3 && IsoWorld.SavedWorldVersion != 219) {
                            GameLoadingState.GameLoadingString = "Saving converted world.";
                         }
 
@@ -276,6 +323,9 @@ public final class GameLoadingState extends GameState {
 
                   ChatUtility.InitAllowedChatIcons();
                   ChatManager.getInstance().init(true, IsoPlayer.getInstance());
+                  Bullet.startLoadingPhysicsMeshes();
+                  Texture.getSharedTexture("media/textures/NewShadow.png");
+                  Texture.getSharedTexture("media/wallcutaways.png", 3);
                   GameLoadingState.this.bWaitForAssetLoadingToFinish2 = true;
                   synchronized(GameLoadingState.this.assetLock2) {
                      while(GameLoadingState.this.bWaitForAssetLoadingToFinish2) {
@@ -286,7 +336,11 @@ public final class GameLoadingState extends GameState {
                      }
                   }
 
-                  UIManager.bSuspend = false;
+                  if (PerformanceSettings.FBORenderChunk) {
+                     FBORenderChunkManager.instance.gameLoaded();
+                  }
+
+                  Bullet.initPhysicsMeshes();
                   GameLoadingState.playerCreated = true;
                   GameLoadingState.GameLoadingString = "";
                   GameLoadingState.SendDone();
@@ -307,7 +361,7 @@ public final class GameLoadingState extends GameState {
          bDone = true;
          GameKeyboard.bNoEventsWhileLoading = false;
       } else {
-         GameClient.instance.sendLoginQueueDone2(System.currentTimeMillis() - startTime);
+         GameClient.instance.sendLoginQueueDone(System.currentTimeMillis() - startTime);
       }
    }
 
@@ -321,6 +375,27 @@ public final class GameLoadingState extends GameState {
    }
 
    public void exit() {
+      boolean var1 = UIManager.useUIFBO;
+      UIManager.useUIFBO = false;
+      screenFader.startFadeToBlack();
+
+      while(screenFader.isFading()) {
+         screenFader.preRender();
+         if (!newGame) {
+            MainScreenState.renderCustomBackground();
+         }
+
+         screenFader.postRender();
+         if (screenFader.isFading()) {
+            try {
+               Thread.sleep(33L);
+            } catch (Exception var5) {
+            }
+         }
+      }
+
+      UIManager.useUIFBO = var1;
+      ServerBrowser.setSuppressLuaCallbacks(false);
       if (GameClient.bClient) {
          NetworkAIParams.Init();
       }
@@ -332,10 +407,10 @@ public final class GameLoadingState extends GameState {
       this.Stage = 0;
       IsoCamera.SetCharacterToFollow(IsoPlayer.getInstance());
       if (GameClient.bClient && !ServerOptions.instance.SafehouseAllowTrepass.getValue()) {
-         SafeHouse var1 = SafeHouse.isSafeHouse(IsoPlayer.getInstance().getCurrentSquare(), GameClient.username, true);
-         if (var1 != null) {
-            IsoPlayer.getInstance().setX((float)(var1.getX() - 1));
-            IsoPlayer.getInstance().setY((float)(var1.getY() - 1));
+         SafeHouse var2 = SafeHouse.isSafeHouse(IsoPlayer.getInstance().getCurrentSquare(), GameClient.username, true);
+         if (var2 != null) {
+            IsoPlayer.getInstance().setX((float)(var2.getX() - 1));
+            IsoPlayer.getInstance().setY((float)(var2.getY() - 1));
          }
       }
 
@@ -349,13 +424,22 @@ public final class GameLoadingState extends GameState {
       }
 
       if (!GameClient.bClient) {
-         ActiveMods var4 = ActiveMods.getById("currentGame");
-         var4.checkMissingMods();
-         var4.checkMissingMaps();
-         ActiveMods.setLoadedMods(var4);
-         String var2 = ZomboidFileSystem.instance.getFileNameInCurrentSave("mods.txt");
-         ActiveModsFile var3 = new ActiveModsFile();
-         var3.write(var2, var4);
+         ActiveMods var6 = ActiveMods.getById("currentGame");
+         var6.checkMissingMods();
+         var6.checkMissingMaps();
+         ActiveMods.setLoadedMods(var6);
+         String var3 = ZomboidFileSystem.instance.getFileNameInCurrentSave("mods.txt");
+         ActiveModsFile var4 = new ActiveModsFile();
+         var4.write(var3, var6);
+      }
+
+      DebugLog.log("Sandbox Options:");
+      SandboxOptions var7 = LuaManager.GlobalObject.getSandboxOptions();
+
+      for(int var8 = 0; var8 < var7.getNumOptions(); ++var8) {
+         SandboxOptions.SandboxOption var9 = var7.getOptionByIndex(var8);
+         String var10000 = var9.getShortName();
+         DebugLog.log(var10000 + " " + var9.asConfigOption().getValueAsString());
       }
 
       GameWindow.OkToSaveOnExit = true;
@@ -474,35 +558,42 @@ public final class GameLoadingState extends GameState {
       UIManager.useUIFBO = false;
       Core.getInstance().StartFrameUI();
       SpriteRenderer.instance.renderi((Texture)null, 0, 0, Core.getInstance().getScreenWidth(), Core.getInstance().getScreenHeight(), 0.0F, 0.0F, 0.0F, 1.0F, (Consumer)null);
+      if (this.Stage == -1) {
+         MainScreenState.renderCustomBackground();
+         this.renderProgressIndicator();
+         screenFader.update();
+         screenFader.render();
+      }
+
       int var16;
       int var17;
-      int var18;
-      int var21;
+      int var22;
+      int var23;
       if (mapDownloadFailed) {
          var16 = Core.getInstance().getScreenWidth() / 2;
          var17 = Core.getInstance().getScreenHeight() / 2;
-         var18 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
-         var21 = var17 - var18 / 2;
-         String var24 = Translator.getText("UI_GameLoad_MapDownloadFailed");
-         TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var16, (double)var21, var24, 0.8, 0.1, 0.1, 1.0);
+         var22 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
+         var23 = var17 - var22 / 2;
+         String var27 = Translator.getText("UI_GameLoad_MapDownloadFailed");
+         TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var16, (double)var23, var27, 0.8, 0.1, 0.1, 1.0);
          UIManager.render();
          Core.getInstance().EndFrameUI();
       } else {
-         int var23;
+         int var26;
          if (unexpectedError) {
             var16 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
             var17 = TextManager.instance.getFontFromEnum(UIFont.Small).getLineHeight();
-            byte var20 = 8;
-            var21 = 2;
-            var23 = var16 + var20 + var17 + var21 + var17;
-            int var22 = Core.getInstance().getScreenWidth() / 2;
+            byte var24 = 8;
+            var23 = 2;
+            var26 = var16 + var24 + var17 + var23 + var17;
+            int var25 = Core.getInstance().getScreenWidth() / 2;
             int var11 = Core.getInstance().getScreenHeight() / 2;
-            int var12 = var11 - var23 / 2;
-            TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var22, (double)var12, Translator.getText("UI_GameLoad_UnexpectedError1"), 0.8, 0.1, 0.1, 1.0);
-            TextManager.instance.DrawStringCentre(UIFont.Small, (double)var22, (double)(var12 + var16 + var20), Translator.getText("UI_GameLoad_UnexpectedError2"), 1.0, 1.0, 1.0, 1.0);
+            int var12 = var11 - var26 / 2;
+            TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var25, (double)var12, Translator.getText("UI_GameLoad_UnexpectedError1"), 0.8, 0.1, 0.1, 1.0);
+            TextManager.instance.DrawStringCentre(UIFont.Small, (double)var25, (double)(var12 + var16 + var24), Translator.getText("UI_GameLoad_UnexpectedError2"), 1.0, 1.0, 1.0, 1.0);
             String var10000 = ZomboidFileSystem.instance.getCacheDir();
             String var13 = var10000 + File.separator + "console.txt";
-            TextManager.instance.DrawStringCentre(UIFont.Small, (double)var22, (double)(var12 + var16 + var20 + var17 + var21), var13, 1.0, 1.0, 1.0, 1.0);
+            TextManager.instance.DrawStringCentre(UIFont.Small, (double)var25, (double)(var12 + var16 + var24 + var17 + var23), var13, 1.0, 1.0, 1.0, 1.0);
             UIManager.render();
             Core.getInstance().EndFrameUI();
          } else {
@@ -510,20 +601,24 @@ public final class GameLoadingState extends GameState {
             if (GameWindow.bServerDisconnected) {
                var16 = Core.getInstance().getScreenWidth() / 2;
                var17 = Core.getInstance().getScreenHeight() / 2;
-               var18 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
-               var21 = 2;
-               var23 = var17 - (var18 + var21 + var18) / 2;
+               var22 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
+               var23 = 2;
+               var26 = var17 - (var22 + var23 + var22) / 2;
                var10 = GameWindow.kickReason;
                if (var10 == null) {
                   var10 = Translator.getText("UI_OnConnectFailed_ConnectionLost");
                }
 
-               TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var16, (double)var23, var10, 0.8, 0.1, 0.1, 1.0);
+               TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var16, (double)var26, var10, 0.8, 0.1, 0.1, 1.0);
                UIManager.render();
                Core.getInstance().EndFrameUI();
             } else {
-               if (build23Stop) {
-                  TextManager.instance.DrawStringCentre(UIFont.Small, (double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() - 100), "This save is incompatible. Please switch to Steam branch \"build23\" to continue this save.", 0.8, 0.1, 0.1, 1.0);
+               if (worldVersionError) {
+                  if (WorldConverter.convertingVersion == 0) {
+                     TextManager.instance.DrawStringCentre(UIFont.Small, (double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() - 100), Translator.getText("UI_CorruptedWorldVersion"), 0.8, 0.1, 0.1, 1.0);
+                  } else if (WorldConverter.convertingVersion < WorldConverter.MIN_VERSION) {
+                     TextManager.instance.DrawStringCentre(UIFont.Small, (double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() - 100), Translator.getText("UI_ConvertWorldFailure"), 0.8, 0.1, 0.1, 1.0);
+                  }
                } else if (convertingWorld) {
                   TextManager.instance.DrawStringCentre(UIFont.Small, (double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() - 100), Translator.getText("UI_ConvertWorld"), 0.5, 0.5, 0.5, 1.0);
                   if (convertingFileMax != -1) {
@@ -534,15 +629,15 @@ public final class GameLoadingState extends GameState {
                if (playerWrongIP) {
                   var16 = Core.getInstance().getScreenWidth() / 2;
                   var17 = Core.getInstance().getScreenHeight() / 2;
-                  var18 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
-                  var21 = 2;
-                  var23 = var17 - (var18 + var21 + var18) / 2;
+                  var22 = TextManager.instance.getFontFromEnum(UIFont.Medium).getLineHeight();
+                  var23 = 2;
+                  var26 = var17 - (var22 + var23 + var22) / 2;
                   var10 = GameLoadingString;
                   if (GameLoadingString == null) {
                      var10 = "";
                   }
 
-                  TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var16, (double)var23, var10, 0.8, 0.1, 0.1, 1.0);
+                  TextManager.instance.DrawStringCentre(UIFont.Medium, (double)var16, (double)var26, var10, 0.8, 0.1, 0.1, 1.0);
                   UIManager.render();
                   Core.getInstance().EndFrameUI();
                } else {
@@ -586,29 +681,44 @@ public final class GameLoadingState extends GameState {
 
                   if (bDone && playerCreated && (!newGame || this.Time >= this.TotalTime || Core.isLastStand() || "Tutorial".equals(Core.GameMode))) {
                      if (this.clickToSkipFadeIn) {
-                        this.clickToSkipAlpha += GameTime.getInstance().getMultiplier() / 1.6F / 30.0F;
+                        this.clickToSkipAlpha += GameTime.getInstance().getThirtyFPSMultiplier() / 30.0F;
                         if (this.clickToSkipAlpha > 1.0F) {
                            this.clickToSkipAlpha = 1.0F;
                            this.clickToSkipFadeIn = false;
                         }
                      } else {
                         bShowedClickToSkip = true;
-                        this.clickToSkipAlpha -= GameTime.getInstance().getMultiplier() / 1.6F / 30.0F;
+                        this.clickToSkipAlpha -= GameTime.getInstance().getThirtyFPSMultiplier() / 30.0F;
                         if (this.clickToSkipAlpha < 0.25F) {
                            this.clickToSkipFadeIn = true;
                         }
                      }
 
+                     var16 = Core.getInstance().getScreenHeight();
+                     Texture var18 = MainScreenState.getCustomBackgroundImage();
+                     if (var18 != null && var18.isReady()) {
+                        int[] var19 = new int[4];
+                        MainScreenState.getCustomBackgroundImageBounds(var18, var19);
+                        var16 = var19[1] + var19[3];
+                     }
+
                      if (GameWindow.ActivatedJoyPad != null && !JoypadManager.instance.JoypadList.isEmpty()) {
-                        Texture var19 = Texture.getSharedTexture("media/ui/xbox/XBOX_A.png");
-                        if (var19 != null) {
-                           var17 = TextManager.instance.getFontFromEnum(UIFont.Small).getLineHeight();
-                           SpriteRenderer.instance.renderi(var19, Core.getInstance().getScreenWidth() / 2 - TextManager.instance.MeasureStringX(UIFont.Small, Translator.getText("UI_PressAToStart")) / 2 - 8 - var19.getWidth(), Core.getInstance().getScreenHeight() - 60 + var17 / 2 - var19.getHeight() / 2, var19.getWidth(), var19.getHeight(), 1.0F, 1.0F, 1.0F, this.clickToSkipAlpha, (Consumer)null);
+                        String var20;
+                        if (Core.getInstance().getOptionControllerButtonStyle() == 1) {
+                           var20 = "XBOX";
+                        } else {
+                           var20 = "PS4";
                         }
 
-                        TextManager.instance.DrawStringCentre(UIFont.Small, (double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() - 60), Translator.getText("UI_PressAToStart"), 1.0, 1.0, 1.0, (double)this.clickToSkipAlpha);
+                        Texture var21 = Texture.getSharedTexture("media/ui/controller/" + var20 + "_A.png");
+                        if (var21 != null) {
+                           var26 = TextManager.instance.getFontFromEnum(UIFont.Small).getLineHeight();
+                           SpriteRenderer.instance.renderi(var21, Core.getInstance().getScreenWidth() / 2 - TextManager.instance.MeasureStringX(UIFont.Small, Translator.getText("UI_PressAToStart")) / 2 - 8 - var21.getWidth(), var16 - 60 + var26 / 2 - var21.getHeight() / 2, var21.getWidth(), var21.getHeight(), 1.0F, 1.0F, 1.0F, this.clickToSkipAlpha, (Consumer)null);
+                        }
+
+                        TextManager.instance.DrawStringCentre(UIFont.Small, (double)(Core.getInstance().getScreenWidth() / 2), (double)(var16 - 60), Translator.getText("UI_PressAToStart"), 1.0, 1.0, 1.0, (double)this.clickToSkipAlpha);
                      } else {
-                        TextManager.instance.DrawStringCentre(UIFont.NewLarge, (double)(Core.getInstance().getScreenWidth() / 2), (double)(Core.getInstance().getScreenHeight() - 60), Translator.getText("UI_ClickToSkip"), 1.0, 1.0, 1.0, (double)this.clickToSkipAlpha);
+                        TextManager.instance.DrawStringCentre(UIFont.NewLarge, (double)(Core.getInstance().getScreenWidth() / 2), (double)(var16 - 60), Translator.getText("UI_ClickToSkip"), 1.0, 1.0, 1.0, (double)this.clickToSkipAlpha);
                      }
                   }
 
@@ -619,6 +729,41 @@ public final class GameLoadingState extends GameState {
             }
          }
       }
+   }
+
+   private void renderProgressIndicator() {
+      if (this.animatedTexture == null) {
+         this.animatedTexture = AnimatedTextures.getTexture("media/ui/Progress/ZombieWalkLogo.png");
+      }
+
+      if (this.animatedTexture.isReady()) {
+         short var1 = 196;
+         float var2 = (float)var1 / (float)this.animatedTexture.getWidth();
+         int var3 = (int)((float)this.animatedTexture.getHeight() * var2);
+         float var4 = 0.66F;
+         if (bDone && bShowedClickToSkip) {
+            if (this.progressFadeStartMS == 0L) {
+               this.progressFadeStartMS = System.currentTimeMillis();
+            }
+
+            long var5 = 200L;
+            long var7 = PZMath.clamp(System.currentTimeMillis() - this.progressFadeStartMS, 0L, var5);
+            var4 *= 1.0F - (float)var7 / (float)var5;
+            if (var4 == 0.0F) {
+               return;
+            }
+         }
+
+         Texture var9 = MainScreenState.getCustomBackgroundImage();
+         if (var9 != null && var9.isReady()) {
+            int[] var6 = new int[4];
+            MainScreenState.getCustomBackgroundImageBounds(var9, var6);
+            this.animatedTexture.render(Core.getInstance().getScreenWidth() / 2 - var1 / 2, var6[1] + var6[3] - var3, var1, var3, 1.0F, 1.0F, 1.0F, var4);
+         } else {
+            this.animatedTexture.render(Core.getInstance().getScreenWidth() / 2 - var1 / 2, Core.getInstance().getScreenHeight() - var3, var1, var3, 1.0F, 1.0F, 1.0F, var4);
+         }
+      }
+
    }
 
    public GameStateMachine.StateAction update() {
@@ -679,6 +824,8 @@ public final class GameLoadingState extends GameState {
             IsoPlayer.setInstance((IsoPlayer)null);
             IsoPlayer.players[0] = null;
             UIManager.UI.clear();
+            LuaManager.thread.debugOwnerThread = GameWindow.GameThread;
+            LuaManager.debugthread.debugOwnerThread = GameWindow.GameThread;
             LuaEventManager.Reset();
             LuaManager.call("ISGameLoadingUI_OnGameLoadingUI", "");
             UIManager.bSuspend = false;

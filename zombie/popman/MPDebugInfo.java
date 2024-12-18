@@ -8,33 +8,28 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import zombie.GameTime;
 import zombie.WorldSoundManager;
-import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Colors;
 import zombie.core.network.ByteBufferWriter;
-import zombie.core.raknet.RakVoice;
-import zombie.core.raknet.UdpConnection;
-import zombie.debug.DebugOptions;
-import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
-import zombie.iso.Vector2;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.service.ServerDebugInfo;
 
 public final class MPDebugInfo {
    public static final MPDebugInfo instance = new MPDebugInfo();
    private static final ConcurrentHashMap<Long, MPSoundDebugInfo> debugSounds = new ConcurrentHashMap();
-   private final ArrayList<MPCell> loadedCells = new ArrayList();
-   private final ObjectPool<MPCell> cellPool = new ObjectPool(MPCell::new);
-   private final LoadedAreas loadedAreas = new LoadedAreas(false);
-   private ArrayList<MPRepopEvent> repopEvents = new ArrayList();
-   private final ObjectPool<MPRepopEvent> repopEventPool = new ObjectPool(MPRepopEvent::new);
-   private short repopEpoch = 0;
-   private long requestTime = 0L;
+   public final ArrayList<MPCell> loadedCells = new ArrayList();
+   public final ObjectPool<MPCell> cellPool = new ObjectPool(MPCell::new);
+   public final LoadedAreas loadedAreas = new LoadedAreas(false);
+   public ArrayList<MPRepopEvent> repopEvents = new ArrayList();
+   public final ObjectPool<MPRepopEvent> repopEventPool = new ObjectPool(MPRepopEvent::new);
+   public short repopEpoch = 0;
+   public long requestTime = 0L;
    private boolean requestFlag = false;
-   private boolean requestPacketReceived = false;
+   public boolean requestPacketReceived = false;
    private final ByteBuffer byteBuffer = ByteBuffer.allocateDirect(1024);
    private float RESPAWN_EVERY_HOURS = 1.0F;
    private float REPOP_DISPLAY_HOURS = 0.5F;
@@ -63,139 +58,12 @@ public final class MPDebugInfo {
          long var1 = System.currentTimeMillis();
          if (this.requestTime + 1000L <= var1) {
             this.requestTime = var1;
-            ByteBufferWriter var3 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.KeepAlive.doPacket(var3);
-            var3.bb.put((byte)1);
-            var3.bb.putShort(this.repopEpoch);
-            PacketTypes.PacketType.KeepAlive.send(GameClient.connection);
-         }
-      }
-   }
-
-   public void clientPacket(ByteBuffer var1) {
-      if (GameClient.bClient) {
-         byte var2 = var1.get();
-         short var3;
-         int var4;
-         if (var2 == 1) {
-            this.cellPool.release((List)this.loadedCells);
-            this.loadedCells.clear();
-            this.RESPAWN_EVERY_HOURS = var1.getFloat();
-            var3 = var1.getShort();
-
-            for(var4 = 0; var4 < var3; ++var4) {
-               MPCell var5 = (MPCell)this.cellPool.alloc();
-               var5.cx = var1.getShort();
-               var5.cy = var1.getShort();
-               var5.currentPopulation = var1.getShort();
-               var5.desiredPopulation = var1.getShort();
-               var5.lastRepopTime = var1.getFloat();
-               this.loadedCells.add(var5);
-            }
-
-            this.loadedAreas.clear();
-            short var10 = var1.getShort();
-
-            for(int var11 = 0; var11 < var10; ++var11) {
-               short var6 = var1.getShort();
-               short var7 = var1.getShort();
-               short var8 = var1.getShort();
-               short var9 = var1.getShort();
-               this.loadedAreas.add(var6, var7, var8, var9);
-            }
-         }
-
-         if (var2 == 2) {
-            this.repopEventPool.release((List)this.repopEvents);
-            this.repopEvents.clear();
-            this.repopEpoch = var1.getShort();
-            var3 = var1.getShort();
-
-            for(var4 = 0; var4 < var3; ++var4) {
-               MPRepopEvent var12 = (MPRepopEvent)this.repopEventPool.alloc();
-               var12.wx = var1.getShort();
-               var12.wy = var1.getShort();
-               var12.worldAge = var1.getFloat();
-               this.repopEvents.add(var12);
-            }
-         }
-
-      }
-   }
-
-   public void serverPacket(ByteBuffer var1, UdpConnection var2) {
-      if (GameServer.bServer) {
-         if (var2.accessLevel == 32) {
-            byte var3 = var1.get();
-            short var4;
-            if (var3 == 1) {
-               this.requestTime = System.currentTimeMillis();
-               this.requestPacketReceived = true;
-               var4 = var1.getShort();
-               ByteBufferWriter var5 = var2.startPacket();
-               PacketTypes.PacketType.KeepAlive.doPacket(var5);
-               var5.bb.put((byte)1);
-               var5.bb.putFloat(this.RESPAWN_EVERY_HOURS);
-               var5.bb.putShort((short)this.loadedCells.size());
-
-               int var6;
-               for(var6 = 0; var6 < this.loadedCells.size(); ++var6) {
-                  MPCell var7 = (MPCell)this.loadedCells.get(var6);
-                  var5.bb.putShort(var7.cx);
-                  var5.bb.putShort(var7.cy);
-                  var5.bb.putShort(var7.currentPopulation);
-                  var5.bb.putShort(var7.desiredPopulation);
-                  var5.bb.putFloat(var7.lastRepopTime);
-               }
-
-               var5.bb.putShort((short)this.loadedAreas.count);
-
-               for(var6 = 0; var6 < this.loadedAreas.count; ++var6) {
-                  int var12 = var6 * 4;
-                  var5.bb.putShort((short)this.loadedAreas.areas[var12++]);
-                  var5.bb.putShort((short)this.loadedAreas.areas[var12++]);
-                  var5.bb.putShort((short)this.loadedAreas.areas[var12++]);
-                  var5.bb.putShort((short)this.loadedAreas.areas[var12++]);
-               }
-
-               if (var4 != this.repopEpoch) {
-                  var3 = 2;
-               }
-
-               PacketTypes.PacketType.KeepAlive.send(var2);
-            }
-
-            if (var3 != 2) {
-               short var10;
-               if (var3 == 3) {
-                  var4 = var1.getShort();
-                  var10 = var1.getShort();
-                  ZombiePopulationManager.instance.dbgSpawnTimeToZero(var4, var10);
-               } else if (var3 == 4) {
-                  var4 = var1.getShort();
-                  var10 = var1.getShort();
-                  ZombiePopulationManager.instance.dbgClearZombies(var4, var10);
-               } else if (var3 == 5) {
-                  var4 = var1.getShort();
-                  var10 = var1.getShort();
-                  ZombiePopulationManager.instance.dbgSpawnNow(var4, var10);
-               }
-            } else {
-               ByteBufferWriter var8 = var2.startPacket();
-               PacketTypes.PacketType.KeepAlive.doPacket(var8);
-               var8.bb.put((byte)2);
-               var8.bb.putShort(this.repopEpoch);
-               var8.bb.putShort((short)this.repopEvents.size());
-
-               for(int var9 = 0; var9 < this.repopEvents.size(); ++var9) {
-                  MPRepopEvent var11 = (MPRepopEvent)this.repopEvents.get(var9);
-                  var8.bb.putShort((short)var11.wx);
-                  var8.bb.putShort((short)var11.wy);
-                  var8.bb.putFloat(var11.worldAge);
-               }
-
-               PacketTypes.PacketType.KeepAlive.send(var2);
-            }
+            ServerDebugInfo var3 = new ServerDebugInfo();
+            var3.setRequestServerInfo();
+            ByteBufferWriter var4 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.ServerDebugInfo.doPacket(var4);
+            var3.write(var4);
+            PacketTypes.PacketType.ServerDebugInfo.send(GameClient.connection);
          }
       }
    }
@@ -312,21 +180,21 @@ public final class MPDebugInfo {
       this.requestServerInfo();
       float var3 = (float)GameTime.getInstance().getWorldAgeHours();
       IsoMetaGrid var4 = IsoWorld.instance.MetaGrid;
-      var1.outlineRect((float)(var4.minX * 300) * 1.0F, (float)(var4.minY * 300) * 1.0F, (float)((var4.maxX - var4.minX + 1) * 300) * 1.0F, (float)((var4.maxY - var4.minY + 1) * 300) * 1.0F, 1.0F, 1.0F, 1.0F, 0.25F);
+      var1.outlineRect((float)(var4.minX * ZombiePopulationManager.SQUARES_PER_CELL) * 1.0F, (float)(var4.minY * ZombiePopulationManager.SQUARES_PER_CELL) * 1.0F, (float)((var4.maxX - var4.minX + 1) * ZombiePopulationManager.SQUARES_PER_CELL) * 1.0F, (float)((var4.maxY - var4.minY + 1) * ZombiePopulationManager.SQUARES_PER_CELL) * 1.0F, 1.0F, 1.0F, 1.0F, 0.25F);
 
       int var5;
       MPCell var6;
       float var7;
       for(var5 = 0; var5 < this.loadedCells.size(); ++var5) {
          var6 = (MPCell)this.loadedCells.get(var5);
-         var1.outlineRect((float)(var6.cx * 300), (float)(var6.cy * 300), 300.0F, 300.0F, 1.0F, 1.0F, 1.0F, 0.25F);
+         var1.outlineRect((float)(var6.cx * ZombiePopulationManager.SQUARES_PER_CELL), (float)(var6.cy * ZombiePopulationManager.SQUARES_PER_CELL), (float)ZombiePopulationManager.SQUARES_PER_CELL, (float)ZombiePopulationManager.SQUARES_PER_CELL, 1.0F, 1.0F, 1.0F, 0.25F);
          if (this.isRespawnEnabled()) {
             var7 = Math.min(var3 - var6.lastRepopTime, this.RESPAWN_EVERY_HOURS) / this.RESPAWN_EVERY_HOURS;
             if (var6.lastRepopTime > var3) {
                var7 = 0.0F;
             }
 
-            var1.outlineRect((float)(var6.cx * 300 + 1), (float)(var6.cy * 300 + 1), 298.0F, 298.0F, 0.0F, 1.0F, 0.0F, var7 * var7);
+            var1.outlineRect((float)(var6.cx * ZombiePopulationManager.SQUARES_PER_CELL + 1), (float)(var6.cy * ZombiePopulationManager.SQUARES_PER_CELL + 1), (float)(ZombiePopulationManager.SQUARES_PER_CELL - 2), (float)(ZombiePopulationManager.SQUARES_PER_CELL - 2), 0.0F, 1.0F, 0.0F, var7 * var7);
          }
       }
 
@@ -336,7 +204,7 @@ public final class MPDebugInfo {
          int var8 = this.loadedAreas.areas[var12++];
          int var9 = this.loadedAreas.areas[var12++];
          int var10 = this.loadedAreas.areas[var12++];
-         var1.outlineRect((float)(var14 * 10), (float)(var8 * 10), (float)(var9 * 10), (float)(var10 * 10), 0.7F, 0.7F, 0.7F, 1.0F);
+         var1.outlineRect((float)(var14 * 8), (float)(var8 * 8), (float)(var9 * 8), (float)(var10 * 8), 0.7F, 0.7F, 0.7F, 1.0F);
       }
 
       for(var5 = 0; var5 < this.repopEvents.size(); ++var5) {
@@ -344,38 +212,7 @@ public final class MPDebugInfo {
          if (!(var15.worldAge + this.REPOP_DISPLAY_HOURS < var3)) {
             var7 = 1.0F - (var3 - var15.worldAge) / this.REPOP_DISPLAY_HOURS;
             var7 = Math.max(var7, 0.1F);
-            var1.outlineRect((float)(var15.wx * 10), (float)(var15.wy * 10), 50.0F, 50.0F, 0.0F, 0.0F, 1.0F, var7);
-         }
-      }
-
-      Color var23;
-      if (GameClient.bClient && DebugOptions.instance.MultiplayerShowPosition.getValue()) {
-         float var13 = (float)((IsoChunkMap.ChunkGridWidth / 2 + 2) * 10);
-         Iterator var17 = GameClient.positions.entrySet().iterator();
-
-         while(var17.hasNext()) {
-            Map.Entry var21 = (Map.Entry)var17.next();
-            IsoPlayer var18 = (IsoPlayer)GameClient.IDToPlayerMap.get(var21.getKey());
-            Color var22 = Color.white;
-            if (var18 != null) {
-               var22 = var18.getSpeakColour();
-            }
-
-            Vector2 var25 = (Vector2)var21.getValue();
-            var1.renderZombie(var25.x, var25.y, var22.r, var22.g, var22.b);
-            var1.renderCircle(var25.x, var25.y, var13, var22.r, var22.g, var22.b, var22.a);
-            var1.renderString(var25.x, var25.y, var18 == null ? String.valueOf(var21.getKey()) : var18.getUsername(), (double)var22.r, (double)var22.g, (double)var22.b, (double)var22.a);
-         }
-
-         if (IsoPlayer.getInstance() != null) {
-            IsoPlayer var19 = IsoPlayer.getInstance();
-            var23 = var19.getSpeakColour();
-            var1.renderZombie(var19.x, var19.y, var23.r, var23.g, var23.b);
-            var1.renderCircle(var19.x, var19.y, var13, var23.r, var23.g, var23.b, var23.a);
-            var1.renderString(var19.x, var19.y, var19.getUsername(), (double)var23.r, (double)var23.g, (double)var23.b, (double)var23.a);
-            var23 = Colors.LightBlue;
-            var1.renderCircle(var19.x, var19.y, RakVoice.GetMinDistance(), var23.r, var23.g, var23.b, var23.a);
-            var1.renderCircle(var19.x, var19.y, RakVoice.GetMaxDistance(), var23.r, var23.g, var23.b, var23.a);
+            var1.outlineRect((float)(var15.wx * 8), (float)(var15.wy * 8), 40.0F, 40.0F, 0.0F, 0.0F, 1.0F, var7);
          }
       }
 
@@ -390,19 +227,19 @@ public final class MPDebugInfo {
          debugSounds.entrySet().removeIf((var0) -> {
             return System.currentTimeMillis() > (Long)var0.getKey() + 1000L;
          });
-         Iterator var16 = debugSounds.entrySet().iterator();
+         Iterator var13 = debugSounds.entrySet().iterator();
 
-         while(var16.hasNext()) {
-            Map.Entry var24 = (Map.Entry)var16.next();
-            var23 = Colors.LightBlue;
-            if (((MPSoundDebugInfo)var24.getValue()).sourceIsZombie) {
-               var23 = Colors.GreenYellow;
-            } else if (((MPSoundDebugInfo)var24.getValue()).bRepeating) {
-               var23 = Colors.Coral;
+         while(var13.hasNext()) {
+            Map.Entry var17 = (Map.Entry)var13.next();
+            Color var18 = Colors.LightBlue;
+            if (((MPSoundDebugInfo)var17.getValue()).sourceIsZombie) {
+               var18 = Colors.GreenYellow;
+            } else if (((MPSoundDebugInfo)var17.getValue()).bRepeating) {
+               var18 = Colors.Coral;
             }
 
-            float var20 = 1.0F - Math.max(0.0F, Math.min(1.0F, (float)(System.currentTimeMillis() - (Long)var24.getKey()) / 1000.0F));
-            var1.renderCircle((float)((MPSoundDebugInfo)var24.getValue()).x, (float)((MPSoundDebugInfo)var24.getValue()).y, (float)((MPSoundDebugInfo)var24.getValue()).radius, var23.r, var23.g, var23.b, var20);
+            float var16 = 1.0F - Math.max(0.0F, Math.min(1.0F, (float)(System.currentTimeMillis() - (Long)var17.getKey()) / 1000.0F));
+            var1.renderCircle((float)((MPSoundDebugInfo)var17.getValue()).x, (float)((MPSoundDebugInfo)var17.getValue()).y, (float)((MPSoundDebugInfo)var17.getValue()).radius, var18.r, var18.g, var18.b, var16);
          }
       } catch (Exception var11) {
       }
@@ -417,14 +254,30 @@ public final class MPDebugInfo {
 
    }
 
-   private static final class MPCell {
+   public static final class MPRepopEvent {
+      public int wx;
+      public int wy;
+      public float worldAge;
+
+      public MPRepopEvent() {
+      }
+
+      public MPRepopEvent init(int var1, int var2, float var3) {
+         this.wx = var1;
+         this.wy = var2;
+         this.worldAge = var3;
+         return this;
+      }
+   }
+
+   public static final class MPCell {
       public short cx;
       public short cy;
       public short currentPopulation;
       public short desiredPopulation;
       public float lastRepopTime;
 
-      private MPCell() {
+      public MPCell() {
       }
 
       MPCell init(int var1, int var2, int var3, int var4, float var5) {
@@ -433,22 +286,6 @@ public final class MPDebugInfo {
          this.currentPopulation = (short)var3;
          this.desiredPopulation = (short)var4;
          this.lastRepopTime = var5;
-         return this;
-      }
-   }
-
-   private static final class MPRepopEvent {
-      public int wx;
-      public int wy;
-      public float worldAge;
-
-      private MPRepopEvent() {
-      }
-
-      public MPRepopEvent init(int var1, int var2, float var3) {
-         this.wx = var1;
-         this.wy = var2;
-         this.worldAge = var3;
          return this;
       }
    }

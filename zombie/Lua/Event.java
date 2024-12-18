@@ -8,6 +8,7 @@ import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.LuaCallFrame;
 import se.krka.kahlua.vm.LuaClosure;
 import se.krka.kahlua.vm.Platform;
+import zombie.GameProfiler;
 import zombie.core.logger.ExceptionLogger;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
@@ -26,28 +27,47 @@ public final class Event {
          return false;
       } else {
          int var4;
+         LuaClosure var5;
+         GameProfiler.ProfileArea var6;
          if (DebugOptions.instance.Checks.SlowLuaEvents.getValue()) {
             for(var4 = 0; var4 < this.callbacks.size(); ++var4) {
+               var5 = (LuaClosure)this.callbacks.get(var4);
+               var6 = GameProfiler.getInstance().startIfEnabled("Lua - " + this.name);
+
                try {
-                  LuaClosure var5 = (LuaClosure)this.callbacks.get(var4);
-                  long var6 = System.nanoTime();
+                  long var7 = System.nanoTime();
                   var2.protectedCallVoid(LuaManager.thread, var5, var3);
-                  double var8 = (double)(System.nanoTime() - var6) / 1000000.0;
-                  if (var8 > 250.0) {
-                     DebugLog.Lua.warn("SLOW Lua event callback %s %s %dms", var5.prototype.file, var5, (int)var8);
+                  double var9 = (double)(System.nanoTime() - var7) / 1000000.0;
+                  if (var9 > 250.0) {
+                     DebugLog.Lua.warn("SLOW Lua event callback %s %s %dms", var5.prototype.file, var5, (int)var9);
                   }
-               } catch (Exception var10) {
-                  ExceptionLogger.logException(var10);
+               } catch (Exception var21) {
+                  ExceptionLogger.logException(var21);
+               } finally {
+                  GameProfiler.getInstance().end(var6);
+               }
+
+               if (!this.callbacks.contains(var5)) {
+                  --var4;
                }
             }
 
             return true;
          } else {
             for(var4 = 0; var4 < this.callbacks.size(); ++var4) {
+               var5 = (LuaClosure)this.callbacks.get(var4);
+               var6 = GameProfiler.getInstance().startIfEnabled("Lua - " + this.name);
+
                try {
-                  var2.protectedCallVoid(LuaManager.thread, this.callbacks.get(var4), var3);
-               } catch (Exception var11) {
-                  ExceptionLogger.logException(var11);
+                  var2.protectedCallVoid(LuaManager.thread, var5, var3);
+               } catch (Exception var23) {
+                  ExceptionLogger.logException(var23);
+               } finally {
+                  GameProfiler.getInstance().end(var6);
+               }
+
+               if (!this.callbacks.contains(var5)) {
+                  --var4;
                }
             }
 

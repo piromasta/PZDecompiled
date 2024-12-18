@@ -1,5 +1,7 @@
 package zombie.core.skinnedmodel.advancedanimation;
 
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import zombie.util.StringUtils;
 
 public final class AnimationVariableSlotCallbackBool extends AnimationVariableSlotCallback<Boolean> {
@@ -59,9 +61,9 @@ public final class AnimationVariableSlotCallbackBool extends AnimationVariableSl
       return StringUtils.tryParseBoolean(var1);
    }
 
-   public interface CallbackSetStrongTyped extends AnimationVariableSlotCallback.CallbackSet<Boolean> {
+   public interface CallbackSetStrongTyped extends Consumer<Boolean> {
    }
 
-   public interface CallbackGetStrongTyped extends AnimationVariableSlotCallback.CallbackGet<Boolean> {
+   public interface CallbackGetStrongTyped extends Supplier<Boolean> {
    }
 }

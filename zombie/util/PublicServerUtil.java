@@ -12,6 +12,8 @@ import zombie.core.Core;
 import zombie.core.ThreadGroups;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
+import zombie.debug.DebugType;
+import zombie.debug.LogSeverity;
 import zombie.network.GameServer;
 import zombie.network.ServerOptions;
 
@@ -76,17 +78,18 @@ public final class PublicServerUtil {
                if (var10.contains("ip")) {
                   GameServer.ip = var10.split("=")[1].trim();
                   if (GameServer.ip.contains(":")) {
-                     String var10000 = GameServer.ip;
-                     DebugLog.log("The IP address (" + var10000 + ") looks like the IPv6 address. Please make sure IPv4 server address is set to the " + ServerOptions.getInstance().server_browser_announced_ip.getName() + " server option.");
+                     String var10001 = GameServer.ip;
+                     DebugLog.DetailedInfo.trace("The IP address (" + var10001 + ") looks like the IPv6 address. Please make sure IPv4 server address is set to the " + ServerOptions.getInstance().server_browser_announced_ip.getName() + " server option.");
                   }
                }
             }
          } catch (SocketTimeoutException var11) {
             isEnabled = false;
             DebugLog.log("timeout trying to connect to public server list");
+            DebugType.General.printException(var11, "timeout trying to connect to public server list", LogSeverity.General);
          } catch (Exception var12) {
             isEnabled = false;
-            var12.printStackTrace();
+            DebugType.General.printException(var12, "Exception thrown during PublicServerUtil.init()", LogSeverity.Error);
          }
 
       }
@@ -162,7 +165,7 @@ public final class PublicServerUtil {
          timestampForUpdate = System.currentTimeMillis();
          int var5 = GameServer.getPlayerCount();
          var10000 = webSite;
-         callUrl(var10000 + "write.php?name=" + ServerOptions.instance.PublicName.getValue().replaceAll(" ", "%20") + var0 + "&port=" + ServerOptions.instance.DefaultPort.getValue() + "&UDPPort=" + ServerOptions.instance.UDPPort.getValue() + "&players=" + var5 + "&ip=" + var4 + "&open=" + (ServerOptions.instance.Open.getValue() ? "1" : "0") + "&password=" + ("".equals(ServerOptions.instance.Password.getValue()) ? "0" : "1") + "&maxPlayers=" + ServerOptions.getInstance().getMaxPlayers() + "&version=" + Core.getInstance().getVersion().replaceAll(" ", "%20") + var1 + "&mac=" + getMacAddress());
+         callUrl(var10000 + "write.php?name=" + ServerOptions.instance.PublicName.getValue().replaceAll(" ", "%20") + var0 + "&port=" + ServerOptions.instance.DefaultPort.getValue() + "&UDPPort=" + ServerOptions.instance.UDPPort.getValue() + "&players=" + var5 + "&ip=" + var4 + "&open=" + (ServerOptions.instance.Open.getValue() ? "1" : "0") + "&password=" + ("".equals(ServerOptions.instance.Password.getValue()) ? "0" : "1") + "&maxPlayers=" + ServerOptions.getInstance().getMaxPlayers() + "&version=" + Core.getInstance().getVersionNumber().replaceAll(" ", "%20") + var1 + "&mac=" + getMacAddress());
          sentPlayerCount = var5;
       }
    }

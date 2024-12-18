@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding.TableStories;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 
 public final class RBTSButcher extends RBTableStoryBase {
@@ -14,7 +14,7 @@ public final class RBTSButcher extends RBTableStoryBase {
    public void randomizeBuilding(BuildingDef var1) {
       String var2 = "Base.DeadRabbit";
       String var3 = "Base.Rabbitmeat";
-      int var4 = Rand.Next(0, 4);
+      int var4 = Rand.Next(4);
       switch (var4) {
          case 0:
             var2 = "Base.DeadBird";
@@ -25,15 +25,7 @@ public final class RBTSButcher extends RBTableStoryBase {
             var3 = "Base.Smallanimalmeat";
             break;
          case 2:
-            var2 = "Base.Panfish";
-            var3 = "Base.FishFillet";
-            break;
-         case 3:
             var2 = "Base.BaitFish";
-            var3 = "Base.FishFillet";
-            break;
-         case 4:
-            var2 = "Base.Catfish";
             var3 = "Base.FishFillet";
       }
 

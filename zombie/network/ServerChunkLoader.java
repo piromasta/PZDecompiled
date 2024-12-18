@@ -19,13 +19,10 @@ import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.SliceY;
 import zombie.iso.WorldReuserThread;
 import zombie.iso.SpriteDetails.IsoFlagType;
-import zombie.iso.sprite.IsoSprite;
-import zombie.iso.sprite.IsoSpriteManager;
 
 public class ServerChunkLoader {
    private long debugSlowMapLoadingDelay = 0L;
@@ -51,7 +48,7 @@ public class ServerChunkLoader {
    }
 
    public void addJob(ServerMap.ServerCell var1) {
-      this.MapLoading = DebugType.Do(DebugType.MapLoading);
+      this.MapLoading = DebugType.MapLoading.isEnabled();
       this.threadLoad.toThread.add(var1);
       MPStatistic.getInstance().LoaderThreadTasks.Added();
    }
@@ -135,10 +132,10 @@ public class ServerChunkLoader {
                   if (!var1.bCancelLoading) {
                      long var2 = System.nanoTime();
 
-                     for(int var4 = 0; var4 < 5; ++var4) {
-                        for(int var5 = 0; var5 < 5; ++var5) {
-                           int var6 = var1.WX * 5 + var4;
-                           int var7 = var1.WY * 5 + var5;
+                     for(int var4 = 0; var4 < 8; ++var4) {
+                        for(int var5 = 0; var5 < 8; ++var5) {
+                           int var6 = var1.WX * 8 + var4;
+                           int var7 = var1.WY * 8 + var5;
                            if (IsoWorld.instance.MetaGrid.isValidChunk(var6, var7)) {
                               IsoChunk var8 = (IsoChunk)IsoChunkMap.chunkStore.poll();
                               if (var8 == null) {
@@ -147,6 +144,7 @@ public class ServerChunkLoader {
                                  MPStatistics.decreaseStoredChunk();
                               }
 
+                              var8.assignLoadID();
                               ServerChunkLoader.this.threadSave.saveNow(var6, var7);
 
                               try {
@@ -181,7 +179,7 @@ public class ServerChunkLoader {
                      MPStatistic.getInstance().LoaderThreadTasks.Processed();
                   } else {
                      if (ServerChunkLoader.this.MapLoading) {
-                        DebugLog.log(DebugType.MapLoading, "LoaderThread: cancelled " + var1.WX + "," + var1.WY);
+                        DebugLog.MapLoading.debugln("LoaderThread: cancelled " + var1.WX + "," + var1.WY);
                      }
 
                      var1.bLoadingWasCancelled = true;
@@ -226,65 +224,57 @@ public class ServerChunkLoader {
          ServerMap.ServerCell var1 = (ServerMap.ServerCell)this.toThread.take();
          MPStatistic.getInstance().RecalcAllThread.Start();
          if (var1.bCancelLoading && !this.hasAnyBrandNewChunks(var1)) {
-            for(int var18 = 0; var18 < 5; ++var18) {
-               for(int var3 = 0; var3 < 5; ++var3) {
-                  IsoChunk var19 = var1.chunks[var3][var18];
-                  if (var19 != null) {
-                     var1.chunks[var3][var18] = null;
-                     WorldReuserThread.instance.addReuseChunk(var19);
+            for(int var19 = 0; var19 < 8; ++var19) {
+               for(int var3 = 0; var3 < 8; ++var3) {
+                  IsoChunk var20 = var1.chunks[var3][var19];
+                  if (var20 != null) {
+                     var1.chunks[var3][var19] = null;
+                     WorldReuserThread.instance.addReuseChunk(var20);
                   }
                }
             }
 
             if (ServerChunkLoader.this.MapLoading) {
-               DebugLog.log(DebugType.MapLoading, "RecalcAllThread: cancelled " + var1.WX + "," + var1.WY);
+               DebugLog.MapLoading.debugln("RecalcAllThread: cancelled " + var1.WX + "," + var1.WY);
             }
 
             var1.bLoadingWasCancelled = true;
          } else {
             long var2 = System.nanoTime();
             this.serverCellGetSquare.cell = var1;
-            int var4 = var1.WX * 50;
-            int var5 = var1.WY * 50;
-            int var6 = var4 + 50;
-            int var7 = var5 + 50;
+            int var4 = var1.WX * 64;
+            int var5 = var1.WY * 64;
+            int var6 = var4 + 64;
+            int var7 = var5 + 64;
             int var8 = 0;
-            byte var9 = 100;
+            byte var9 = 64;
 
             int var10;
             int var11;
             IsoChunk var12;
             int var13;
             int var14;
-            IsoGridSquare var15;
-            for(var10 = 0; var10 < 5; ++var10) {
-               for(var11 = 0; var11 < 5; ++var11) {
+            int var15;
+            IsoGridSquare var16;
+            for(var10 = 0; var10 < 8; ++var10) {
+               for(var11 = 0; var11 < 8; ++var11) {
                   var12 = var1.chunks[var10][var11];
                   if (var12 != null) {
                      var12.bLoaded = false;
 
                      for(var13 = 0; var13 < var9; ++var13) {
-                        for(var14 = 0; var14 <= var12.maxLevel; ++var14) {
-                           var15 = var12.squares[var14][var13];
-                           if (var14 == 0) {
-                              if (var15 == null) {
-                                 int var16 = var12.wx * 10 + var13 % 10;
-                                 int var17 = var12.wy * 10 + var13 / 10;
-                                 var15 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, var16, var17, var14);
-                                 var12.setSquare(var16 % 10, var17 % 10, var14, var15);
-                              }
-
-                              if (var15.getFloor() == null) {
-                                 DebugLog.log("ERROR: added floor at " + var15.x + "," + var15.y + "," + var15.z + " because there wasn't one");
-                                 IsoObject var21 = IsoObject.getNew();
-                                 var21.sprite = IsoSprite.getSprite(IsoSpriteManager.instance, (String)"carpentry_02_58", 0);
-                                 var21.square = var15;
-                                 var15.getObjects().add(0, var21);
-                              }
+                        for(var14 = var12.minLevel; var14 <= var12.maxLevel; ++var14) {
+                           var15 = var12.squaresIndexOfLevel(var14);
+                           var16 = var12.squares[var15][var13];
+                           if (var14 == 0 && var16 == null) {
+                              int var17 = var12.wx * 8 + var13 % 8;
+                              int var18 = var12.wy * 8 + var13 / 8;
+                              var16 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, var17, var18, var14);
+                              var12.setSquare(var17 % 8, var18 % 8, var14, var16);
                            }
 
-                           if (var15 != null) {
-                              var15.RecalcProperties();
+                           if (var16 != null) {
+                              var16.RecalcProperties();
                            }
                         }
                      }
@@ -296,19 +286,20 @@ public class ServerChunkLoader {
                }
             }
 
-            for(var10 = 0; var10 < 5; ++var10) {
-               for(var11 = 0; var11 < 5; ++var11) {
+            for(var10 = 0; var10 < 8; ++var10) {
+               for(var11 = 0; var11 < 8; ++var11) {
                   var12 = var1.chunks[var10][var11];
                   if (var12 != null) {
                      for(var13 = 0; var13 < var9; ++var13) {
-                        for(var14 = 0; var14 <= var12.maxLevel; ++var14) {
-                           var15 = var12.squares[var14][var13];
-                           if (var15 != null) {
-                              if (var14 > 0 && !var15.getObjects().isEmpty()) {
-                                 this.serverCellGetSquare.EnsureSurroundNotNull(var15.x - var4, var15.y - var5, var14);
+                        for(var14 = var12.minLevel; var14 <= var12.maxLevel; ++var14) {
+                           var15 = var12.squaresIndexOfLevel(var14);
+                           var16 = var12.squares[var15][var13];
+                           if (var16 != null) {
+                              if (var14 != 0 && !var16.getObjects().isEmpty()) {
+                                 this.serverCellGetSquare.EnsureSurroundNotNull(var16.x - var4, var16.y - var5, var14);
                               }
 
-                              var15.RecalcAllWithNeighbours(true, this.serverCellGetSquare);
+                              var16.RecalcAllWithNeighbours(true, this.serverCellGetSquare);
                            }
                         }
                      }
@@ -316,26 +307,28 @@ public class ServerChunkLoader {
                }
             }
 
-            for(var10 = 0; var10 < 5; ++var10) {
-               for(var11 = 0; var11 < 5; ++var11) {
+            for(var10 = 0; var10 < 8; ++var10) {
+               for(var11 = 0; var11 < 8; ++var11) {
                   var12 = var1.chunks[var10][var11];
                   if (var12 != null) {
-                     label149:
+                     label145:
                      for(var13 = 0; var13 < var9; ++var13) {
-                        for(var14 = var12.maxLevel; var14 > 0; --var14) {
-                           var15 = var12.squares[var14][var13];
-                           if (var15 != null && var15.Is(IsoFlagType.solidfloor)) {
+                        for(var14 = var12.maxLevel; var14 > var12.minLevel; --var14) {
+                           var15 = var12.squaresIndexOfLevel(var14);
+                           var16 = var12.squares[var15][var13];
+                           if (var16 != null && var16.hasRainBlockingTile()) {
                               --var14;
 
                               while(true) {
-                                 if (var14 < 0) {
-                                    continue label149;
+                                 if (var14 < var12.minLevel) {
+                                    continue label145;
                                  }
 
-                                 var15 = var12.squares[var14][var13];
-                                 if (var15 != null) {
-                                    var15.haveRoof = true;
-                                    var15.getProperties().UnSet(IsoFlagType.exterior);
+                                 var15 = var12.squaresIndexOfLevel(var14);
+                                 var16 = var12.squares[var15][var13];
+                                 if (var16 != null) {
+                                    var16.haveRoof = true;
+                                    var16.getProperties().UnSet(IsoFlagType.exterior);
                                  }
 
                                  --var14;
@@ -351,9 +344,9 @@ public class ServerChunkLoader {
                Thread.sleep(ServerChunkLoader.this.debugSlowMapLoadingDelay);
             }
 
-            float var20 = (float)(System.nanoTime() - var2) / 1000000.0F;
+            float var21 = (float)(System.nanoTime() - var2) / 1000000.0F;
             if (ServerChunkLoader.this.MapLoading) {
-               DebugLog.log(DebugType.MapLoading, "RecalcAll for cell " + var1.WX + "," + var1.WY + " ms=" + var20);
+               DebugLog.MapLoading.debugln("RecalcAll for cell " + var1.WX + "," + var1.WY + " ms=" + var21);
             }
 
             this.fromThread.add(var1);
@@ -361,8 +354,8 @@ public class ServerChunkLoader {
       }
 
       private boolean hasAnyBrandNewChunks(ServerMap.ServerCell var1) {
-         for(int var2 = 0; var2 < 5; ++var2) {
-            for(int var3 = 0; var3 < 5; ++var3) {
+         for(int var2 = 0; var2 < 8; ++var2) {
+            for(int var3 = 0; var3 < 8; ++var3) {
                IsoChunk var4 = var1.chunks[var3][var2];
                if (var4 != null && !var4.getErosionData().init) {
                   return true;
@@ -491,12 +484,12 @@ public class ServerChunkLoader {
       }
 
       public IsoGridSquare getGridSquare(int var1, int var2, int var3) {
-         var1 -= this.cell.WX * 50;
-         var2 -= this.cell.WY * 50;
-         if (var1 >= 0 && var1 < 50) {
-            if (var2 >= 0 && var2 < 50) {
-               IsoChunk var4 = this.cell.chunks[var1 / 10][var2 / 10];
-               return var4 == null ? null : var4.getGridSquare(var1 % 10, var2 % 10, var3);
+         var1 -= this.cell.WX * 64;
+         var2 -= this.cell.WY * 64;
+         if (var1 >= 0 && var1 < 64) {
+            if (var2 >= 0 && var2 < 64) {
+               IsoChunk var4 = this.cell.chunks[var1 / 8][var2 / 8];
+               return var4 == null ? null : var4.getGridSquare(var1 % 8, var2 % 8, var3);
             } else {
                return null;
             }
@@ -506,26 +499,26 @@ public class ServerChunkLoader {
       }
 
       public boolean contains(int var1, int var2, int var3) {
-         if (var1 >= 0 && var1 < 50) {
-            return var2 >= 0 && var2 < 50;
+         if (var1 >= 0 && var1 < 64) {
+            return var2 >= 0 && var2 < 64;
          } else {
             return false;
          }
       }
 
       public IsoChunk getChunkForSquare(int var1, int var2) {
-         var1 -= this.cell.WX * 50;
-         var2 -= this.cell.WY * 50;
-         if (var1 >= 0 && var1 < 50) {
-            return var2 >= 0 && var2 < 50 ? this.cell.chunks[var1 / 10][var2 / 10] : null;
+         var1 -= this.cell.WX * 64;
+         var2 -= this.cell.WY * 64;
+         if (var1 >= 0 && var1 < 64) {
+            return var2 >= 0 && var2 < 64 ? this.cell.chunks[var1 / 8][var2 / 8] : null;
          } else {
             return null;
          }
       }
 
       public void EnsureSurroundNotNull(int var1, int var2, int var3) {
-         int var4 = this.cell.WX * 50;
-         int var5 = this.cell.WY * 50;
+         int var4 = this.cell.WX * 64;
+         int var5 = this.cell.WY * 64;
 
          for(int var6 = -1; var6 <= 1; ++var6) {
             for(int var7 = -1; var7 <= 1; ++var7) {
@@ -533,10 +526,10 @@ public class ServerChunkLoader {
                   IsoGridSquare var8 = this.getGridSquare(var4 + var1 + var6, var5 + var2 + var7, var3);
                   if (var8 == null) {
                      var8 = IsoGridSquare.getNew(IsoWorld.instance.CurrentCell, (SliceY)null, var4 + var1 + var6, var5 + var2 + var7, var3);
-                     int var9 = (var1 + var6) / 10;
-                     int var10 = (var2 + var7) / 10;
-                     int var11 = (var1 + var6) % 10;
-                     int var12 = (var2 + var7) % 10;
+                     int var9 = (var1 + var6) / 8;
+                     int var10 = (var2 + var7) / 8;
+                     int var11 = (var1 + var6) % 8;
+                     int var12 = (var2 + var7) % 8;
                      if (this.cell.chunks[var9][var10] != null) {
                         this.cell.chunks[var9][var10].setSquare(var11, var12, var3, var8);
                      }

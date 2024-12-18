@@ -88,12 +88,11 @@ public final class ImportedSkeleton {
          this.SkeletonHierarchy.addAll(var4.SkeletonHierarchy);
       }
 
-      int var15;
       for(int var27 = 0; var27 < var10.size(); ++var27) {
          AiNode var13 = (AiNode)var10.get(var27);
          String var14 = var13.getName();
          if (!this.boneIndices.containsKey(var14)) {
-            var15 = this.boneIndices.size();
+            int var15 = this.boneIndices.size();
             this.boneIndices.put(var14, var15);
             if (var13 == this.rootBoneNode) {
                this.SkeletonHierarchy.add(-1);
@@ -119,64 +118,65 @@ public final class ImportedSkeleton {
       }
 
       List var30 = var7.getBones();
+      Matrix4f var31 = new Matrix4f();
+      Matrix4f var32 = new Matrix4f();
+      Matrix4f var33 = new Matrix4f();
 
-      int var31;
-      for(var31 = 0; var31 < var10.size(); ++var31) {
-         AiNode var32 = (AiNode)var10.get(var31);
-         String var33 = var32.getName();
-         AiBone var17 = JAssImpImporter.FindAiBone(var33, var30);
-         if (var17 != null) {
-            AiMatrix4f var18 = (AiMatrix4f)var17.getOffsetMatrix(this.wrapper);
-            if (var18 != null) {
-               Matrix4f var19 = JAssImpImporter.getMatrixFromAiMatrix(var18);
-               Matrix4f var20 = new Matrix4f(var19);
-               var20.invert();
-               Matrix4f var21 = new Matrix4f();
-               var21.setIdentity();
-               String var22 = var32.getParent().getName();
-               AiBone var23 = JAssImpImporter.FindAiBone(var22, var30);
-               if (var23 != null) {
-                  AiMatrix4f var24 = (AiMatrix4f)var23.getOffsetMatrix(this.wrapper);
-                  if (var24 != null) {
-                     JAssImpImporter.getMatrixFromAiMatrix(var24, var21);
+      int var17;
+      for(var17 = 0; var17 < var10.size(); ++var17) {
+         AiNode var18 = (AiNode)var10.get(var17);
+         String var19 = var18.getName();
+         AiBone var20 = JAssImpImporter.FindAiBone(var19, var30);
+         if (var20 != null) {
+            AiMatrix4f var21 = (AiMatrix4f)var20.getOffsetMatrix(this.wrapper);
+            if (var21 != null) {
+               Matrix4f var22 = JAssImpImporter.getMatrixFromAiMatrix(var21);
+               var31.load(var22);
+               var31.invert();
+               var32.setIdentity();
+               String var23 = var18.getParent().getName();
+               AiBone var24 = JAssImpImporter.FindAiBone(var23, var30);
+               if (var24 != null) {
+                  AiMatrix4f var25 = (AiMatrix4f)var24.getOffsetMatrix(this.wrapper);
+                  if (var25 != null) {
+                     JAssImpImporter.getMatrixFromAiMatrix(var25, var32);
                   }
                }
 
-               Matrix4f var38 = new Matrix4f(var21);
-               var38.invert();
-               Matrix4f var25 = new Matrix4f();
-               Matrix4f.mul(var20, var38, var25);
-               var25.invert();
-               int var26 = (Integer)this.boneIndices.get(var33);
-               this.bindPose.set(var26, var25);
-               this.skinOffsetMatrices.set(var26, var19);
+               var33.load(var32);
+               var33.invert();
+               Matrix4f var39 = new Matrix4f();
+               Matrix4f.mul(var31, var33, var39);
+               var39.invert();
+               int var26 = (Integer)this.boneIndices.get(var19);
+               this.bindPose.set(var26, var39);
+               this.skinOffsetMatrices.set(var26, var22);
             }
          }
       }
 
-      var31 = this.bindPose.size();
+      var17 = this.bindPose.size();
 
-      for(var15 = 0; var15 < var31; ++var15) {
-         Matrix4f var34 = new Matrix4f((Matrix4f)this.bindPose.get(var15));
-         var34.invert();
-         this.invBindPose.add(var15, var34);
+      int var34;
+      for(var34 = 0; var34 < var17; ++var34) {
+         Matrix4f var35 = new Matrix4f((Matrix4f)this.bindPose.get(var34));
+         var35.invert();
+         this.invBindPose.add(var34, var35);
       }
 
-      if (var3 == JAssImpImporter.LoadMode.AnimationOnly || var4 == null) {
-         var15 = var2.getNumAnimations();
-         if (var15 > 0) {
-            List var35 = var2.getAnimations();
+      var34 = var2.getNumAnimations();
+      if (var34 > 0) {
+         List var36 = var2.getAnimations();
 
-            for(int var36 = 0; var36 < var15; ++var36) {
-               AiAnimation var37 = (AiAnimation)var35.get(var36);
-               if (var9) {
-                  this.processAnimation(var37, var9, 1.0F, (Quaternion)null);
-               } else {
-                  this.processAnimation(var37, var9, var5, var6);
-               }
+         for(int var37 = 0; var37 < var34; ++var37) {
+            AiAnimation var38 = (AiAnimation)var36.get(var37);
+            if (var9) {
+               this.processAnimation(var38, var9, 1.0F, (Quaternion)null);
+            } else {
+               this.processAnimation(var38, var9, var5, var6);
             }
-
          }
+
       }
    }
 

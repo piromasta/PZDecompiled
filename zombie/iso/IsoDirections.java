@@ -1,25 +1,50 @@
 package zombie.iso;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 
 public enum IsoDirections {
-   N(0),
-   NW(1),
-   W(2),
-   SW(3),
-   S(4),
-   SE(5),
-   E(6),
-   NE(7),
-   Max(8);
+   N(0, 0, -1),
+   NW(1, -1, -1),
+   W(2, -1, 0),
+   SW(3, -1, 1),
+   S(4, 0, 1),
+   SE(5, 1, 1),
+   E(6, 1, 0),
+   NE(7, 1, -1),
+   Max(8, 0, 0);
 
    private static final IsoDirections[] VALUES = values();
    private static IsoDirections[][] directionLookup;
    private static final Vector2 temp = new Vector2();
    private final int index;
+   private final int dx;
+   private final int dy;
 
-   private IsoDirections(int var3) {
+   private IsoDirections(int var3, int var4, int var5) {
       this.index = var3;
+      this.dx = var4;
+      this.dy = var5;
+   }
+
+   public static IsoDirections fromString(String var0) {
+      var0 = var0.trim();
+      if ("N".equalsIgnoreCase(var0)) {
+         return N;
+      } else if ("NW".equalsIgnoreCase(var0)) {
+         return NW;
+      } else if ("W".equalsIgnoreCase(var0)) {
+         return W;
+      } else if ("SW".equalsIgnoreCase(var0)) {
+         return SW;
+      } else if ("S".equalsIgnoreCase(var0)) {
+         return S;
+      } else if ("SE".equalsIgnoreCase(var0)) {
+         return SE;
+      } else if ("E".equalsIgnoreCase(var0)) {
+         return E;
+      } else {
+         return "NE".equalsIgnoreCase(var0) ? NE : null;
+      }
    }
 
    public static IsoDirections fromIndex(int var0) {
@@ -57,6 +82,10 @@ public enum IsoDirections {
 
    public IsoDirections RotRight() {
       return RotRight(this);
+   }
+
+   public IsoDirections Rot180() {
+      return this.RotLeft(4);
    }
 
    public static IsoDirections RotLeft(IsoDirections var0) {
@@ -244,6 +273,18 @@ public enum IsoDirections {
 
    public int index() {
       return this.index % 8;
+   }
+
+   public int indexUnmodified() {
+      return this.index;
+   }
+
+   public int dx() {
+      return this.dx;
+   }
+
+   public int dy() {
+      return this.dy;
    }
 
    public String toCompassString() {

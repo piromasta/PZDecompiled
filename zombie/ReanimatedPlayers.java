@@ -14,6 +14,7 @@ import zombie.ai.states.ZombieIdleState;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.math.PZMath;
 import zombie.debug.DebugLog;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
@@ -33,24 +34,20 @@ public final class ReanimatedPlayers {
    public ReanimatedPlayers() {
    }
 
-   private static void noise(String var0) {
-      DebugLog.log("reanimate: " + var0);
-   }
-
    public void addReanimatedPlayersToChunk(IsoChunk var1) {
-      int var2 = var1.wx * 10;
-      int var3 = var1.wy * 10;
-      int var4 = var2 + 10;
-      int var5 = var3 + 10;
+      int var2 = var1.wx * 8;
+      int var3 = var1.wy * 8;
+      int var4 = var2 + 8;
+      int var5 = var3 + 8;
 
       for(int var6 = 0; var6 < this.Zombies.size(); ++var6) {
          IsoZombie var7 = (IsoZombie)this.Zombies.get(var6);
          if (var7.getX() >= (float)var2 && var7.getX() < (float)var4 && var7.getY() >= (float)var3 && var7.getY() < (float)var5) {
-            IsoGridSquare var8 = var1.getGridSquare((int)var7.getX() - var2, (int)var7.getY() - var3, (int)var7.getZ());
+            IsoGridSquare var8 = var1.getGridSquare(PZMath.fastfloor(var7.getX()) - var2, PZMath.fastfloor(var7.getY()) - var3, PZMath.fastfloor(var7.getZ()));
             if (var8 != null) {
                if (GameServer.bServer) {
                   if (var7.OnlineID != -1) {
-                     noise("ERROR? OnlineID != -1 for reanimated player zombie");
+                     DebugLog.Zombie.error("ERROR? OnlineID != -1 for reanimated player zombie");
                   }
 
                   var7.OnlineID = ServerMap.instance.getUniqueZombieId();
@@ -72,7 +69,7 @@ public final class ReanimatedPlayers {
                this.Zombies.remove(var6);
                --var6;
                SharedDescriptors.createPlayerZombieDescriptor(var7);
-               noise("added to world " + var7);
+               DebugLog.Zombie.debugln("Added to world " + var7);
             }
          }
       }
@@ -124,7 +121,7 @@ public final class ReanimatedPlayers {
             if (!GameClient.bClient) {
                if (!this.Zombies.contains(var1)) {
                   this.Zombies.add(var1);
-                  noise("added to Zombies " + var1);
+                  DebugLog.Zombie.debugln("Added to Zombies ", var1);
                   var1.setStateMachineLocked(false);
                   var1.changeState(ZombieIdleState.instance());
                }
@@ -140,7 +137,7 @@ public final class ReanimatedPlayers {
          try {
             ByteBuffer var2 = SliceY.SliceBuffer;
             var2.clear();
-            var2.putInt(195);
+            var2.putInt(219);
             var1.addAll(this.Zombies);
             ArrayList var3 = IsoWorld.instance.CurrentCell.getZombieList();
             Iterator var4 = var3.iterator();
@@ -175,7 +172,7 @@ public final class ReanimatedPlayers {
             return;
          }
 
-         noise("saved " + var1.size() + " zombies");
+         DebugLog.Zombie.debugln("Saved %d zombies", var1.size());
       }
    }
 
@@ -227,7 +224,7 @@ public final class ReanimatedPlayers {
             return;
          }
 
-         noise("loaded " + this.Zombies.size() + " zombies");
+         DebugLog.Zombie.debugln("Loaded %d zombies.", this.Zombies.size());
       }
    }
 

@@ -2,9 +2,10 @@ package zombie.core.logger;
 
 import java.io.File;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.HashMap;
 import zombie.ZomboidFileSystem;
-import zombie.characters.IsoPlayer;
+import zombie.characters.IsoGameCharacter;
 import zombie.debug.DebugLog;
 
 public final class LoggerManager {
@@ -33,56 +34,38 @@ public final class LoggerManager {
    private static void backupOldLogFiles() {
       try {
          File var0 = new File(getLogsDir());
-         String[] var1 = var0.list();
-         if (var1 == null || var1.length == 0) {
+         File[] var1 = ZomboidFileSystem.listAllFiles(var0);
+         if (var1.length == 0) {
             return;
          }
 
-         Calendar var3 = getLogFileLastModifiedTime(var1[0]);
-         String var4 = "logs_";
-         if (var3.get(5) < 9) {
-            var4 = var4 + "0" + var3.get(5);
-         } else {
-            var4 = var4 + var3.get(5);
-         }
-
-         if (var3.get(2) < 9) {
-            var4 = var4 + "-0" + (var3.get(2) + 1);
-         } else {
-            var4 = var4 + "-" + (var3.get(2) + 1);
-         }
-
+         Date var3 = getLogFileLastModifiedTime(var1[0]);
+         String var4 = "logs_" + ZomboidFileSystem.getDateStampString(var3);
          String var10002 = getLogsDir();
          File var2 = new File(var10002 + File.separator + var4);
-         if (!var2.exists()) {
-            var2.mkdir();
-         }
+         ZomboidFileSystem.ensureFolderExists(var2);
 
-         for(int var7 = 0; var7 < var1.length; ++var7) {
-            var4 = var1[var7];
-            var10002 = getLogsDir();
-            File var5 = new File(var10002 + File.separator + var4);
-            if (var5.isFile()) {
+         for(int var6 = 0; var6 < var1.length; ++var6) {
+            File var7 = var1[var6];
+            if (var7.isFile()) {
                String var10003 = var2.getAbsolutePath();
-               var5.renameTo(new File(var10003 + File.separator + var5.getName()));
-               var5.delete();
+               var7.renameTo(new File(var10003 + File.separator + var7.getName()));
+               var7.delete();
             }
          }
-      } catch (Exception var6) {
+      } catch (Exception var5) {
          DebugLog.General.error("Exception thrown trying to initialize LoggerManager, trying to copy old log files.");
          DebugLog.General.error("Exception: ");
-         DebugLog.General.error(var6);
-         var6.printStackTrace();
+         DebugLog.General.error(var5);
+         var5.printStackTrace();
       }
 
    }
 
-   private static Calendar getLogFileLastModifiedTime(String var0) {
-      String var10002 = getLogsDir();
-      File var1 = new File(var10002 + File.separator + var0);
-      Calendar var2 = Calendar.getInstance();
-      var2.setTimeInMillis(var1.lastModified());
-      return var2;
+   private static Date getLogFileLastModifiedTime(File var0) {
+      Calendar var1 = Calendar.getInstance();
+      var1.setTimeInMillis(var0.lastModified());
+      return var1.getTime();
    }
 
    public static synchronized void createLogger(String var0, boolean var1) {
@@ -97,7 +80,7 @@ public final class LoggerManager {
       return var1.getAbsolutePath();
    }
 
-   public static String getPlayerCoords(IsoPlayer var0) {
+   public static String getPlayerCoords(IsoGameCharacter var0) {
       int var10000 = (int)var0.getX();
       return "(" + var10000 + "," + (int)var0.getY() + "," + (int)var0.getZ() + ")";
    }

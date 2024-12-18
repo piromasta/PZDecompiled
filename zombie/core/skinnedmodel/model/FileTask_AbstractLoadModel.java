@@ -30,6 +30,8 @@ public abstract class FileTask_AbstractLoadModel extends FileTask {
             return this.loadX();
          case Fbx:
             return this.loadFBX();
+         case glTF:
+            return this.loadGLTF();
          case Txt:
             return this.loadTxt();
          case None:
@@ -39,7 +41,7 @@ public abstract class FileTask_AbstractLoadModel extends FileTask {
    }
 
    private void checkSlowLoad() {
-      if (DebugOptions.instance.AssetSlowLoad.getValue()) {
+      if (DebugOptions.instance.Asset.SlowLoad.getValue()) {
          try {
             Thread.sleep(500L);
          } catch (InterruptedException var2) {
@@ -62,10 +64,18 @@ public abstract class FileTask_AbstractLoadModel extends FileTask {
 
          if (var1.contains("media/") || var1.contains(".")) {
             this.m_fileName = var1;
+            if (!var1.contains("media/")) {
+               this.m_fileName = this.m_mediaFileXPath + "/" + var1;
+            }
+
             this.m_fileName = ZomboidFileSystem.instance.getString(this.m_fileName);
             if ((new File(this.m_fileName)).exists()) {
                if (this.m_fileName.endsWith(".fbx")) {
                   return ModelFileExtensionType.Fbx;
+               }
+
+               if (this.m_fileName.endsWith(".glb")) {
+                  return ModelFileExtensionType.glTF;
                }
 
                if (this.m_fileName.endsWith(".x")) {
@@ -81,26 +91,32 @@ public abstract class FileTask_AbstractLoadModel extends FileTask {
          if ((new File(this.m_fileName)).exists()) {
             return ModelFileExtensionType.Fbx;
          } else {
-            this.m_fileName = this.m_mediaFileXPath + "/" + var2 + ".x";
+            this.m_fileName = this.m_mediaFileXPath + "/" + var2 + ".glb";
             this.m_fileName = ZomboidFileSystem.instance.getString(this.m_fileName);
             if ((new File(this.m_fileName)).exists()) {
-               return ModelFileExtensionType.X;
-            } else if (var3) {
-               return ModelFileExtensionType.None;
+               return ModelFileExtensionType.glTF;
             } else {
-               if (!var2.endsWith(".x")) {
-                  this.m_fileName = this.m_mediaFilePath + "/" + var2 + ".txt";
-                  if (var1.contains("media/")) {
-                     this.m_fileName = var1;
+               this.m_fileName = this.m_mediaFileXPath + "/" + var2 + ".x";
+               this.m_fileName = ZomboidFileSystem.instance.getString(this.m_fileName);
+               if ((new File(this.m_fileName)).exists()) {
+                  return ModelFileExtensionType.X;
+               } else if (var3) {
+                  return ModelFileExtensionType.None;
+               } else {
+                  if (!var2.endsWith(".x")) {
+                     this.m_fileName = this.m_mediaFilePath + "/" + var2 + ".txt";
+                     if (var1.contains("media/")) {
+                        this.m_fileName = var1;
+                     }
+
+                     this.m_fileName = ZomboidFileSystem.instance.getString(this.m_fileName);
+                     if ((new File(this.m_fileName)).exists()) {
+                        return ModelFileExtensionType.Txt;
+                     }
                   }
 
-                  this.m_fileName = ZomboidFileSystem.instance.getString(this.m_fileName);
-                  if ((new File(this.m_fileName)).exists()) {
-                     return ModelFileExtensionType.Txt;
-                  }
+                  return ModelFileExtensionType.None;
                }
-
-               return ModelFileExtensionType.None;
             }
          }
       }
@@ -111,6 +127,8 @@ public abstract class FileTask_AbstractLoadModel extends FileTask {
    public abstract ProcessedAiScene loadX() throws IOException;
 
    public abstract ProcessedAiScene loadFBX() throws IOException;
+
+   public abstract ProcessedAiScene loadGLTF() throws IOException;
 
    public abstract ModelTxt loadTxt() throws IOException;
 }

@@ -102,6 +102,39 @@ public class StringUtils {
       }
    }
 
+   public static boolean isFloat(String var0) {
+      if (isNullOrWhitespace(var0)) {
+         return false;
+      } else {
+         try {
+            Float.parseFloat(var0);
+            return true;
+         } catch (NumberFormatException var2) {
+            return false;
+         }
+      }
+   }
+
+   public static float tryParseFloat(String var0) {
+      if (isNullOrWhitespace(var0)) {
+         return 0.0F;
+      } else {
+         try {
+            return Float.parseFloat(var0);
+         } catch (NumberFormatException var2) {
+            return 0.0F;
+         }
+      }
+   }
+
+   public static <E extends Enum<E>> E tryParseEnum(Class<E> var0, String var1, E var2) {
+      try {
+         return Enum.valueOf(var0, var1);
+      } catch (Exception var4) {
+         return var2;
+      }
+   }
+
    public static boolean contains(String[] var0, String var1, BiFunction<String, String, Boolean> var2) {
       return indexOf(var0, var1, var2) > -1;
    }
@@ -205,5 +238,71 @@ public class StringUtils {
       } else {
          return var0.contains("..") || var0.contains("\u0000.\u0000.");
       }
+   }
+
+   public static boolean containsWhitespace(String var0) {
+      return var0.matches("(.*?)\\s(.*?)");
+   }
+
+   public static String removeWhitespace(String var0) {
+      return var0.replaceAll("\\s", "");
+   }
+
+   public static String[] trimArray(String[] var0) {
+      for(int var1 = 0; var1 < var0.length; ++var1) {
+         if (var0[var1] != null) {
+            var0[var1] = var0[var1].trim();
+         }
+      }
+
+      return var0;
+   }
+
+   public static String trimSurroundingQuotes(String var0) {
+      return trimSurroundingQuotes(var0, true);
+   }
+
+   public static String trimSurroundingQuotes(String var0, boolean var1) {
+      if (var0 != null && !var0.isEmpty()) {
+         if (var1) {
+            var0 = var0.trim();
+         }
+
+         return var0.startsWith("\"") && var0.endsWith("\"") ? var0.substring(1, var0.length() - 1) : var0;
+      } else {
+         return var0;
+      }
+   }
+
+   public static boolean isValidVariableName(String var0) {
+      boolean var1 = false;
+      int var2 = 0;
+
+      for(int var3 = var0.length(); var2 < var3; ++var2) {
+         char var4 = var0.charAt(var2);
+         if (!isValidVariableChar(var4)) {
+            return false;
+         }
+
+         var1 = true;
+      }
+
+      return var1;
+   }
+
+   public static boolean isValidVariableChar(char var0) {
+      return var0 == '_' || isAlphaNumeric(var0);
+   }
+
+   public static boolean isAlpha(char var0) {
+      return var0 >= 'A' && var0 <= 'Z' || var0 >= 'a' && var0 <= 'z';
+   }
+
+   public static boolean isNumeric(char var0) {
+      return var0 >= '0' && var0 <= '9';
+   }
+
+   public static boolean isAlphaNumeric(char var0) {
+      return isAlpha(var0) || isNumeric(var0);
    }
 }

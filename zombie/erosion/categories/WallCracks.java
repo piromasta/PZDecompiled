@@ -8,6 +8,7 @@ import zombie.erosion.obj.ErosionObjOverlaySprites;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
+import zombie.iso.worldgen.biomes.IBiome;
 
 public final class WallCracks extends ErosionCategory {
    private ArrayList<ErosionObjOverlay> objs = new ArrayList();
@@ -22,69 +23,69 @@ public final class WallCracks extends ErosionCategory {
    public WallCracks() {
    }
 
-   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5) {
+   public boolean replaceExistingObject(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6) {
       return false;
    }
 
-   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, boolean var4, boolean var5, boolean var6) {
-      if (!var4) {
+   public boolean validateSpawn(IsoGridSquare var1, ErosionData.Square var2, ErosionData.Chunk var3, IBiome var4, boolean var5, boolean var6, boolean var7) {
+      if (!var5) {
          return false;
       } else {
-         int var7 = var2.noiseMainInt;
-         int var8 = this.spawnChance[var7];
-         if (var8 == 0) {
+         int var8 = var2.noiseMainInt;
+         int var9 = this.spawnChance[var8];
+         if (var9 == 0) {
             return false;
-         } else if (var2.rand(var1.x, var1.y, 101) >= var8) {
+         } else if (var2.rand(var1.x, var1.y, 101) >= var9) {
             return false;
          } else {
-            boolean var9 = true;
-            IsoObject var11 = this.validWall(var1, true, false);
-            String var10;
-            if (var11 != null) {
-               var10 = var11.getSprite().getName();
-               if (var10 != null && var10.startsWith("fencing")) {
-                  var11 = null;
-               }
-            }
-
-            IsoObject var12 = this.validWall(var1, false, false);
+            boolean var10 = true;
+            IsoObject var12 = this.validWall(var1, true, false);
+            String var11;
             if (var12 != null) {
-               var10 = var12.getSprite().getName();
-               if (var10 != null && var10.startsWith("fencing")) {
+               var11 = var12.getSprite().getName();
+               if (var11 != null && var11.startsWith("fencing")) {
                   var12 = null;
                }
             }
 
-            byte var19;
-            if (var11 != null && var12 != null) {
-               var19 = 0;
-            } else if (var11 != null) {
-               var19 = 1;
+            IsoObject var13 = this.validWall(var1, false, false);
+            if (var13 != null) {
+               var11 = var13.getSprite().getName();
+               if (var11 != null && var11.startsWith("fencing")) {
+                  var13 = null;
+               }
+            }
+
+            byte var20;
+            if (var12 != null && var13 != null) {
+               var20 = 0;
+            } else if (var12 != null) {
+               var20 = 1;
             } else {
-               if (var12 == null) {
+               if (var13 == null) {
                   return false;
                }
 
-               var19 = 2;
+               var20 = 2;
             }
 
-            boolean var13 = var7 < 35 && var2.magicNum > 0.3F;
-            CategoryData var14 = (CategoryData)this.setCatModData(var2);
-            var14.gameObj = (Integer)((ArrayList)this.objsRef.get(var19)).get(var2.rand(var1.x, var1.y, ((ArrayList)this.objsRef.get(var19)).size()));
-            var14.alpha = 0.0F;
-            var14.spawnTime = var7;
-            if (var13) {
-               IsoGridSquare var15 = IsoWorld.instance.CurrentCell.getGridSquare(var1.getX(), var1.getY(), var1.getZ() + 1);
-               if (var15 != null) {
-                  IsoObject var16 = this.validWall(var15, var19 == 1, false);
-                  if (var16 != null) {
-                     int var17 = var2.rand(var1.x, var1.y, ((ArrayList)this.botRef.get(var19)).size());
-                     var14.gameObj = (Integer)((ArrayList)this.botRef.get(var19)).get(var17);
-                     CategoryData var18 = new CategoryData();
-                     var18.gameObj = (Integer)((ArrayList)this.topRef.get(var19)).get(var17);
-                     var18.alpha = 0.0F;
-                     var18.spawnTime = var14.spawnTime;
-                     var14.hasTop = var18;
+            boolean var14 = var8 < 35 && var2.magicNum > 0.3F;
+            CategoryData var15 = (CategoryData)this.setCatModData(var2);
+            var15.gameObj = (Integer)((ArrayList)this.objsRef.get(var20)).get(var2.rand(var1.x, var1.y, ((ArrayList)this.objsRef.get(var20)).size()));
+            var15.alpha = 0.0F;
+            var15.spawnTime = var8;
+            if (var14) {
+               IsoGridSquare var16 = IsoWorld.instance.CurrentCell.getGridSquare(var1.getX(), var1.getY(), var1.getZ() + 1);
+               if (var16 != null) {
+                  IsoObject var17 = this.validWall(var16, var20 == 1, false);
+                  if (var17 != null) {
+                     int var18 = var2.rand(var1.x, var1.y, ((ArrayList)this.botRef.get(var20)).size());
+                     var15.gameObj = (Integer)((ArrayList)this.botRef.get(var20)).get(var18);
+                     CategoryData var19 = new CategoryData();
+                     var19.gameObj = (Integer)((ArrayList)this.topRef.get(var20)).get(var18);
+                     var19.alpha = 0.0F;
+                     var19.spawnTime = var15.spawnTime;
+                     var15.hasTop = var19;
                   }
                }
             }

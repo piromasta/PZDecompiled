@@ -6,6 +6,17 @@ import zombie.network.GameClient;
 import zombie.network.GameServer;
 
 public class NetworkZombieVariables {
+   private static final short IsFakeDead = 1;
+   private static final short IsLunger = 2;
+   private static final short IsRunning = 4;
+   private static final short IsCrawling = 8;
+   private static final short IsSitAgainstWall = 16;
+   private static final short IsReanimatedPlayer = 32;
+   private static final short IsOnFire = 64;
+   private static final short IsUseless = 128;
+   private static final short IsOnFloor = 256;
+   private static final short IsReanimatedForGrappleOnly = 512;
+
    public NetworkZombieVariables() {
    }
 
@@ -50,7 +61,7 @@ public class NetworkZombieVariables {
                   var3 = (IsoPlayer)GameServer.IDToPlayerMap.get((short)var2);
                }
 
-               if (var3 != var0.target) {
+               if (var0 != null && var3 != var0.target) {
                   var0.setTargetSeenTime(0.0F);
                   var0.target = var3;
                }
@@ -79,6 +90,7 @@ public class NetworkZombieVariables {
       var1 = (short)(var1 | (var0.isOnFire() ? 64 : 0));
       var1 = (short)(var1 | (var0.isUseless() ? 128 : 0));
       var1 = (short)(var1 | (var0.isOnFloor() ? 256 : 0));
+      var1 = (short)(var1 | (var0.isReanimatedForGrappleOnly() ? 512 : 0));
       return var1;
    }
 
@@ -100,6 +112,7 @@ public class NetworkZombieVariables {
          var0.setOnFloor((var1 & 256) != 0);
       }
 
+      var0.setReanimatedForGrappleOnly((var1 & 512) != 0);
    }
 
    public static class VariablesInt {

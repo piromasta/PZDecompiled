@@ -1,53 +1,42 @@
 package zombie.network.packets.hit;
 
 import java.nio.ByteBuffer;
-import zombie.characters.IsoGameCharacter;
-import zombie.characters.IsoPlayer;
+import zombie.characters.Capability;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
-import zombie.inventory.types.HandWeapon;
-import zombie.network.packets.INetworkPacket;
+import zombie.inventory.InventoryItem;
+import zombie.network.PacketSetting;
+import zombie.network.anticheats.AntiCheat;
+import zombie.network.anticheats.AntiCheatHitLongDistance;
+import zombie.network.anticheats.AntiCheatHitWeaponAmmo;
+import zombie.network.anticheats.AntiCheatItem;
 
-public class PlayerHitSquarePacket extends PlayerHitPacket implements INetworkPacket {
-   protected final Square square = new Square();
-
+@PacketSetting(
+   ordering = 0,
+   priority = 0,
+   reliability = 3,
+   requiredCapability = Capability.LoginOnServer,
+   handlingType = 3,
+   anticheats = {AntiCheat.Item, AntiCheat.HitLongDistance, AntiCheat.HitWeaponAmmo}
+)
+public class PlayerHitSquarePacket extends PlayerHit implements AntiCheatItem.IAntiCheat, AntiCheatHitLongDistance.IAntiCheat, AntiCheatHitWeaponAmmo.IAntiCheat {
    public PlayerHitSquarePacket() {
-      super(HitCharacterPacket.HitType.PlayerHitSquare);
-   }
-
-   public void set(IsoPlayer var1, HandWeapon var2, boolean var3) {
-      super.set(var1, var2, var3);
-      this.square.set((IsoGameCharacter)var1);
    }
 
    public void parse(ByteBuffer var1, UdpConnection var2) {
-      super.parse(var1, var2);
-      this.square.parse(var1, var2);
    }
 
    public void write(ByteBufferWriter var1) {
-      super.write(var1);
-      this.square.write(var1);
    }
 
-   public boolean isRelevant(UdpConnection var1) {
-      return this.wielder.isRelevant(var1);
+   public InventoryItem getInventoryItem() {
+      return null;
    }
 
-   public boolean isConsistent() {
-      return super.isConsistent() && this.square.isConsistent();
+   public float getDistance() {
+      return 0.0F;
    }
 
-   public String getDescription() {
-      String var10000 = super.getDescription();
-      return var10000 + "\n\tSquare " + this.square.getDescription();
-   }
-
-   protected void process() {
-      this.square.process(this.wielder.getCharacter());
-   }
-
-   public boolean validate(UdpConnection var1) {
-      return true;
+   public void process() {
    }
 }

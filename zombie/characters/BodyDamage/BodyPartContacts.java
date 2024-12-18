@@ -36,10 +36,6 @@ public final class BodyPartContacts {
       for(int var2 = 0; var2 < nodes.length; ++var2) {
          ContactNode var1 = nodes[var2];
          if (var1.bodyPart == var0) {
-            if (var1.depth == 0) {
-               DebugLog.log("Warning, root node parent is always null.");
-            }
-
             return var1.bodyPartParent;
          }
       }

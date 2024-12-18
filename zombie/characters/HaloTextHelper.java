@@ -1,6 +1,7 @@
 package zombie.characters;
 
 import zombie.GameTime;
+import zombie.core.Core;
 
 public class HaloTextHelper {
    public static final ColorRGB COLOR_WHITE = new ColorRGB(255, 255, 255);
@@ -51,6 +52,28 @@ public class HaloTextHelper {
 
    public static void addText(IsoPlayer var0, String var1, int var2, int var3, int var4) {
       addText(var0, "[col=" + var2 + "," + var3 + "," + var4 + "]" + var1 + "[/]");
+   }
+
+   public static ColorRGB getGoodColor() {
+      int var0 = (int)Core.getInstance().getGoodHighlitedColor().getR() * 255;
+      int var1 = (int)Core.getInstance().getGoodHighlitedColor().getG() * 255;
+      int var2 = (int)Core.getInstance().getGoodHighlitedColor().getB() * 255;
+      return new ColorRGB(var0, var1, var2);
+   }
+
+   public static ColorRGB getBadColor() {
+      int var0 = (int)Core.getInstance().getBadHighlitedColor().getR() * 255;
+      int var1 = (int)Core.getInstance().getBadHighlitedColor().getG() * 255;
+      int var2 = (int)Core.getInstance().getBadHighlitedColor().getB() * 255;
+      return new ColorRGB(var0, var1, var2);
+   }
+
+   public static void addGoodText(IsoPlayer var0, String var1) {
+      addText(var0, var1, getGoodColor());
+   }
+
+   public static void addBadText(IsoPlayer var0, String var1) {
+      addText(var0, var1, getBadColor());
    }
 
    public static void addText(IsoPlayer var0, String var1) {

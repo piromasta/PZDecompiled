@@ -2,34 +2,52 @@ package zombie.iso.objects;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
 import zombie.GameTime;
 import zombie.GameWindow;
 import zombie.SandboxOptions;
 import zombie.WorldSoundManager;
 import zombie.Lua.LuaEventManager;
 import zombie.audio.BaseSoundEmitter;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
+import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.model.ItemModelRenderer;
+import zombie.core.skinnedmodel.model.WorldItemModelDrawer;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
+import zombie.core.utils.GameTimer;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.types.HandWeapon;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
+import zombie.iso.IsoUtils;
 import zombie.iso.IsoWorld;
-import zombie.iso.sprite.IsoDirectionFrame;
+import zombie.iso.LosUtil;
+import zombie.iso.areas.NonPvpZone;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
+import zombie.iso.fboRenderChunk.FBORenderItems;
+import zombie.iso.fboRenderChunk.FBORenderLevels;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteManager;
+import zombie.network.GameClient;
 import zombie.network.GameServer;
+import zombie.network.PacketTypes;
+import zombie.network.packets.INetworkPacket;
 import zombie.util.StringUtils;
 
 public class IsoTrap extends IsoObject {
    private int timerBeforeExplosion = 0;
-   private int FPS;
    private int sensorRange = 0;
    private int firePower = 0;
    private int fireRange = 0;
@@ -44,13 +62,14 @@ public class IsoTrap extends IsoObject {
    private int remoteControlID = -1;
    private String countDownSound = null;
    private String explosionSound = null;
-   private int lastBeep = 0;
    private HandWeapon weapon;
    private boolean instantExplosion;
+   private final GameTimer beep = new GameTimer(1);
+   private int explosionDuration = 0;
+   private float explosionStartTime = 0.0F;
 
    public IsoTrap(IsoCell var1) {
       super(var1);
-      this.FPS = GameServer.bServer ? 10 : PerformanceSettings.getLockFPS();
    }
 
    public IsoTrap(HandWeapon var1, IsoCell var2, IsoGridSquare var3) {
@@ -68,18 +87,13 @@ public class IsoTrap extends IsoObject {
       this.setRemoteControlID(var1.getRemoteControlID());
       this.setCountDownSound(var1.getCountDownSound());
       this.setExplosionSound(var1.getExplosionSound());
-      this.FPS = GameServer.bServer ? 10 : PerformanceSettings.getLockFPS();
-      if (var1.getExplosionTimer() > 0) {
-         this.timerBeforeExplosion = var1.getExplosionTimer() * this.FPS - 1;
-      } else if (!var1.canBeRemote()) {
-         this.timerBeforeExplosion = 1;
-      }
-
+      this.setTimerBeforeExplosion(var1.getExplosionTimer());
+      this.setInstantExplosion(var1.isInstantExplosion());
+      this.setExplosionDuration(var1.getExplosionDuration());
       if (var1.canBePlaced()) {
          this.weapon = var1;
       }
 
-      this.instantExplosion = var1.isInstantExplosion();
    }
 
    private void initSprite(HandWeapon var1) {
@@ -93,8 +107,13 @@ public class IsoTrap extends IsoObject {
             var2 = "media/inventory/world/WItem_Sack.png";
          }
 
-         this.sprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-         Texture var3 = this.sprite.LoadFrameExplicit(var2);
+         this.sprite = (IsoSprite)IsoSpriteManager.instance.NamedMap.get(var2);
+         if (this.sprite == null) {
+            this.sprite = IsoSprite.CreateSprite(IsoSpriteManager.instance);
+            this.sprite.LoadSingleTexture(var2);
+         }
+
+         Texture var3 = this.sprite.getTextureForCurrentFrame(this.getDir());
          if (var2.startsWith("Item_") && var3 != null) {
             if (var1.getScriptItem() == null) {
                this.sprite.def.scaleAspect((float)var3.getWidthOrig(), (float)var3.getHeightOrig(), (float)(16 * Core.TileScale), (float)(16 * Core.TileScale));
@@ -109,28 +128,109 @@ public class IsoTrap extends IsoObject {
    }
 
    public void update() {
-      if (this.timerBeforeExplosion > 0) {
-         if (this.timerBeforeExplosion / this.FPS + 1 != this.lastBeep) {
-            this.lastBeep = this.timerBeforeExplosion / this.FPS + 1;
-            if (!GameServer.bServer && this.getObjectIndex() != -1) {
-               this.getOrCreateEmitter();
-               if (!StringUtils.isNullOrWhitespace(this.getCountDownSound())) {
-                  this.emitter.playSound(this.getCountDownSound());
-               } else if (this.lastBeep == 1) {
-                  this.emitter.playSound("TrapTimerExpired");
-               } else {
-                  this.emitter.playSound("TrapTimerLoop");
-               }
-            }
-         }
-
+      if (!GameClient.bClient && this.timerBeforeExplosion > 0 && this.beep.check()) {
          --this.timerBeforeExplosion;
          if (this.timerBeforeExplosion == 0) {
             this.triggerExplosion(this.getSensorRange() > 0);
+         } else if (this.getObjectIndex() != -1 && this.weapon.getType().endsWith("Triggered")) {
+            String var1 = "TrapTimerLoop";
+            if (!StringUtils.isNullOrWhitespace(this.getCountDownSound())) {
+               var1 = this.getCountDownSound();
+            } else if (this.timerBeforeExplosion == 1) {
+               var1 = "TrapTimerExpired";
+            }
+
+            if (GameServer.bServer) {
+               GameServer.PlayWorldSoundServer(var1, false, this.square, 1.0F, 10.0F, 1.0F, true);
+            } else if (!GameClient.bClient) {
+               this.getOrCreateEmitter();
+               this.emitter.playSound(var1);
+            }
          }
       }
 
-      this.updateSounds();
+      if (!this.updateExplosionDuration()) {
+         this.updateVictimsInSensorRange();
+         this.updateSounds();
+      }
+   }
+
+   private boolean updateExplosionDuration() {
+      if (!this.isExploding()) {
+         return false;
+      } else {
+         float var1 = (float)GameTime.getInstance().getWorldAgeHours();
+         this.explosionStartTime = PZMath.min(this.explosionStartTime, var1);
+         float var2 = 60.0F / (float)SandboxOptions.getInstance().getDayLengthMinutes();
+         float var3 = 60.0F;
+         if (var1 - this.explosionStartTime > (float)this.getExplosionDuration() / var3 * var2) {
+            this.explosionStartTime = 0.0F;
+            if (this.emitter != null) {
+               this.emitter.stopAll();
+            }
+
+            if (GameServer.bServer) {
+               GameServer.RemoveItemFromMap(this);
+            } else if (!GameClient.bClient) {
+               this.removeFromWorld();
+               this.removeFromSquare();
+            }
+
+            return true;
+         } else {
+            if (this.getSmokeRange() > 0 && this.getObjectIndex() != -1) {
+               int var4 = this.getSmokeRange();
+
+               for(int var5 = this.getSquare().getX() - var4; (float)var5 <= this.getX() + (float)var4; ++var5) {
+                  for(int var6 = this.getSquare().getY() - var4; var6 <= this.getSquare().getY() + var4; ++var6) {
+                     IsoGridSquare var7 = this.getCell().getGridSquare((double)var5, (double)var6, (double)this.getZ());
+                     this.refreshSmokeBombSmoke(var7);
+                  }
+               }
+            }
+
+            return false;
+         }
+      }
+   }
+
+   private void refreshSmokeBombSmoke(IsoGridSquare var1) {
+      if (var1 != null) {
+         IsoFire var2 = var1.getFire();
+         if (var2 != null && var2.bSmoke) {
+            int var3 = this.getSmokeRange();
+            if (!(IsoUtils.DistanceTo((float)var1.getX() + 0.5F, (float)var1.getY() + 0.5F, this.getX() + 0.5F, this.getY() + 0.5F) > (float)var3)) {
+               LosUtil.TestResults var4 = LosUtil.lineClear(this.getCell(), PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), var1.getX(), var1.getY(), var1.getZ(), false);
+               if (var4 != LosUtil.TestResults.Blocked && var4 != LosUtil.TestResults.ClearThroughClosedDoor) {
+                  if (NonPvpZone.getNonPvpZone(var1.getX(), var1.getY()) == null) {
+                     var2.Energy = 40;
+                     var2.Life = Rand.Next(var2.MinLife, var2.MaxLife) / 5;
+                     var2.LifeStage = 4;
+                     var2.LifeStageTimer = var2.LifeStageDuration = var2.Life / 4;
+                     var1.smoke();
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   private void updateVictimsInSensorRange() {
+      if ((GameServer.bServer || !GameClient.bClient) && this.getSensorRange() > 0) {
+         Iterator var1 = this.getCell().getObjectList().iterator();
+
+         while(var1.hasNext()) {
+            IsoMovingObject var2 = (IsoMovingObject)var1.next();
+            if (var2 instanceof IsoGameCharacter && !((IsoGameCharacter)var2).isInvisible() && IsoUtils.DistanceTo(var2.getX(), var2.getY(), this.getX(), this.getY()) <= (float)this.getSensorRange()) {
+               if (GameServer.bServer) {
+                  INetworkPacket.sendToAll(PacketTypes.PacketType.AddExplosiveTrap, (UdpConnection)null, null, this.getSquare());
+               }
+
+               this.getSquare().explodeTrap();
+            }
+         }
+      }
+
    }
 
    private void updateSounds() {
@@ -166,13 +266,42 @@ public class IsoTrap extends IsoObject {
 
    }
 
+   public IsoGridSquare getRenderSquare() {
+      if (this.getSquare() == null) {
+         return null;
+      } else {
+         byte var1 = 8;
+         if (PZMath.coordmodulo(this.square.x, var1) == 0 && PZMath.coordmodulo(this.square.y, var1) == var1 - 1) {
+            return this.square.getAdjacentSquare(IsoDirections.S);
+         } else {
+            return PZMath.coordmodulo(this.square.x, var1) == var1 - 1 && PZMath.coordmodulo(this.square.y, var1) == 0 ? this.square.getAdjacentSquare(IsoDirections.E) : this.getSquare();
+         }
+      }
+   }
+
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
-      if (this.sprite.CurrentAnim != null && !this.sprite.CurrentAnim.Frames.isEmpty()) {
-         Texture var8 = ((IsoDirectionFrame)this.sprite.CurrentAnim.Frames.get(0)).getTexture(this.dir);
-         if (var8 != null) {
-            if (var8.getName().startsWith("Item_")) {
-               float var9 = (float)var8.getWidthOrig() * this.sprite.def.getScaleX() / 2.0F;
-               float var10 = (float)var8.getHeightOrig() * this.sprite.def.getScaleY() * 3.0F / 4.0F;
+      if (Core.getInstance().isOption3DGroundItem() && ItemModelRenderer.itemHasModel(this.getItem())) {
+         if (PerformanceSettings.FBORenderChunk && FBORenderChunkManager.instance.isCaching()) {
+            int var13 = IsoCamera.frameState.playerIndex;
+            IsoGridSquare var14 = this.getRenderSquare();
+            FBORenderLevels var15 = var14.chunk.getRenderLevels(var13);
+            FBORenderChunk var11 = var15.getFBOForLevel(var14.z, Core.getInstance().getZoom(var13));
+            FBORenderItems.getInstance().render(var11.index, this);
+            return;
+         }
+
+         ItemModelRenderer.RenderStatus var8 = WorldItemModelDrawer.renderMain(this.getItem(), this.getSquare(), this.getRenderSquare(), this.getX() + 0.5F, this.getY() + 0.5F, this.getZ(), 0.0F, -1.0F, true);
+         if (var8 == ItemModelRenderer.RenderStatus.Loading || var8 == ItemModelRenderer.RenderStatus.Ready) {
+            return;
+         }
+      }
+
+      if (!this.sprite.hasNoTextures()) {
+         Texture var12 = this.sprite.getTextureForCurrentFrame(this.dir);
+         if (var12 != null) {
+            if (var12.getName().startsWith("Item_")) {
+               float var9 = (float)var12.getWidthOrig() * this.sprite.def.getScaleX() / 2.0F;
+               float var10 = (float)var12.getHeightOrig() * this.sprite.def.getScaleY() * 3.0F / 4.0F;
                this.setAlphaAndTarget(1.0F);
                this.offsetX = 0.0F;
                this.offsetY = 0.0F;
@@ -191,6 +320,7 @@ public class IsoTrap extends IsoObject {
 
    public void triggerExplosion(boolean var1) {
       LuaEventManager.triggerEvent("OnThrowableExplode", this, this.square);
+      this.timerBeforeExplosion = 0;
       if (var1) {
          if (this.getSensorRange() > 0) {
             this.square.setTrapPositionX(this.square.getX());
@@ -199,6 +329,10 @@ public class IsoTrap extends IsoObject {
             this.square.drawCircleExplosion(this.getSensorRange(), this, IsoTrap.ExplosionMode.Sensor);
          }
       } else {
+         if (!GameServer.bServer && this.square != null && this.getObjectIndex() == -1) {
+            this.square.AddTileObject(this);
+         }
+
          if (this.getExplosionSound() != null) {
             this.playExplosionSound();
          }
@@ -219,6 +353,14 @@ public class IsoTrap extends IsoObject {
 
          if (this.getSmokeRange() > 0) {
             this.square.drawCircleExplosion(this.getSmokeRange(), this, IsoTrap.ExplosionMode.Smoke);
+         }
+
+         if (this.getExplosionDuration() > 0) {
+            if (this.explosionStartTime == 0.0F) {
+               this.explosionStartTime = (float)GameTime.getInstance().getWorldAgeHours();
+            }
+
+            return;
          }
 
          if (this.weapon == null || !this.weapon.canBeReused()) {
@@ -259,6 +401,13 @@ public class IsoTrap extends IsoObject {
                   this.emitter.playSoundImpl(this.getExplosionSound(), (IsoObject)null);
                }
 
+            } else {
+               if (this.getNoiseRange() > 0 && (float)this.getNoiseDuration() > 0.0F) {
+                  GameServer.PlayWorldSoundServer(this.getExplosionSound(), this.getSquare(), (float)this.getNoiseRange(), this.getObjectIndex());
+               } else {
+                  GameServer.PlayWorldSoundServer(this.getExplosionSound(), false, this.getSquare(), 0.0F, 50.0F, 1.0F, false);
+               }
+
             }
          }
       }
@@ -271,40 +420,38 @@ public class IsoTrap extends IsoObject {
       this.fireRange = var1.getInt();
       this.explosionPower = var1.getInt();
       this.explosionRange = var1.getInt();
+      if (var2 >= 219) {
+         this.explosionDuration = var1.getInt();
+         this.explosionStartTime = var1.getFloat();
+      }
+
       this.smokeRange = var1.getInt();
       this.noiseRange = var1.getInt();
-      if (var2 >= 180) {
-         this.noiseDuration = var1.getInt();
-         this.noiseStartTime = var1.getFloat();
-      }
-
+      this.noiseDuration = var1.getInt();
+      this.noiseStartTime = var1.getFloat();
       this.extraDamage = var1.getFloat();
       this.remoteControlID = var1.getInt();
-      if (var2 >= 78) {
-         this.timerBeforeExplosion = var1.getInt() * this.FPS;
-         this.countDownSound = GameWindow.ReadStringUTF(var1);
-         this.explosionSound = GameWindow.ReadStringUTF(var1);
-         if ("bigExplosion".equals(this.explosionSound)) {
-            this.explosionSound = "BigExplosion";
-         }
-
-         if ("smallExplosion".equals(this.explosionSound)) {
-            this.explosionSound = "SmallExplosion";
-         }
-
-         if ("feedback".equals(this.explosionSound)) {
-            this.explosionSound = "NoiseTrapExplosion";
-         }
+      this.timerBeforeExplosion = var1.getInt();
+      this.countDownSound = GameWindow.ReadStringUTF(var1);
+      this.explosionSound = GameWindow.ReadStringUTF(var1);
+      if ("bigExplosion".equals(this.explosionSound)) {
+         this.explosionSound = "BigExplosion";
       }
 
-      if (var2 >= 82) {
-         boolean var4 = var1.get() == 1;
-         if (var4) {
-            InventoryItem var5 = InventoryItem.loadItem(var1, var2);
-            if (var5 instanceof HandWeapon) {
-               this.weapon = (HandWeapon)var5;
-               this.initSprite(this.weapon);
-            }
+      if ("smallExplosion".equals(this.explosionSound)) {
+         this.explosionSound = "SmallExplosion";
+      }
+
+      if ("feedback".equals(this.explosionSound)) {
+         this.explosionSound = "NoiseTrapExplosion";
+      }
+
+      boolean var4 = var1.get() == 1;
+      if (var4) {
+         InventoryItem var5 = InventoryItem.loadItem(var1, var2);
+         if (var5 instanceof HandWeapon) {
+            this.weapon = (HandWeapon)var5;
+            this.initSprite(this.weapon);
          }
       }
 
@@ -317,13 +464,15 @@ public class IsoTrap extends IsoObject {
       var1.putInt(this.fireRange);
       var1.putInt(this.explosionPower);
       var1.putInt(this.explosionRange);
+      var1.putInt(this.explosionDuration);
+      var1.putFloat(this.explosionStartTime);
       var1.putInt(this.smokeRange);
       var1.putInt(this.noiseRange);
       var1.putInt(this.noiseDuration);
       var1.putFloat(this.noiseStartTime);
       var1.putFloat(this.extraDamage);
       var1.putInt(this.remoteControlID);
-      var1.putInt(this.timerBeforeExplosion > 1 ? Math.max(this.timerBeforeExplosion / this.FPS, 1) : 0);
+      var1.putInt(this.timerBeforeExplosion);
       GameWindow.WriteStringUTF(var1, this.countDownSound);
       GameWindow.WriteStringUTF(var1, this.explosionSound);
       if (this.weapon != null) {
@@ -460,6 +609,18 @@ public class IsoTrap extends IsoObject {
       this.explosionSound = var1;
    }
 
+   public int getExplosionDuration() {
+      return this.explosionDuration;
+   }
+
+   public void setExplosionDuration(int var1) {
+      this.explosionDuration = var1;
+   }
+
+   public boolean isExploding() {
+      return this.getExplosionDuration() > 0 && this.explosionStartTime > 0.0F;
+   }
+
    public InventoryItem getItem() {
       return this.weapon;
    }
@@ -492,6 +653,10 @@ public class IsoTrap extends IsoObject {
 
    public boolean isInstantExplosion() {
       return this.instantExplosion;
+   }
+
+   public void setInstantExplosion(boolean var1) {
+      this.instantExplosion = var1;
    }
 
    public static enum ExplosionMode {

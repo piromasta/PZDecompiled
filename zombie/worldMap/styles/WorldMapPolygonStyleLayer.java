@@ -24,8 +24,9 @@ public class WorldMapPolygonStyleLayer extends WorldMapStyleLayer {
       } else {
          float var4 = this.evalFloat(var2, this.m_scale);
          Texture var5 = this.evalTexture(var2, this.m_texture);
+         WorldMapStyleLayer.TextureScaling var6 = this.evalTextureScaling(var2, this.m_texture, WorldMapStyleLayer.TextureScaling.IsoGridSquare);
          if (var5 != null && var5.isReady()) {
-            var2.drawer.fillPolygon(var2, var1, var3, var5, var4);
+            var2.drawer.fillPolygon(var2, var1, var3, var5, var4, var6);
          } else {
             var2.drawer.fillPolygon(var2, var1, var3);
          }

@@ -5,9 +5,9 @@ import zombie.debug.LineDrawer;
 import zombie.iso.SpriteDetails.IsoFlagType;
 
 public class NearestWalls {
-   private static final int CPW = 10;
-   private static final int CPWx4 = 40;
-   private static final int LEVELS = 8;
+   private static final int CPW = 8;
+   private static final int CPWx4 = 32;
+   private static final int LEVELS = 64;
    private static int CHANGE_COUNT = 0;
    private static int renderX;
    private static int renderY;
@@ -28,28 +28,28 @@ public class NearestWalls {
    private static void calcDistanceOnThisChunkOnly(IsoChunk var0) {
       byte[] var1 = var0.nearestWalls.distanceSelf;
 
-      for(int var2 = 0; var2 < 8; ++var2) {
+      for(int var2 = 0; var2 < 64; ++var2) {
          int var3;
          byte var4;
          int var5;
          int var6;
          IsoGridSquare var7;
          int var8;
-         for(var3 = 0; var3 < 10; ++var3) {
+         for(var3 = 0; var3 < 8; ++var3) {
             var4 = -1;
 
-            for(var5 = 0; var5 < 10; ++var5) {
-               var0.nearestWalls.closest[var5 + var3 * 10 + var2 * 10 * 10] = -1;
-               var6 = var5 * 4 + var3 * 40 + var2 * 10 * 40;
+            for(var5 = 0; var5 < 8; ++var5) {
+               var0.nearestWalls.closest[var5 + var3 * 8 + var2 * 8 * 8] = -1;
+               var6 = var5 * 4 + var3 * 32 + var2 * 8 * 32;
                var1[var6 + 0] = var4 == -1 ? -1 : (byte)(var5 - var4);
                var1[var6 + 1] = -1;
-               var7 = var0.getGridSquare(var5, var3, var2);
+               var7 = var0.getGridSquare(var5, var3, var2 - 32);
                if (var7 != null && (var7.Is(IsoFlagType.WallW) || var7.Is(IsoFlagType.DoorWallW) || var7.Is(IsoFlagType.WallNW) || var7.Is(IsoFlagType.WindowW))) {
                   var4 = (byte)var5;
                   var1[var6 + 0] = 0;
 
                   for(var8 = var5 - 1; var8 >= 0; --var8) {
-                     var6 = var8 * 4 + var3 * 40 + var2 * 10 * 40;
+                     var6 = var8 * 4 + var3 * 32 + var2 * 8 * 32;
                      if (var1[var6 + 1] != -1) {
                         break;
                      }
@@ -60,20 +60,20 @@ public class NearestWalls {
             }
          }
 
-         for(var3 = 0; var3 < 10; ++var3) {
+         for(var3 = 0; var3 < 8; ++var3) {
             var4 = -1;
 
-            for(var5 = 0; var5 < 10; ++var5) {
-               var6 = var3 * 4 + var5 * 40 + var2 * 10 * 40;
+            for(var5 = 0; var5 < 8; ++var5) {
+               var6 = var3 * 4 + var5 * 32 + var2 * 8 * 32;
                var1[var6 + 2] = var4 == -1 ? -1 : (byte)(var5 - var4);
                var1[var6 + 3] = -1;
-               var7 = var0.getGridSquare(var3, var5, var2);
+               var7 = var0.getGridSquare(var3, var5, var2 - 32);
                if (var7 != null && (var7.Is(IsoFlagType.WallN) || var7.Is(IsoFlagType.DoorWallN) || var7.Is(IsoFlagType.WallNW) || var7.Is(IsoFlagType.WindowN))) {
                   var4 = (byte)var5;
                   var1[var6 + 2] = 0;
 
                   for(var8 = var5 - 1; var8 >= 0; --var8) {
-                     var6 = var3 * 4 + var8 * 40 + var2 * 10 * 40;
+                     var6 = var3 * 4 + var8 * 32 + var2 * 8 * 32;
                      if (var1[var6 + 3] != -1) {
                         break;
                      }
@@ -88,7 +88,7 @@ public class NearestWalls {
    }
 
    private static int getIndex(IsoChunk var0, int var1, int var2, int var3) {
-      return (var1 - var0.wx * 10) * 4 + (var2 - var0.wy * 10) * 40 + var3 * 10 * 40;
+      return (var1 - var0.wx * 8) * 4 + (var2 - var0.wy * 8) * 32 + (var3 + 32) * 8 * 32;
    }
 
    private static int getNearestWallOnSameChunk(IsoChunk var0, int var1, int var2, int var3, int var4) {
@@ -120,7 +120,7 @@ public class NearestWalls {
                break;
             }
 
-            int var10 = (var9.wx + 1) * 10 - 1;
+            int var10 = (var9.wx + 1) * 8 - 1;
             var7 = getNearestWallOnSameChunk(var9, var10, var2, var3, var4);
             if (var7 != -1) {
                return var10 - var7;
@@ -145,7 +145,7 @@ public class NearestWalls {
                break;
             }
 
-            int var10 = var9.wx * 10;
+            int var10 = var9.wx * 8;
             var7 = hasWall(var9, var10, var2, var3, 0) ? 0 : getNearestWallOnSameChunk(var9, var10, var2, var3, var4);
             if (var7 != -1) {
                return var10 + var7;
@@ -170,7 +170,7 @@ public class NearestWalls {
                break;
             }
 
-            int var11 = (var9.wy + 1) * 10 - 1;
+            int var11 = (var9.wy + 1) * 8 - 1;
             var7 = getNearestWallOnSameChunk(var9, var1, var11, var3, var4);
             if (var7 != -1) {
                return var11 - var7;
@@ -195,7 +195,7 @@ public class NearestWalls {
                break;
             }
 
-            int var11 = var9.wy * 10;
+            int var11 = var9.wy * 8;
             var7 = hasWall(var9, var1, var11, var3, 2) ? 0 : getNearestWallOnSameChunk(var9, var1, var11, var3, var4);
             if (var7 != -1) {
                return var11 + var7;
@@ -268,7 +268,7 @@ public class NearestWalls {
             var4.changeCount = CHANGE_COUNT;
          }
 
-         int var6 = var1 - var0.wx * 10 + (var2 - var0.wy * 10) * 10 + var3 * 10 * 10;
+         int var6 = var1 - var0.wx * 8 + (var2 - var0.wy * 8) * 8 + (var3 + 32) * 8 * 8;
          byte var7 = var5[var6];
          if (var7 != -1) {
             return var7;
@@ -297,7 +297,7 @@ public class NearestWalls {
                } else if (var13 != -1) {
                   return var5[var6] = (byte)var13;
                } else {
-                  IsoGridSquare var14 = var0.getGridSquare(var1 - var0.wx * 10, var2 - var0.wy * 10, var3);
+                  IsoGridSquare var14 = var0.getGridSquare(var1 - var0.wx * 8, var2 - var0.wy * 8, var3);
                   if (var14 != null && var14.isOutside()) {
                      var8 = var8 == -1 ? 127 : var1 - var8;
                      var9 = var9 == -1 ? 127 : var9 - var1 - 1;
@@ -315,8 +315,8 @@ public class NearestWalls {
 
    public static final class ChunkData {
       int changeCount = -1;
-      final byte[] distanceSelf = new byte[3200];
-      final byte[] closest = new byte[800];
+      final byte[] distanceSelf = new byte[16384];
+      final byte[] closest = new byte[4096];
 
       public ChunkData() {
       }

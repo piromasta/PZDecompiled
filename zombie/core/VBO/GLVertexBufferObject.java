@@ -83,10 +83,10 @@ public class GLVertexBufferObject {
          ByteBuffer var2 = this.buffer;
          byte var3;
          if (GL.getCapabilities().OpenGL30) {
-            var3 = 34;
+            var3 = 38;
             this.buffer = GL30.glMapBufferRange(this.type, 0L, (long)var1, var3, this.buffer);
          } else if (GL.getCapabilities().GL_ARB_map_buffer_range) {
-            var3 = 34;
+            var3 = 38;
             this.buffer = ARBMapBufferRange.glMapBufferRange(this.type, 0L, (long)var1, var3, this.buffer);
          } else {
             this.buffer = funcs.glMapBuffer(this.type, funcs.GL_WRITE_ONLY(), (long)var1, this.buffer);
@@ -115,10 +115,10 @@ public class GLVertexBufferObject {
          ByteBuffer var1 = this.buffer;
          byte var2;
          if (GL.getCapabilities().OpenGL30) {
-            var2 = 34;
+            var2 = 38;
             this.buffer = GL30.glMapBufferRange(this.type, 0L, this.size, var2, this.buffer);
          } else if (GL.getCapabilities().GL_ARB_map_buffer_range) {
-            var2 = 34;
+            var2 = 38;
             this.buffer = ARBMapBufferRange.glMapBufferRange(this.type, 0L, this.size, var2, this.buffer);
          } else {
             this.buffer = funcs.glMapBuffer(this.type, funcs.GL_WRITE_ONLY(), this.size, this.buffer);

@@ -16,6 +16,7 @@ import zombie.network.ServerWorldDatabase;
 
 public class SteamUtils {
    private static boolean m_steamEnabled;
+   private static boolean m_streamEnabled;
    private static boolean m_netEnabled;
    private static boolean m_floatingGamepadTextInputVisible = false;
    private static final BigInteger TWO_64;
@@ -40,6 +41,7 @@ public class SteamUtils {
 
    public static void init() {
       m_steamEnabled = System.getProperty("zomboid.steam") != null && System.getProperty("zomboid.steam").equals("1");
+      m_streamEnabled = System.getProperty("zomboid.stream") != null && System.getProperty("zomboid.stream").equals("1");
       DebugLog.log("Loading networking libraries...");
       String var0 = "";
       if ("1".equals(System.getProperty("zomboid.debuglibs.znet"))) {
@@ -104,7 +106,7 @@ public class SteamUtils {
             DebugLog.log("  You may need to install the Microsoft Visual C++ Redistributable 2013.");
             File var2 = new File("../_CommonRedist/vcredist/");
             if (var2.exists()) {
-               DebugLog.log("  This file is provided in " + var2.getAbsolutePath());
+               DebugLog.DetailedInfo.trace("  This file is provided in " + var2.getAbsolutePath());
             }
          }
       }
@@ -155,6 +157,10 @@ public class SteamUtils {
 
    public static boolean isSteamModeEnabled() {
       return m_steamEnabled;
+   }
+
+   public static boolean isStreamModeEnabled() {
+      return m_streamEnabled;
    }
 
    public static boolean isOverlayEnabled() {

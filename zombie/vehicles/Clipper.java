@@ -6,6 +6,13 @@ import zombie.debug.DebugLog;
 public class Clipper {
    private long address;
    final ByteBuffer bb = ByteBuffer.allocateDirect(64);
+   public static final int ctIntersection = 0;
+   public static final int ctUnion = 1;
+   public static final int ctDifference = 2;
+   public static final int ctXor = 3;
+   public static final int jtSquare = 0;
+   public static final int jtRound = 1;
+   public static final int jtMiter = 2;
 
    public static void init() {
       String var0 = "";
@@ -68,7 +75,15 @@ public class Clipper {
       return this.generatePolygons(0.0);
    }
 
-   public native int generatePolygons(double var1);
+   public native int generatePolygons(int var1, double var2, int var4);
+
+   public int generatePolygons(double var1, int var3) {
+      return this.generatePolygons(2, var1, var3);
+   }
+
+   public int generatePolygons(double var1) {
+      return this.generatePolygons(2, var1, 0);
+   }
 
    public native int getPolygon(int var1, ByteBuffer var2);
 

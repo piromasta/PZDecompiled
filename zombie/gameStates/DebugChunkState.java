@@ -4,16 +4,22 @@ import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Stack;
 import java.util.function.Consumer;
+import org.joml.Matrix4f;
 import org.joml.Vector2f;
+import org.lwjgl.opengl.GL11;
 import se.krka.kahlua.vm.KahluaTable;
 import se.krka.kahlua.vm.KahluaTableIterator;
 import zombie.AmbientStreamManager;
 import zombie.FliesSound;
+import zombie.IndieGL;
 import zombie.VirtualZombieManager;
 import zombie.ZomboidFileSystem;
+import zombie.Lua.Event;
+import zombie.Lua.LuaEventManager;
 import zombie.Lua.LuaManager;
 import zombie.ai.astar.Mover;
 import zombie.characters.IsoGameCharacter;
@@ -22,12 +28,22 @@ import zombie.chat.ChatElement;
 import zombie.config.BooleanConfigOption;
 import zombie.config.ConfigFile;
 import zombie.config.ConfigOption;
+import zombie.config.DoubleConfigOption;
+import zombie.config.IntegerConfigOption;
+import zombie.config.StringConfigOption;
 import zombie.core.BoxedStaticValues;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.math.PZMath;
+import zombie.core.opengl.GLStateRenderThread;
+import zombie.core.opengl.VBORenderer;
 import zombie.core.properties.PropertyContainer;
+import zombie.core.skinnedmodel.model.VertexBufferObject;
+import zombie.core.skinnedmodel.shader.Shader;
+import zombie.core.skinnedmodel.shader.ShaderManager;
 import zombie.core.textures.Texture;
+import zombie.core.textures.TextureDraw;
 import zombie.core.utils.BooleanGrid;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
@@ -35,15 +51,16 @@ import zombie.debug.LineDrawer;
 import zombie.erosion.ErosionData;
 import zombie.input.GameKeyboard;
 import zombie.input.Mouse;
+import zombie.inventory.InventoryItem;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoChunkMap;
+import zombie.iso.IsoDepthHelper;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoLightSource;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoObjectPicker;
@@ -53,69 +70,101 @@ import zombie.iso.IsoWorld;
 import zombie.iso.LosUtil;
 import zombie.iso.NearestWalls;
 import zombie.iso.ParticlesFire;
+import zombie.iso.PlayerCamera;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.iso.SpriteDetails.IsoObjectType;
 import zombie.iso.areas.IsoBuilding;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
+import zombie.iso.fboRenderChunk.FBORenderLevels;
+import zombie.iso.fboRenderChunk.FBORenderOcclusion;
 import zombie.iso.sprite.IsoSprite;
+import zombie.iso.zones.VehicleZone;
+import zombie.iso.zones.Zone;
 import zombie.network.GameClient;
+import zombie.pathfind.LiangBarsky;
 import zombie.randomizedWorld.randomizedVehicleStory.RandomizedVehicleStoryBase;
 import zombie.randomizedWorld.randomizedVehicleStory.VehicleStorySpawner;
 import zombie.ui.TextDrawObject;
 import zombie.ui.TextManager;
-import zombie.ui.UIElement;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIFont;
 import zombie.ui.UIManager;
 import zombie.util.Type;
 import zombie.vehicles.ClipperOffset;
 import zombie.vehicles.EditVehicleState;
-import zombie.vehicles.PolygonalMap2;
 
 public final class DebugChunkState extends GameState {
    public static DebugChunkState instance;
    private EditVehicleState.LuaEnvironment m_luaEnv;
    private boolean bExit = false;
-   private final ArrayList<UIElement> m_gameUI = new ArrayList();
-   private final ArrayList<UIElement> m_selfUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_gameUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_selfUI = new ArrayList();
    private boolean m_bSuspendUI;
+   private final ArrayList<Event> m_EventList = new ArrayList();
+   private final HashMap<String, Event> m_EventMap = new HashMap();
    private KahluaTable m_table = null;
    private int m_playerIndex = 0;
-   private int m_z = 0;
+   public int m_z = 0;
    private int gridX = -1;
    private int gridY = -1;
+   public float gridXf;
+   public float gridYf;
    private UIFont FONT;
    private String m_vehicleStory;
    static boolean keyQpressed = false;
+   private final GeometryDrawer[] geometryDrawers;
+   private InventoryItem inventoryItem1;
    private static ClipperOffset m_clipperOffset = null;
    private static ByteBuffer m_clipperBuffer;
    private static final int VERSION = 1;
    private final ArrayList<ConfigOption> options;
-   private BooleanDebugOption BuildingRect;
-   private BooleanDebugOption ChunkGrid;
-   private BooleanDebugOption ClosestRoomSquare;
-   private BooleanDebugOption EmptySquares;
-   private BooleanDebugOption FlyBuzzEmitters;
-   private BooleanDebugOption LightSquares;
-   private BooleanDebugOption LineClearCollide;
-   private BooleanDebugOption NearestWallsOpt;
-   private BooleanDebugOption ObjectPicker;
-   private BooleanDebugOption RoomLightRects;
-   private BooleanDebugOption VehicleStory;
-   private BooleanDebugOption RandomSquareInZone;
-   private BooleanDebugOption ZoneRect;
+   private final ArrayList<ConfigOption> optionsHidden;
+   private final BooleanDebugOption BuildingRect;
+   private final BooleanDebugOption ChunkGrid;
+   private final BooleanDebugOption ChunkColorTexture;
+   private final BooleanDebugOption ChunkDepthTexture;
+   private final BooleanDebugOption ClosestRoomSquare;
+   private final BooleanDebugOption EmptySquares;
+   private final BooleanDebugOption FlyBuzzEmitters;
+   private final BooleanDebugOption LightSquares;
+   private final BooleanDebugOption LineClearCollide;
+   private final BooleanDebugOption NearestWallsOpt;
+   private final BooleanDebugOption ObjectAtCursor;
+   private final StringDebugOption ObjectAtCursor_ID;
+   private final IntegerDebugOption ObjectAtCursor_LEVELS;
+   private final DoubleDebugOption ObjectAtCursor_WIDTH;
+   private final BooleanDebugOption ObjectPicker;
+   private final BooleanDebugOption OccludedSquares;
+   private final BooleanDebugOption RoofHideBuilding;
+   private final BooleanDebugOption RoomLightRects;
+   private final BooleanDebugOption VehicleStory;
+   private final BooleanDebugOption RandomSquareInZone;
+   private final BooleanDebugOption ZoneRect;
 
    public DebugChunkState() {
       this.FONT = UIFont.DebugConsole;
       this.m_vehicleStory = "Basic Car Crash";
+      this.geometryDrawers = new GeometryDrawer[3];
       this.options = new ArrayList();
+      this.optionsHidden = new ArrayList();
       this.BuildingRect = new BooleanDebugOption("BuildingRect", true);
       this.ChunkGrid = new BooleanDebugOption("ChunkGrid", true);
+      this.ChunkColorTexture = new BooleanDebugOption("ChunkColorTexture", true);
+      this.ChunkDepthTexture = new BooleanDebugOption("ChunkDepthTexture", false);
       this.ClosestRoomSquare = new BooleanDebugOption("ClosestRoomSquare", true);
       this.EmptySquares = new BooleanDebugOption("EmptySquares", true);
       this.FlyBuzzEmitters = new BooleanDebugOption("FlyBuzzEmitters", true);
       this.LightSquares = new BooleanDebugOption("LightSquares", true);
       this.LineClearCollide = new BooleanDebugOption("LineClearCollide", true);
       this.NearestWallsOpt = new BooleanDebugOption("NearestWalls", true);
+      this.ObjectAtCursor = new BooleanDebugOption("ObjectAtCursor", false);
+      this.ObjectAtCursor_ID = new StringDebugOption("ObjectAtCursor.id", "cylinder");
+      this.ObjectAtCursor_LEVELS = new IntegerDebugOption("ObjectAtCursor.levels", 1, 10, 1);
+      this.ObjectAtCursor_WIDTH = new DoubleDebugOption("ObjectAtCursor.width", 0.5, 20.0, 1.0);
       this.ObjectPicker = new BooleanDebugOption("ObjectPicker", true);
+      this.OccludedSquares = new BooleanDebugOption("OccludedSquares", false);
+      this.RoofHideBuilding = new BooleanDebugOption("RoofHideBuilding", false);
       this.RoomLightRects = new BooleanDebugOption("RoomLightRects", true);
       this.VehicleStory = new BooleanDebugOption("VehicleStory", true);
       this.RandomSquareInZone = new BooleanDebugOption("RandomSquareInZone", true);
@@ -133,7 +182,7 @@ public final class DebugChunkState extends GameState {
       this.saveGameUI();
       if (this.m_selfUI.size() == 0) {
          IsoPlayer var1 = IsoPlayer.players[this.m_playerIndex];
-         this.m_z = var1 == null ? 0 : (int)var1.z;
+         this.m_z = var1 == null ? 0 : PZMath.fastfloor(var1.getZ());
          this.m_luaEnv.caller.pcall(this.m_luaEnv.thread, this.m_luaEnv.env.rawget("DebugChunkState_InitUI"), this);
          if (this.m_table != null && this.m_table.getMetatable() != null) {
             this.m_table.getMetatable().rawset("_LUA_RELOADED_CHECK", Boolean.FALSE);
@@ -166,7 +215,7 @@ public final class DebugChunkState extends GameState {
 
    public void render() {
       IsoPlayer.setInstance(IsoPlayer.players[this.m_playerIndex]);
-      IsoCamera.CamCharacter = IsoPlayer.players[this.m_playerIndex];
+      IsoCamera.setCameraCharacter(IsoPlayer.players[this.m_playerIndex]);
       boolean var1 = true;
 
       int var2;
@@ -216,24 +265,32 @@ public final class DebugChunkState extends GameState {
 
    public void renderScene() {
       IsoCamera.frameState.set(this.m_playerIndex);
-      SpriteRenderer.instance.doCoreIntParam(0, IsoCamera.CamCharacter.x);
-      SpriteRenderer.instance.doCoreIntParam(1, IsoCamera.CamCharacter.y);
-      SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.CamCharacter.z);
+      IsoCamera.frameState.Paused = true;
+      IsoGameCharacter var1 = IsoCamera.getCameraCharacter();
+      SpriteRenderer.instance.doCoreIntParam(0, var1.getX());
+      SpriteRenderer.instance.doCoreIntParam(1, var1.getY());
+      SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.frameState.CamCharacterZ);
       IsoSprite.globalOffsetX = -1.0F;
       IsoWorld.instance.CurrentCell.render();
+      if (PerformanceSettings.FBORenderChunk) {
+      }
+
+      this.drawTestModels();
+      IndieGL.StartShader(0, this.m_playerIndex);
+      IndieGL.disableDepthTest();
       if (this.ChunkGrid.getValue()) {
          this.drawGrid();
       }
 
       this.drawCursor();
-      int var2;
+      int var3;
       if (this.LightSquares.getValue()) {
-         Stack var1 = IsoWorld.instance.getCell().getLamppostPositions();
+         Stack var2 = IsoWorld.instance.getCell().getLamppostPositions();
 
-         for(var2 = 0; var2 < var1.size(); ++var2) {
-            IsoLightSource var3 = (IsoLightSource)var1.get(var2);
-            if (var3.z == this.m_z) {
-               this.paintSquare(var3.x, var3.y, var3.z, 1.0F, 1.0F, 0.0F, 0.5F);
+         for(var3 = 0; var3 < var2.size(); ++var3) {
+            IsoLightSource var4 = (IsoLightSource)var2.get(var3);
+            if (var4.z == this.m_z) {
+               this.paintSquare(var4.x, var4.y, var4.z, 1.0F, 1.0F, 0.0F, 0.5F);
             }
          }
       }
@@ -242,25 +299,25 @@ public final class DebugChunkState extends GameState {
          this.drawZones();
       }
 
-      IsoGridSquare var5;
+      IsoGridSquare var6;
       if (this.BuildingRect.getValue()) {
-         var5 = IsoWorld.instance.getCell().getGridSquare(this.gridX, this.gridY, this.m_z);
-         if (var5 != null && var5.getBuilding() != null) {
-            BuildingDef var8 = var5.getBuilding().getDef();
-            this.DrawIsoLine((float)var8.getX(), (float)var8.getY(), (float)var8.getX2(), (float)var8.getY(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
-            this.DrawIsoLine((float)var8.getX2(), (float)var8.getY(), (float)var8.getX2(), (float)var8.getY2(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
-            this.DrawIsoLine((float)var8.getX2(), (float)var8.getY2(), (float)var8.getX(), (float)var8.getY2(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
-            this.DrawIsoLine((float)var8.getX(), (float)var8.getY2(), (float)var8.getX(), (float)var8.getY(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
+         var6 = IsoWorld.instance.getCell().getGridSquare(this.gridX, this.gridY, this.m_z);
+         if (var6 != null && var6.getBuilding() != null) {
+            BuildingDef var9 = var6.getBuilding().getDef();
+            this.DrawIsoLine((float)var9.getX(), (float)var9.getY(), (float)var9.getX2(), (float)var9.getY(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
+            this.DrawIsoLine((float)var9.getX2(), (float)var9.getY(), (float)var9.getX2(), (float)var9.getY2(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
+            this.DrawIsoLine((float)var9.getX2(), (float)var9.getY2(), (float)var9.getX(), (float)var9.getY2(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
+            this.DrawIsoLine((float)var9.getX(), (float)var9.getY2(), (float)var9.getX(), (float)var9.getY(), 1.0F, 1.0F, 1.0F, 1.0F, 2);
          }
       }
 
       if (this.RoomLightRects.getValue()) {
-         ArrayList var6 = IsoWorld.instance.CurrentCell.roomLights;
+         ArrayList var7 = IsoWorld.instance.CurrentCell.roomLights;
 
-         for(var2 = 0; var2 < var6.size(); ++var2) {
-            IsoRoomLight var9 = (IsoRoomLight)var6.get(var2);
-            if (var9.z == this.m_z) {
-               this.DrawIsoRect((float)var9.x, (float)var9.y, (float)var9.width, (float)var9.height, 0.0F, 1.0F, 1.0F, 1.0F, 1);
+         for(var3 = 0; var3 < var7.size(); ++var3) {
+            IsoRoomLight var10 = (IsoRoomLight)var7.get(var3);
+            if (var10.z == this.m_z) {
+               this.DrawIsoRect((float)var10.x, (float)var10.y, (float)var10.width, (float)var10.height, 0.0F, 1.0F, 1.0F, 1.0F, 1);
             }
          }
       }
@@ -270,19 +327,22 @@ public final class DebugChunkState extends GameState {
       }
 
       if (this.ClosestRoomSquare.getValue()) {
-         float var7 = IsoPlayer.players[this.m_playerIndex].getX();
-         float var10 = IsoPlayer.players[this.m_playerIndex].getY();
-         Vector2f var11 = new Vector2f();
-         BuildingDef var4 = ((AmbientStreamManager)AmbientStreamManager.getInstance()).getNearestBuilding(var7, var10, var11);
-         if (var4 != null) {
-            this.DrawIsoLine(var7, var10, var11.x, var11.y, 1.0F, 1.0F, 1.0F, 1.0F, 1);
+         float var8 = IsoPlayer.players[this.m_playerIndex].getX();
+         float var11 = IsoPlayer.players[this.m_playerIndex].getY();
+         Vector2f var12 = new Vector2f();
+         if (AmbientStreamManager.getInstance() instanceof AmbientStreamManager) {
+            AmbientStreamManager var10000 = (AmbientStreamManager)AmbientStreamManager.getInstance();
+            BuildingDef var5 = AmbientStreamManager.getNearestBuilding(var8, var11, var12);
+            if (var5 != null) {
+               this.DrawIsoLine(var8, var11, var12.x, var12.y, 1.0F, 1.0F, 1.0F, 1.0F, 1);
+            }
          }
       }
 
       if (this.m_table != null && this.m_table.rawget("selectedSquare") != null) {
-         var5 = (IsoGridSquare)Type.tryCastTo(this.m_table.rawget("selectedSquare"), IsoGridSquare.class);
-         if (var5 != null) {
-            this.DrawIsoRect((float)var5.x, (float)var5.y, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 2);
+         var6 = (IsoGridSquare)Type.tryCastTo(this.m_table.rawget("selectedSquare"), IsoGridSquare.class);
+         if (var6 != null) {
+            this.DrawIsoRect((float)var6.x, (float)var6.y, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 2);
          }
       }
 
@@ -295,14 +355,57 @@ public final class DebugChunkState extends GameState {
       Stack var2 = IsoWorld.instance.getCell().getLamppostPositions();
       int var3 = 0;
 
-      for(int var4 = 0; var4 < var2.size(); ++var4) {
+      int var4;
+      for(var4 = 0; var4 < var2.size(); ++var4) {
          IsoLightSource var5 = (IsoLightSource)var2.get(var4);
          if (var5.bActive) {
             ++var3;
          }
       }
 
+      if (PerformanceSettings.FBORenderChunk) {
+         var4 = 220 + Core.getInstance().getOptionFontSizeReal() * 50;
+         byte var6 = 80;
+         if (this.ChunkColorTexture.getValue()) {
+            var4 = this.renderChunkTexture(var4, var6, true);
+         }
+
+         if (this.ChunkDepthTexture.getValue()) {
+            this.renderChunkTexture(var4, var6, false);
+         }
+      }
+
       UIManager.render();
+   }
+
+   private int renderChunkTexture(int var1, int var2, boolean var3) {
+      IsoChunk var4 = IsoWorld.instance.CurrentCell.getChunkForGridSquare(this.gridX, this.gridY, 0);
+      if (var4 == null) {
+         return var1;
+      } else {
+         FBORenderLevels var5 = var4.getRenderLevels(this.m_playerIndex);
+         FBORenderChunk var6 = var5.getFBOForLevel(this.m_z, Core.getInstance().getZoom(this.m_playerIndex));
+         if (var6 != null && var6.isInit) {
+            Texture var7 = var3 ? var6.tex : var6.depth;
+            float var8 = 0.5F;
+            boolean var9 = DebugOptions.instance.FBORenderChunk.CombinedFBO.getValue();
+            if (var9) {
+               var7 = var3 ? FBORenderChunkManager.instance.combinedTexture : FBORenderChunkManager.instance.combinedDepthTexture;
+               var8 = 0.125F;
+            }
+
+            if (var7 == null) {
+               return var1;
+            } else {
+               SpriteRenderer.instance.render((Texture)null, (float)var1, (float)var2, (float)var7.getWidth() * var8, (float)var7.getHeight() * var8, 0.2F, 0.2F, 0.2F, 1.0F, (Consumer)null);
+               SpriteRenderer.instance.render(var7, (float)var1, (float)var2, (float)var7.getWidth() * var8, (float)var7.getHeight() * var8, 1.0F, 1.0F, 1.0F, 1.0F, (Consumer)null);
+               TextManager.instance.DrawString((double)(var1 + 4), (double)(var2 + 4), "Level %d-%d / %d-%d".formatted(var6.getMinLevel(), var6.getTopLevel(), var4.minLevel, var4.maxLevel));
+               return var1 + (int)Math.ceil((double)((float)var7.getWidth() * var8));
+            }
+         } else {
+            return var1;
+         }
+      }
    }
 
    public void setTable(KahluaTable var1) {
@@ -311,24 +414,10 @@ public final class DebugChunkState extends GameState {
 
    public GameStateMachine.StateAction updateScene() {
       IsoPlayer.setInstance(IsoPlayer.players[this.m_playerIndex]);
-      IsoCamera.CamCharacter = IsoPlayer.players[this.m_playerIndex];
+      IsoCamera.setCameraCharacter(IsoPlayer.players[this.m_playerIndex]);
       UIManager.setPicked(IsoObjectPicker.Instance.ContextPick(Mouse.getXA(), Mouse.getYA()));
       IsoObject var1 = UIManager.getPicked() == null ? null : UIManager.getPicked().tile;
       UIManager.setLastPicked(var1);
-      if (GameKeyboard.isKeyDown(16)) {
-         if (!keyQpressed) {
-            IsoGridSquare var2 = IsoWorld.instance.getCell().getGridSquare(this.gridX, this.gridY, 0);
-            if (var2 != null) {
-               GameClient.instance.worldObjectsSyncReq.putRequestSyncIsoChunk(var2.chunk);
-               DebugLog.General.debugln("Requesting sync IsoChunk %s", var2.chunk);
-            }
-
-            keyQpressed = true;
-         }
-      } else {
-         keyQpressed = false;
-      }
-
       if (GameKeyboard.isKeyDown(19)) {
          if (!keyQpressed) {
             DebugOptions.instance.Terrain.RenderTiles.NewRender.setValue(true);
@@ -372,6 +461,8 @@ public final class DebugChunkState extends GameState {
       UIManager.bSuspend = false;
       UIManager.setShowPausedMessage(false);
       UIManager.defaultthread = this.m_luaEnv.thread;
+      LuaEventManager.getEvents(this.m_EventList, this.m_EventMap);
+      LuaEventManager.setEvents(new ArrayList(), new HashMap());
    }
 
    private void restoreGameUI() {
@@ -382,6 +473,9 @@ public final class DebugChunkState extends GameState {
       UIManager.bSuspend = this.m_bSuspendUI;
       UIManager.setShowPausedMessage(true);
       UIManager.defaultthread = LuaManager.thread;
+      LuaEventManager.setEvents(this.m_EventList, this.m_EventMap);
+      this.m_EventList.clear();
+      this.m_EventMap.clear();
    }
 
    public Object fromLua0(String var1) {
@@ -410,6 +504,23 @@ public final class DebugChunkState extends GameState {
             return BoxedStaticValues.toDouble((double)(-IsoCamera.cameras[this.m_playerIndex].DeferedX));
          case "getCameraDragY":
             return BoxedStaticValues.toDouble((double)(-IsoCamera.cameras[this.m_playerIndex].DeferedY));
+         case "getObjectAtCursor":
+            Object var10000;
+            switch ((String)var2) {
+               case "id":
+                  var10000 = this.ObjectAtCursor_ID.getValue();
+                  break;
+               case "levels":
+                  var10000 = this.ObjectAtCursor_LEVELS.getValue();
+                  break;
+               case "width":
+                  var10000 = this.ObjectAtCursor_WIDTH.getValue();
+                  break;
+               default:
+                  throw new IllegalArgumentException(String.format("unhandled \"%s\" \"%s\"", var1, var2));
+            }
+
+            return var10000;
          case "setPlayerIndex":
             this.m_playerIndex = PZMath.clamp(((Double)var2).intValue(), 0, 3);
             return null;
@@ -417,7 +528,7 @@ public final class DebugChunkState extends GameState {
             this.m_vehicleStory = (String)var2;
             return null;
          case "setZ":
-            this.m_z = PZMath.clamp(((Double)var2).intValue(), 0, 7);
+            this.m_z = PZMath.clamp(((Double)var2).intValue(), -31, 31);
             return null;
          default:
             throw new IllegalArgumentException(String.format("unhandled \"%s\" \"%s\"", var1, var2));
@@ -427,10 +538,23 @@ public final class DebugChunkState extends GameState {
    public Object fromLua2(String var1, Object var2, Object var3) {
       switch (var1) {
          case "dragCamera":
-            float var6 = ((Double)var2).floatValue();
-            float var7 = ((Double)var3).floatValue();
-            IsoCamera.cameras[this.m_playerIndex].DeferedX = -var6;
-            IsoCamera.cameras[this.m_playerIndex].DeferedY = -var7;
+            float var8 = ((Double)var2).floatValue();
+            float var9 = ((Double)var3).floatValue();
+            IsoCamera.cameras[this.m_playerIndex].DeferedX = -var8;
+            IsoCamera.cameras[this.m_playerIndex].DeferedY = -var9;
+            return null;
+         case "setObjectAtCursor":
+            switch ((String)var2) {
+               case "id":
+                  this.ObjectAtCursor_ID.setValue((String)var3);
+                  break;
+               case "levels":
+                  this.ObjectAtCursor_LEVELS.setValue(((Double)var3).intValue());
+                  break;
+               case "width":
+                  this.ObjectAtCursor_WIDTH.setValue((Double)var3);
+            }
+
             return null;
          default:
             throw new IllegalArgumentException(String.format("unhandled \"%s\" \"%s\" \\\"%s\\\"", var1, var2, var3));
@@ -446,9 +570,11 @@ public final class DebugChunkState extends GameState {
       var4 -= (float)IsoCamera.getScreenTop(var1);
       var3 *= Core.getInstance().getZoom(var1);
       var4 *= Core.getInstance().getZoom(var1);
-      int var5 = this.m_z;
-      this.gridX = (int)IsoUtils.XToIso(var3, var4, (float)var5);
-      this.gridY = (int)IsoUtils.YToIso(var3, var4, (float)var5);
+      int var5 = PZMath.fastfloor((float)this.m_z);
+      this.gridXf = IsoUtils.XToIso(var3, var4, (float)var5);
+      this.gridYf = IsoUtils.YToIso(var3, var4, (float)var5);
+      this.gridX = PZMath.fastfloor(this.gridXf);
+      this.gridY = PZMath.fastfloor(this.gridYf);
    }
 
    private void DrawIsoLine(float var1, float var2, float var3, float var4, float var5, float var6, float var7, float var8, int var9) {
@@ -457,6 +583,13 @@ public final class DebugChunkState extends GameState {
       float var12 = IsoUtils.YToScreenExact(var1, var2, var10, 0);
       float var13 = IsoUtils.XToScreenExact(var3, var4, var10, 0);
       float var14 = IsoUtils.YToScreenExact(var3, var4, var10, 0);
+      int var15 = IsoCamera.frameState.playerIndex;
+      PlayerCamera var16 = IsoCamera.cameras[var15];
+      float var17 = var16.zoom;
+      var11 += var16.fixJigglyModelsX * var17;
+      var12 += var16.fixJigglyModelsY * var17;
+      var13 += var16.fixJigglyModelsX * var17;
+      var14 += var16.fixJigglyModelsY * var17;
       LineDrawer.drawLine(var11, var12, var13, var14, var5, var6, var7, var8, var9);
    }
 
@@ -469,10 +602,10 @@ public final class DebugChunkState extends GameState {
 
    private void drawGrid() {
       int var1 = this.m_playerIndex;
-      float var2 = IsoUtils.XToIso(-128.0F, -256.0F, 0.0F);
-      float var3 = IsoUtils.YToIso((float)(Core.getInstance().getOffscreenWidth(var1) + 128), -256.0F, 0.0F);
-      float var4 = IsoUtils.XToIso((float)(Core.getInstance().getOffscreenWidth(var1) + 128), (float)(Core.getInstance().getOffscreenHeight(var1) + 256), 6.0F);
-      float var5 = IsoUtils.YToIso(-128.0F, (float)(Core.getInstance().getOffscreenHeight(var1) + 256), 6.0F);
+      float var2 = IsoUtils.XToIso(-128.0F, -256.0F, (float)this.m_z);
+      float var3 = IsoUtils.YToIso((float)(Core.getInstance().getOffscreenWidth(var1) + 128), -256.0F, (float)this.m_z);
+      float var4 = IsoUtils.XToIso((float)(Core.getInstance().getOffscreenWidth(var1) + 128), (float)(Core.getInstance().getOffscreenHeight(var1) + 256), (float)this.m_z);
+      float var5 = IsoUtils.YToIso(-128.0F, (float)(Core.getInstance().getOffscreenHeight(var1) + 256), (float)this.m_z);
       int var7 = (int)var3;
       int var9 = (int)var5;
       int var6 = (int)var2;
@@ -482,43 +615,64 @@ public final class DebugChunkState extends GameState {
 
       int var10;
       for(var10 = var7; var10 <= var9; ++var10) {
-         if (var10 % 10 == 0) {
+         if (PZMath.coordmodulo(var10, 8) == 0) {
             this.DrawIsoLine((float)var6, (float)var10, (float)var8, (float)var10, 1.0F, 1.0F, 1.0F, 0.5F, 1);
          }
       }
 
       for(var10 = var6; var10 <= var8; ++var10) {
-         if (var10 % 10 == 0) {
+         if (PZMath.coordmodulo(var10, 8) == 0) {
             this.DrawIsoLine((float)var10, (float)var7, (float)var10, (float)var9, 1.0F, 1.0F, 1.0F, 0.5F, 1);
          }
       }
 
       for(var10 = var7; var10 <= var9; ++var10) {
-         if (var10 % 300 == 0) {
+         if (var10 % IsoCell.CellSizeInSquares == 0) {
             this.DrawIsoLine((float)var6, (float)var10, (float)var8, (float)var10, 0.0F, 1.0F, 0.0F, 0.5F, 1);
          }
       }
 
       for(var10 = var6; var10 <= var8; ++var10) {
-         if (var10 % 300 == 0) {
+         if (var10 % IsoCell.CellSizeInSquares == 0) {
             this.DrawIsoLine((float)var10, (float)var7, (float)var10, (float)var9, 0.0F, 1.0F, 0.0F, 0.5F, 1);
          }
       }
 
       if (GameClient.bClient) {
          for(var10 = var7; var10 <= var9; ++var10) {
-            if (var10 % 50 == 0) {
+            if (var10 % 64 == 0) {
                this.DrawIsoLine((float)var6, (float)var10, (float)var8, (float)var10, 1.0F, 0.0F, 0.0F, 0.5F, 1);
             }
          }
 
          for(var10 = var6; var10 <= var8; ++var10) {
-            if (var10 % 50 == 0) {
+            if (var10 % 64 == 0) {
                this.DrawIsoLine((float)var10, (float)var7, (float)var10, (float)var9, 1.0F, 0.0F, 0.0F, 0.5F, 1);
             }
          }
       }
 
+   }
+
+   public void drawObjectAtCursor() {
+      if (this.ObjectAtCursor.getValue()) {
+         int var1 = SpriteRenderer.instance.getMainStateIndex();
+         if (this.geometryDrawers[var1] == null) {
+            this.geometryDrawers[var1] = new GeometryDrawer();
+         }
+
+         GeometryDrawer var2 = this.geometryDrawers[var1];
+         var2.renderMain();
+         SpriteRenderer.instance.drawGeneric(var2);
+      }
+
+   }
+
+   private void drawTestModels() {
+      IsoGridSquare var1 = IsoWorld.instance.CurrentCell.getGridSquare(this.gridX, this.gridY, this.m_z);
+      if (var1 != null) {
+         ;
+      }
    }
 
    private void drawCursor() {
@@ -528,69 +682,86 @@ public final class DebugChunkState extends GameState {
       int var4 = (int)IsoUtils.XToScreenExact((float)this.gridX, (float)(this.gridY + 1), var3, 0);
       int var5 = (int)IsoUtils.YToScreenExact((float)this.gridX, (float)(this.gridY + 1), var3, 0);
       SpriteRenderer.instance.renderPoly((float)var4, (float)var5, (float)(var4 + 32 * var2), (float)(var5 - 16 * var2), (float)(var4 + 64 * var2), (float)var5, (float)(var4 + 32 * var2), (float)(var5 + 16 * var2), 0.0F, 0.0F, 1.0F, 0.5F);
-      IsoChunkMap var6 = IsoWorld.instance.getCell().ChunkMap[var1];
+      if (PerformanceSettings.FBORenderChunk) {
+         float var6 = IsoPlayer.players[var1].getX();
+         float var7 = IsoPlayer.players[var1].getY();
+         IsoDepthHelper.Results var8 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(var6), PZMath.fastfloor(var7), this.gridXf, this.gridYf, (float)this.m_z);
+         float var9 = var8.depthStart - 0.001F;
+         TextManager.instance.DrawString(this.FONT, (double)var4, (double)var5, Float.toString(var9), 1.0, 1.0, 1.0, 1.0);
+         float var10 = IsoSprite.calculateDepth(this.gridXf, this.gridYf, (float)this.m_z);
+         var8 = IsoDepthHelper.getChunkDepthData(PZMath.fastfloor(var6 / 8.0F), PZMath.fastfloor(var7 / 8.0F), PZMath.fastfloor(this.gridXf / 8.0F), PZMath.fastfloor(this.gridYf / 8.0F), this.m_z);
+         float var11 = var8.depthStart;
+         TextManager.instance.DrawString(this.FONT, (double)var4, (double)(var5 + TextManager.instance.getFontHeight(this.FONT)), String.format("%.4f (%.4f + %.4f)", var11 + var10, var11, var10), 1.0, 1.0, 1.0, 1.0);
+      }
 
-      for(int var7 = var6.getWorldYMinTiles(); var7 < var6.getWorldYMaxTiles(); ++var7) {
-         for(int var8 = var6.getWorldXMinTiles(); var8 < var6.getWorldXMaxTiles(); ++var8) {
-            IsoGridSquare var9 = IsoWorld.instance.getCell().getGridSquare((double)var8, (double)var7, (double)var3);
-            if (var9 != null) {
-               if (var9 != var6.getGridSquare(var8, var7, (int)var3)) {
-                  var4 = (int)IsoUtils.XToScreenExact((float)var8, (float)(var7 + 1), var3, 0);
-                  var5 = (int)IsoUtils.YToScreenExact((float)var8, (float)(var7 + 1), var3, 0);
+      IsoChunkMap var18 = IsoWorld.instance.getCell().ChunkMap[var1];
+
+      for(int var19 = var18.getWorldYMinTiles(); var19 < var18.getWorldYMaxTiles(); ++var19) {
+         for(int var21 = var18.getWorldXMinTiles(); var21 < var18.getWorldXMaxTiles(); ++var21) {
+            IsoGridSquare var23 = IsoWorld.instance.getCell().getGridSquare((double)var21, (double)var19, (double)var3);
+            if (var23 != null) {
+               if (var23 != var18.getGridSquare(var21, var19, PZMath.fastfloor(var3))) {
+                  var4 = (int)IsoUtils.XToScreenExact((float)var21, (float)(var19 + 1), var3, 0);
+                  var5 = (int)IsoUtils.YToScreenExact((float)var21, (float)(var19 + 1), var3, 0);
                   SpriteRenderer.instance.renderPoly((float)var4, (float)var5, (float)(var4 + 32), (float)(var5 - 16), (float)(var4 + 64), (float)var5, (float)(var4 + 32), (float)(var5 + 16), 1.0F, 0.0F, 0.0F, 0.8F);
                }
 
-               if (var9 == null || var9.getX() != var8 || var9.getY() != var7 || (float)var9.getZ() != var3 || var9.e != null && var9.e.w != null && var9.e.w != var9 || var9.w != null && var9.w.e != null && var9.w.e != var9 || var9.n != null && var9.n.s != null && var9.n.s != var9 || var9.s != null && var9.s.n != null && var9.s.n != var9 || var9.nw != null && var9.nw.se != null && var9.nw.se != var9 || var9.se != null && var9.se.nw != null && var9.se.nw != var9) {
-                  var4 = (int)IsoUtils.XToScreenExact((float)var8, (float)(var7 + 1), var3, 0);
-                  var5 = (int)IsoUtils.YToScreenExact((float)var8, (float)(var7 + 1), var3, 0);
+               if (var23 == null || var23.getX() != var21 || var23.getY() != var19 || (float)var23.getZ() != var3 || var23.e != null && var23.e.w != null && var23.e.w != var23 || var23.w != null && var23.w.e != null && var23.w.e != var23 || var23.n != null && var23.n.s != null && var23.n.s != var23 || var23.s != null && var23.s.n != null && var23.s.n != var23 || var23.nw != null && var23.nw.se != null && var23.nw.se != var23 || var23.se != null && var23.se.nw != null && var23.se.nw != var23) {
+                  var4 = (int)IsoUtils.XToScreenExact((float)var21, (float)(var19 + 1), var3, 0);
+                  var5 = (int)IsoUtils.YToScreenExact((float)var21, (float)(var19 + 1), var3, 0);
                   SpriteRenderer.instance.renderPoly((float)var4, (float)var5, (float)(var4 + 32), (float)(var5 - 16), (float)(var4 + 64), (float)var5, (float)(var4 + 32), (float)(var5 + 16), 1.0F, 0.0F, 0.0F, 0.5F);
                }
 
-               if (var9 != null) {
-                  IsoGridSquare var10 = var9.testPathFindAdjacent((IsoMovingObject)null, -1, 0, 0) ? null : var9.nav[IsoDirections.W.index()];
-                  IsoGridSquare var11 = var9.testPathFindAdjacent((IsoMovingObject)null, 0, -1, 0) ? null : var9.nav[IsoDirections.N.index()];
-                  IsoGridSquare var12 = var9.testPathFindAdjacent((IsoMovingObject)null, 1, 0, 0) ? null : var9.nav[IsoDirections.E.index()];
-                  IsoGridSquare var13 = var9.testPathFindAdjacent((IsoMovingObject)null, 0, 1, 0) ? null : var9.nav[IsoDirections.S.index()];
-                  IsoGridSquare var14 = var9.testPathFindAdjacent((IsoMovingObject)null, -1, -1, 0) ? null : var9.nav[IsoDirections.NW.index()];
-                  IsoGridSquare var15 = var9.testPathFindAdjacent((IsoMovingObject)null, 1, -1, 0) ? null : var9.nav[IsoDirections.NE.index()];
-                  IsoGridSquare var16 = var9.testPathFindAdjacent((IsoMovingObject)null, -1, 1, 0) ? null : var9.nav[IsoDirections.SW.index()];
-                  IsoGridSquare var17 = var9.testPathFindAdjacent((IsoMovingObject)null, 1, 1, 0) ? null : var9.nav[IsoDirections.SE.index()];
-                  if (var10 != var9.w || var11 != var9.n || var12 != var9.e || var13 != var9.s || var14 != var9.nw || var15 != var9.ne || var16 != var9.sw || var17 != var9.se) {
-                     this.paintSquare(var8, var7, (int)var3, 1.0F, 0.0F, 0.0F, 0.5F);
+               if (var23 != null) {
+                  IsoGridSquare var25 = var23.testPathFindAdjacent((IsoMovingObject)null, -1, 0, 0) ? null : var23.nav[IsoDirections.W.index()];
+                  IsoGridSquare var26 = var23.testPathFindAdjacent((IsoMovingObject)null, 0, -1, 0) ? null : var23.nav[IsoDirections.N.index()];
+                  IsoGridSquare var12 = var23.testPathFindAdjacent((IsoMovingObject)null, 1, 0, 0) ? null : var23.nav[IsoDirections.E.index()];
+                  IsoGridSquare var13 = var23.testPathFindAdjacent((IsoMovingObject)null, 0, 1, 0) ? null : var23.nav[IsoDirections.S.index()];
+                  IsoGridSquare var14 = var23.testPathFindAdjacent((IsoMovingObject)null, -1, -1, 0) ? null : var23.nav[IsoDirections.NW.index()];
+                  IsoGridSquare var15 = var23.testPathFindAdjacent((IsoMovingObject)null, 1, -1, 0) ? null : var23.nav[IsoDirections.NE.index()];
+                  IsoGridSquare var16 = var23.testPathFindAdjacent((IsoMovingObject)null, -1, 1, 0) ? null : var23.nav[IsoDirections.SW.index()];
+                  IsoGridSquare var17 = var23.testPathFindAdjacent((IsoMovingObject)null, 1, 1, 0) ? null : var23.nav[IsoDirections.SE.index()];
+                  if (var25 != var23.w || var26 != var23.n || var12 != var23.e || var13 != var23.s || var14 != var23.nw || var15 != var23.ne || var16 != var23.sw || var17 != var23.se) {
+                     this.paintSquare(var21, var19, PZMath.fastfloor(var3), 1.0F, 0.0F, 0.0F, 0.5F);
                   }
                }
 
-               if (var9 != null && (var9.nav[IsoDirections.NW.index()] != null && var9.nav[IsoDirections.NW.index()].nav[IsoDirections.SE.index()] != var9 || var9.nav[IsoDirections.NE.index()] != null && var9.nav[IsoDirections.NE.index()].nav[IsoDirections.SW.index()] != var9 || var9.nav[IsoDirections.SW.index()] != null && var9.nav[IsoDirections.SW.index()].nav[IsoDirections.NE.index()] != var9 || var9.nav[IsoDirections.SE.index()] != null && var9.nav[IsoDirections.SE.index()].nav[IsoDirections.NW.index()] != var9 || var9.nav[IsoDirections.N.index()] != null && var9.nav[IsoDirections.N.index()].nav[IsoDirections.S.index()] != var9 || var9.nav[IsoDirections.S.index()] != null && var9.nav[IsoDirections.S.index()].nav[IsoDirections.N.index()] != var9 || var9.nav[IsoDirections.W.index()] != null && var9.nav[IsoDirections.W.index()].nav[IsoDirections.E.index()] != var9 || var9.nav[IsoDirections.E.index()] != null && var9.nav[IsoDirections.E.index()].nav[IsoDirections.W.index()] != var9)) {
-                  var4 = (int)IsoUtils.XToScreenExact((float)var8, (float)(var7 + 1), var3, 0);
-                  var5 = (int)IsoUtils.YToScreenExact((float)var8, (float)(var7 + 1), var3, 0);
+               if (var23 != null && (var23.nav[IsoDirections.NW.index()] != null && var23.nav[IsoDirections.NW.index()].nav[IsoDirections.SE.index()] != var23 || var23.nav[IsoDirections.NE.index()] != null && var23.nav[IsoDirections.NE.index()].nav[IsoDirections.SW.index()] != var23 || var23.nav[IsoDirections.SW.index()] != null && var23.nav[IsoDirections.SW.index()].nav[IsoDirections.NE.index()] != var23 || var23.nav[IsoDirections.SE.index()] != null && var23.nav[IsoDirections.SE.index()].nav[IsoDirections.NW.index()] != var23 || var23.nav[IsoDirections.N.index()] != null && var23.nav[IsoDirections.N.index()].nav[IsoDirections.S.index()] != var23 || var23.nav[IsoDirections.S.index()] != null && var23.nav[IsoDirections.S.index()].nav[IsoDirections.N.index()] != var23 || var23.nav[IsoDirections.W.index()] != null && var23.nav[IsoDirections.W.index()].nav[IsoDirections.E.index()] != var23 || var23.nav[IsoDirections.E.index()] != null && var23.nav[IsoDirections.E.index()].nav[IsoDirections.W.index()] != var23)) {
+                  var4 = (int)IsoUtils.XToScreenExact((float)var21, (float)(var19 + 1), var3, 0);
+                  var5 = (int)IsoUtils.YToScreenExact((float)var21, (float)(var19 + 1), var3, 0);
                   SpriteRenderer.instance.renderPoly((float)var4, (float)var5, (float)(var4 + 32), (float)(var5 - 16), (float)(var4 + 64), (float)var5, (float)(var4 + 32), (float)(var5 + 16), 1.0F, 0.0F, 0.0F, 0.5F);
                }
 
-               if (this.EmptySquares.getValue() && var9.getObjects().isEmpty()) {
-                  this.paintSquare(var8, var7, (int)var3, 1.0F, 1.0F, 0.0F, 0.5F);
+               if (this.EmptySquares.getValue() && var23.getObjects().isEmpty()) {
+                  this.paintSquare(var21, var19, PZMath.fastfloor(var3), 1.0F, 1.0F, 0.0F, 0.5F);
                }
 
-               if (var9.getRoom() != null && var9.isFree(false) && !VirtualZombieManager.instance.canSpawnAt(var8, var7, (int)var3)) {
-                  this.paintSquare(var8, var7, (int)var3, 1.0F, 1.0F, 1.0F, 1.0F);
+               if (var23.getRoom() != null && var23.isFree(false) && !VirtualZombieManager.instance.canSpawnAt(var21, var19, PZMath.fastfloor(var3))) {
+                  this.paintSquare(var21, var19, PZMath.fastfloor(var3), 1.0F, 1.0F, 1.0F, 1.0F);
                }
 
-               if (var9.roofHideBuilding != null) {
-                  this.paintSquare(var8, var7, (int)var3, 0.0F, 0.0F, 1.0F, 0.25F);
+               if (this.RoofHideBuilding.getValue() && var23.roofHideBuilding != null) {
+                  this.paintSquare(var21, var19, PZMath.fastfloor(var3), 0.0F, 0.0F, 1.0F, 0.25F);
+               }
+
+               if (this.OccludedSquares.getValue() && FBORenderOcclusion.getInstance().isOccluded(var23.x, var23.y, var23.z)) {
+                  this.paintSquare(var21, var19, var23.z, 1.0F, 1.0F, 1.0F, 0.5F);
                }
             }
          }
       }
 
-      if (IsoCamera.CamCharacter.getCurrentSquare() != null && Math.abs(this.gridX - (int)IsoCamera.CamCharacter.x) <= 1 && Math.abs(this.gridY - (int)IsoCamera.CamCharacter.y) <= 1) {
-         IsoGridSquare var18 = IsoWorld.instance.CurrentCell.getGridSquare(this.gridX, this.gridY, this.m_z);
-         IsoObject var19 = IsoCamera.CamCharacter.getCurrentSquare().testCollideSpecialObjects(var18);
-         if (var19 != null) {
-            var19.getSprite().RenderGhostTileRed((int)var19.getX(), (int)var19.getY(), (int)var19.getZ());
+      IsoGameCharacter var20 = IsoCamera.getCameraCharacter();
+      if (!PerformanceSettings.FBORenderChunk && var20.getCurrentSquare() != null && Math.abs(this.gridX - PZMath.fastfloor(var20.getX())) <= 1 && Math.abs(this.gridY - PZMath.fastfloor(var20.getY())) <= 1) {
+         IsoGridSquare var22 = IsoWorld.instance.CurrentCell.getGridSquare(this.gridX, this.gridY, this.m_z);
+         IsoObject var24 = var20.getCurrentSquare().testCollideSpecialObjects(var22);
+         if (var24 != null) {
+            var24.getSprite().RenderGhostTileRed(PZMath.fastfloor(var24.getX()), PZMath.fastfloor(var24.getY()), PZMath.fastfloor(var24.getZ()));
          }
       }
 
       if (this.LineClearCollide.getValue()) {
-         this.lineClearCached(IsoWorld.instance.CurrentCell, this.gridX, this.gridY, (int)var3, (int)IsoCamera.CamCharacter.getX(), (int)IsoCamera.CamCharacter.getY(), this.m_z, false);
+         this.lineClearCached(IsoWorld.instance.CurrentCell, this.gridX, this.gridY, PZMath.fastfloor(var3), PZMath.fastfloor(var20.getX()), PZMath.fastfloor(var20.getY()), this.m_z, false);
       }
 
       if (this.NearestWallsOpt.getValue()) {
@@ -605,13 +776,13 @@ public final class DebugChunkState extends GameState {
 
    private void drawZones() {
       ArrayList var1 = IsoWorld.instance.MetaGrid.getZonesAt(this.gridX, this.gridY, this.m_z, new ArrayList());
-      IsoMetaGrid.Zone var2 = null;
+      Zone var2 = null;
 
       int var6;
       int var8;
       int var9;
       for(int var3 = 0; var3 < var1.size(); ++var3) {
-         IsoMetaGrid.Zone var4 = (IsoMetaGrid.Zone)var1.get(var3);
+         Zone var4 = (Zone)var1.get(var3);
          if (var4.isPreferredZoneForSquare) {
             var2 = var4;
          }
@@ -635,7 +806,7 @@ public final class DebugChunkState extends GameState {
       }
 
       var1 = IsoWorld.instance.MetaGrid.getZonesIntersecting(this.gridX - 1, this.gridY - 1, this.m_z, 3, 3, new ArrayList());
-      PolygonalMap2.LiangBarsky var17 = new PolygonalMap2.LiangBarsky();
+      LiangBarsky var17 = new LiangBarsky();
       double[] var18 = new double[2];
       IsoChunk var19 = IsoWorld.instance.CurrentCell.getChunkForGridSquare(this.gridX, this.gridY, this.m_z);
 
@@ -645,7 +816,7 @@ public final class DebugChunkState extends GameState {
       float var14;
       float var27;
       for(var6 = 0; var6 < var1.size(); ++var6) {
-         IsoMetaGrid.Zone var21 = (IsoMetaGrid.Zone)var1.get(var6);
+         Zone var21 = (Zone)var1.get(var6);
          if (var21 != null && var21.isPolyline() && !var21.points.isEmpty()) {
             for(var8 = 0; var8 < var21.points.size() - 2; var8 += 2) {
                var9 = var21.points.get(var8);
@@ -674,7 +845,7 @@ public final class DebugChunkState extends GameState {
          }
       }
 
-      IsoMetaGrid.VehicleZone var20 = IsoWorld.instance.MetaGrid.getVehicleZoneAt(this.gridX, this.gridY, this.m_z);
+      VehicleZone var20 = IsoWorld.instance.MetaGrid.getVehicleZoneAt(this.gridX, this.gridY, this.m_z);
       if (var20 != null) {
          float var22 = 0.5F;
          float var25 = 1.0F;
@@ -734,7 +905,7 @@ public final class DebugChunkState extends GameState {
          IsoChunk var2 = IsoWorld.instance.CurrentCell.getChunkForGridSquare(this.gridX, this.gridY, this.m_z);
          if (var2 != null) {
             for(int var3 = 0; var3 < var1.size(); ++var3) {
-               IsoMetaGrid.Zone var4 = (IsoMetaGrid.Zone)var1.get(var3);
+               Zone var4 = (Zone)var1.get(var3);
                if ("Nav".equals(var4.type)) {
                   VehicleStorySpawner var5 = VehicleStorySpawner.getInstance();
                   RandomizedVehicleStoryBase var6 = IsoWorld.instance.getRandomizedVehicleStoryByName(this.m_vehicleStory);
@@ -759,7 +930,7 @@ public final class DebugChunkState extends GameState {
    }
 
    private void DrawBehindStuff() {
-      this.IsBehindStuff(IsoCamera.CamCharacter.getCurrentSquare());
+      this.IsBehindStuff(IsoCamera.getCameraCharacter().getCurrentSquare());
    }
 
    private boolean IsBehindStuff(IsoGridSquare var1) {
@@ -899,7 +1070,7 @@ public final class DebugChunkState extends GameState {
       int var1 = Core.getInstance().getScreenWidth() - 250;
       int var2 = Core.getInstance().getScreenHeight() / 2;
       int var3 = TextManager.instance.getFontFromEnum(this.FONT).getLineHeight();
-      IsoGameCharacter var4 = IsoCamera.CamCharacter;
+      IsoGameCharacter var4 = IsoCamera.getCameraCharacter();
       this.DrawString(var1, var2 += var3, "bored = " + var4.getBodyDamage().getBoredomLevel());
       this.DrawString(var1, var2 += var3, "endurance = " + var4.getStats().endurance);
       this.DrawString(var1, var2 += var3, "fatigue = " + var4.getStats().fatigue);
@@ -952,9 +1123,9 @@ public final class DebugChunkState extends GameState {
                var20 += var26;
                var21 += var27;
                var28 = var1.getGridSquare(var5, (int)var20, (int)var21);
-               this.paintSquare(var5, (int)var20, (int)var21, 1.0F, 1.0F, 1.0F, 0.5F);
+               this.paintSquare(var5, PZMath.fastfloor(var20), PZMath.fastfloor(var21), 1.0F, 1.0F, 1.0F, 0.5F);
                if (var28 != null && var25 != null && var28.testVisionAdjacent(var25.getX() - var28.getX(), var25.getY() - var28.getY(), var25.getZ() - var28.getZ(), true, var8) == LosUtil.TestResults.Blocked) {
-                  this.paintSquare(var5, (int)var20, (int)var21, 1.0F, 0.0F, 0.0F, 0.5F);
+                  this.paintSquare(var5, PZMath.fastfloor(var20), PZMath.fastfloor(var21), 1.0F, 0.0F, 0.0F, 0.5F);
                   this.paintSquare(var25.getX(), var25.getY(), var25.getZ(), 1.0F, 0.0F, 0.0F, 0.5F);
                   var19 = 4;
                }
@@ -977,9 +1148,9 @@ public final class DebugChunkState extends GameState {
                   var20 += var26;
                   var21 += var27;
                   var28 = var1.getGridSquare((int)var20, var6, (int)var21);
-                  this.paintSquare((int)var20, var6, (int)var21, 1.0F, 1.0F, 1.0F, 0.5F);
+                  this.paintSquare(PZMath.fastfloor(var20), var6, PZMath.fastfloor(var21), 1.0F, 1.0F, 1.0F, 0.5F);
                   if (var28 != null && var25 != null && var28.testVisionAdjacent(var25.getX() - var28.getX(), var25.getY() - var28.getY(), var25.getZ() - var28.getZ(), true, var8) == LosUtil.TestResults.Blocked) {
-                     this.paintSquare((int)var20, var6, (int)var21, 1.0F, 0.0F, 0.0F, 0.5F);
+                     this.paintSquare(PZMath.fastfloor(var20), var6, PZMath.fastfloor(var21), 1.0F, 0.0F, 0.0F, 0.5F);
                      this.paintSquare(var25.getX(), var25.getY(), var25.getZ(), 1.0F, 0.0F, 0.0F, 0.5F);
                      var19 = 4;
                   }
@@ -1032,6 +1203,19 @@ public final class DebugChunkState extends GameState {
       TextManager.instance.DrawString(this.FONT, (double)var1, (double)var2, var3, 1.0, 1.0, 1.0, 1.0);
    }
 
+   private void registerOption(ConfigOption var1) {
+      switch (var1.getName()) {
+         case "ObjectAtCursor.id":
+         case "ObjectAtCursor.levels":
+         case "ObjectAtCursor.width":
+            this.optionsHidden.add(var1);
+            break;
+         default:
+            this.options.add(var1);
+      }
+
+   }
+
    public ConfigOption getOptionByName(String var1) {
       for(int var2 = 0; var2 < this.options.size(); ++var2) {
          ConfigOption var3 = (ConfigOption)this.options.get(var2);
@@ -1068,7 +1252,10 @@ public final class DebugChunkState extends GameState {
       String var10000 = ZomboidFileSystem.instance.getCacheDir();
       String var1 = var10000 + File.separator + "debugChunkState-options.ini";
       ConfigFile var2 = new ConfigFile();
-      var2.write(var1, 1, this.options);
+      ArrayList var3 = new ArrayList(this.options);
+      var3.addAll(this.optionsHidden);
+      var2.write(var1, 1, var3);
+      var3.clear();
    }
 
    public void load() {
@@ -1079,6 +1266,16 @@ public final class DebugChunkState extends GameState {
          for(int var3 = 0; var3 < var2.getOptions().size(); ++var3) {
             ConfigOption var4 = (ConfigOption)var2.getOptions().get(var3);
             ConfigOption var5 = this.getOptionByName(var4.getName());
+            if (var5 == null) {
+               for(int var6 = 0; var6 < this.optionsHidden.size(); ++var6) {
+                  ConfigOption var7 = (ConfigOption)this.optionsHidden.get(var6);
+                  if (var7.getName().equals(var4.getName())) {
+                     var5 = var7;
+                     break;
+                  }
+               }
+            }
+
             if (var5 != null) {
                var5.parse(var4.getValueAsString());
             }
@@ -1087,10 +1284,131 @@ public final class DebugChunkState extends GameState {
 
    }
 
+   private static final class GeometryDrawer extends TextureDraw.GenericDrawer {
+      String object;
+      int m_levels;
+      float m_width;
+      float m_playerX;
+      float m_playerY;
+      float m_x;
+      float m_y;
+      float m_z;
+
+      private GeometryDrawer() {
+      }
+
+      public void renderMain() {
+         this.object = DebugChunkState.instance.ObjectAtCursor_ID.getValue();
+         this.m_levels = DebugChunkState.instance.ObjectAtCursor_LEVELS.getValue();
+         this.m_width = (float)DebugChunkState.instance.ObjectAtCursor_WIDTH.getValue();
+         this.m_playerX = IsoPlayer.players[DebugChunkState.instance.m_playerIndex].getX();
+         this.m_playerY = IsoPlayer.players[DebugChunkState.instance.m_playerIndex].getY();
+         this.m_x = DebugChunkState.instance.gridXf;
+         this.m_y = DebugChunkState.instance.gridYf;
+         this.m_z = (float)DebugChunkState.instance.m_z;
+      }
+
+      public void render() {
+         Shader var1 = ShaderManager.instance.getOrCreateShader("debug_chunk_state_geometry", false, false);
+         if (var1.getShaderProgram() != null && var1.getShaderProgram().isCompiled()) {
+            boolean var2 = "box".equalsIgnoreCase(this.object);
+            Core.getInstance().DoPushIsoStuff(this.m_x, this.m_y, this.m_z + (var2 ? (float)this.m_levels / 2.0F : 0.0F), 0.0F, false);
+            VBORenderer var3 = VBORenderer.getInstance();
+            var3.setDepthTestForAllRuns(Boolean.TRUE);
+            float var4 = 2.44949F * (float)this.m_levels;
+            Matrix4f var5 = Core.getInstance().modelViewMatrixStack.alloc();
+            var5.identity();
+            if ("box".equalsIgnoreCase(this.object)) {
+            }
+
+            if ("cylinder".equalsIgnoreCase(this.object)) {
+               var5.rotateXYZ(4.712389F, 0.0F, (float)(IngameState.instance.numberTicks % 360L) * 0.017453292F);
+            }
+
+            if ("plane".equalsIgnoreCase(this.object)) {
+               var5.rotateXYZ(1.5707964F, 0.0F, 0.0F);
+            }
+
+            var5.scale(0.6666667F);
+            Core.getInstance().modelViewMatrixStack.peek().mul(var5, var5);
+            Core.getInstance().modelViewMatrixStack.push(var5);
+            float var6 = VertexBufferObject.getDepthValueAt(0.0F, 0.0F, 0.0F);
+            IsoDepthHelper.Results var7 = IsoDepthHelper.getSquareDepthData(PZMath.fastfloor(this.m_playerX), PZMath.fastfloor(this.m_playerY), this.m_x, this.m_y, this.m_z + (var2 ? (float)this.m_levels / 2.0F : 0.0F));
+            float var8 = var7.depthStart - (var6 + 1.0F) / 2.0F;
+            var3.setUserDepthForAllRuns(var8);
+            GL11.glEnable(3042);
+            GL11.glBlendFunc(770, 771);
+            GL11.glDepthFunc(515);
+            GL11.glDisable(2884);
+            float var9;
+            float var10;
+            float var11;
+            float var12;
+            if ("box".equalsIgnoreCase(this.object)) {
+               var9 = 1.0F;
+               var10 = 1.0F;
+               var11 = 1.0F;
+               var12 = 1.0F;
+               var3.addBox(this.m_width, var4, this.m_width, var9, var10, var11, var12, var1.getShaderProgram());
+            }
+
+            float var13;
+            if ("cylinder".equalsIgnoreCase(this.object)) {
+               var9 = this.m_width;
+               var10 = 1.0F;
+               var11 = 1.0F;
+               var12 = 1.0F;
+               var13 = 1.0F;
+               var3.addCylinder_Fill(var9 / 2.0F, var9 / 2.0F, var4, 48, 1, var10, var11, var12, var13, var1.getShaderProgram());
+            }
+
+            if ("plane".equalsIgnoreCase(this.object)) {
+               var9 = 0.0F;
+               var10 = 1.0F;
+               var11 = 1.0F;
+               var12 = 1.0F;
+               var13 = 1.0F;
+               var3.startRun(var3.FORMAT_PositionColor);
+               var3.setMode(7);
+               var3.addQuad(-this.m_width / 2.0F, -this.m_width / 2.0F, this.m_width / 2.0F, this.m_width / 2.0F, var9, var10, var11, var12, var13);
+               var3.endRun();
+            }
+
+            var3.flush();
+            var3.setDepthTestForAllRuns((Boolean)null);
+            var3.setUserDepthForAllRuns((Float)null);
+            Core.getInstance().modelViewMatrixStack.pop();
+            Core.getInstance().DoPopIsoStuff();
+            GLStateRenderThread.restore();
+         }
+      }
+   }
+
    public class BooleanDebugOption extends BooleanConfigOption {
       public BooleanDebugOption(String var2, boolean var3) {
          super(var2, var3);
-         DebugChunkState.this.options.add(this);
+         DebugChunkState.this.registerOption(this);
+      }
+   }
+
+   public class StringDebugOption extends StringConfigOption {
+      public StringDebugOption(String var2, String var3) {
+         super(var2, var3, -1);
+         DebugChunkState.this.registerOption(this);
+      }
+   }
+
+   public class IntegerDebugOption extends IntegerConfigOption {
+      public IntegerDebugOption(String var2, int var3, int var4, int var5) {
+         super(var2, var3, var4, var5);
+         DebugChunkState.this.registerOption(this);
+      }
+   }
+
+   public class DoubleDebugOption extends DoubleConfigOption {
+      public DoubleDebugOption(String var2, double var3, double var5, double var7) {
+         super(var2, var3, var5, var7);
+         DebugChunkState.this.registerOption(this);
       }
    }
 

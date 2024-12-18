@@ -1,6 +1,7 @@
 package zombie.iso;
 
 import zombie.core.PerformanceSettings;
+import zombie.core.math.PZMath;
 import zombie.network.GameServer;
 
 public class IsoPhysicsObject extends IsoMovingObject {
@@ -50,8 +51,8 @@ public class IsoPhysicsObject extends IsoMovingObject {
          this.velZ = this.terminalVelocity;
       }
 
-      this.setNx(this.getNx() + this.velX * this.speedMod * 0.3F * var3);
-      this.setNy(this.getNy() + this.velY * this.speedMod * 0.3F * var3);
+      this.setNextX(this.getNextX() + this.velX * this.speedMod * 0.3F * var3);
+      this.setNextY(this.getNextY() + this.velY * this.speedMod * 0.3F * var3);
       float var5 = this.getZ();
       this.setZ(this.getZ() + this.velZ * 0.4F * var3);
       if (this.getZ() < 0.0F) {
@@ -60,8 +61,8 @@ public class IsoPhysicsObject extends IsoMovingObject {
          this.collideGround();
       }
 
-      if (this.getCurrentSquare() != null && (int)this.getZ() < (int)var5 && (var1 != null && var1.TreatAsSolidFloor() || this.getCurrentSquare().TreatAsSolidFloor())) {
-         this.setZ((float)((int)var5));
+      if (this.getCurrentSquare() != null && PZMath.fastfloor(this.getZ()) < PZMath.fastfloor(var5) && (var1 != null && var1.TreatAsSolidFloor() || this.getCurrentSquare().TreatAsSolidFloor())) {
+         this.setZ((float)PZMath.fastfloor(var5));
          this.velZ = -this.velZ * 0.5F;
          this.collideGround();
       }

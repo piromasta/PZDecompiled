@@ -2,6 +2,8 @@ package zombie.input;
 
 import org.lwjglx.input.KeyEventQueue;
 import org.lwjglx.input.Keyboard;
+import zombie.core.Core;
+import zombie.debug.DebugContext;
 
 public final class KeyboardState {
    private boolean m_isCreated = false;
@@ -23,7 +25,11 @@ public final class KeyboardState {
          this.m_wasPolled = true;
 
          for(int var2 = 0; var2 < this.m_keyDownStates.length; ++var2) {
-            this.m_keyDownStates[var2] = Keyboard.isKeyDown(var2);
+            if (Core.isUseGameViewport() && !DebugContext.instance.bFocusedGameViewport) {
+               this.m_keyDownStates[var2] = false;
+            } else {
+               this.m_keyDownStates[var2] = Keyboard.isKeyDown(var2);
+            }
          }
 
       }

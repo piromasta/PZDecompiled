@@ -6,6 +6,7 @@ import zombie.ai.State;
 import zombie.audio.parameters.ParameterZombieState;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
+import zombie.core.math.PZMath;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.gameStates.IngameState;
 import zombie.iso.IsoChunk;
@@ -14,8 +15,8 @@ import zombie.iso.IsoWorld;
 import zombie.iso.Vector2;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
+import zombie.pathfind.PolygonalMap2;
 import zombie.util.Type;
-import zombie.vehicles.PolygonalMap2;
 
 public final class WalkTowardState extends State {
    private static final WalkTowardState _instance = new WalkTowardState();
@@ -49,7 +50,7 @@ public final class WalkTowardState extends State {
          var1.changeState(ZombieIdleState.instance());
       }
 
-      var1.getPathFindBehavior2().walkingOnTheSpot.reset(var1.x, var1.y);
+      var1.getPathFindBehavior2().walkingOnTheSpot.reset(var1.getX(), var1.getY());
       ((IsoZombie)var1).networkAI.extraUpdate();
    }
 
@@ -72,7 +73,7 @@ public final class WalkTowardState extends State {
                      return;
                   }
 
-                  if (Math.abs(var1.x - var3.getPathFindBehavior2().getTargetX()) > 0.1F || Math.abs(var1.y - var3.getPathFindBehavior2().getTargetY()) > 0.1F) {
+                  if (Math.abs(var1.getX() - var3.getPathFindBehavior2().getTargetX()) > 0.1F || Math.abs(var1.getY() - var3.getPathFindBehavior2().getTargetY()) > 0.1F) {
                      var3.setVariable("bPathfind", true);
                      var3.setVariable("bMoving", false);
                      return;
@@ -84,14 +85,14 @@ public final class WalkTowardState extends State {
          }
       }
 
-      if (var1.getPathTargetX() == (int)var1.getX() && var1.getPathTargetY() == (int)var1.getY()) {
+      if (var1.getPathTargetX() == PZMath.fastfloor(var1.getX()) && var1.getPathTargetY() == PZMath.fastfloor(var1.getY())) {
          if (var3.target == null) {
             var3.setVariable("bPathfind", false);
             var3.setVariable("bMoving", false);
             return;
          }
 
-         if ((int)var3.target.getZ() != (int)var1.getZ()) {
+         if (PZMath.fastfloor(var3.target.getZ()) != PZMath.fastfloor(var1.getZ())) {
             var3.setVariable("bPathfind", true);
             var3.setVariable("bMoving", false);
             return;
@@ -112,7 +113,7 @@ public final class WalkTowardState extends State {
          var2.put(PARAM_IGNORE_TIME, System.currentTimeMillis());
          var7 = var3.getPathFindBehavior2().getTargetX();
          var8 = var3.getPathFindBehavior2().getTargetY();
-         var9 = var3.z;
+         var9 = var3.getZ();
          var6 = !this.isPathClear(var1, var7, var8, var9);
       }
 
@@ -125,10 +126,10 @@ public final class WalkTowardState extends State {
          var10000.y -= var3.getY();
          var7 = this.temp.getLength();
          if (var7 < 0.25F) {
-            var1.x = var3.getPathFindBehavior2().getTargetX();
-            var1.y = var3.getPathFindBehavior2().getTargetY();
-            var1.nx = var1.x;
-            var1.ny = var1.y;
+            var1.setX(var3.getPathFindBehavior2().getTargetX());
+            var1.setY(var3.getPathFindBehavior2().getTargetY());
+            var1.setNextX(var1.getX());
+            var1.setNextY(var1.getY());
             var7 = 0.0F;
          }
 
@@ -165,7 +166,7 @@ public final class WalkTowardState extends State {
                var3.setForwardDirection(this.temp);
             }
 
-            if (var1.getPathFindBehavior2().walkingOnTheSpot.check(var1.x, var1.y)) {
+            if (var1.getPathFindBehavior2().walkingOnTheSpot.check(var1.getX(), var1.getY())) {
                var1.setVariable("bMoving", false);
             }
 
@@ -199,13 +200,13 @@ public final class WalkTowardState extends State {
    }
 
    private boolean isPathClear(IsoGameCharacter var1, float var2, float var3, float var4) {
-      int var5 = (int)var2 / 10;
-      int var6 = (int)var3 / 10;
-      IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var5, var6) : IsoWorld.instance.CurrentCell.getChunkForGridSquare((int)var2, (int)var3, (int)var4);
+      int var5 = PZMath.fastfloor(var2) / 8;
+      int var6 = PZMath.fastfloor(var3) / 8;
+      IsoChunk var7 = GameServer.bServer ? ServerMap.instance.getChunk(var5, var6) : IsoWorld.instance.CurrentCell.getChunkForGridSquare(PZMath.fastfloor(var2), PZMath.fastfloor(var3), PZMath.fastfloor(var4));
       if (var7 != null) {
          int var8 = 1;
          var8 |= 2;
-         return !PolygonalMap2.instance.lineClearCollide(var1.getX(), var1.getY(), var2, var3, (int)var4, var1.getPathFindBehavior2().getTargetChar(), var8);
+         return !PolygonalMap2.instance.lineClearCollide(var1.getX(), var1.getY(), var2, var3, PZMath.fastfloor(var4), var1.getPathFindBehavior2().getTargetChar(), var8);
       } else {
          return false;
       }

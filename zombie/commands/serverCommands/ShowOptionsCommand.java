@@ -1,10 +1,12 @@
 package zombie.commands.serverCommands;
 
 import java.util.Iterator;
+import zombie.characters.Capability;
+import zombie.characters.Role;
 import zombie.commands.CommandBase;
 import zombie.commands.CommandHelp;
 import zombie.commands.CommandName;
-import zombie.commands.RequiredRight;
+import zombie.commands.RequiredCapability;
 import zombie.core.raknet.UdpConnection;
 import zombie.network.ServerOptions;
 
@@ -14,11 +16,11 @@ import zombie.network.ServerOptions;
 @CommandHelp(
    helpText = "UI_ServerOptionDesc_ShowOptions"
 )
-@RequiredRight(
-   requiredRights = 63
+@RequiredCapability(
+   requiredCapability = Capability.SeePublicServerOptions
 )
 public class ShowOptionsCommand extends CommandBase {
-   public ShowOptionsCommand(String var1, String var2, String var3, UdpConnection var4) {
+   public ShowOptionsCommand(String var1, Role var2, String var3, UdpConnection var4) {
       super(var1, var2, var3, var4);
    }
 

@@ -4,6 +4,7 @@ import fmod.javafmod;
 import fmod.fmod.FMODManager;
 import fmod.fmod.FMOD_STUDIO_EVENT_DESCRIPTION;
 import fmod.fmod.FMOD_STUDIO_PLAYBACK_STATE;
+import java.nio.ByteBuffer;
 import zombie.GameSounds;
 import zombie.GameTime;
 import zombie.SoundManager;
@@ -11,6 +12,7 @@ import zombie.WorldSoundManager;
 import zombie.audio.GameSound;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
+import zombie.core.math.PZMath;
 import zombie.iso.SpriteDetails.IsoFlagType;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
@@ -35,11 +37,12 @@ public class Alarm {
 
    public void update() {
       if (!GameClient.bClient) {
-         WorldSoundManager.instance.addSound(this, this.x, this.y, 0, 600, 600);
+         WorldSoundManager.instance.addSound(this, PZMath.fastfloor((float)this.x), PZMath.fastfloor((float)this.y), 0, 600, 600);
       }
 
       if (!GameServer.bServer) {
          this.updateSound();
+         this.checkMusicIntensityEvent();
          if (GameTime.getInstance().getWorldAgeHours() >= (double)this.endGameTime) {
             if (inst != 0L) {
                javafmod.FMOD_Studio_EventInstance_Stop(inst, false);
@@ -65,6 +68,7 @@ public class Alarm {
 
             if (inst > 0L) {
                float var1 = SoundManager.instance.getSoundVolume();
+               var1 = 1.0F;
                GameSound var2 = GameSounds.getSound("HouseAlarm");
                if (var2 != null) {
                   var1 *= var2.getUserVolume();
@@ -105,6 +109,34 @@ public class Alarm {
             }
 
          }
+      }
+   }
+
+   public void save(ByteBuffer var1) {
+      var1.putInt(this.x);
+      var1.putInt(this.y);
+      var1.putFloat(this.endGameTime);
+   }
+
+   public void load(ByteBuffer var1, int var2) {
+      this.x = var1.getInt();
+      this.y = var1.getInt();
+      this.endGameTime = var1.getFloat();
+   }
+
+   private void checkMusicIntensityEvent() {
+      if (!GameServer.bServer) {
+         for(int var1 = 0; var1 < IsoPlayer.numPlayers; ++var1) {
+            IsoPlayer var2 = IsoPlayer.players[var1];
+            if (var2 != null && !var2.isDeaf() && !var2.isDead()) {
+               float var3 = IsoUtils.DistanceToSquared((float)this.x, (float)this.y, var2.getX(), var2.getY());
+               if (!(var3 > 2500.0F)) {
+                  var2.triggerMusicIntensityEvent("AlarmNearby");
+                  break;
+               }
+            }
+         }
+
       }
    }
 }

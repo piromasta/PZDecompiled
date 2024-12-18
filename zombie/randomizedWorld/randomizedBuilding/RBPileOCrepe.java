@@ -1,6 +1,6 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -19,10 +19,10 @@ public final class RBPileOCrepe extends RandomizedBuildingBase {
                   for(int var7 = 0; var7 < var6.getObjects().size(); ++var7) {
                      IsoObject var8 = (IsoObject)var6.getObjects().get(var7);
                      if (Rand.NextBool(3) && this.isTableFor3DItems(var8, var6)) {
-                        if (Rand.NextBool(2)) {
-                           this.addWorldItem("WafflesRecipe", var6, var8);
-                        } else {
+                        if (Rand.Next(0.0F, 100.0F) <= 58.54F) {
                            this.addWorldItem("PancakesRecipe", var6, var8);
+                        } else {
+                           this.addWorldItem("WafflesRecipe", var6, var8);
                         }
 
                         if (Rand.NextBool(3)) {

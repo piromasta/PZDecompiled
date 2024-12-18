@@ -1,5 +1,6 @@
 package zombie.characterTextures;
 
+import zombie.core.Color;
 import zombie.core.textures.SmartTexture;
 import zombie.core.textures.TextureCombinerCommand;
 import zombie.core.textures.TextureCombinerShaderParam;
@@ -46,6 +47,33 @@ public final class ItemSmartTexture extends SmartTexture {
          int var3 = CharacterSmartTexture.DecalOverlayCategory + var1.index();
          this.addOverlayPatches(var2, "media/textures/patches/patchesmask.png", var3);
       }
+   }
+
+   public void setFluid(String var1, String var2, float var3, int var4, Color var5) {
+      var3 = Math.max(0.0F, Math.min(1.0F, var3));
+      TextureCombinerCommand var6 = this.getFirstFromCategory(var4);
+      if (var6 != null) {
+         for(int var7 = 0; var7 < var6.shaderParams.size(); ++var7) {
+            TextureCombinerShaderParam var8 = (TextureCombinerShaderParam)var6.shaderParams.get(var7);
+            if (var8.name.equals("intensity") && (var8.min != var3 || var8.max != var3)) {
+               var8.min = var8.max = var3;
+               this.setDirty();
+            }
+         }
+      } else if (var3 > 0.0F) {
+         float var10 = var5.getR();
+         float var11 = var5.getG();
+         float var9 = var5.getB();
+         this.addTintedOverlay(var1, var2, var3, var4, var10, var11, var9);
+      }
+
+   }
+
+   public void setTintMask(String var1, String var2, int var3, Color var4) {
+      float var5 = var4.getR();
+      float var6 = var4.getG();
+      float var7 = var4.getB();
+      this.addTintedOverlay(var1, var2, 1.0F, var3, var5, var6, var7);
    }
 
    public void setBlood(String var1, BloodBodyPartType var2, float var3) {

@@ -7,7 +7,6 @@ import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import org.lwjgl.opengl.GL;
 import org.lwjgl.opengl.GL11;
 import org.lwjglx.BufferUtils;
 import zombie.IndieGL;
@@ -17,6 +16,7 @@ import zombie.asset.AssetManager;
 import zombie.asset.AssetPath;
 import zombie.asset.AssetType;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
 import zombie.core.SpriteRenderer;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.PZGLUtil;
@@ -28,6 +28,7 @@ import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
 import zombie.fileSystem.FileSystem;
 import zombie.interfaces.IDestroyable;
+import zombie.iso.fboRenderChunk.FBORenderChunkManager;
 
 public final class TextureID extends Asset implements IDestroyable, Serializable {
    private static final long serialVersionUID = 4409253583065563738L;
@@ -53,6 +54,8 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
    BooleanGrid mask;
    protected int flags = 0;
    public TextureIDAssetParams assetParams;
+   private int format = 6408;
+   private int internalFormat = 6408;
    public static final IntBuffer deleteTextureIDS = BufferUtils.createIntBuffer(20);
    public static final AssetType ASSET_TYPE = new AssetType("TextureID");
 
@@ -72,7 +75,9 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
       super((AssetPath)null, TextureIDAssetManager.instance);
       this.assetParams = new TextureIDAssetParams();
       this.assetParams.flags = var3;
-      if ((var3 & 16) != 0) {
+      if ((var3 & 16) == 0 && (var3 & 512) == 0) {
+         this.data = new ImageData(var1, var2);
+      } else {
          if ((var3 & 4) != 0) {
             DebugLog.General.warn("FBO incompatible with COMPRESS");
             TextureIDAssetParams var10000 = this.assetParams;
@@ -80,8 +85,6 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
          }
 
          this.data = new ImageData(var1, var2, (WrappedBuffer)null);
-      } else {
-         this.data = new ImageData(var1, var2);
       }
 
       this.width = this.data.getWidth();
@@ -92,6 +95,60 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
       RenderThread.queueInvokeOnRenderContext(() -> {
          this.createTexture(false);
       });
+      this.onCreated(Asset.State.READY);
+   }
+
+   public TextureID(int var1, int var2, int var3, int var4, int var5) {
+      super((AssetPath)null, TextureIDAssetManager.instance);
+      this.assetParams = new TextureIDAssetParams();
+      this.assetParams.flags = var3;
+      if ((var3 & 16) == 0 && (var3 & 512) == 0) {
+         this.data = new ImageData(var1, var2);
+      } else {
+         if ((var3 & 4) != 0) {
+            DebugLog.General.warn("FBO incompatible with COMPRESS");
+            TextureIDAssetParams var10000 = this.assetParams;
+            var10000.flags &= -5;
+         }
+
+         this.data = new ImageData(var1, var2, (WrappedBuffer)null);
+      }
+
+      this.width = this.data.getWidth();
+      this.height = this.data.getHeight();
+      this.widthHW = this.data.getWidthHW();
+      this.heightHW = this.data.getHeightHW();
+      this.solid = this.data.isSolid();
+      this.format = var4;
+      this.internalFormat = var5;
+      RenderThread.queueInvokeOnRenderContext(() -> {
+         this.createTexture(false);
+      });
+      this.onCreated(Asset.State.READY);
+   }
+
+   public TextureID(int var1, int var2, int var3, boolean var4) {
+      super((AssetPath)null, TextureIDAssetManager.instance);
+      this.assetParams = new TextureIDAssetParams();
+      this.assetParams.flags = var3;
+      if ((var3 & 16) == 0 && (var3 & 512) == 0) {
+         this.data = new ImageData(var1, var2);
+      } else {
+         if ((var3 & 4) != 0) {
+            DebugLog.General.warn("FBO incompatible with COMPRESS");
+            TextureIDAssetParams var10000 = this.assetParams;
+            var10000.flags &= -5;
+         }
+
+         this.data = new ImageData(var1, var2, (WrappedBuffer)null);
+      }
+
+      this.width = this.data.getWidth();
+      this.height = this.data.getHeight();
+      this.widthHW = this.data.getWidthHW();
+      this.heightHW = this.data.getHeightHW();
+      this.solid = this.data.isSolid();
+      this.createTexture(false);
       this.onCreated(Asset.State.READY);
    }
 
@@ -246,18 +303,22 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
             int var2 = GL11.glGetInteger(32873);
             if (var2 != Texture.lastTextureID) {
                String var3 = null;
-               Iterator var4 = TextureIDAssetManager.instance.getAssetTable().values().iterator();
+               String var4 = null;
+               Iterator var5 = TextureIDAssetManager.instance.getAssetTable().values().iterator();
 
-               while(var4.hasNext()) {
-                  Asset var5 = (Asset)var4.next();
-                  TextureID var6 = (TextureID)var5;
-                  if (var6.id == Texture.lastTextureID) {
-                     var3 = var6.getPath().getPath();
-                     break;
+               while(var5.hasNext()) {
+                  Asset var6 = (Asset)var5.next();
+                  TextureID var7 = (TextureID)var6;
+                  if (var7.id == Texture.lastTextureID) {
+                     var4 = var7.getPath().getPath();
+                  }
+
+                  if (var7.id == var2) {
+                     var3 = var7.getPath().getPath();
                   }
                }
 
-               DebugLog.General.error("Texture.lastTextureID %d != GL_TEXTURE_BINDING_2D %d name=%s", Texture.lastTextureID, var2, var3);
+               DebugLog.General.error("Texture.lastTextureID %d name=%s != GL_TEXTURE_BINDING_2D %d name=%s", Texture.lastTextureID, var4, var2, var3);
             }
          }
       }
@@ -412,15 +473,19 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
       boolean var5 = (var2 & 16) != 0;
       boolean var6 = (var2 & 64) != 0 && !var5 && var1;
       boolean var7 = (var2 & 4) != 0;
-      char var8;
-      if (var7 && GL.getCapabilities().GL_ARB_texture_compression) {
-         var8 = '蓮';
+      short var8 = 5121;
+      this.internalFormat = 6408;
+      if ((var2 & 512) != 0) {
+         this.internalFormat = 6402;
+         this.m_glMagFilter = 9728;
+         this.m_glMinFilter = 9728;
+         this.format = 6402;
+         var8 = 5126;
       } else {
-         var8 = 6408;
+         this.m_glMagFilter = var4 ? 9728 : 9729;
+         this.m_glMinFilter = var6 ? 9987 : (var3 ? 9728 : 9729);
       }
 
-      this.m_glMagFilter = var4 ? 9728 : 9729;
-      this.m_glMinFilter = var6 ? 9987 : (var3 ? 9728 : 9729);
       GL11.glTexParameteri(3553, 10241, this.m_glMinFilter);
       GL11.glTexParameteri(3553, 10240, this.m_glMagFilter);
       if ((var2 & 32) != 0) {
@@ -443,7 +508,7 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
                int var14 = var13.width;
                int var15 = var13.height;
                totalMemUsed += (float)var13.getDataSize();
-               GL11.glTexImage2D(3553, var12 - var10, var8, var14, var15, 0, 6408, 5121, var13.getBuffer());
+               GL11.glTexImage2D(3553, var12 - var10, this.internalFormat, var14, var15, 0, 6408, 5121, var13.getBuffer());
                PZGLUtil.checkGLErrorThrow("TextureID.mipMaps[%d].end", var12);
             }
 
@@ -451,11 +516,11 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
          } else {
             PZGLUtil.checkGLErrorThrow("TextureID.noMips.start");
             totalMemUsed += (float)(this.widthHW * this.heightHW * 4);
-            GL11.glTexImage2D(3553, 0, var8, this.widthHW, this.heightHW, 0, 6408, 5121, this.data.getData().getBuffer());
+            GL11.glTexImage2D(3553, 0, this.internalFormat, this.widthHW, this.heightHW, 0, 6408, 5121, this.data.getData().getBuffer());
             PZGLUtil.checkGLErrorThrow("TextureID.noMips.end");
          }
       } else {
-         GL11.glTexImage2D(3553, 0, var8, this.widthHW, this.heightHW, 0, 6408, 5121, (ByteBuffer)null);
+         GL11.glTexImage2D(3553, 0, this.internalFormat, this.widthHW, this.heightHW, 0, this.format, var8, (ByteBuffer)null);
          totalMemUsed += (float)(this.widthHW * this.heightHW * 4);
       }
 
@@ -484,9 +549,19 @@ public final class TextureID extends Asset implements IDestroyable, Serializable
          GL11.glTexParameteri(3553, 10241, 9728);
          GL11.glTexParameteri(3553, 10240, 9728);
       } else {
+         if (PerformanceSettings.FBORenderChunk && Core.getInstance().getOffscreenBuffer() != null && this == ((Texture)Core.getInstance().getOffscreenBuffer().texture).dataid) {
+            this.m_glMinFilter = 9729;
+            this.m_glMagFilter = 9729;
+         }
+
          GL11.glTexParameteri(3553, 10241, this.m_glMinFilter);
          GL11.glTexParameteri(3553, 10240, this.m_glMagFilter);
          if ((this.flags & 64) != 0 && DebugOptions.instance.IsoSprite.NearestMagFilterAtMinZoom.getValue() && this.isMinZoomLevel() && this.m_glMagFilter != 9728) {
+            GL11.glTexParameteri(3553, 10240, 9728);
+         }
+
+         if (PerformanceSettings.FBORenderChunk && (!DebugOptions.instance.FBORenderChunk.MipMaps.getValue() || FBORenderChunkManager.instance.renderThreadCurrent != null) && (this.flags & 64) != 0) {
+            GL11.glTexParameteri(3553, 10241, 9728);
             GL11.glTexParameteri(3553, 10240, 9728);
          }
 

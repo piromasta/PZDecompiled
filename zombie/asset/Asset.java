@@ -7,6 +7,7 @@ public abstract class Asset {
    private AssetPath m_path;
    private int m_ref_count = 0;
    final PRIVATE m_priv = new PRIVATE();
+   protected boolean isDefered;
 
    protected Asset(AssetPath var1, AssetManager var2) {
       this.m_path = var1;
@@ -24,7 +25,7 @@ public abstract class Asset {
    }
 
    public boolean isReady() {
-      return this.m_priv.m_current_state == Asset.State.READY;
+      return this.m_priv.m_current_state == Asset.State.READY || this.isDefered;
    }
 
    public boolean isFailure() {

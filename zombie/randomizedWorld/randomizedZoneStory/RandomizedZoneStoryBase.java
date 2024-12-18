@@ -4,14 +4,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import zombie.SandboxOptions;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.zones.Zone;
 import zombie.network.GameServer;
 import zombie.network.ServerMap;
 import zombie.randomizedWorld.RandomizedWorldBase;
@@ -31,7 +31,7 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
    public RandomizedZoneStoryBase() {
    }
 
-   public static boolean isValidForStory(IsoMetaGrid.Zone var0, boolean var1) {
+   public static boolean isValidForStory(Zone var0, boolean var1) {
       if (var0.pickedXForZoneStory > 0 && var0.pickedYForZoneStory > 0 && var0.pickedRZStory != null && checkCanSpawnStory(var0, var1)) {
          var0.pickedRZStory.randomizeZoneStory(var0);
          var0.pickedRZStory = null;
@@ -51,7 +51,7 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       }
    }
 
-   public static void initAllRZSMapChance(IsoMetaGrid.Zone var0) {
+   public static void initAllRZSMapChance(Zone var0) {
       totalChance = 0;
       rzsMap.clear();
 
@@ -65,7 +65,7 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
 
    }
 
-   public boolean isValid(IsoMetaGrid.Zone var1, boolean var2) {
+   public boolean isValid(Zone var1, boolean var2) {
       boolean var3 = false;
 
       for(int var4 = 0; var4 < this.zoneType.size(); ++var4) {
@@ -78,7 +78,7 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       return var3 && var1.w >= this.minZoneWidth && var1.h >= this.minZoneHeight;
    }
 
-   private static boolean doRandomStory(IsoMetaGrid.Zone var0) {
+   private static boolean doRandomStory(Zone var0) {
       ++var0.hourLastSeen;
       byte var1 = 6;
       switch (SandboxOptions.instance.ZoneStoryChance.getValue()) {
@@ -97,6 +97,9 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
             break;
          case 6:
             var1 = 40;
+            break;
+         case 7:
+            var1 = 100;
       }
 
       RandomizedZoneStoryBase var2 = null;
@@ -141,14 +144,33 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       }
    }
 
-   public IsoGridSquare getRandomFreeSquare(RandomizedZoneStoryBase var1, IsoMetaGrid.Zone var2) {
+   public IsoGridSquare getRandomFreeSquare(RandomizedZoneStoryBase var1, Zone var2) {
+      return this.getRandomFreeSquare(var1, var2, (IsoGridSquare)null);
+   }
+
+   public IsoGridSquare getRandomFreeSquare(RandomizedZoneStoryBase var1, Zone var2, IsoGridSquare var3) {
+      IsoGridSquare var4 = null;
+
+      for(int var5 = 0; var5 < 1000; ++var5) {
+         int var6 = Rand.Next(var2.pickedXForZoneStory - var1.minZoneWidth / 2, var2.pickedXForZoneStory + var1.minZoneWidth / 2);
+         int var7 = Rand.Next(var2.pickedYForZoneStory - var1.minZoneHeight / 2, var2.pickedYForZoneStory + var1.minZoneHeight / 2);
+         var4 = getSq(var6, var7, var2.z);
+         if (var4 != null && var4.isFree(false) && (var3 == null || var4 != var3) && !var4.isVehicleIntersecting()) {
+            return var4;
+         }
+      }
+
+      return null;
+   }
+
+   public IsoGridSquare getRandomExtraFreeSquare(RandomizedZoneStoryBase var1, Zone var2) {
       IsoGridSquare var3 = null;
 
       for(int var4 = 0; var4 < 1000; ++var4) {
          int var5 = Rand.Next(var2.pickedXForZoneStory - var1.minZoneWidth / 2, var2.pickedXForZoneStory + var1.minZoneWidth / 2);
          int var6 = Rand.Next(var2.pickedYForZoneStory - var1.minZoneHeight / 2, var2.pickedYForZoneStory + var1.minZoneHeight / 2);
-         var3 = this.getSq(var5, var6, var2.z);
-         if (var3 != null && var3.isFree(false)) {
+         var3 = getSq(var5, var6, var2.z);
+         if (var3 != null && var3.isFree(false) && var3.getObjects().size() < 2 && !var3.isVehicleIntersecting()) {
             return var3;
          }
       }
@@ -156,13 +178,43 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       return null;
    }
 
-   public IsoGridSquare getRandomFreeSquareFullZone(RandomizedZoneStoryBase var1, IsoMetaGrid.Zone var2) {
+   public static IsoGridSquare getRandomFreeUnoccupiedSquare(RandomizedZoneStoryBase var0, Zone var1) {
+      IsoGridSquare var2 = null;
+
+      for(int var3 = 0; var3 < 1000; ++var3) {
+         int var4 = Rand.Next(var1.pickedXForZoneStory - var0.minZoneWidth / 2, var1.pickedXForZoneStory + var0.minZoneWidth / 2);
+         int var5 = Rand.Next(var1.pickedYForZoneStory - var0.minZoneHeight / 2, var1.pickedYForZoneStory + var0.minZoneHeight / 2);
+         var2 = getSq(var4, var5, var1.z);
+         if (var2 != null && var2.isFree(true) && !var2.isVehicleIntersecting()) {
+            return var2;
+         }
+      }
+
+      return null;
+   }
+
+   public static IsoGridSquare getRandomExtraFreeUnoccupiedSquare(RandomizedZoneStoryBase var0, Zone var1) {
+      IsoGridSquare var2 = null;
+
+      for(int var3 = 0; var3 < 1000; ++var3) {
+         int var4 = Rand.Next(var1.pickedXForZoneStory - var0.minZoneWidth / 2, var1.pickedXForZoneStory + var0.minZoneWidth / 2);
+         int var5 = Rand.Next(var1.pickedYForZoneStory - var0.minZoneHeight / 2, var1.pickedYForZoneStory + var0.minZoneHeight / 2);
+         var2 = getSq(var4, var5, var1.z);
+         if (var2 != null && var2.isFree(true) && var2.getObjects().size() < 2 && !var2.isVehicleIntersecting()) {
+            return var2;
+         }
+      }
+
+      return null;
+   }
+
+   public IsoGridSquare getRandomFreeSquareFullZone(RandomizedZoneStoryBase var1, Zone var2) {
       IsoGridSquare var3 = null;
 
       for(int var4 = 0; var4 < 1000; ++var4) {
          int var5 = Rand.Next(var2.x, var2.x + var2.w);
          int var6 = Rand.Next(var2.y, var2.y + var2.h);
-         var3 = this.getSq(var5, var6, var2.z);
+         var3 = getSq(var5, var6, var2.z);
          if (var3 != null && var3.isFree(false)) {
             return var3;
          }
@@ -189,15 +241,15 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       return var3;
    }
 
-   private static boolean checkCanSpawnStory(IsoMetaGrid.Zone var0, boolean var1) {
+   private static boolean checkCanSpawnStory(Zone var0, boolean var1) {
       int var2 = var0.pickedXForZoneStory - var0.pickedRZStory.minZoneWidth / 2 - 2;
       int var3 = var0.pickedYForZoneStory - var0.pickedRZStory.minZoneHeight / 2 - 2;
       int var4 = var0.pickedXForZoneStory + var0.pickedRZStory.minZoneWidth / 2 + 2;
       int var5 = var0.pickedYForZoneStory + var0.pickedRZStory.minZoneHeight / 2 + 2;
-      int var6 = var2 / 10;
-      int var7 = var3 / 10;
-      int var8 = var4 / 10;
-      int var9 = var5 / 10;
+      int var6 = var2 / 8;
+      int var7 = var3 / 8;
+      int var8 = var4 / 8;
+      int var9 = var5 / 8;
 
       for(int var10 = var7; var10 <= var9; ++var10) {
          for(int var11 = var6; var11 <= var8; ++var11) {
@@ -211,14 +263,14 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       return true;
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
    }
 
    public boolean isValid() {
       return true;
    }
 
-   public void cleanAreaForStory(RandomizedZoneStoryBase var1, IsoMetaGrid.Zone var2) {
+   public void cleanAreaForStory(RandomizedZoneStoryBase var1, Zone var2) {
       int var3 = var2.pickedXForZoneStory - var1.minZoneWidth / 2 - 1;
       int var4 = var2.pickedYForZoneStory - var1.minZoneHeight / 2 - 1;
       int var5 = var2.pickedXForZoneStory + var1.minZoneWidth / 2 + 1;
@@ -235,7 +287,13 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
                for(var10 = var9.getObjects().size() - 1; var10 >= 0; --var10) {
                   var11 = (IsoObject)var9.getObjects().get(var10);
                   if (var9.getFloor() != var11) {
-                     var9.RemoveTileObject(var11);
+                     if (var11.getSprite() != null && var11.getSprite().getName() != null && var11.getSprite().getName().contains("vegetation")) {
+                        var9.RemoveTileObject(var11);
+                     }
+
+                     if (var11.getSprite() != null && var11.getSprite().getProperties() != null && var11.getSprite().getProperties().Val("tree") != null) {
+                        var9.RemoveTileObject(var11);
+                     }
                   }
                }
 
@@ -259,6 +317,36 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
 
    }
 
+   public static void cleanSquareForStory(IsoGridSquare var0) {
+      if (var0 != null) {
+         var0.removeBlood(false, false);
+
+         int var1;
+         IsoObject var2;
+         for(var1 = var0.getObjects().size() - 1; var1 >= 0; --var1) {
+            var2 = (IsoObject)var0.getObjects().get(var1);
+            if (var0.getFloor() != var2 && var2.getSprite() != null && var2.getSprite().getProperties() != null && var2.getSprite().getName() != null) {
+               var0.RemoveTileObject(var2);
+            }
+         }
+
+         for(var1 = var0.getSpecialObjects().size() - 1; var1 >= 0; --var1) {
+            var2 = (IsoObject)var0.getSpecialObjects().get(var1);
+            var0.RemoveTileObject(var2);
+         }
+
+         for(var1 = var0.getStaticMovingObjects().size() - 1; var1 >= 0; --var1) {
+            IsoDeadBody var3 = (IsoDeadBody)Type.tryCastTo((IsoMovingObject)var0.getStaticMovingObjects().get(var1), IsoDeadBody.class);
+            if (var3 != null) {
+               var0.removeCorpse(var3, false);
+            }
+         }
+
+         var0.RecalcProperties();
+         var0.RecalcAllWithNeighbours(true);
+      }
+   }
+
    public int getMinimumWidth() {
       return this.minZoneWidth;
    }
@@ -274,7 +362,12 @@ public class RandomizedZoneStoryBase extends RandomizedWorldBase {
       Baseball,
       MusicFestStage,
       MusicFest,
-      NewsStory;
+      NewsStory,
+      Duke,
+      FrankHemingway,
+      KirstyKormick,
+      SirTwiggy,
+      JackieJaye;
 
       private ZoneType() {
       }

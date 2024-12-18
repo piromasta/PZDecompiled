@@ -48,6 +48,8 @@ public final class ImagePyramid {
    int m_minY;
    int m_maxX;
    int m_maxY;
+   int m_imageWidth = -1;
+   int m_imageHeight = -1;
    float m_resolution = 1.0F;
    int m_minZ;
    int m_maxZ;
@@ -79,6 +81,12 @@ public final class ImagePyramid {
       this.m_zipFile = var1;
       this.m_zipFS = this.openZipFile();
       this.readInfoFile();
+      if (this.m_imageWidth == -1) {
+         this.m_imageWidth = this.m_maxX - this.m_minX;
+         this.m_imageHeight = this.m_maxY - this.m_minY;
+      }
+
+      this.m_resolution = (float)(this.m_maxX - this.m_minX) / (float)this.m_imageWidth;
       this.m_minZ = 2147483647;
       this.m_maxZ = -2147483648;
       if (this.m_zipFS != null) {
@@ -195,7 +203,7 @@ public final class ImagePyramid {
             }
          } catch (Exception var13) {
             this.m_missing.add(var4);
-            var13.printStackTrace();
+            ExceptionLogger.logException(var13);
          }
 
          return null;
@@ -246,7 +254,7 @@ public final class ImagePyramid {
       try {
          return FileSystems.newFileSystem(Paths.get(this.m_zipFile));
       } catch (IOException var2) {
-         var2.printStackTrace();
+         ExceptionLogger.logException(var2);
          return null;
       }
    }
@@ -413,75 +421,87 @@ public final class ImagePyramid {
 
    private void readInfoFile() {
       if (this.m_zipFS != null && this.m_zipFS.isOpen()) {
-         Path var1 = this.m_zipFS.getPath("pyramid.txt");
+         boolean var1 = true;
+         Path var2 = this.m_zipFS.getPath("pyramid.txt");
 
          try {
-            InputStream var2 = Files.newInputStream(var1);
+            InputStream var3 = Files.newInputStream(var2);
 
             try {
-               InputStreamReader var3 = new InputStreamReader(var2);
+               InputStreamReader var4 = new InputStreamReader(var3);
 
                try {
-                  BufferedReader var4 = new BufferedReader(var3);
+                  BufferedReader var5 = new BufferedReader(var4);
 
-                  String var5;
+                  String var6;
                   try {
-                     while((var5 = var4.readLine()) != null) {
-                        if (var5.startsWith("VERSION=")) {
-                           var5 = var5.substring("VERSION=".length());
-                        } else if (var5.startsWith("bounds=")) {
-                           var5 = var5.substring("bounds=".length());
-                           String[] var6 = var5.split(" ");
-                           if (var6.length == 4) {
-                              this.m_minX = PZMath.tryParseInt(var6[0], -1);
-                              this.m_minY = PZMath.tryParseInt(var6[1], -1);
-                              this.m_maxX = PZMath.tryParseInt(var6[2], -1);
-                              this.m_maxY = PZMath.tryParseInt(var6[3], -1);
+                     while((var6 = var5.readLine()) != null) {
+                        if (var6.startsWith("VERSION=")) {
+                           var6 = var6.substring("VERSION=".length());
+                           int var15 = PZMath.tryParseInt(var6, -1);
+                        } else {
+                           String[] var7;
+                           if (var6.startsWith("bounds=")) {
+                              var6 = var6.substring("bounds=".length());
+                              var7 = var6.split(" ");
+                              if (var7.length == 4) {
+                                 this.m_minX = PZMath.tryParseInt(var7[0], -1);
+                                 this.m_minY = PZMath.tryParseInt(var7[1], -1);
+                                 this.m_maxX = PZMath.tryParseInt(var7[2], -1);
+                                 this.m_maxY = PZMath.tryParseInt(var7[3], -1);
+                              }
+                           } else if (var6.startsWith("imageSize=")) {
+                              var6 = var6.substring("imageSize=".length());
+                              var7 = var6.split(" ");
+                              if (var7.length == 2) {
+                                 this.m_imageWidth = PZMath.tryParseInt(var7[0], -1);
+                                 this.m_imageHeight = PZMath.tryParseInt(var7[1], -1);
+                              }
+                           } else if (var6.startsWith("resolution=")) {
+                              var6 = var6.substring("resolution=".length());
+                              this.m_resolution = PZMath.tryParseFloat(var6, 1.0F);
                            }
-                        } else if (var5.startsWith("resolution=")) {
-                           var5 = var5.substring("resolution=".length());
-                           this.m_resolution = PZMath.tryParseFloat(var5, 1.0F);
                         }
                      }
-                  } catch (Throwable var10) {
+                  } catch (Throwable var11) {
                      try {
-                        var4.close();
-                     } catch (Throwable var9) {
-                        var10.addSuppressed(var9);
+                        var5.close();
+                     } catch (Throwable var10) {
+                        var11.addSuppressed(var10);
                      }
 
-                     throw var10;
+                     throw var11;
                   }
 
-                  var4.close();
-               } catch (Throwable var11) {
+                  var5.close();
+               } catch (Throwable var12) {
+                  try {
+                     var4.close();
+                  } catch (Throwable var9) {
+                     var12.addSuppressed(var9);
+                  }
+
+                  throw var12;
+               }
+
+               var4.close();
+            } catch (Throwable var13) {
+               if (var3 != null) {
                   try {
                      var3.close();
                   } catch (Throwable var8) {
-                     var11.addSuppressed(var8);
+                     var13.addSuppressed(var8);
                   }
-
-                  throw var11;
                }
 
+               throw var13;
+            }
+
+            if (var3 != null) {
                var3.close();
-            } catch (Throwable var12) {
-               if (var2 != null) {
-                  try {
-                     var2.close();
-                  } catch (Throwable var7) {
-                     var12.addSuppressed(var7);
-                  }
-               }
-
-               throw var12;
             }
-
-            if (var2 != null) {
-               var2.close();
-            }
-         } catch (Exception var13) {
-            var13.printStackTrace();
+         } catch (Exception var14) {
+            ExceptionLogger.logException(var14);
          }
 
       }

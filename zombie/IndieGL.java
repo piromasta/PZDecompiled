@@ -28,17 +28,34 @@ public final class IndieGL {
    }
 
    public static void glBlendFunc(int var0, int var1) {
-      if (SpriteRenderer.instance != null && SpriteRenderer.GL_BLENDFUNC_ENABLED) {
+      if (SpriteRenderer.GL_BLENDFUNC_ENABLED) {
          GLState.BlendFuncSeparate.set(temp4Ints.set(var0, var1, var0, var1));
       }
-
    }
 
    public static void glBlendFuncSeparate(int var0, int var1, int var2, int var3) {
-      if (SpriteRenderer.instance != null && SpriteRenderer.GL_BLENDFUNC_ENABLED) {
+      if (SpriteRenderer.GL_BLENDFUNC_ENABLED) {
          GLState.BlendFuncSeparate.set(temp4Ints.set(var0, var1, var2, var3));
       }
+   }
 
+   public static void restoreMainThreadValue_glBlendFuncSeparate() {
+   }
+
+   public static void glDefaultBlendFunc() {
+      glBlendFunc(1, 771);
+   }
+
+   public static void glDefaultBlendFuncA() {
+      GL11.glBlendFunc(1, 771);
+   }
+
+   public static void glDepthFunc(int var0) {
+      GLState.DepthFunc.set(tempInt.set(var0));
+   }
+
+   public static void glDepthMask(boolean var0) {
+      GLState.DepthMask.set(var0 ? GLState.CBooleanValue.TRUE : GLState.CBooleanValue.FALSE);
    }
 
    public static void StartShader(Shader var0) {
@@ -226,7 +243,19 @@ public final class IndieGL {
    }
 
    public static void glEnable(int var0) {
-      SpriteRenderer.instance.glEnable(var0);
+      if (var0 == 3008) {
+         enableAlphaTest();
+      } else if (var0 == 3042) {
+         enableBlend();
+      } else if (var0 == 2929) {
+         enableDepthTest();
+      } else if (var0 == 3089) {
+         enableScissorTest();
+      } else if (var0 == 2960) {
+         enableStencilTest();
+      } else {
+         SpriteRenderer.instance.glEnable(var0);
+      }
    }
 
    public static void glDoStartFrame(int var0, int var1, float var2, int var3) {
@@ -254,7 +283,9 @@ public final class IndieGL {
    }
 
    public static void glAlphaFunc(int var0, float var1) {
-      GLState.AlphaFunc.set(tempIntFloat.set(var0, var1));
+      if (SpriteRenderer.GL_BLENDFUNC_ENABLED) {
+         GLState.AlphaFunc.set(tempIntFloat.set(var0, var1));
+      }
    }
 
    public static void glAlphaFuncA(int var0, float var1) {
@@ -294,7 +325,19 @@ public final class IndieGL {
    }
 
    public static void glDisable(int var0) {
-      SpriteRenderer.instance.glDisable(var0);
+      if (var0 == 3008) {
+         disableAlphaTest();
+      } else if (var0 == 3042) {
+         disableBlend();
+      } else if (var0 == 2929) {
+         disableDepthTest();
+      } else if (var0 == 3089) {
+         disableScissorTest();
+      } else if (var0 == 2960) {
+         disableStencilTest();
+      } else {
+         SpriteRenderer.instance.glDisable(var0);
+      }
    }
 
    public static void glClear(int var0) {
@@ -323,6 +366,30 @@ public final class IndieGL {
 
    public static void disableAlphaTest() {
       GLState.AlphaTest.set(GLState.CBooleanValue.FALSE);
+   }
+
+   public static void enableBlend() {
+      GLState.Blend.set(GLState.CBooleanValue.TRUE);
+   }
+
+   public static void disableBlend() {
+      GLState.Blend.set(GLState.CBooleanValue.FALSE);
+   }
+
+   public static void enableDepthTest() {
+      GLState.DepthTest.set(GLState.CBooleanValue.TRUE);
+   }
+
+   public static void disableDepthTest() {
+      GLState.DepthTest.set(GLState.CBooleanValue.FALSE);
+   }
+
+   public static void enableScissorTest() {
+      GLState.ScissorTest.set(GLState.CBooleanValue.TRUE);
+   }
+
+   public static void disableScissorTest() {
+      GLState.ScissorTest.set(GLState.CBooleanValue.FALSE);
    }
 
    public static void enableStencilTest() {

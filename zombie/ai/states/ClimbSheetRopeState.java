@@ -1,10 +1,14 @@
 package zombie.ai.states;
 
 import zombie.GameTime;
+import zombie.SandboxOptions;
 import zombie.ai.State;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
+import zombie.characters.Moodles.MoodleType;
 import zombie.characters.skills.PerkFactory;
+import zombie.core.math.PZMath;
+import zombie.core.random.Rand;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
@@ -17,7 +21,7 @@ import zombie.iso.objects.IsoWindowFrame;
 
 public final class ClimbSheetRopeState extends State {
    public static final float CLIMB_SPEED = 0.16F;
-   private static final float CLIMB_SLOWDOWN = 0.5F;
+   public static final float CLIMB_SLOWDOWN = 0.5F;
    private static final ClimbSheetRopeState _instance = new ClimbSheetRopeState();
 
    public ClimbSheetRopeState() {
@@ -61,59 +65,50 @@ public final class ClimbSheetRopeState extends State {
          var4 = 0.3144F;
       }
 
-      float var5 = var1.x - (float)((int)var1.x);
-      float var6 = var1.y - (float)((int)var1.y);
+      float var5 = var1.getX() - (float)PZMath.fastfloor(var1.getX());
+      float var6 = var1.getY() - (float)PZMath.fastfloor(var1.getY());
       float var7;
       if (var5 != var3) {
          var7 = (var3 - var5) / 4.0F;
          var5 += var7;
-         var1.x = (float)((int)var1.x) + var5;
+         var1.setX((float)PZMath.fastfloor(var1.getX()) + var5);
       }
 
       if (var6 != var4) {
          var7 = (var4 - var6) / 4.0F;
          var6 += var7;
-         var1.y = (float)((int)var1.y) + var6;
+         var1.setY((float)PZMath.fastfloor(var1.getY()) + var6);
       }
 
-      var1.nx = var1.x;
-      var1.ny = var1.y;
-      var7 = this.getClimbSheetRopeSpeed(var1);
+      var1.setNextX(var1.getX());
+      var1.setNextY(var1.getY());
+      var7 = var1.getClimbRopeSpeed(false);
       var1.getSpriteDef().AnimFrameIncrease = var7;
-      float var8 = var1.z + var7 / 10.0F * GameTime.instance.getMultiplier();
-      var8 = Math.min(var8, 7.0F);
+      float var8 = var1.getZ() + var7 / 10.0F * GameTime.instance.getMultiplier();
+      int var9 = var1.getCurrentSquare().getChunk().getMaxLevel();
+      var8 = Math.min(var8, (float)var9);
 
-      for(int var9 = (int)var1.z; (float)var9 <= var8; ++var9) {
-         IsoCell var10 = IsoWorld.instance.getCell();
-         IsoGridSquare var11 = var10.getGridSquare((double)var1.getX(), (double)var1.getY(), (double)var9);
-         if (IsoWindow.isTopOfSheetRopeHere(var11)) {
-            var1.z = (float)var9;
-            var1.setCurrent(var11);
+      int var10;
+      for(var10 = PZMath.fastfloor(var1.getZ()); (float)var10 <= var8; ++var10) {
+         IsoCell var11 = IsoWorld.instance.getCell();
+         IsoGridSquare var12 = var11.getGridSquare((double)var1.getX(), (double)var1.getY(), (double)var10);
+         if (IsoWindow.isTopOfSheetRopeHere(var12)) {
+            var1.setZ((float)var10);
+            var1.setCurrent(var12);
             var1.setCollidable(true);
-            IsoGridSquare var12 = var11.nav[var1.dir.index()];
-            if (var12 != null) {
-               if (!var12.TreatAsSolidFloor()) {
+            IsoGridSquare var13 = var12.nav[var1.dir.index()];
+            if (var13 != null) {
+               if (!var13.TreatAsSolidFloor()) {
                   var1.climbDownSheetRope();
                   return;
                }
 
-               IsoWindow var13 = var11.getWindowTo(var12);
-               if (var13 != null) {
-                  if (!var13.open) {
-                     var13.ToggleWindow(var1);
-                  }
-
-                  if (!var13.canClimbThrough(var1)) {
-                     var1.climbDownSheetRope();
-                     return;
-                  }
-
-                  var1.climbThroughWindow(var13, 4);
-                  return;
-               }
-
-               IsoThumpable var14 = var11.getWindowThumpableTo(var12);
+               IsoWindow var14 = var12.getWindowTo(var13);
                if (var14 != null) {
+                  if (!var14.open) {
+                     var14.ToggleWindow(var1);
+                  }
+
                   if (!var14.canClimbThrough(var1)) {
                      var1.climbDownSheetRope();
                      return;
@@ -123,9 +118,20 @@ public final class ClimbSheetRopeState extends State {
                   return;
                }
 
-               var14 = var11.getHoppableThumpableTo(var12);
-               if (var14 != null) {
-                  if (!IsoWindow.canClimbThroughHelper(var1, var11, var12, var1.dir == IsoDirections.N || var1.dir == IsoDirections.S)) {
+               IsoThumpable var15 = var12.getWindowThumpableTo(var13);
+               if (var15 != null) {
+                  if (!var15.canClimbThrough(var1)) {
+                     var1.climbDownSheetRope();
+                     return;
+                  }
+
+                  var1.climbThroughWindow(var15, 4);
+                  return;
+               }
+
+               var15 = var12.getHoppableThumpableTo(var13);
+               if (var15 != null) {
+                  if (!IsoWindow.canClimbThroughHelper(var1, var12, var13, var1.dir == IsoDirections.N || var1.dir == IsoDirections.S)) {
                      var1.climbDownSheetRope();
                      return;
                   }
@@ -134,20 +140,20 @@ public final class ClimbSheetRopeState extends State {
                   return;
                }
 
-               IsoObject var15 = var11.getWindowFrameTo(var12);
-               if (var15 != null) {
-                  if (!IsoWindowFrame.canClimbThrough(var15, var1)) {
+               IsoWindowFrame var16 = var12.getWindowFrameTo(var13);
+               if (var16 != null) {
+                  if (!var16.canClimbThrough(var1)) {
                      var1.climbDownSheetRope();
                      return;
                   }
 
-                  var1.climbThroughWindowFrame(var15);
+                  var1.climbThroughWindowFrame(var16);
                   return;
                }
 
-               IsoObject var16 = var11.getWallHoppableTo(var12);
-               if (var16 != null) {
-                  if (!IsoWindow.canClimbThroughHelper(var1, var11, var12, var1.dir == IsoDirections.N || var1.dir == IsoDirections.S)) {
+               IsoObject var17 = var12.getWallHoppableTo(var13);
+               if (var17 != null) {
+                  if (!IsoWindow.canClimbThroughHelper(var1, var12, var13, var1.dir == IsoDirections.N || var1.dir == IsoDirections.S)) {
                      var1.climbDownSheetRope();
                      return;
                   }
@@ -161,19 +167,28 @@ public final class ClimbSheetRopeState extends State {
          }
       }
 
-      var1.z = var8;
-      if (var1.z >= 7.0F) {
+      var1.setZ(var8);
+      if (var1.getZ() >= (float)var9) {
          var1.setCollidable(true);
          var1.clearVariable("ClimbRope");
       }
 
+      var10 = (int)(var1.getClimbingFailChanceFloat() + 1.0F);
+      boolean var18 = var1.getClimbRopeTime() > (float)(var10 * 10);
+      var1.setClimbRopeTime(var1.getClimbRopeTime() + GameTime.instance.getMultiplier());
+      var10 *= 100;
+      var10 = (int)((float)var10 / GameTime.instance.getMultiplier());
       if (!IsoWindow.isSheetRopeHere(var1.getCurrentSquare())) {
          var1.setCollidable(true);
          var1.setbClimbing(false);
          var1.setbFalling(true);
          var1.clearVariable("ClimbRope");
+      } else if (var18 && !SandboxOptions.instance.EasyClimbing.getValue() && Rand.NextBool(var10)) {
+         var1.fallFromRope();
       }
 
+      float var19 = (float)(var1.getPerkLevel(PerkFactory.Perks.Nimble) + Math.max(var1.getPerkLevel(PerkFactory.Perks.Strength), var1.getPerkLevel(PerkFactory.Perks.Fitness)) * 2) / 3.0F;
+      var1.addBothArmMuscleStrain((float)(0.02 * (double)GameTime.instance.getMultiplier() * (double)(var1.getMoodles().getMoodleLevel(MoodleType.HeavyLoad) + 1)) * ((15.0F - var19) / 10.0F) * (GameTime.instance.getMultiplier() / 0.8F));
       if (var1 instanceof IsoPlayer && ((IsoPlayer)var1).isLocalPlayer()) {
          ((IsoPlayer)var1).dirtyRecalcGridStackTime = 2.0F;
       }
@@ -184,35 +199,5 @@ public final class ClimbSheetRopeState extends State {
       var1.setIgnoreMovement(false);
       var1.setbClimbing(false);
       var1.clearVariable("ClimbRope");
-   }
-
-   public float getClimbSheetRopeSpeed(IsoGameCharacter var1) {
-      float var2 = 0.16F;
-      switch (var1.getPerkLevel(PerkFactory.Perks.Strength)) {
-         case 0:
-            var2 -= 0.12F;
-            break;
-         case 1:
-         case 2:
-         case 3:
-            var2 -= 0.09F;
-         case 4:
-         case 5:
-         default:
-            break;
-         case 6:
-         case 7:
-            var2 += 0.05F;
-            break;
-         case 8:
-         case 9:
-            var2 += 0.09F;
-            break;
-         case 10:
-            var2 += 0.12F;
-      }
-
-      var2 *= 0.5F;
-      return var2;
    }
 }

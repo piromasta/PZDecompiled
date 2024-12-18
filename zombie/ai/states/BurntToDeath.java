@@ -33,7 +33,7 @@ public final class BurntToDeath extends State {
 
       var1.def.AnimFrameIncrease = 0.25F;
       var1.setStateMachineLocked(true);
-      String var2 = var1.isFemale() ? "FemaleZombieDeath" : "MaleZombieDeath";
+      String var2 = var1.getDescriptor().getVoicePrefix() + "Death";
       var1.getEmitter().playVocals(var2);
       if (GameServer.bServer && var1 instanceof IsoZombie) {
          GameServer.sendZombieSound(IsoZombie.ZombieSound.Burned, (IsoZombie)var1);

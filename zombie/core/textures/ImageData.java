@@ -4,6 +4,7 @@ import com.evildevil.engines.bubble.texture.DDSLoader;
 import java.awt.image.BufferedImage;
 import java.awt.image.Raster;
 import java.io.BufferedInputStream;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -11,6 +12,8 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import javax.imageio.ImageIO;
 import zombie.ZomboidFileSystem;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
@@ -33,11 +36,13 @@ public final class ImageData implements Serializable {
    private int widthHW;
    private int mipMapCount = -1;
    public boolean alphaPaddingDone = false;
+   private boolean preMultipliedAlphaDone = false;
    public boolean bPreserveTransparentColor = false;
    public BooleanGrid mask;
    private static final int BufferSize = 67108864;
    static final DDSLoader dds = new DDSLoader();
    public int id = -1;
+   final ArrayList<ImageDataFrame> frames = new ArrayList();
    public static final int MIP_LEVEL_IDX_OFFSET = 0;
    private static final ThreadLocal<L_generateMipMaps> TL_generateMipMaps = ThreadLocal.withInitial(L_generateMipMaps::new);
    private static final ThreadLocal<L_performAlphaPadding> TL_performAlphaPadding = ThreadLocal.withInitial(L_performAlphaPadding::new);
@@ -58,6 +63,54 @@ public final class ImageData implements Serializable {
 
       var1 = Texture.processFilePath(var1);
       var1 = ZomboidFileSystem.instance.getString(var1);
+      int var6;
+      int var7;
+      if (var1.endsWith(".jpg") || var1.endsWith(".jpeg")) {
+         try {
+            BufferedImage var15 = ImageIO.read((new File(var1)).getAbsoluteFile());
+            this.width = var15.getWidth();
+            this.height = var15.getHeight();
+            this.widthHW = ImageUtils.getNextPowerOfTwoHW(this.width);
+            this.heightHW = ImageUtils.getNextPowerOfTwoHW(this.height);
+            this.data = new MipMapLevel(this.widthHW, this.heightHW);
+            ByteBuffer var16 = this.data.getBuffer();
+            var16.rewind();
+            int var17 = this.widthHW * 4;
+            int var18;
+            if (this.width != this.widthHW) {
+               for(var18 = this.width * 4; var18 < this.widthHW * 4; ++var18) {
+                  for(var6 = 0; var6 < this.heightHW; ++var6) {
+                     var16.put(var18 + var6 * var17, (byte)0);
+                  }
+               }
+            }
+
+            if (this.height != this.heightHW) {
+               for(var18 = this.height; var18 < this.heightHW; ++var18) {
+                  for(var6 = 0; var6 < this.width * 4; ++var6) {
+                     var16.put(var6 + var18 * var17, (byte)0);
+                  }
+               }
+            }
+
+            for(var18 = 0; var18 < this.height; ++var18) {
+               var16.position(var18 * var17);
+
+               for(var6 = 0; var6 < this.width; ++var6) {
+                  var7 = var15.getRGB(var6, var18);
+                  var16.put((byte)(var7 << 8 >> 24));
+                  var16.put((byte)(var7 << 16 >> 24));
+                  var16.put((byte)(var7 << 24 >> 24));
+                  var16.put((byte)(var7 >> 24));
+               }
+            }
+
+            return;
+         } catch (Exception var14) {
+            this.dispose();
+            this.width = this.height = -1;
+         }
+      }
 
       try {
          FileInputStream var2 = new FileInputStream(var1);
@@ -74,8 +127,7 @@ public final class ImageData implements Serializable {
                this.data = new MipMapLevel(this.widthHW, this.heightHW);
                ByteBuffer var5 = this.data.getBuffer();
                var5.rewind();
-               int var6 = this.widthHW * 4;
-               int var7;
+               var6 = this.widthHW * 4;
                int var8;
                if (this.width != this.widthHW) {
                   for(var7 = this.width * 4; var7 < this.widthHW * 4; ++var7) {
@@ -93,7 +145,7 @@ public final class ImageData implements Serializable {
                   }
                }
 
-               var4.decode(this.data.getBuffer(), var6, PNGDecoder.Format.RGBA);
+               var4.decode(this.data.getBuffer(), var6, var4.getHeight(), PNGDecoder.Format.RGBA, 1229209940);
             } catch (Throwable var11) {
                try {
                   var3.close();
@@ -137,6 +189,14 @@ public final class ImageData implements Serializable {
       this.widthHW = ImageUtils.getNextPowerOfTwoHW(var1);
       this.heightHW = ImageUtils.getNextPowerOfTwoHW(var2);
       this.data = new MipMapLevel(this.widthHW, this.heightHW, var3);
+   }
+
+   public ImageData(ImageDataFrame var1) {
+      this.width = var1.apngFrame.width;
+      this.height = var1.apngFrame.height;
+      this.widthHW = var1.widthHW;
+      this.heightHW = var1.heightHW;
+      this.data = var1.data;
    }
 
    ImageData(String var1, String var2) {
@@ -183,7 +243,24 @@ public final class ImageData implements Serializable {
       this.heightHW = ImageUtils.getNextPowerOfTwoHW(this.height);
       this.data = new MipMapLevel(this.widthHW, this.heightHW);
       this.data.rewind();
-      var4.decode(this.data.getBuffer(), 4 * this.widthHW, PNGDecoder.Format.RGBA);
+      if (var4.isAnimated()) {
+         ImageDataFrame var5 = (new ImageDataFrame()).set(this, var4.getCurrentFrame());
+         this.frames.add(var5);
+         var5.data.rewind();
+         var4.decode(var5.data.getBuffer(), 4 * var5.widthHW, var4.getHeight(), PNGDecoder.Format.RGBA, 1229209940);
+         int var6 = var4.getNumFrames();
+
+         for(int var7 = 1; var7 < var6; ++var7) {
+            var4.decodeStartOfNextFrame();
+            var5 = (new ImageDataFrame()).set(this, var4.getCurrentFrame());
+            this.frames.add(var5);
+            var5.data.rewind();
+            var4.decodeFrame(var5.data.getBuffer(), 4 * var5.widthHW, PNGDecoder.Format.RGBA);
+         }
+      } else {
+         var4.decode(this.data.getBuffer(), 4 * this.widthHW, var4.getHeight(), PNGDecoder.Format.RGBA, 1229209940);
+      }
+
       if (var2) {
          this.mask = var4.mask;
       }
@@ -386,8 +463,12 @@ public final class ImageData implements Serializable {
    }
 
    public MipMapLevel getMipMapData(int var1) {
-      if (this.data != null && !this.alphaPaddingDone) {
-         this.performAlphaPadding();
+      if (this.data != null && !this.preMultipliedAlphaDone) {
+         if (this.mipMaps == null) {
+            this.generateMipMaps();
+         }
+
+         this.performPreMultipliedAlpha();
       }
 
       if (var1 == 0) {
@@ -443,7 +524,8 @@ public final class ImageData implements Serializable {
       int var8 = getNextMipDimension(var3);
       int var9 = getNextMipDimension(var4);
 
-      for(int var10 = 0; var10 < var1; ++var10) {
+      int var10;
+      for(var10 = 0; var10 < var1; ++var10) {
          MipMapLevel var11 = new MipMapLevel(var8, var9);
          if (var10 < 2) {
             this.scaleMipLevelMaxAlpha(var5, var11, var10);
@@ -451,11 +533,14 @@ public final class ImageData implements Serializable {
             this.scaleMipLevelAverage(var5, var11, var10);
          }
 
-         this.performAlphaPadding(var11);
          this.mipMaps[var10] = var11;
          var5 = var11;
          var8 = getNextMipDimension(var8);
          var9 = getNextMipDimension(var9);
+      }
+
+      for(var10 = 0; var10 < var1; ++var10) {
+         this.performPreMultipliedAlpha(this.mipMaps[var10]);
       }
 
    }
@@ -552,15 +637,15 @@ public final class ImageData implements Serializable {
       return var1;
    }
 
-   private void performAlphaPadding() {
+   private void performPreMultipliedAlpha() {
       MipMapLevel var1 = this.data;
       if (var1 != null && var1.data != null) {
-         this.performAlphaPadding(var1);
-         this.alphaPaddingDone = true;
+         this.performPreMultipliedAlpha(var1);
+         this.preMultipliedAlphaDone = true;
       }
    }
 
-   private void performAlphaPadding(MipMapLevel var1) {
+   private void performPreMultipliedAlpha(MipMapLevel var1) {
       L_performAlphaPadding var2 = (L_performAlphaPadding)TL_performAlphaPadding.get();
       ByteBuffer var3 = var1.getBuffer();
       int var4 = var1.width;
@@ -569,27 +654,11 @@ public final class ImageData implements Serializable {
       for(int var6 = 0; var6 < var5; ++var6) {
          for(int var7 = 0; var7 < var4; ++var7) {
             int var8 = (var6 * var4 + var7) * 4;
-            int var9 = var3.get(var8 + 3) & 255;
-            if (var9 != 255 && var9 == 0) {
-               int[] var10 = getPixelClamped(var3, var4, var5, var7, var6, var2.pixelRGBA);
-               int[] var11 = var2.newPixelRGBA;
-               PZArrayUtil.arraySet(var11, 0);
-               var11[3] = var10[3];
-               int var12 = 0;
-               var12 += this.sampleNeighborPixelDiscard(var3, var4, var5, var7 - 1, var6, var2.pixelRGBA_neighbor, var11);
-               var12 += this.sampleNeighborPixelDiscard(var3, var4, var5, var7, var6 - 1, var2.pixelRGBA_neighbor, var11);
-               var12 += this.sampleNeighborPixelDiscard(var3, var4, var5, var7 - 1, var6 - 1, var2.pixelRGBA_neighbor, var11);
-               var12 += this.sampleNeighborPixelDiscard(var3, var4, var5, var7 + 1, var6, var2.pixelRGBA_neighbor, var11);
-               var12 += this.sampleNeighborPixelDiscard(var3, var4, var5, var7, var6 + 1, var2.pixelRGBA_neighbor, var11);
-               var12 += this.sampleNeighborPixelDiscard(var3, var4, var5, var7 + 1, var6 + 1, var2.pixelRGBA_neighbor, var11);
-               if (var12 > 0) {
-                  var11[0] /= var12;
-                  var11[1] /= var12;
-                  var11[2] /= var12;
-                  var11[3] = var10[3];
-                  setPixel(var3, var4, var5, var7, var6, var11);
-               }
-            }
+            int[] var9 = getPixelClamped(var3, var4, var5, var7, var6, var2.pixelRGBA);
+            var9[0] = (int)((float)(var9[0] * var9[3]) / 255.0F);
+            var9[1] = (int)((float)(var9[1] * var9[3]) / 255.0F);
+            var9[2] = (int)((float)(var9[2] * var9[3]) / 255.0F);
+            setPixel(var3, var4, var5, var7, var6, var9);
          }
       }
 

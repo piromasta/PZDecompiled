@@ -3,8 +3,10 @@ package zombie.iso.objects;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
+import zombie.core.skinnedmodel.model.ItemModelRenderer;
+import zombie.core.skinnedmodel.model.WorldItemModelDrawer;
 import zombie.core.textures.ColorInfo;
 import zombie.core.textures.Texture;
 import zombie.inventory.types.HandWeapon;
@@ -39,15 +41,15 @@ public class IsoMolotovCocktail extends IsoPhysicsObject {
       var10 -= 0.2F;
       this.velX += var9;
       this.velY += var10;
-      this.x = var2;
-      this.y = var3;
-      this.z = var4;
-      this.nx = var2;
-      this.ny = var3;
+      this.setX(var2);
+      this.setY(var3);
+      this.setZ(var4);
+      this.setNextX(var2);
+      this.setNextY(var3);
       this.offsetX = 0.0F;
       this.offsetY = 0.0F;
       this.terminalVelocity = -0.02F;
-      Texture var11 = this.sprite.LoadFrameExplicit(var7.getTex().getName());
+      Texture var11 = this.sprite.LoadSingleTexture(var7.getTex().getName());
       if (var11 != null) {
          this.sprite.Animate = false;
          int var12 = Core.TileScale;
@@ -80,20 +82,29 @@ public class IsoMolotovCocktail extends IsoPhysicsObject {
 
    public void update() {
       super.update();
-      if (this.isCollidedThisFrame() && this.explodeTimer == 0) {
-         this.Explode();
-      }
-
-      if (this.explodeTimer > 0) {
-         ++this.timer;
-         if (this.timer >= this.explodeTimer) {
+      if (!this.isDestroyed()) {
+         if (this.isCollidedThisFrame() && this.explodeTimer == 0) {
             this.Explode();
          }
-      }
 
+         if (this.explodeTimer > 0) {
+            ++this.timer;
+            if (this.timer >= this.explodeTimer) {
+               this.Explode();
+            }
+         }
+
+      }
    }
 
    public void render(float var1, float var2, float var3, ColorInfo var4, boolean var5, boolean var6, Shader var7) {
+      if (Core.getInstance().isOption3DGroundItem() && ItemModelRenderer.itemHasModel(this.weapon)) {
+         ItemModelRenderer.RenderStatus var8 = WorldItemModelDrawer.renderMain(this.weapon, this.getSquare(), this.getRenderSquare(), var1, var2, var3, 0.0F);
+         if (var8 == ItemModelRenderer.RenderStatus.Loading || var8 == ItemModelRenderer.RenderStatus.Ready) {
+            return;
+         }
+      }
+
       super.render(var1, var2, var3, var4, var5, var6, var7);
       if (Core.bDebug) {
       }
@@ -112,10 +123,11 @@ public class IsoMolotovCocktail extends IsoPhysicsObject {
          this.square.syncIsoTrap(this.weapon);
       }
 
+      IsoTrap var1 = new IsoTrap(this.weapon, this.getCurrentSquare().getCell(), this.getCurrentSquare());
       if (this.weapon.isInstantExplosion()) {
-         IsoTrap var1 = new IsoTrap(this.weapon, this.getCurrentSquare().getCell(), this.getCurrentSquare());
-         this.getCurrentSquare().AddTileObject(var1);
          var1.triggerExplosion(false);
+      } else {
+         var1.getSquare().AddTileObject(var1);
       }
 
    }

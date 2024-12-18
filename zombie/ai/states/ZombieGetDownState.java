@@ -4,7 +4,7 @@ import java.util.HashMap;
 import zombie.ai.State;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 
 public final class ZombieGetDownState extends State {

@@ -3,11 +3,15 @@ package zombie.core.skinnedmodel.model;
 import gnu.trove.list.array.TFloatArrayList;
 import java.util.ArrayList;
 import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import org.lwjgl.util.vector.Matrix4f;
 import zombie.core.Color;
+import zombie.core.DefaultShader;
+import zombie.core.SceneShaderStore;
+import zombie.core.ShaderHelper;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.PZGLUtil;
+import zombie.core.opengl.VBORenderer;
 import zombie.core.skinnedmodel.HelperFunctions;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.debug.DebugOptions;
@@ -35,6 +39,14 @@ public final class ModelSlotDebugRenderData extends PooledObject {
    public ModelSlotDebugRenderData() {
    }
 
+   public void initModel(ModelSlotRenderData var1) {
+      for(int var2 = 0; var2 < var1.modelData.size(); ++var2) {
+         ModelInstanceRenderData var3 = (ModelInstanceRenderData)var1.modelData.get(var2);
+         var3.m_debugRenderData = ModelInstanceDebugRenderData.alloc();
+      }
+
+   }
+
    public ModelSlotDebugRenderData init(ModelSlotRenderData var1) {
       this.m_slotData = var1;
       this.initBoneAxis();
@@ -44,7 +56,7 @@ public final class ModelSlotDebugRenderData extends PooledObject {
 
       for(int var2 = 0; var2 < var1.modelData.size(); ++var2) {
          ModelInstanceRenderData var3 = (ModelInstanceRenderData)var1.modelData.get(var2);
-         var3.m_debugRenderData = ModelInstanceDebugRenderData.alloc().init(var1, var3);
+         var3.m_debugRenderData.init(var1, var3);
       }
 
       return this;
@@ -80,7 +92,7 @@ public final class ModelSlotDebugRenderData extends PooledObject {
       Integer var2 = (Integer)this.m_slotData.animPlayer.getSkinningData().BoneIndices.get(var1);
       if (var2 != null) {
          Matrix4f var3 = HelperFunctions.getMatrix();
-         var3.load(this.m_slotData.animPlayer.modelTransforms[var2]);
+         var3.load(this.m_slotData.animPlayer.getModelTransformAt(var2));
          this.m_boneMatrices.add(var3);
       }
 
@@ -88,7 +100,7 @@ public final class ModelSlotDebugRenderData extends PooledObject {
 
    private void initSkeleton() {
       this.m_boneCoords.clear();
-      if (DebugOptions.instance.ModelRenderBones.getValue()) {
+      if (DebugOptions.instance.Model.Render.Bones.getValue()) {
          this.initSkeleton(this.m_slotData.animPlayer);
          if (this.m_slotData.object instanceof BaseVehicle) {
             for(int var1 = 0; var1 < this.m_slotData.modelData.size(); ++var1) {
@@ -107,12 +119,12 @@ public final class ModelSlotDebugRenderData extends PooledObject {
       if (var1 != null && var1.hasSkinningData() && !var1.isBoneTransformsNeedFirstFrame()) {
          Integer var2 = (Integer)var1.getSkinningData().BoneIndices.get("Translation_Data");
 
-         for(int var3 = 0; var3 < var1.modelTransforms.length; ++var3) {
+         for(int var3 = 0; var3 < var1.getModelTransformsCount(); ++var3) {
             if (var2 == null || var3 != var2) {
                int var4 = (Integer)var1.getSkinningData().SkeletonHierarchy.get(var3);
                if (var4 >= 0) {
-                  this.initSkeleton(var1.modelTransforms, var3);
-                  this.initSkeleton(var1.modelTransforms, var4);
+                  this.initSkeleton(var1, var3);
+                  this.initSkeleton(var1, var4);
                }
             }
          }
@@ -120,18 +132,19 @@ public final class ModelSlotDebugRenderData extends PooledObject {
       }
    }
 
-   private void initSkeleton(Matrix4f[] var1, int var2) {
-      float var3 = var1[var2].m03;
-      float var4 = var1[var2].m13;
-      float var5 = var1[var2].m23;
-      this.m_boneCoords.add(var3);
+   private void initSkeleton(AnimationPlayer var1, int var2) {
+      Matrix4f var3 = var1.getModelTransformAt(var2);
+      float var4 = var3.m03;
+      float var5 = var3.m13;
+      float var6 = var3.m23;
       this.m_boneCoords.add(var4);
       this.m_boneCoords.add(var5);
+      this.m_boneCoords.add(var6);
    }
 
    private void initLights() {
       this.m_squareLights.clear();
-      if (DebugOptions.instance.ModelRenderLights.getValue()) {
+      if (DebugOptions.instance.Model.Render.Lights.getValue()) {
          if (this.m_slotData.character != null) {
             if (this.m_slotData.character.getCurrentSquare() != null) {
                int var1 = IsoCamera.frameState.playerIndex;
@@ -155,7 +168,7 @@ public final class ModelSlotDebugRenderData extends PooledObject {
          this.m_weaponMatrix = null;
       }
 
-      if (DebugOptions.instance.ModelRenderWeaponHitPoint.getValue()) {
+      if (DebugOptions.instance.Model.Render.WeaponHitPoint.getValue()) {
          if (this.m_slotData.animPlayer != null && this.m_slotData.animPlayer.hasSkinningData()) {
             if (this.m_slotData.character != null) {
                Integer var1 = (Integer)this.m_slotData.animPlayer.getSkinningData().BoneIndices.get("Bip01_Prop1");
@@ -163,7 +176,7 @@ public final class ModelSlotDebugRenderData extends PooledObject {
                   HandWeapon var2 = (HandWeapon)Type.tryCastTo(this.m_slotData.character.getPrimaryHandItem(), HandWeapon.class);
                   if (var2 != null) {
                      this.m_weaponLength = var2.WeaponLength;
-                     Matrix4f var3 = this.m_slotData.animPlayer.modelTransforms[var1];
+                     Matrix4f var3 = this.m_slotData.animPlayer.getModelTransformAt(var1);
                      this.m_weaponMatrix = (org.joml.Matrix4f)((BaseVehicle.Matrix4fObjectPool)BaseVehicle.TL_matrix4f_pool.get()).alloc();
                      PZMath.convertMatrix(var3, this.m_weaponMatrix);
                      this.m_weaponMatrix.transpose();
@@ -175,46 +188,53 @@ public final class ModelSlotDebugRenderData extends PooledObject {
    }
 
    public void render() {
+      DefaultShader var10000 = SceneShaderStore.DefaultShader;
+      DefaultShader.isActive = false;
+      ShaderHelper.forgetCurrentlyBound();
+      GL20.glUseProgram(0);
       this.renderBonesAxis();
       this.renderSkeleton();
       this.renderLights();
       this.renderWeaponHitPoint();
+      ShaderHelper.glUseProgramObjectARB(0);
    }
 
    private void renderBonesAxis() {
-      for(int var1 = 0; var1 < this.m_boneMatrices.size(); ++var1) {
-         Model.drawBoneMtx((Matrix4f)this.m_boneMatrices.get(var1));
-      }
+      if (!this.m_boneMatrices.isEmpty()) {
+         VBORenderer var1 = VBORenderer.getInstance();
+         var1.startRun(var1.FORMAT_PositionColor);
+         var1.setMode(1);
 
+         for(int var2 = 0; var2 < this.m_boneMatrices.size(); ++var2) {
+            Model.drawBoneMtx((Matrix4f)this.m_boneMatrices.get(var2));
+         }
+
+         var1.endRun();
+         var1.flush();
+      }
    }
 
    private void renderSkeleton() {
       if (!this.m_boneCoords.isEmpty()) {
-         GL11.glDisable(2929);
+         VBORenderer var1 = VBORenderer.getInstance();
+         var1.startRun(var1.FORMAT_PositionColor);
+         var1.setMode(1);
+         var1.setDepthTest(false);
+         var1.setLineWidth(1.0F);
 
-         int var1;
-         for(var1 = 7; var1 >= 0; --var1) {
-            GL13.glActiveTexture('蓀' + var1);
-            GL11.glDisable(3553);
+         for(int var2 = 0; var2 < this.m_boneCoords.size(); var2 += 6) {
+            Color var3 = Model.debugDrawColours[var2 % Model.debugDrawColours.length];
+            float var4 = this.m_boneCoords.get(var2);
+            float var5 = this.m_boneCoords.get(var2 + 1);
+            float var6 = this.m_boneCoords.get(var2 + 2);
+            float var7 = this.m_boneCoords.get(var2 + 3);
+            float var8 = this.m_boneCoords.get(var2 + 4);
+            float var9 = this.m_boneCoords.get(var2 + 5);
+            var1.addLine(var4, var5, var6, var7, var8, var9, var3.r, var3.g, var3.b, 1.0F);
          }
 
-         GL11.glLineWidth(1.0F);
-         GL11.glBegin(1);
-
-         for(var1 = 0; var1 < this.m_boneCoords.size(); var1 += 6) {
-            Color var2 = Model.debugDrawColours[var1 % Model.debugDrawColours.length];
-            GL11.glColor3f(var2.r, var2.g, var2.b);
-            float var3 = this.m_boneCoords.get(var1);
-            float var4 = this.m_boneCoords.get(var1 + 1);
-            float var5 = this.m_boneCoords.get(var1 + 2);
-            GL11.glVertex3f(var3, var4, var5);
-            var3 = this.m_boneCoords.get(var1 + 3);
-            var4 = this.m_boneCoords.get(var1 + 4);
-            var5 = this.m_boneCoords.get(var1 + 5);
-            GL11.glVertex3f(var3, var4, var5);
-         }
-
-         GL11.glEnd();
+         var1.endRun();
+         var1.flush();
          GL11.glColor3f(1.0F, 1.0F, 1.0F);
          GL11.glEnable(2929);
       }

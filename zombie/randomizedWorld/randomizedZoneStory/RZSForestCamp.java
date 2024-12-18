@@ -1,10 +1,11 @@
 package zombie.randomizedWorld.randomizedZoneStory;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItemFactory;
 import zombie.inventory.types.InventoryContainer;
-import zombie.iso.IsoMetaGrid;
+import zombie.iso.IsoGridSquare;
+import zombie.iso.zones.Zone;
 
 public class RZSForestCamp extends RandomizedZoneStoryBase {
    public RZSForestCamp() {
@@ -23,7 +24,7 @@ public class RZSForestCamp extends RandomizedZoneStoryBase {
       var0.add("Base.Crisps4");
       var0.add("Base.Pop");
       var0.add("Base.Pop2");
-      var0.add("Base.WaterBottleFull");
+      var0.add("Base.WaterBottle");
       var0.add("Base.CannedSardines");
       var0.add("Base.CannedChili");
       var0.add("Base.CannedBolognese");
@@ -31,10 +32,13 @@ public class RZSForestCamp extends RandomizedZoneStoryBase {
       var0.add("Base.TinnedSoup");
       var0.add("Base.TinnedBeans");
       var0.add("Base.TunaTin");
-      var0.add("Base.WhiskeyFull");
+      var0.add("Base.Whiskey");
       var0.add("Base.BeerBottle");
       var0.add("Base.BeerCan");
       var0.add("Base.BeerCan");
+      var0.add("Base.Lantern_Propane");
+      var0.add("Base.Bag_PicnicBasket");
+      var0.add("Base.GuitarAcoustic");
       return var0;
    }
 
@@ -44,18 +48,20 @@ public class RZSForestCamp extends RandomizedZoneStoryBase {
       var0.add("Base.Pop2");
       var0.add("Base.BeefJerky");
       var0.add("Base.Ham");
-      var0.add("Base.WaterBottleFull");
+      var0.add("Base.WaterBottle");
       var0.add("Base.BeerCan");
       var0.add("Base.BeerCan");
       var0.add("Base.BeerCan");
       var0.add("Base.BeerCan");
+      var0.add("Base.Smore");
+      var0.add("Base.WineBox");
+      var0.add("Base.Marshmallows");
       return var0;
    }
 
    public static ArrayList<String> getFireClutter() {
       ArrayList var0 = new ArrayList();
       var0.add("Base.WaterPotRice");
-      var0.add("Base.WaterPot");
       var0.add("Base.Pot");
       var0.add("Base.WaterSaucepanRice");
       var0.add("Base.WaterSaucepanPasta");
@@ -63,42 +69,49 @@ public class RZSForestCamp extends RandomizedZoneStoryBase {
       return var0;
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
       int var2 = var1.pickedXForZoneStory;
       int var3 = var1.pickedYForZoneStory;
       ArrayList var4 = getForestClutter();
       ArrayList var5 = getCoolerClutter();
       ArrayList var6 = getFireClutter();
+      IsoGridSquare var7 = getSq(var2, var3, var1.z);
       this.cleanAreaForStory(this, var1);
-      this.addTileObject(var2, var3, var1.z, "camping_01_6");
-      this.addItemOnGround(this.getSq(var2, var3, var1.z), (String)var6.get(Rand.Next(var6.size())));
-      int var7 = Rand.Next(-1, 2);
+      this.cleanSquareAndNeighbors(var7);
+      this.addCampfireOrPit(var7);
+      this.addItemOnGround(getSq(var2, var3, var1.z), (String)var6.get(Rand.Next(var6.size())));
       int var8 = Rand.Next(-1, 2);
-      this.addTentWestEast(var2 + var7 - 2, var3 + var8, var1.z);
+      int var9 = Rand.Next(-1, 2);
+      this.addRandomTentWestEast(var2 + var8 - 2, var3 + var9, var1.z);
       if (Rand.Next(100) < 70) {
-         this.addTentNorthSouth(var2 + var7, var3 + var8 - 2, var1.z);
+         this.addRandomTentNorthSouth(var2 + var8, var3 + var9 - 2, var1.z);
       }
 
       if (Rand.Next(100) < 30) {
-         this.addTentNorthSouth(var2 + var7 + 1, var3 + var8 - 2, var1.z);
+         this.addRandomTentNorthSouth(var2 + var8 + 3, var3 + var9 - 2, var1.z);
       }
 
       this.addTileObject(var2 + 2, var3, var1.z, "furniture_seating_outdoor_01_19");
-      InventoryContainer var9 = (InventoryContainer)InventoryItemFactory.CreateItem("Base.Cooler");
-      int var10 = Rand.Next(2, 5);
+      InventoryContainer var10 = (InventoryContainer)InventoryItemFactory.CreateItem("Base.Cooler");
+      int var11 = Rand.Next(2, 5);
 
-      int var11;
-      for(var11 = 0; var11 < var10; ++var11) {
-         var9.getItemContainer().AddItem((String)var5.get(Rand.Next(var5.size())));
+      int var12;
+      for(var12 = 0; var12 < var11; ++var12) {
+         var10.getItemContainer().AddItem((String)var5.get(Rand.Next(var5.size())));
       }
 
-      this.addItemOnGround(this.getRandomFreeSquare(this, var1), var9);
-      var10 = Rand.Next(3, 7);
+      this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), var10);
+      var11 = Rand.Next(3, 7);
 
-      for(var11 = 0; var11 < var10; ++var11) {
-         this.addItemOnGround(this.getRandomFreeSquare(this, var1), (String)var4.get(Rand.Next(var4.size())));
+      for(var12 = 0; var12 < var11; ++var12) {
+         this.addItemOnGround(this.getRandomExtraFreeSquare(this, var1), (String)var4.get(Rand.Next(var4.size())));
       }
 
-      this.addZombiesOnSquare(Rand.Next(1, 3), "Camper", (Integer)null, this.getRandomFreeSquare(this, var1));
+      String var13 = "Camper";
+      if (Rand.NextBool(2)) {
+         var13 = "Backpacker";
+      }
+
+      this.addZombiesOnSquare(Rand.Next(1, 3), var13, (Integer)null, this.getRandomExtraFreeSquare(this, var1));
    }
 }

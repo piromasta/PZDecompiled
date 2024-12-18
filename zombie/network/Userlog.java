@@ -1,5 +1,8 @@
 package zombie.network;
 
+import java.nio.ByteBuffer;
+import zombie.GameWindow;
+
 public class Userlog {
    private final String username;
    private final String type;
@@ -43,6 +46,24 @@ public class Userlog {
 
    public String getLastUpdate() {
       return this.lastUpdate;
+   }
+
+   public void write(ByteBuffer var1) {
+      GameWindow.WriteStringUTF(var1, this.username);
+      GameWindow.WriteStringUTF(var1, this.type);
+      GameWindow.WriteStringUTF(var1, this.text);
+      GameWindow.WriteStringUTF(var1, this.issuedBy);
+      GameWindow.WriteStringUTF(var1, this.lastUpdate);
+      var1.putInt(this.amount);
+   }
+
+   public Userlog(ByteBuffer var1) {
+      this.username = GameWindow.ReadString(var1);
+      this.type = GameWindow.ReadString(var1);
+      this.text = GameWindow.ReadString(var1);
+      this.issuedBy = GameWindow.ReadString(var1);
+      this.lastUpdate = GameWindow.ReadString(var1);
+      this.amount = var1.getInt();
    }
 
    public static enum UserlogType {

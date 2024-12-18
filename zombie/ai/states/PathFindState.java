@@ -1,7 +1,7 @@
 package zombie.ai.states;
 
 import zombie.ai.State;
-import zombie.vehicles.PathFindState2;
+import zombie.pathfind.PathFindState2;
 
 public final class PathFindState extends State {
    private static final PathFindState2 _instance = new PathFindState2();

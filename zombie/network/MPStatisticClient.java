@@ -52,7 +52,7 @@ public class MPStatisticClient {
             if (!var2.isRemoteZombie()) {
                ++this.zombiesLocalOwnership;
             } else {
-               var3 = IsoUtils.DistanceTo(var2.x, var2.y, var2.z, var2.realx, var2.realy, (float)var2.realz);
+               var3 = IsoUtils.DistanceTo(var2.getX(), var2.getY(), var2.getZ(), var2.realx, var2.realy, (float)var2.realz);
                this.zombiesDesyncAVG += (var3 - this.zombiesDesyncAVG) * 0.05F;
                if (var3 > this.zombiesDesyncMax) {
                   this.zombiesDesyncMax = var3;
@@ -65,7 +65,7 @@ public class MPStatisticClient {
          while(var4.hasNext()) {
             IsoPlayer var5 = (IsoPlayer)var4.next();
             if (!var5.isLocalPlayer()) {
-               var3 = IsoUtils.DistanceTo(var5.x, var5.y, var5.z, var5.realx, var5.realy, (float)var5.realz);
+               var3 = IsoUtils.DistanceTo(var5.getX(), var5.getY(), var5.getZ(), var5.realx, var5.realy, (float)var5.realz);
                this.remotePlayersDesyncAVG += (var3 - this.remotePlayersDesyncAVG) * 0.05F;
                if (var3 > this.remotePlayersDesyncMax) {
                   this.remotePlayersDesyncMax = var3;

@@ -3,80 +3,56 @@ package zombie.debug.options;
 import zombie.debug.BooleanDebugOption;
 
 public class Character extends OptionGroup {
-   public final BooleanDebugOption CreateAllOutfits;
-   public final DebugOG Debug;
+   public final BooleanDebugOption CreateAllOutfits = this.newOption("Create.AllOutfits", false);
+   public final DebugOG Debug = (DebugOG)this.newOptionGroup(new DebugOG());
 
    public Character() {
-      super("Character");
-      this.CreateAllOutfits = newOption(this.Group, "Create.AllOutfits", false);
-      this.Debug = new DebugOG(this.Group);
    }
 
    public static final class DebugOG extends OptionGroup {
-      public final RenderOG Render;
-      public final AnimateOG Animate;
-      public final BooleanDebugOption RegisterDebugVariables;
-      public final BooleanDebugOption AlwaysTripOverFence;
-      public final BooleanDebugOption PlaySoundWhenInvisible;
-      public final BooleanDebugOption UpdateAlpha;
-      public final BooleanDebugOption UpdateAlphaEighthSpeed;
+      public final RenderOG Render = (RenderOG)this.newOptionGroup(new RenderOG());
+      public final AnimateOG Animate = (AnimateOG)this.newOptionGroup(new AnimateOG());
+      public final BooleanDebugOption RegisterDebugVariables = this.newDebugOnlyOption("DebugVariables", false);
+      public final BooleanDebugOption AlwaysTripOverFence = this.newDebugOnlyOption("AlwaysTripOverFence", false);
+      public final BooleanDebugOption PlaySoundWhenInvisible = this.newDebugOnlyOption("PlaySoundWhenInvisible", false);
+      public final BooleanDebugOption UpdateAlpha = this.newDebugOnlyOption("UpdateAlpha", true);
+      public final BooleanDebugOption UpdateAlphaEighthSpeed = this.newDebugOnlyOption("UpdateAlphaEighthSpeed", false);
+      public final BooleanDebugOption AlwaysHitTarget = this.newDebugOnlyOption("AlwaysHitTarget", false);
 
-      public DebugOG(IDebugOptionGroup var1) {
-         super(var1, "Debug");
-         this.Render = new RenderOG(this.Group);
-         this.Animate = new AnimateOG(this.Group);
-         this.RegisterDebugVariables = newDebugOnlyOption(this.Group, "DebugVariables", false);
-         this.AlwaysTripOverFence = newDebugOnlyOption(this.Group, "AlwaysTripOverFence", false);
-         this.PlaySoundWhenInvisible = newDebugOnlyOption(this.Group, "PlaySoundWhenInvisible", false);
-         this.UpdateAlpha = newDebugOnlyOption(this.Group, "UpdateAlpha", true);
-         this.UpdateAlphaEighthSpeed = newDebugOnlyOption(this.Group, "UpdateAlphaEighthSpeed", false);
+      public DebugOG() {
       }
 
       public static final class RenderOG extends OptionGroup {
-         public final BooleanDebugOption AimCone;
-         public final BooleanDebugOption Angle;
-         public final BooleanDebugOption TestDotSide;
-         public final BooleanDebugOption DeferredMovement;
-         public final BooleanDebugOption DeferredAngles;
-         public final BooleanDebugOption TranslationData;
-         public final BooleanDebugOption Bip01;
-         public final BooleanDebugOption PrimaryHandBone;
-         public final BooleanDebugOption SecondaryHandBone;
-         public final BooleanDebugOption SkipCharacters;
-         public final BooleanDebugOption Vision;
-         public final BooleanDebugOption DisplayRoomAndZombiesZone;
-         public final BooleanDebugOption FMODRoomType;
+         public final BooleanDebugOption AimCone = this.newDebugOnlyOption("AimCone", false);
+         public final BooleanDebugOption Angle = this.newDebugOnlyOption("Angle", false);
+         public final BooleanDebugOption TestDotSide = this.newDebugOnlyOption("TestDotSide", false);
+         public final BooleanDebugOption DeferredMovement = this.newDebugOnlyOption("DeferredMovement", false);
+         public final BooleanDebugOption DeferredAngles = this.newDebugOnlyOption("DeferredRotation", false);
+         public final BooleanDebugOption TranslationData = this.newDebugOnlyOption("Translation_Data", false);
+         public final BooleanDebugOption Bip01 = this.newDebugOnlyOption("Bip01", false);
+         public final BooleanDebugOption PrimaryHandBone = this.newDebugOnlyOption("HandBones.Primary", false);
+         public final BooleanDebugOption SecondaryHandBone = this.newDebugOnlyOption("HandBones.Secondary", false);
+         public final BooleanDebugOption SkipCharacters = this.newDebugOnlyOption("SkipCharacters", false);
+         public final BooleanDebugOption Vision = this.newDebugOnlyOption("Vision", false);
+         public final BooleanDebugOption DisplayRoomAndZombiesZone = this.newDebugOnlyOption("DisplayRoomAndZombiesZone", false);
+         public final BooleanDebugOption FMODRoomType = this.newDebugOnlyOption("FMODRoomType", false);
+         public final BooleanDebugOption CarStopDebug = this.newDebugOnlyOption("CarStopDebug", false);
+         public final BooleanDebugOption MeleeOutline = this.newDebugOnlyOption("MeleeOutline", false);
+         public final BooleanDebugOption AimVector = this.newDebugOnlyOption("AimVector", false);
 
-         public RenderOG(IDebugOptionGroup var1) {
-            super(var1, "Render");
-            this.AimCone = newDebugOnlyOption(this.Group, "AimCone", false);
-            this.Angle = newDebugOnlyOption(this.Group, "Angle", false);
-            this.TestDotSide = newDebugOnlyOption(this.Group, "TestDotSide", false);
-            this.DeferredMovement = newDebugOnlyOption(this.Group, "DeferredMovement", false);
-            this.DeferredAngles = newDebugOnlyOption(this.Group, "DeferredRotation", false);
-            this.TranslationData = newDebugOnlyOption(this.Group, "Translation_Data", false);
-            this.Bip01 = newDebugOnlyOption(this.Group, "Bip01", false);
-            this.PrimaryHandBone = newDebugOnlyOption(this.Group, "HandBones.Primary", false);
-            this.SecondaryHandBone = newDebugOnlyOption(this.Group, "HandBones.Secondary", false);
-            this.SkipCharacters = newDebugOnlyOption(this.Group, "SkipCharacters", false);
-            this.Vision = newDebugOnlyOption(this.Group, "Vision", false);
-            this.DisplayRoomAndZombiesZone = newDebugOnlyOption(this.Group, "DisplayRoomAndZombiesZone", false);
-            this.FMODRoomType = newDebugOnlyOption(this.Group, "FMODRoomType", false);
+         public RenderOG() {
          }
       }
 
       public static final class AnimateOG extends OptionGroup {
-         public final BooleanDebugOption DeferredRotationOnly;
-         public final BooleanDebugOption NoBoneMasks;
-         public final BooleanDebugOption NoBoneTwists;
-         public final BooleanDebugOption ZeroCounterRotationBone;
+         public final BooleanDebugOption DeferredRotationOnly = this.newDebugOnlyOption("DeferredRotationsOnly", false);
+         public final BooleanDebugOption NoBoneMasks = this.newDebugOnlyOption("NoBoneMasks", false);
+         public final BooleanDebugOption NoBoneTwists = this.newDebugOnlyOption("NoBoneTwists", false);
+         public final BooleanDebugOption AlwaysAimTwist = this.newDebugOnlyOption("AlwaysAimTwist", false);
+         public final BooleanDebugOption ZeroCounterRotationBone = this.newDebugOnlyOption("ZeroCounterRotation", false);
+         public final BooleanDebugOption KeepAtOrigin = this.newDebugOnlyOption("KeepAtOrigin", true);
 
-         public AnimateOG(IDebugOptionGroup var1) {
-            super(var1, "Animate");
-            this.DeferredRotationOnly = newDebugOnlyOption(this.Group, "DeferredRotationsOnly", false);
-            this.NoBoneMasks = newDebugOnlyOption(this.Group, "NoBoneMasks", false);
-            this.NoBoneTwists = newDebugOnlyOption(this.Group, "NoBoneTwists", false);
-            this.ZeroCounterRotationBone = newDebugOnlyOption(this.Group, "ZeroCounterRotation", false);
+         public AnimateOG() {
          }
       }
    }

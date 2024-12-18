@@ -27,8 +27,8 @@ public class StaticAnimation {
    public StaticAnimation(AnimationClip var1) {
       this.Clip = var1;
       this.framesPerSecond = PerformanceSettings.BaseStaticAnimFramerate;
-      this.Matrices = new Matrix4f[(int)((float)this.framesPerSecond * this.Clip.Duration)][60];
-      this.RootMotion = new Matrix4f[(int)((float)this.framesPerSecond * this.Clip.Duration)];
+      this.Matrices = new Matrix4f[(int)((float)this.framesPerSecond * this.Clip.getDuration())][60];
+      this.RootMotion = new Matrix4f[(int)((float)this.framesPerSecond * this.Clip.getDuration())];
       this.Pose = new Keyframe[60];
       this.PrevPose = new Keyframe[60];
       this.Create();
@@ -113,7 +113,7 @@ public class StaticAnimation {
 
    public void Create() {
       float var1 = (float)this.Matrices.length;
-      double var2 = (double)this.Clip.Duration / (double)var1;
+      double var2 = (double)this.Clip.getDuration() / (double)var1;
       double var4 = 0.0;
       int var6 = 0;
 
@@ -170,7 +170,7 @@ public class StaticAnimation {
       if (!var1.isEmpty()) {
          if (!((Keyframe)var1.get(0)).Position.equals(((Keyframe)var1.get(var1.size() - 1)).Position)) {
             float var2 = (float)(this.Matrices.length + 1);
-            double var3 = (double)this.Clip.Duration / (double)var2;
+            double var3 = (double)this.Clip.getDuration() / (double)var2;
             double var5 = 0.0;
             ArrayList var7 = new ArrayList();
 

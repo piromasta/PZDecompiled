@@ -1,6 +1,7 @@
 package zombie.core.skinnedmodel.model;
 
 import zombie.characters.EquippedTextureCreator;
+import zombie.core.ImmutableColor;
 import zombie.core.SpriteRenderer;
 import zombie.inventory.InventoryItem;
 import zombie.inventory.types.HandWeapon;
@@ -8,6 +9,7 @@ import zombie.popman.ObjectPool;
 import zombie.util.Type;
 
 public final class ModelInstanceTextureInitializer {
+   private int m_stateIndex;
    private boolean m_bRendered;
    private ModelInstance m_modelInstance;
    private InventoryItem m_item;
@@ -21,6 +23,7 @@ public final class ModelInstanceTextureInitializer {
    }
 
    public void init(ModelInstance var1, InventoryItem var2) {
+      this.m_stateIndex = SpriteRenderer.instance.getMainStateIndex();
       this.m_item = var2;
       this.m_modelInstance = var1;
       HandWeapon var3 = (HandWeapon)Type.tryCastTo(var2, HandWeapon.class);
@@ -29,6 +32,7 @@ public final class ModelInstanceTextureInitializer {
    }
 
    public void init(ModelInstance var1, float var2) {
+      this.m_stateIndex = SpriteRenderer.instance.getMainStateIndex();
       this.m_item = null;
       this.m_modelInstance = var1;
       this.m_bloodLevel = var2;
@@ -46,7 +50,7 @@ public final class ModelInstanceTextureInitializer {
 
    public void renderMain() {
       if (!this.m_bRendered) {
-         int var1 = SpriteRenderer.instance.getMainStateIndex();
+         int var1 = this.m_stateIndex;
          if (this.m_renderData[var1] == null) {
             this.m_renderData[var1] = new RenderData();
          }
@@ -56,7 +60,7 @@ public final class ModelInstanceTextureInitializer {
             var2.m_changeNumber = this.m_changeNumberMain;
             var2.m_textureCreator = EquippedTextureCreator.alloc();
             if (this.m_item == null) {
-               var2.m_textureCreator.init(this.m_modelInstance, this.m_bloodLevel);
+               var2.m_textureCreator.init(this.m_modelInstance, this.m_bloodLevel, ImmutableColor.white);
             } else {
                var2.m_textureCreator.init(this.m_modelInstance, this.m_item);
             }
@@ -120,6 +124,8 @@ public final class ModelInstanceTextureInitializer {
    }
 
    public void release() {
+      this.m_item = null;
+      this.m_modelInstance = null;
       pool.release((Object)this);
    }
 

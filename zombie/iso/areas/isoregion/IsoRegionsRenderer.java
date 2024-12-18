@@ -20,8 +20,8 @@ import zombie.core.math.PZMath;
 import zombie.core.textures.Texture;
 import zombie.core.utils.Bits;
 import zombie.iso.BuildingDef;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
-import zombie.iso.IsoMetaCell;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
 import zombie.iso.LotHeader;
@@ -181,8 +181,8 @@ public class IsoRegionsRenderer {
    }
 
    public void renderCellInfo(int var1, int var2, int var3, int var4, float var5) {
-      float var6 = this.worldToScreenX((float)(var1 * 300)) + 4.0F;
-      float var7 = this.worldToScreenY((float)(var2 * 300)) + 4.0F;
+      float var6 = this.worldToScreenX((float)(var1 * IsoRegions.CELL_DIM)) + 4.0F;
+      float var7 = this.worldToScreenY((float)(var2 * IsoRegions.CELL_DIM)) + 4.0F;
       String var8 = "" + var3 + " / " + var4;
       if (var5 > 0.0F) {
          var8 = var8 + String.format(" %.2f", var5);
@@ -265,84 +265,85 @@ public class IsoRegionsRenderer {
       this.debugLine("Zoom: " + var2);
       this.debugLine("zLevel: " + this.getZLevel());
       IsoMetaGrid var5 = IsoWorld.instance.MetaGrid;
-      IsoMetaCell[][] var6 = var5.Grid;
-      int var7 = (int)(this.uiToWorldX(0.0F) / 300.0F) - var5.minX;
-      int var8 = (int)(this.uiToWorldY(0.0F) / 300.0F) - var5.minY;
-      int var9 = (int)(this.uiToWorldX(this.draww) / 300.0F) + 1 - var5.minX;
-      int var10 = (int)(this.uiToWorldY(this.drawh) / 300.0F) + 1 - var5.minY;
-      var7 = PZMath.clamp(var7, 0, var5.getWidth() - 1);
-      var8 = PZMath.clamp(var8, 0, var5.getHeight() - 1);
-      var9 = PZMath.clamp(var9, 0, var5.getWidth() - 1);
-      var10 = PZMath.clamp(var10, 0, var5.getHeight() - 1);
-      float var11 = Math.max(1.0F - var2 / 2.0F, 0.1F);
-      IsoChunkRegion var12 = null;
-      IsoWorldRegion var13 = null;
+      int var6 = (int)(this.uiToWorldX(0.0F) / (float)IsoCell.CellSizeInSquares) - var5.minX;
+      int var7 = (int)(this.uiToWorldY(0.0F) / (float)IsoCell.CellSizeInSquares) - var5.minY;
+      int var8 = (int)(this.uiToWorldX(this.draww) / (float)IsoCell.CellSizeInSquares) + 1 - var5.minX;
+      int var9 = (int)(this.uiToWorldY(this.drawh) / (float)IsoCell.CellSizeInSquares) + 1 - var5.minY;
+      var6 = PZMath.clamp(var6, 0, var5.getWidth() - 1);
+      var7 = PZMath.clamp(var7, 0, var5.getHeight() - 1);
+      var8 = PZMath.clamp(var8, 0, var5.getWidth() - 1);
+      var9 = PZMath.clamp(var9, 0, var5.getHeight() - 1);
+      float var10 = Math.max(1.0F - var2 / 2.0F, 0.1F);
+      IsoChunkRegion var11 = null;
+      IsoWorldRegion var12 = null;
       this.validSelection = false;
-      DataRoot var15;
-      DataChunk var16;
+      DataRoot var14;
+      DataChunk var15;
+      int var16;
       int var17;
-      int var18;
-      float var22;
+      float var21;
       if (this.IsoRegionRender.getValue()) {
-         IsoPlayer var14 = IsoPlayer.getInstance();
-         var15 = IsoRegions.getDataRoot();
+         IsoPlayer var13 = IsoPlayer.getInstance();
+         var14 = IsoRegions.getDataRoot();
          this.tempChunkList.clear();
-         var15.getAllChunks(this.tempChunkList);
+         var14.getAllChunks(this.tempChunkList);
          this.debugLine("DataChunks: " + this.tempChunkList.size());
-         this.debugLine("IsoChunkRegions: " + var15.regionManager.getChunkRegionCount());
-         this.debugLine("IsoWorldRegions: " + var15.regionManager.getWorldRegionCount());
+         this.debugLine("IsoChunkRegions: " + var14.regionManager.getChunkRegionCount());
+         this.debugLine("IsoWorldRegios: " + var14.regionManager.getWorldRegionCount());
          if (this.hasSelected) {
-            var12 = var15.getIsoChunkRegion(this.selectedX, this.selectedY, this.selectedZ);
-            var13 = var15.getIsoWorldRegion(this.selectedX, this.selectedY, this.selectedZ);
-            if (var13 != null && !var13.isEnclosed() && (!this.IsoRegionRenderChunks.getValue() || !this.IsoRegionRenderChunksPlus.getValue())) {
-               var13 = null;
+            var11 = var14.getIsoChunkRegion(this.selectedX, this.selectedY, this.selectedZ);
+            var12 = var14.getIsoWorldRegion(this.selectedX, this.selectedY, this.selectedZ);
+            if (var12 != null && !var12.isEnclosed() && (!this.IsoRegionRenderChunks.getValue() || !this.IsoRegionRenderChunksPlus.getValue())) {
                var12 = null;
+               var11 = null;
             }
 
-            if (var12 != null) {
+            if (var11 != null) {
                this.validSelection = true;
             }
          }
 
-         for(int var23 = 0; var23 < this.tempChunkList.size(); ++var23) {
-            var16 = (DataChunk)this.tempChunkList.get(var23);
-            var17 = var16.getChunkX() * 10;
-            var18 = var16.getChunkY() * 10;
+         for(int var22 = 0; var22 < this.tempChunkList.size(); ++var22) {
+            var15 = (DataChunk)this.tempChunkList.get(var22);
+            var16 = var15.getChunkX() * 8;
+            var17 = var15.getChunkY() * 8;
             if (var2 > 0.1F) {
-               float var19 = this.worldToScreenX((float)var17);
-               float var21 = this.worldToScreenY((float)var18);
-               float var20 = this.worldToScreenX((float)(var17 + 10));
-               var22 = this.worldToScreenY((float)(var18 + 10));
-               if (!(var19 >= this.offx + this.draww) && !(var20 < this.offx) && !(var21 >= this.offy + this.drawh) && !(var22 < this.offy)) {
-                  this.renderRect((float)var17, (float)var18, 10.0F, 10.0F, 0.0F, var11, 0.0F, 1.0F);
+               float var18 = this.worldToScreenX((float)var16);
+               float var20 = this.worldToScreenY((float)var17);
+               float var19 = this.worldToScreenX((float)(var16 + 8));
+               var21 = this.worldToScreenY((float)(var17 + 8));
+               if (!(var18 >= this.offx + this.draww) && !(var19 < this.offx) && !(var20 >= this.offy + this.drawh) && !(var21 < this.offy)) {
+                  this.renderRect((float)var16, (float)var17, 8.0F, 8.0F, 0.0F, var10, 0.0F, 1.0F);
                }
             }
          }
       }
 
-      float var35;
+      float var34;
+      int var36;
       int var37;
-      int var38;
       if (this.MetaGridBuildings.getValue()) {
-         var35 = PZMath.clamp(0.3F * (var2 / 5.0F), 0.15F, 0.3F);
+         var34 = PZMath.clamp(0.3F * (var2 / 5.0F), 0.15F, 0.3F);
 
-         for(var37 = var7; var37 < var9; ++var37) {
-            for(var38 = var8; var38 < var10; ++var38) {
-               LotHeader var39 = var6[var37][var38].info;
-               if (var39 != null) {
-                  for(var18 = 0; var18 < var39.Buildings.size(); ++var18) {
-                     BuildingDef var42 = (BuildingDef)var39.Buildings.get(var18);
+         for(var36 = var6; var36 < var8; ++var36) {
+            for(var37 = var7; var37 < var9; ++var37) {
+               if (var5.hasCell(var36, var37)) {
+                  LotHeader var38 = var5.getCell(var36, var37).info;
+                  if (var38 != null) {
+                     for(var17 = 0; var17 < var38.Buildings.size(); ++var17) {
+                        BuildingDef var41 = (BuildingDef)var38.Buildings.get(var17);
 
-                     for(int var44 = 0; var44 < var42.rooms.size(); ++var44) {
-                        if (((RoomDef)var42.rooms.get(var44)).level <= 0) {
-                           ArrayList var46 = ((RoomDef)var42.rooms.get(var44)).getRects();
+                        for(int var43 = 0; var43 < var41.rooms.size(); ++var43) {
+                           if (((RoomDef)var41.rooms.get(var43)).level <= 0) {
+                              ArrayList var45 = ((RoomDef)var41.rooms.get(var43)).getRects();
 
-                           for(int var48 = 0; var48 < var46.size(); ++var48) {
-                              RoomDef.RoomRect var49 = (RoomDef.RoomRect)var46.get(var48);
-                              if (var42.bAlarmed) {
-                                 this.renderRect((float)var49.getX(), (float)var49.getY(), (float)var49.getW(), (float)var49.getH(), 0.8F * var35, 0.8F * var35, 0.5F * var35, 1.0F);
-                              } else {
-                                 this.renderRect((float)var49.getX(), (float)var49.getY(), (float)var49.getW(), (float)var49.getH(), 0.5F * var35, 0.5F * var35, 0.8F * var35, 1.0F);
+                              for(int var47 = 0; var47 < var45.size(); ++var47) {
+                                 RoomDef.RoomRect var48 = (RoomDef.RoomRect)var45.get(var47);
+                                 if (var41.bAlarmed) {
+                                    this.renderRect((float)var48.getX(), (float)var48.getY(), (float)var48.getW(), (float)var48.getH(), 0.8F * var34, 0.8F * var34, 0.5F * var34, 1.0F);
+                                 } else {
+                                    this.renderRect((float)var48.getX(), (float)var48.getY(), (float)var48.getW(), (float)var48.getH(), 0.5F * var34, 0.5F * var34, 0.8F * var34, 1.0F);
+                                 }
                               }
                            }
                         }
@@ -353,91 +354,91 @@ public class IsoRegionsRenderer {
          }
       }
 
-      int var36;
+      int var35;
       if (this.IsoRegionRender.getValue()) {
-         var36 = this.getZLevel();
-         var15 = IsoRegions.getDataRoot();
+         var35 = this.getZLevel();
+         var14 = IsoRegions.getDataRoot();
          this.tempChunkList.clear();
-         var15.getAllChunks(this.tempChunkList);
-         float var27 = 1.0F;
+         var14.getAllChunks(this.tempChunkList);
+         float var26 = 1.0F;
 
-         for(int var28 = 0; var28 < this.tempChunkList.size(); ++var28) {
-            var16 = (DataChunk)this.tempChunkList.get(var28);
-            var17 = var16.getChunkX() * 10;
-            var18 = var16.getChunkY() * 10;
+         for(int var27 = 0; var27 < this.tempChunkList.size(); ++var27) {
+            var15 = (DataChunk)this.tempChunkList.get(var27);
+            var16 = var15.getChunkX() * 8;
+            var17 = var15.getChunkY() * 8;
+            int var28;
             int var29;
             int var30;
-            int var31;
             if (var2 <= 0.1F) {
-               var29 = var17 / 300;
-               var30 = var18 / 300;
-               var31 = IsoRegions.hash(var29, var30);
-               if (!this.drawnCells.contains(var31)) {
-                  this.drawnCells.add(var31);
-                  this.renderRect((float)(var29 * 300), (float)(var30 * 300), 300.0F, 300.0F, 0.0F, var11, 0.0F, 1.0F);
+               var28 = var16 / IsoRegions.CELL_DIM;
+               var29 = var17 / IsoRegions.CELL_DIM;
+               var30 = IsoRegions.hash(var28, var29);
+               if (!this.drawnCells.contains(var30)) {
+                  this.drawnCells.add(var30);
+                  this.renderRect((float)(var28 * IsoRegions.CELL_DIM), (float)(var29 * IsoRegions.CELL_DIM), (float)IsoRegions.CELL_DIM, (float)IsoRegions.CELL_DIM, 0.0F, var10, 0.0F, 1.0F);
                }
             } else if (!(var2 < 1.0F)) {
-               var22 = this.worldToScreenX((float)var17);
-               float var24 = this.worldToScreenY((float)var18);
-               float var50 = this.worldToScreenX((float)(var17 + 10));
-               float var25 = this.worldToScreenY((float)(var18 + 10));
-               if (!(var22 >= this.offx + this.draww) && !(var50 < this.offx) && !(var24 >= this.offy + this.drawh) && !(var25 < this.offy)) {
-                  for(var29 = 0; var29 < 10; ++var29) {
-                     for(var30 = 0; var30 < 10; ++var30) {
-                        var31 = var36 > 0 ? var36 - 1 : var36;
+               var21 = this.worldToScreenX((float)var16);
+               float var23 = this.worldToScreenY((float)var17);
+               float var49 = this.worldToScreenX((float)(var16 + 8));
+               float var24 = this.worldToScreenY((float)(var17 + 8));
+               if (!(var21 >= this.offx + this.draww) && !(var49 < this.offx) && !(var23 >= this.offy + this.drawh) && !(var24 < this.offy)) {
+                  for(var28 = 0; var28 < 8; ++var28) {
+                     for(var29 = 0; var29 < 8; ++var29) {
+                        var30 = var35 > 0 ? var35 - 1 : var35;
 
-                        for(int var32 = var31; var32 <= var36; ++var32) {
-                           float var33 = var32 < var36 ? 0.25F : 1.0F;
-                           byte var26 = var16.getSquare(var29, var30, var32);
-                           if (var26 >= 0) {
-                              IsoChunkRegion var43 = var16.getIsoChunkRegion(var29, var30, var32);
-                              IsoWorldRegion var45;
-                              if (var43 != null) {
-                                 Color var47;
+                        for(int var31 = var30; var31 <= var35; ++var31) {
+                           float var32 = var31 < var35 ? 0.25F : 1.0F;
+                           byte var25 = var15.getSquare(var28, var29, var31);
+                           if (var25 >= 0) {
+                              IsoChunkRegion var42 = var15.getIsoChunkRegion(var28, var29, var31);
+                              IsoWorldRegion var44;
+                              if (var42 != null) {
+                                 Color var46;
                                  if (var2 > 6.0F && this.IsoRegionRenderChunks.getValue() && this.IsoRegionRenderChunksPlus.getValue()) {
-                                    var47 = var43.getColor();
-                                    var27 = 1.0F;
-                                    if (var12 != null && var43 != var12) {
-                                       var27 = 0.25F;
+                                    var46 = var42.getColor();
+                                    var26 = 1.0F;
+                                    if (var11 != null && var42 != var11) {
+                                       var26 = 0.25F;
                                     }
 
-                                    this.renderSquare((float)(var17 + var29), (float)(var18 + var30), var47.r, var47.g, var47.b, var27 * var33);
+                                    this.renderSquare((float)(var16 + var28), (float)(var17 + var29), var46.r, var46.g, var46.b, var26 * var32);
                                  } else {
-                                    var45 = var43.getIsoWorldRegion();
-                                    if (var45 != null && var45.isEnclosed()) {
-                                       var27 = 1.0F;
+                                    var44 = var42.getIsoWorldRegion();
+                                    if (var44 != null && var44.isEnclosed()) {
+                                       var26 = 1.0F;
                                        if (this.IsoRegionRenderChunks.getValue()) {
-                                          var47 = var43.getColor();
-                                          if (var12 != null && var43 != var12) {
-                                             var27 = 0.25F;
+                                          var46 = var42.getColor();
+                                          if (var11 != null && var42 != var11) {
+                                             var26 = 0.25F;
                                           }
                                        } else {
-                                          var47 = var45.getColor();
-                                          if (var13 != null && var45 != var13) {
-                                             var27 = 0.25F;
+                                          var46 = var44.getColor();
+                                          if (var12 != null && var44 != var12) {
+                                             var26 = 0.25F;
                                           }
                                        }
 
-                                       this.renderSquare((float)(var17 + var29), (float)(var18 + var30), var47.r, var47.g, var47.b, var27 * var33);
+                                       this.renderSquare((float)(var16 + var28), (float)(var17 + var29), var46.r, var46.g, var46.b, var26 * var32);
                                     }
                                  }
                               }
 
-                              if (var32 > 0 && var32 == var36) {
-                                 var43 = var16.getIsoChunkRegion(var29, var30, var32);
-                                 var45 = var43 != null ? var43.getIsoWorldRegion() : null;
-                                 boolean var34 = var43 == null || var45 == null || !var45.isEnclosed();
-                                 if (var34 && Bits.hasFlags((byte)var26, 16)) {
-                                    this.renderSquare((float)(var17 + var29), (float)(var18 + var30), 0.5F, 0.5F, 0.5F, 1.0F);
+                              if (var31 > 0 && var31 == var35) {
+                                 var42 = var15.getIsoChunkRegion(var28, var29, var31);
+                                 var44 = var42 != null ? var42.getIsoWorldRegion() : null;
+                                 boolean var33 = var42 == null || var44 == null || !var44.isEnclosed();
+                                 if (var33 && Bits.hasFlags((byte)var25, 16)) {
+                                    this.renderSquare((float)(var16 + var28), (float)(var17 + var29), 0.5F, 0.5F, 0.5F, 1.0F);
                                  }
                               }
 
-                              if (Bits.hasFlags((byte)var26, 1) || Bits.hasFlags((byte)var26, 4)) {
-                                 this.renderRect((float)(var17 + var29), (float)(var18 + var30), 1.0F, 0.1F, 1.0F, 1.0F, 1.0F, 1.0F * var33);
+                              if (Bits.hasFlags((byte)var25, 1) || Bits.hasFlags((byte)var25, 4)) {
+                                 this.renderRect((float)(var16 + var28), (float)(var17 + var29), 1.0F, 0.1F, 1.0F, 1.0F, 1.0F, 1.0F * var32);
                               }
 
-                              if (Bits.hasFlags((byte)var26, 2) || Bits.hasFlags((byte)var26, 8)) {
-                                 this.renderRect((float)(var17 + var29), (float)(var18 + var30), 0.1F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F * var33);
+                              if (Bits.hasFlags((byte)var25, 2) || Bits.hasFlags((byte)var25, 8)) {
+                                 this.renderRect((float)(var16 + var28), (float)(var17 + var29), 0.1F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F * var32);
                               }
                            }
                         }
@@ -449,96 +450,96 @@ public class IsoRegionsRenderer {
       }
 
       if (this.CellGrid.getValue()) {
-         var35 = 1.0F;
+         var34 = 1.0F;
          if (var2 < 0.1F) {
-            var35 = Math.max(var2 / 0.1F, 0.25F);
+            var34 = Math.max(var2 / 0.1F, 0.25F);
          }
 
-         for(var37 = var8; var37 <= var10; ++var37) {
-            this.renderLine((float)(var5.minX * 300), (float)((var5.minY + var37) * 300), (float)((var5.maxX + 1) * 300), (float)((var5.minY + var37) * 300), 1.0F, 1.0F, 1.0F, 0.15F * var35);
+         for(var36 = var7; var36 <= var9; ++var36) {
+            this.renderLine((float)(var5.minX * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares), (float)((var5.maxX + 1) * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares), 1.0F, 1.0F, 1.0F, 0.15F * var34);
             if (var2 > 1.0F) {
-               for(var38 = 1; var38 < 30; ++var38) {
-                  this.renderLine((float)(var5.minX * 300), (float)((var5.minY + var37) * 300 + var38 * 10), (float)((var5.maxX + 1) * 300), (float)((var5.minY + var37) * 300 + var38 * 10), 1.0F, 1.0F, 1.0F, 0.0325F);
+               for(var37 = 1; var37 < IsoCell.CellSizeInChunks; ++var37) {
+                  this.renderLine((float)(var5.minX * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares + var37 * 8), (float)((var5.maxX + 1) * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares + var37 * 8), 1.0F, 1.0F, 1.0F, 0.0325F);
                }
             } else if (var2 > 0.15F) {
-               this.renderLine((float)(var5.minX * 300), (float)((var5.minY + var37) * 300 + 100), (float)((var5.maxX + 1) * 300), (float)((var5.minY + var37) * 300 + 100), 1.0F, 1.0F, 1.0F, 0.075F);
-               this.renderLine((float)(var5.minX * 300), (float)((var5.minY + var37) * 300 + 200), (float)((var5.maxX + 1) * 300), (float)((var5.minY + var37) * 300 + 200), 1.0F, 1.0F, 1.0F, 0.075F);
+               this.renderLine((float)(var5.minX * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares + 100), (float)((var5.maxX + 1) * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares + 100), 1.0F, 1.0F, 1.0F, 0.075F);
+               this.renderLine((float)(var5.minX * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares + 200), (float)((var5.maxX + 1) * IsoCell.CellSizeInSquares), (float)((var5.minY + var36) * IsoCell.CellSizeInSquares + 200), 1.0F, 1.0F, 1.0F, 0.075F);
             }
          }
 
-         for(var37 = var7; var37 <= var9; ++var37) {
-            this.renderLine((float)((var5.minX + var37) * 300), (float)(var5.minY * 300), (float)((var5.minX + var37) * 300), (float)((var5.maxY + 1) * 300), 1.0F, 1.0F, 1.0F, 0.15F * var35);
+         for(var36 = var6; var36 <= var8; ++var36) {
+            this.renderLine((float)((var5.minX + var36) * IsoCell.CellSizeInSquares), (float)(var5.minY * IsoCell.CellSizeInSquares), (float)((var5.minX + var36) * IsoCell.CellSizeInSquares), (float)((var5.maxY + 1) * IsoCell.CellSizeInSquares), 1.0F, 1.0F, 1.0F, 0.15F * var34);
             if (var2 > 1.0F) {
-               for(var38 = 1; var38 < 30; ++var38) {
-                  this.renderLine((float)((var5.minX + var37) * 300 + var38 * 10), (float)(var5.minY * 300), (float)((var5.minX + var37) * 300 + var38 * 10), (float)((var5.maxY + 1) * 300), 1.0F, 1.0F, 1.0F, 0.0325F);
+               for(var37 = 1; var37 < IsoCell.CellSizeInChunks; ++var37) {
+                  this.renderLine((float)((var5.minX + var36) * IsoCell.CellSizeInSquares + var37 * 8), (float)(var5.minY * IsoCell.CellSizeInSquares), (float)((var5.minX + var36) * IsoCell.CellSizeInSquares + var37 * 8), (float)((var5.maxY + 1) * IsoCell.CellSizeInSquares), 1.0F, 1.0F, 1.0F, 0.0325F);
                }
             } else if (var2 > 0.15F) {
-               this.renderLine((float)((var5.minX + var37) * 300 + 100), (float)(var5.minY * 300), (float)((var5.minX + var37) * 300 + 100), (float)((var5.maxY + 1) * 300), 1.0F, 1.0F, 1.0F, 0.075F);
-               this.renderLine((float)((var5.minX + var37) * 300 + 200), (float)(var5.minY * 300), (float)((var5.minX + var37) * 300 + 200), (float)((var5.maxY + 1) * 300), 1.0F, 1.0F, 1.0F, 0.075F);
+               this.renderLine((float)((var5.minX + var36) * IsoCell.CellSizeInSquares + 100), (float)(var5.minY * IsoCell.CellSizeInSquares), (float)((var5.minX + var36) * IsoCell.CellSizeInSquares + 100), (float)((var5.maxY + 1) * IsoCell.CellSizeInSquares), 1.0F, 1.0F, 1.0F, 0.075F);
+               this.renderLine((float)((var5.minX + var36) * IsoCell.CellSizeInSquares + 200), (float)(var5.minY * IsoCell.CellSizeInSquares), (float)((var5.minX + var36) * IsoCell.CellSizeInSquares + 200), (float)((var5.maxY + 1) * IsoCell.CellSizeInSquares), 1.0F, 1.0F, 1.0F, 0.075F);
             }
          }
       }
 
-      for(var36 = 0; var36 < IsoPlayer.numPlayers; ++var36) {
-         IsoPlayer var40 = IsoPlayer.players[var36];
-         if (var40 != null) {
-            this.renderZombie(var40.x, var40.y, 0.0F, 0.5F, 0.0F);
+      for(var35 = 0; var35 < IsoPlayer.numPlayers; ++var35) {
+         IsoPlayer var39 = IsoPlayer.players[var35];
+         if (var39 != null) {
+            this.renderZombie(var39.getX(), var39.getY(), 0.0F, 0.5F, 0.0F);
          }
       }
 
       if (this.isEditingEnabled()) {
-         var35 = this.editSquareInRange ? 0.0F : 1.0F;
-         float var41 = this.editSquareInRange ? 1.0F : 0.0F;
+         var34 = this.editSquareInRange ? 0.0F : 1.0F;
+         float var40 = this.editSquareInRange ? 1.0F : 0.0F;
          if (!this.EditWallN.getValue() && !this.EditDoorN.getValue()) {
             if (!this.EditWallW.getValue() && !this.EditDoorW.getValue()) {
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 1.0F, var35, var41, 0.0F, 0.5F);
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 0.05F, var35, var41, 0.0F, 1.0F);
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.05F, 1.0F, var35, var41, 0.0F, 1.0F);
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY + 0.95F, 1.0F, 0.05F, var35, var41, 0.0F, 1.0F);
-               this.renderRect((float)this.editSquareX + 0.95F, (float)this.editSquareY, 0.05F, 1.0F, var35, var41, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 1.0F, var34, var40, 0.0F, 0.5F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 0.05F, var34, var40, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.05F, 1.0F, var34, var40, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY + 0.95F, 1.0F, 0.05F, var34, var40, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX + 0.95F, (float)this.editSquareY, 0.05F, 1.0F, var34, var40, 0.0F, 1.0F);
             } else {
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.25F, 1.0F, var35, var41, 0.0F, 0.5F);
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.25F, 0.05F, var35, var41, 0.0F, 1.0F);
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.05F, 1.0F, var35, var41, 0.0F, 1.0F);
-               this.renderRect((float)this.editSquareX, (float)this.editSquareY + 0.95F, 0.25F, 0.05F, var35, var41, 0.0F, 1.0F);
-               this.renderRect((float)this.editSquareX + 0.2F, (float)this.editSquareY, 0.05F, 1.0F, var35, var41, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.25F, 1.0F, var34, var40, 0.0F, 0.5F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.25F, 0.05F, var34, var40, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.05F, 1.0F, var34, var40, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX, (float)this.editSquareY + 0.95F, 0.25F, 0.05F, var34, var40, 0.0F, 1.0F);
+               this.renderRect((float)this.editSquareX + 0.2F, (float)this.editSquareY, 0.05F, 1.0F, var34, var40, 0.0F, 1.0F);
             }
          } else {
-            this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 0.25F, var35, var41, 0.0F, 0.5F);
-            this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 0.05F, var35, var41, 0.0F, 1.0F);
-            this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.05F, 0.25F, var35, var41, 0.0F, 1.0F);
-            this.renderRect((float)this.editSquareX, (float)this.editSquareY + 0.2F, 1.0F, 0.05F, var35, var41, 0.0F, 1.0F);
-            this.renderRect((float)this.editSquareX + 0.95F, (float)this.editSquareY, 0.05F, 0.25F, var35, var41, 0.0F, 1.0F);
+            this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 0.25F, var34, var40, 0.0F, 0.5F);
+            this.renderRect((float)this.editSquareX, (float)this.editSquareY, 1.0F, 0.05F, var34, var40, 0.0F, 1.0F);
+            this.renderRect((float)this.editSquareX, (float)this.editSquareY, 0.05F, 0.25F, var34, var40, 0.0F, 1.0F);
+            this.renderRect((float)this.editSquareX, (float)this.editSquareY + 0.2F, 1.0F, 0.05F, var34, var40, 0.0F, 1.0F);
+            this.renderRect((float)this.editSquareX + 0.95F, (float)this.editSquareY, 0.05F, 0.25F, var34, var40, 0.0F, 1.0F);
          }
       }
 
-      if (var12 != null) {
+      if (var11 != null) {
          this.debugLine("- ChunkRegion -");
+         this.debugLine("ID: " + var11.getID());
+         this.debugLine("Squares: " + var11.getSquareSize());
+         this.debugLine("Roofs: " + var11.getRoofCnt());
+         this.debugLine("Neighbors: " + var11.getNeighborCount());
+         this.debugLine("ConnectedNeighbors: " + var11.getConnectedNeighbors().size());
+         this.debugLine("FullyEnclosed: " + var11.getIsEnclosed());
+      }
+
+      if (var12 != null) {
+         this.debugLine("- WorldRegion -");
          this.debugLine("ID: " + var12.getID());
          this.debugLine("Squares: " + var12.getSquareSize());
          this.debugLine("Roofs: " + var12.getRoofCnt());
-         this.debugLine("Neighbors: " + var12.getNeighborCount());
-         this.debugLine("ConnectedNeighbors: " + var12.getConnectedNeighbors().size());
-         this.debugLine("FullyEnclosed: " + var12.getIsEnclosed());
+         this.debugLine("IsFullyRoofed: " + var12.isFullyRoofed());
+         this.debugLine("RoofPercentage: " + var12.getRoofedPercentage());
+         this.debugLine("IsEnclosed: " + var12.isEnclosed());
+         this.debugLine("Neighbors: " + var12.getNeighbors().size());
+         this.debugLine("ChunkRegionCount: " + var12.size());
       }
 
-      if (var13 != null) {
-         this.debugLine("- WorldRegion -");
-         this.debugLine("ID: " + var13.getID());
-         this.debugLine("Squares: " + var13.getSquareSize());
-         this.debugLine("Roofs: " + var13.getRoofCnt());
-         this.debugLine("IsFullyRoofed: " + var13.isFullyRoofed());
-         this.debugLine("RoofPercentage: " + var13.getRoofedPercentage());
-         this.debugLine("IsEnclosed: " + var13.isEnclosed());
-         this.debugLine("Neighbors: " + var13.getNeighbors().size());
-         this.debugLine("ChunkRegionCount: " + var13.size());
-      }
+      var35 = 15;
 
-      var36 = 15;
-
-      for(var37 = 0; var37 < this.debugLines.size(); ++var37) {
-         this.renderStringUI(10.0F, (float)var36, (String)this.debugLines.get(var37), Colors.CornFlowerBlue);
-         var36 += 18;
+      for(var36 = 0; var36 < this.debugLines.size(); ++var36) {
+         this.renderStringUI(10.0F, (float)var35, (String)this.debugLines.get(var36), Colors.CornFlowerBlue);
+         var35 += TextManager.instance.getFontHeight(UIFont.Small);
       }
 
    }
@@ -711,7 +712,7 @@ public class IsoRegionsRenderer {
 
    public int getZLevel() {
       if (this.zLevelPlayer.getValue()) {
-         return (int)IsoPlayer.getInstance().getZ();
+         return PZMath.fastfloor(IsoPlayer.getInstance().getZ());
       } else {
          for(int var1 = 0; var1 < this.zLevelOptions.size(); ++var1) {
             BooleanDebugOption var2 = (BooleanDebugOption)this.zLevelOptions.get(var1);

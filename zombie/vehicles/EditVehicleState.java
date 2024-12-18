@@ -22,14 +22,16 @@ import zombie.core.logger.ExceptionLogger;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugOptions;
+import zombie.gameStates.AttachmentEditorState;
 import zombie.gameStates.GameState;
 import zombie.gameStates.GameStateMachine;
 import zombie.input.GameKeyboard;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.ScriptParser;
 import zombie.scripting.objects.ModelAttachment;
+import zombie.scripting.objects.ModelScript;
 import zombie.scripting.objects.VehicleScript;
-import zombie.ui.UIElement;
+import zombie.ui.UIElementInterface;
 import zombie.ui.UIManager;
 import zombie.util.list.PZArrayUtil;
 
@@ -38,8 +40,8 @@ public final class EditVehicleState extends GameState {
    private LuaEnvironment m_luaEnv;
    private boolean bExit = false;
    private String m_initialScript = null;
-   private final ArrayList<UIElement> m_gameUI = new ArrayList();
-   private final ArrayList<UIElement> m_selfUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_gameUI = new ArrayList();
+   private final ArrayList<UIElementInterface> m_selfUI = new ArrayList();
    private boolean m_bSuspendUI;
    private KahluaTable m_table = null;
 
@@ -138,7 +140,7 @@ public final class EditVehicleState extends GameState {
    private void updateScene() {
       ModelManager.instance.update();
       if (GameKeyboard.isKeyPressed(17)) {
-         DebugOptions.instance.ModelRenderWireframe.setValue(!DebugOptions.instance.ModelRenderWireframe.getValue());
+         DebugOptions.instance.Model.Render.Wireframe.setValue(!DebugOptions.instance.Model.Render.Wireframe.getValue());
       }
 
    }
@@ -188,6 +190,7 @@ public final class EditVehicleState extends GameState {
                this.updateScript(var5.getFileName(), var6, var5);
             }
 
+            this.updateModelScripts(var5);
             return null;
          default:
             throw new IllegalArgumentException(String.format("unhandled \"%s\" \"%s\"", var1, var2));
@@ -301,9 +304,8 @@ public final class EditVehicleState extends GameState {
       ArrayList var12 = new ArrayList();
 
       int var13;
-      ScriptParser.Block var14;
       for(var13 = 0; var13 < var4.children.size(); ++var13) {
-         var14 = (ScriptParser.Block)var4.children.get(var13);
+         ScriptParser.Block var14 = (ScriptParser.Block)var4.children.get(var13);
          if ("physics".equals(var14.type)) {
             if (var12.size() == var1.getPhysicsShapeCount()) {
                var4.elements.remove(var14);
@@ -317,11 +319,11 @@ public final class EditVehicleState extends GameState {
 
       for(var13 = 0; var13 < var1.getPhysicsShapeCount(); ++var13) {
          VehicleScript.PhysicsShape var15 = var1.getPhysicsShape(var13);
-         boolean var16 = var13 < var12.size();
-         ScriptParser.Block var9 = var16 ? (ScriptParser.Block)var12.get(var13) : new ScriptParser.Block();
+         boolean var17 = var13 < var12.size();
+         ScriptParser.Block var9 = var17 ? (ScriptParser.Block)var12.get(var13) : new ScriptParser.Block();
          var9.type = "physics";
          var9.id = var15.getTypeString();
-         if (var16) {
+         if (var17) {
             var9.elements.clear();
             var9.children.clear();
             var9.values.clear();
@@ -337,108 +339,144 @@ public final class EditVehicleState extends GameState {
             var9.setValue("radius", String.format(Locale.US, "%.4f", var15.getRadius() / var3));
          }
 
-         if (!var16) {
+         if (var15.type == 3) {
+            var9.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var15.getRotate().x(), var15.getRotate().y(), var15.getRotate().z()));
+            var9.setValue("physicsShapeScript", var15.getPhysicsShapeScript());
+            var9.setValue("scale", String.format(Locale.US, "%.4f", var15.getExtents().x() / var3));
+         }
+
+         if (!var17) {
             var4.elements.add(var9);
             var4.children.add(var9);
          }
       }
 
-      for(var13 = var4.children.size() - 1; var13 >= 0; --var13) {
-         var14 = (ScriptParser.Block)var4.children.get(var13);
-         if ("attachment".equals(var14.type)) {
-            var4.elements.remove(var14);
-            var4.children.remove(var13);
-         }
-      }
+      this.removeAttachments(var4);
 
-      ScriptParser.Block var19;
       for(var13 = 0; var13 < var1.getAttachmentCount(); ++var13) {
-         ModelAttachment var17 = var1.getAttachment(var13);
-         var19 = var4.getBlock("attachment", var17.getId());
-         if (var19 == null) {
-            var19 = new ScriptParser.Block();
-            var19.type = "attachment";
-            var19.id = var17.getId();
-            var4.elements.add(var19);
-            var4.children.add(var19);
-         }
-
-         var19.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var17.getOffset().x() / var3, var17.getOffset().y() / var3, var17.getOffset().z() / var3));
-         var19.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var17.getRotate().x(), var17.getRotate().y(), var17.getRotate().z()));
-         if (var17.getBone() != null) {
-            var19.setValue("bone", var17.getBone());
-         }
-
-         if (var17.getCanAttach() != null) {
-            var19.setValue("canAttach", PZArrayUtil.arrayToString((Iterable)var17.getCanAttach(), "", "", ","));
-         }
-
-         if (var17.getZOffset() != 0.0F) {
-            var19.setValue("zoffset", String.format(Locale.US, "%.4f", var17.getZOffset()));
-         }
-
-         if (!var17.isUpdateConstraint()) {
-            var19.setValue("updateconstraint", "false");
-         }
+         ModelAttachment var16 = var1.getAttachment(var13);
+         this.attachmentToBlock(var1, var16, var4);
       }
 
-      Vector3f var22 = var1.getExtents();
-      var4.setValue("extents", String.format(Locale.US, "%.4f %.4f %.4f", var22.x / var3, var22.y / var3, var22.z / var3));
-      var22 = var1.getPhysicsChassisShape();
-      var4.setValue("physicsChassisShape", String.format(Locale.US, "%.4f %.4f %.4f", var22.x / var3, var22.y / var3, var22.z / var3));
-      var22 = var1.getCenterOfMassOffset();
-      var4.setValue("centerOfMassOffset", String.format(Locale.US, "%.4f %.4f %.4f", var22.x / var3, var22.y / var3, var22.z / var3));
-      Vector2f var26 = var1.getShadowExtents();
+      Vector3f var20 = var1.getExtents();
+      var4.setValue("extents", String.format(Locale.US, "%.4f %.4f %.4f", var20.x / var3, var20.y / var3, var20.z / var3));
+      if (var1.hasPhysicsChassisShape()) {
+         var20 = var1.getPhysicsChassisShape();
+         var4.setValue("physicsChassisShape", String.format(Locale.US, "%.4f %.4f %.4f", var20.x / var3, var20.y / var3, var20.z / var3));
+      }
+
+      var20 = var1.getCenterOfMassOffset();
+      var4.setValue("centerOfMassOffset", String.format(Locale.US, "%.4f %.4f %.4f", var20.x / var3, var20.y / var3, var20.z / var3));
+      Vector2f var25 = var1.getShadowExtents();
       boolean var18 = var4.getValue("shadowExtents") != null;
-      var4.setValue("shadowExtents", String.format(Locale.US, "%.4f %.4f", var26.x / var3, var26.y / var3));
+      var4.setValue("shadowExtents", String.format(Locale.US, "%.4f %.4f", var25.x / var3, var25.y / var3));
       if (!var18) {
          var4.moveValueAfter("shadowExtents", "centerOfMassOffset");
       }
 
-      var26 = var1.getShadowOffset();
+      var25 = var1.getShadowOffset();
       var18 = var4.getValue("shadowOffset") != null;
-      var4.setValue("shadowOffset", String.format(Locale.US, "%.4f %.4f", var26.x / var3, var26.y / var3));
+      var4.setValue("shadowOffset", String.format(Locale.US, "%.4f %.4f", var25.x / var3, var25.y / var3));
       if (!var18) {
          var4.moveValueAfter("shadowOffset", "shadowExtents");
       }
 
+      ScriptParser.Block var19;
       for(var13 = 0; var13 < var1.getAreaCount(); ++var13) {
-         VehicleScript.Area var20 = var1.getArea(var13);
-         var19 = var4.getBlock("area", var20.getId());
+         VehicleScript.Area var21 = var1.getArea(var13);
+         var19 = var4.getBlock("area", var21.getId());
          if (var19 != null) {
-            var19.setValue("xywh", String.format(Locale.US, "%.4f %.4f %.4f %.4f", var20.getX() / (double)var3, var20.getY() / (double)var3, var20.getW() / (double)var3, var20.getH() / (double)var3));
+            var19.setValue("xywh", String.format(Locale.US, "%.4f %.4f %.4f %.4f", var21.getX() / (double)var3, var21.getY() / (double)var3, var21.getW() / (double)var3, var21.getH() / (double)var3));
+         }
+      }
+
+      ScriptParser.Block var11;
+      for(var13 = 0; var13 < var1.getPartCount(); ++var13) {
+         VehicleScript.Part var22 = var1.getPart(var13);
+         var19 = var4.getBlock("part", var22.getId());
+         if (var19 != null) {
+            for(int var23 = 0; var23 < var22.getModelCount(); ++var23) {
+               VehicleScript.Model var10 = var22.getModel(var23);
+               var11 = var19.getBlock("model", var10.getId());
+               if (var11 != null) {
+                  var11.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var10.offset.x, var10.offset.y, var10.offset.z));
+                  var11.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var10.rotate.x, var10.rotate.y, var10.rotate.z));
+               }
+            }
          }
       }
 
       for(var13 = 0; var13 < var1.getPassengerCount(); ++var13) {
-         VehicleScript.Passenger var23 = var1.getPassenger(var13);
-         var19 = var4.getBlock("passenger", var23.getId());
+         VehicleScript.Passenger var24 = var1.getPassenger(var13);
+         var19 = var4.getBlock("passenger", var24.getId());
          if (var19 != null) {
-            Iterator var21 = var23.positions.iterator();
+            Iterator var26 = var24.positions.iterator();
 
-            while(var21.hasNext()) {
-               VehicleScript.Position var10 = (VehicleScript.Position)var21.next();
-               ScriptParser.Block var11 = var19.getBlock("position", var10.id);
+            while(var26.hasNext()) {
+               VehicleScript.Position var29 = (VehicleScript.Position)var26.next();
+               var11 = var19.getBlock("position", var29.id);
                if (var11 != null) {
-                  var11.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var10.offset.x / var3, var10.offset.y / var3, var10.offset.z / var3));
-                  var11.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var10.rotate.x / var3, var10.rotate.y / var3, var10.rotate.z / var3));
+                  var11.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var29.offset.x / var3, var29.offset.y / var3, var29.offset.z / var3));
+                  var11.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var29.rotate.x / var3, var29.rotate.y / var3, var29.rotate.z / var3));
                }
             }
          }
       }
 
       for(var13 = 0; var13 < var1.getWheelCount(); ++var13) {
-         VehicleScript.Wheel var24 = var1.getWheel(var13);
-         var19 = var4.getBlock("wheel", var24.getId());
+         VehicleScript.Wheel var27 = var1.getWheel(var13);
+         var19 = var4.getBlock("wheel", var27.getId());
          if (var19 != null) {
-            var19.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var24.offset.x / var3, var24.offset.y / var3, var24.offset.z / var3));
+            var19.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var27.offset.x / var3, var27.offset.y / var3, var27.offset.z / var3));
          }
       }
 
-      StringBuilder var27 = new StringBuilder();
-      String var25 = System.lineSeparator();
-      var4.prettyPrint(1, var27, var25);
-      return var27.toString();
+      StringBuilder var30 = new StringBuilder();
+      String var28 = System.lineSeparator();
+      var4.prettyPrint(1, var30, var28);
+      return var30.toString();
+   }
+
+   private void removeAttachments(ScriptParser.Block var1) {
+      for(int var2 = var1.children.size() - 1; var2 >= 0; --var2) {
+         ScriptParser.Block var3 = (ScriptParser.Block)var1.children.get(var2);
+         if ("attachment".equals(var3.type)) {
+            var1.elements.remove(var3);
+            var1.children.remove(var2);
+         }
+      }
+
+   }
+
+   private void attachmentToBlock(VehicleScript var1, ModelAttachment var2, ScriptParser.Block var3) {
+      float var4 = var1.getModelScale();
+      ScriptParser.Block var5 = var3.getBlock("attachment", var2.getId());
+      if (var5 == null) {
+         var5 = new ScriptParser.Block();
+         var5.type = "attachment";
+         var5.id = var2.getId();
+         var3.elements.add(var5);
+         var3.children.add(var5);
+      }
+
+      var5.setValue("offset", String.format(Locale.US, "%.4f %.4f %.4f", var2.getOffset().x() / var4, var2.getOffset().y() / var4, var2.getOffset().z() / var4));
+      var5.setValue("rotate", String.format(Locale.US, "%.4f %.4f %.4f", var2.getRotate().x(), var2.getRotate().y(), var2.getRotate().z()));
+      if (var2.getBone() != null) {
+         var5.setValue("bone", var2.getBone());
+      }
+
+      if (var2.getCanAttach() != null) {
+         var5.setValue("canAttach", PZArrayUtil.arrayToString((Iterable)var2.getCanAttach(), "", "", ","));
+      }
+
+      if (var2.getZOffset() != 0.0F) {
+         var5.setValue("zoffset", String.format(Locale.US, "%.4f", var2.getZOffset()));
+      }
+
+      if (!var2.isUpdateConstraint()) {
+         var5.setValue("updateconstraint", "false");
+      }
+
    }
 
    private void writeScript(String var1, ArrayList<String> var2) {
@@ -488,6 +526,30 @@ public final class EditVehicleState extends GameState {
          var5.close();
       } catch (Throwable var13) {
          ExceptionLogger.logException(var13);
+      }
+
+   }
+
+   private void updateModelScripts(VehicleScript var1) {
+      for(int var2 = 0; var2 < var1.getPartCount(); ++var2) {
+         VehicleScript.Part var3 = var1.getPart(var2);
+
+         for(int var4 = 0; var4 < var3.getModelCount(); ++var4) {
+            VehicleScript.Model var5 = var3.getModel(var4);
+            if (var5.getFile() != null) {
+               ModelScript var6 = ScriptManager.instance.getModelScript(var5.getFile());
+               if (var6 != null && var6.getAttachmentCount() != 0) {
+                  ArrayList var7 = AttachmentEditorState.readScript(var6.getFileName());
+                  if (var7 != null) {
+                     String var8 = var6.getFileName();
+                     if (AttachmentEditorState.updateScript(var8, var7, var6)) {
+                        String var9 = ZomboidFileSystem.instance.getString(var8);
+                        this.m_luaEnv.caller.pcall(this.m_luaEnv.thread, this.m_table.rawget("wroteScript"), new Object[]{this.m_table, var9});
+                     }
+                  }
+               }
+            }
+         }
       }
 
    }

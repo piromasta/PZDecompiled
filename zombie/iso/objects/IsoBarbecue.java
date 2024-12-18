@@ -4,8 +4,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.GameTime;
+import zombie.GameWindow;
 import zombie.core.Core;
+import zombie.core.PerformanceSettings;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.Shader;
+import zombie.core.random.Rand;
 import zombie.core.textures.ColorInfo;
 import zombie.debug.DebugLog;
 import zombie.debug.DebugType;
@@ -18,6 +22,8 @@ import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoHeatSource;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
+import zombie.iso.SpriteDetails.IsoFlagType;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteInstance;
 import zombie.iso.sprite.IsoSpriteManager;
@@ -44,17 +50,21 @@ public class IsoBarbecue extends IsoObject {
 
    public IsoBarbecue(IsoCell var1, IsoGridSquare var2, IsoSprite var3) {
       super(var1, var2, var3);
-      this.container = new ItemContainer("barbecue", var2, this);
-      this.container.setExplored(true);
+      String var4 = var3 != null && var3.getProperties().Is(IsoFlagType.container) ? var3.getProperties().Val("container") : "barbecue";
+      if (this.sprite != null && this.sprite.getProperties() != null && this.sprite.getProperties().Val("ContainerCapacity") != null) {
+         this.container = new ItemContainer(var4, var2, this);
+         this.container.Capacity = Integer.parseInt(this.sprite.getProperties().Val("ContainerCapacity"));
+      }
+
       if (isSpriteWithPropaneTank(this.sprite)) {
          this.bHasPropaneTank = true;
-         this.FuelAmount = 1200;
-         byte var4 = 8;
+         this.FuelAmount = Rand.Next(1201);
+         byte var5 = 8;
          this.normalSprite = this.sprite;
-         this.noTankSprite = IsoSprite.getSprite(IsoSpriteManager.instance, (IsoSprite)this.sprite, var4);
+         this.noTankSprite = IsoSprite.getSprite(IsoSpriteManager.instance, (IsoSprite)this.sprite, var5);
       } else if (isSpriteWithoutPropaneTank(this.sprite)) {
-         byte var5 = -8;
-         this.normalSprite = IsoSprite.getSprite(IsoSpriteManager.instance, (IsoSprite)this.sprite, var5);
+         byte var6 = -8;
+         this.normalSprite = IsoSprite.getSprite(IsoSpriteManager.instance, (IsoSprite)this.sprite, var6);
          this.noTankSprite = this.sprite;
       }
 
@@ -172,7 +182,12 @@ public class IsoBarbecue extends IsoObject {
          this.bHasPropaneTank = true;
          this.FuelAmount = 1200;
          if (var1 instanceof DrainableComboItem) {
-            this.FuelAmount = (int)((float)this.FuelAmount * ((DrainableComboItem)var1).getUsedDelta());
+            this.FuelAmount = (int)((float)this.FuelAmount * ((DrainableComboItem)var1).getCurrentUsesFloat());
+         }
+
+         if (Thread.currentThread() == GameWindow.GameThread) {
+            this.updateSprite();
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
          }
       }
 
@@ -186,10 +201,15 @@ public class IsoBarbecue extends IsoObject {
          this.bLit = false;
          InventoryItem var1 = InventoryItemFactory.CreateItem("Base.PropaneTank");
          if (var1 instanceof DrainableComboItem) {
-            ((DrainableComboItem)var1).setUsedDelta((float)this.getFuelAmount() / 1200.0F);
+            var1.setCurrentUses((int)((float)var1.getMaxUses() * ((float)this.getFuelAmount() / 1200.0F)));
          }
 
          this.FuelAmount = 0;
+         if (Thread.currentThread() == GameWindow.GameThread) {
+            this.updateSprite();
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+         }
+
          return var1;
       }
    }
@@ -252,7 +272,7 @@ public class IsoBarbecue extends IsoObject {
    private void updateHeatSource() {
       if (this.isLit()) {
          if (this.heatSource == null) {
-            this.heatSource = new IsoHeatSource((int)this.getX(), (int)this.getY(), (int)this.getZ(), 3, 25);
+            this.heatSource = new IsoHeatSource(PZMath.fastfloor(this.getX()), PZMath.fastfloor(this.getY()), PZMath.fastfloor(this.getZ()), 3, 25);
             IsoWorld.instance.CurrentCell.addHeatSource(this.heatSource);
          }
       } else if (this.heatSource != null) {
@@ -266,7 +286,7 @@ public class IsoBarbecue extends IsoObject {
       if (!GameServer.bServer) {
          if (this.isLit()) {
             if (this.emitter == null) {
-               this.emitter = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)((int)this.getZ()));
+               this.emitter = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)PZMath.fastfloor(this.getZ()));
                IsoWorld.instance.setEmitterOwner(this.emitter, this);
             }
 
@@ -296,7 +316,7 @@ public class IsoBarbecue extends IsoObject {
 
          if (var3 > this.LastUpdateTime) {
             this.MinuteAccumulator += (var3 - this.LastUpdateTime) * 60.0F;
-            int var4 = (int)Math.floor((double)this.MinuteAccumulator);
+            int var4 = PZMath.fastfloor(this.MinuteAccumulator);
             if (var4 > 0) {
                if (this.isLit()) {
                   DebugLog.log(DebugType.Fireplace, "IsoBarbecue burned " + var4 + " minutes (" + this.getFuelAmount() + " remaining)");
@@ -348,10 +368,12 @@ public class IsoBarbecue extends IsoObject {
             IsoSpriteInstance var9 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var8);
             IsoSprite var10 = var9.parentSprite;
             var9.update();
-            float var11 = GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
-            var9.Frame += var9.AnimFrameIncrease * var11;
-            if ((int)var9.Frame >= var10.CurrentAnim.Frames.size() && var10.Loop && var9.Looped) {
-               var9.Frame = 0.0F;
+            if (var10.hasAnimation()) {
+               float var11 = GameTime.instance.getMultipliedSecondsSinceLastUpdate() * 60.0F;
+               var9.Frame += var9.AnimFrameIncrease * var11;
+               if ((int)var9.Frame >= var10.CurrentAnim.Frames.size() && var10.Loop && var9.Looped) {
+                  var9.Frame = 0.0F;
+               }
             }
          }
       }
@@ -370,12 +392,16 @@ public class IsoBarbecue extends IsoObject {
          this.noTankSprite = var1;
       }
 
+      this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
    }
 
    public void addToWorld() {
       IsoCell var1 = this.getCell();
       this.getCell().addToProcessIsoObject(this);
-      this.container.addItemsToProcessItems();
+      if (this.container != null) {
+         this.container.addItemsToProcessItems();
+      }
+
    }
 
    public void removeFromWorld() {
@@ -392,11 +418,16 @@ public class IsoBarbecue extends IsoObject {
          int var8 = Core.TileScale;
 
          for(int var9 = 0; var9 < this.AttachedAnimSprite.size(); ++var9) {
-            IsoSprite var10 = ((IsoSpriteInstance)this.AttachedAnimSprite.get(var9)).parentSprite;
-            var10.soffX = (short)(14 * var8);
-            var10.soffY = (short)(-58 * var8);
-            ((IsoSpriteInstance)this.AttachedAnimSprite.get(var9)).setScale((float)var8, (float)var8);
+            IsoSpriteInstance var10 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var9);
+            IsoSprite var11 = var10.parentSprite;
+            var11.soffX = (short)(14 * var8);
+            var11.soffY = (short)(-58 * var8);
+            var10.setScale((float)var8, (float)var8);
          }
+      }
+
+      if (PerformanceSettings.FBORenderChunk) {
+         var5 = false;
       }
 
       super.render(var1, var2, var3, var4, var5, var6, var7);
@@ -418,5 +449,27 @@ public class IsoBarbecue extends IsoObject {
          this.bHasPropaneTank = var2.get() == 1;
       }
 
+   }
+
+   public boolean hasAnimatedAttachments() {
+      return this.AttachedAnimSprite != null && !this.AttachedAnimSprite.isEmpty();
+   }
+
+   public void renderAnimatedAttachments(float var1, float var2, float var3, ColorInfo var4) {
+      if (this.AttachedAnimSprite != null) {
+         int var5 = Core.TileScale;
+
+         for(int var6 = 0; var6 < this.AttachedAnimSprite.size(); ++var6) {
+            IsoSpriteInstance var7 = (IsoSpriteInstance)this.AttachedAnimSprite.get(var6);
+            IsoSprite var8 = var7.getParentSprite();
+            if (var8.Animate) {
+               var8.soffX = (short)(14 * var5);
+               var8.soffY = (short)(-58 * var5);
+               var7.setScale((float)var5, (float)var5);
+               var8.render(var7, this, var1, var2, var3, this.dir, this.offsetX, this.offsetY, var4, true);
+            }
+         }
+
+      }
    }
 }

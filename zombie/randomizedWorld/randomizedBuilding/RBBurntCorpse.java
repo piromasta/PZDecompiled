@@ -2,7 +2,8 @@ package zombie.randomizedWorld.randomizedBuilding;
 
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.core.stash.StashSystem;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -48,8 +49,14 @@ public final class RBBurntCorpse extends RandomizedBuildingBase {
          return false;
       } else if (var1.getRooms().size() > 20) {
          return false;
+      } else if (SpawnPoints.instance.isSpawnBuilding(var1)) {
+         this.debugLine = "Spawn houses are invalid";
+         return false;
+      } else if (StashSystem.isStashBuilding(var1)) {
+         this.debugLine = "Stash buildings are invalid";
+         return false;
       } else {
-         return !SpawnPoints.instance.isSpawnBuilding(var1);
+         return true;
       }
    }
 

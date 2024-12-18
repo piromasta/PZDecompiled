@@ -6,6 +6,7 @@ import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.core.skinnedmodel.animation.Keyframe;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 import zombie.scripting.objects.BaseScriptObject;
 
 public final class RuntimeAnimationScript extends BaseScriptObject {
@@ -13,12 +14,14 @@ public final class RuntimeAnimationScript extends BaseScriptObject {
    protected final ArrayList<IRuntimeAnimationCommand> m_commands = new ArrayList();
 
    public RuntimeAnimationScript() {
+      super(ScriptType.RuntimeAnimation);
    }
 
-   public void Load(String var1, String var2) {
+   public void Load(String var1, String var2) throws Exception {
       this.m_name = var1;
       ScriptParser.Block var3 = ScriptParser.parse(var2);
       var3 = (ScriptParser.Block)var3.children.get(0);
+      super.LoadCommonBlock(var3);
       Iterator var4 = var3.values.iterator();
 
       while(var4.hasNext()) {

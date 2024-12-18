@@ -1,7 +1,7 @@
 package zombie.randomizedWorld.randomizedDeadSurvivor;
 
 import java.util.ArrayList;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.RoomDef;
@@ -33,7 +33,7 @@ public final class RDSBedroomZed extends RandomizedDeadSurvivorBase {
    }
 
    public void randomizeDeadSurvivor(BuildingDef var1) {
-      RoomDef var2 = this.getRoom(var1, "bedroom");
+      RoomDef var2 = this.getRoomNoKids(var1, "bedroom");
       boolean var3 = Rand.Next(7) == 0;
       boolean var4 = Rand.Next(7) == 0;
       if (var3) {

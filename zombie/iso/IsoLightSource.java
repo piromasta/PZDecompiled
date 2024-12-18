@@ -2,6 +2,7 @@ package zombie.iso;
 
 import java.util.ArrayList;
 import zombie.characters.IsoPlayer;
+import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderSettings;
 import zombie.iso.areas.IsoBuilding;
 import zombie.iso.objects.IsoLightSwitch;
@@ -65,6 +66,8 @@ public class IsoLightSource {
       this.startlife = this.life = var8;
    }
 
+   /** @deprecated */
+   @Deprecated
    public void update() {
       IsoGridSquare var1 = IsoWorld.instance.CurrentCell.getGridSquare(this.x, this.y, this.z);
       if (!this.bHydroPowered || IsoWorld.instance.isHydroPowerOn() || var1 != null && var1.haveElectricity()) {
@@ -90,7 +93,7 @@ public class IsoLightSource {
                   for(int var4 = 0; var4 < 8; ++var4) {
                      var1 = IsoWorld.instance.CurrentCell.getGridSquare(var2, var3, var4);
                      if (var1 != null && (this.localToBuilding == null || this.localToBuilding == var1.getBuilding())) {
-                        LosUtil.TestResults var5 = LosUtil.lineClear(var1.getCell(), this.x, this.y, this.z, var1.getX(), var1.getY(), var1.getZ(), false);
+                        LosUtil.TestResults var5 = LosUtil.lineClear(var1.getCell(), PZMath.fastfloor((float)this.x), PZMath.fastfloor((float)this.y), this.z, var1.getX(), var1.getY(), var1.getZ(), false);
                         if (var1.getX() == this.x && var1.getY() == this.y && var1.getZ() == this.z || var5 != LosUtil.TestResults.Blocked) {
                            float var6 = 0.0F;
                            float var7;

@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.function.Consumer;
+import zombie.debug.DebugOptions;
 
 public class ObjectPool<T> {
    private final Allocator<T> allocator;
@@ -28,19 +29,23 @@ public class ObjectPool<T> {
       this.allocator = var1;
    }
 
-   public T alloc() {
+   public synchronized T alloc() {
       return this.pool.isEmpty() ? this.makeObject() : this.pool.remove(this.pool.size() - 1);
    }
 
-   public void release(T var1) {
+   public synchronized void release(T var1) {
       assert var1 != null;
 
       assert !this.pool.contains(var1);
 
-      this.pool.add(var1);
+      if (var1 != null) {
+         if (!DebugOptions.instance.Checks.ObjectPoolContains.getValue() || !this.pool.contains(var1)) {
+            this.pool.add(var1);
+         }
+      }
    }
 
-   public void release(List<T> var1) {
+   public synchronized void release(List<T> var1) {
       for(int var2 = 0; var2 < var1.size(); ++var2) {
          if (var1.get(var2) != null) {
             this.release(var1.get(var2));
@@ -49,7 +54,7 @@ public class ObjectPool<T> {
 
    }
 
-   public void release(Iterable<T> var1) {
+   public synchronized void release(Iterable<T> var1) {
       Iterator var2 = var1.iterator();
 
       while(var2.hasNext()) {
@@ -61,7 +66,7 @@ public class ObjectPool<T> {
 
    }
 
-   public void release(T[] var1) {
+   public synchronized void release(T[] var1) {
       if (var1 != null) {
          for(int var2 = 0; var2 < var1.length; ++var2) {
             if (var1[var2] != null) {
@@ -72,7 +77,7 @@ public class ObjectPool<T> {
       }
    }
 
-   public void releaseAll(List<T> var1) {
+   public synchronized void releaseAll(List<T> var1) {
       for(int var2 = 0; var2 < var1.size(); ++var2) {
          if (var1.get(var2) != null) {
             this.release(var1.get(var2));
@@ -81,7 +86,7 @@ public class ObjectPool<T> {
 
    }
 
-   public void clear() {
+   public synchronized void clear() {
       this.pool.clear();
    }
 
@@ -93,7 +98,7 @@ public class ObjectPool<T> {
       }
    }
 
-   public void forEach(Consumer<T> var1) {
+   public synchronized void forEach(Consumer<T> var1) {
       for(int var2 = 0; var2 < this.pool.size(); ++var2) {
          var1.accept(this.pool.get(var2));
       }

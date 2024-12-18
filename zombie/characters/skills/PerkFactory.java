@@ -64,7 +64,7 @@ public final class PerkFactory {
    public static void init() {
       PerkFactory.Perks.None.parent = PerkFactory.Perks.None;
       PerkFactory.Perks.MAX.parent = PerkFactory.Perks.None;
-      AddPerk(PerkFactory.Perks.Combat, "Combat", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Combat, "CombatMelee", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Axe, "Axe", PerkFactory.Perks.Combat, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Blunt, "Blunt", PerkFactory.Perks.Combat, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.SmallBlunt, "SmallBlunt", PerkFactory.Perks.Combat, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
@@ -72,30 +72,40 @@ public final class PerkFactory {
       AddPerk(PerkFactory.Perks.SmallBlade, "SmallBlade", PerkFactory.Perks.Combat, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Spear, "Spear", PerkFactory.Perks.Combat, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Maintenance, "Maintenance", PerkFactory.Perks.Combat, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Firearm, "Firearm", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Firearm, "CombatFirearms", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Aiming, "Aiming", PerkFactory.Perks.Firearm, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Reloading, "Reloading", PerkFactory.Perks.Firearm, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Crafting, "Crafting", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Woodwork, "Carpentry", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Carving, "Carving", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Cooking, "Cooking", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Farming, "Farming", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Doctor, "Doctor", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Electricity, "Electricity", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.MetalWelding, "MetalWelding", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Doctor, "Doctor", PerkFactory.Perks.Survivalist, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Glassmaking, "Glassmaking", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.FlintKnapping, "FlintKnapping", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Masonry, "Masonry", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Blacksmith, "Blacksmith", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Mechanics, "Mechanics", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Pottery, "Pottery", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Tailoring, "Tailoring", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.MetalWelding, "MetalWelding", PerkFactory.Perks.Crafting, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Survivalist, "Survivalist", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.Fishing, "Fishing", PerkFactory.Perks.Survivalist, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Trapping, "Trapping", PerkFactory.Perks.Survivalist, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
       AddPerk(PerkFactory.Perks.PlantScavenging, "Foraging", PerkFactory.Perks.Survivalist, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Passiv, "Passive", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000, true);
-      AddPerk(PerkFactory.Perks.Fitness, "Fitness", PerkFactory.Perks.Passiv, 1000, 2000, 4000, 6000, 12000, 20000, 40000, 60000, 80000, 100000, true);
-      AddPerk(PerkFactory.Perks.Strength, "Strength", PerkFactory.Perks.Passiv, 1000, 2000, 4000, 6000, 12000, 20000, 40000, 60000, 80000, 100000, true);
+      AddPerk(PerkFactory.Perks.Tracking, "Tracking", PerkFactory.Perks.Survivalist, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Trapping, "Trapping", PerkFactory.Perks.Survivalist, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.PhysicalCategory, "PhysicalCategory", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Fitness, "Fitness", PerkFactory.Perks.PhysicalCategory, 1000, 2000, 4000, 6000, 12000, 20000, 40000, 60000, 80000, 100000, true);
+      AddPerk(PerkFactory.Perks.Strength, "Strength", PerkFactory.Perks.PhysicalCategory, 1000, 2000, 4000, 6000, 12000, 20000, 40000, 60000, 80000, 100000, true);
       AddPerk(PerkFactory.Perks.Agility, "Agility", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Sprinting, "Sprinting", PerkFactory.Perks.Agility, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Lightfoot, "Lightfooted", PerkFactory.Perks.Agility, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Nimble, "Nimble", PerkFactory.Perks.Agility, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
-      AddPerk(PerkFactory.Perks.Sneak, "Sneaking", PerkFactory.Perks.Agility, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Lightfoot, "Lightfooted", PerkFactory.Perks.PhysicalCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Nimble, "Nimble", PerkFactory.Perks.PhysicalCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Sprinting, "Sprinting", PerkFactory.Perks.PhysicalCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Sneak, "Sneaking", PerkFactory.Perks.PhysicalCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.FarmingCategory, "FarmingCategory", 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Farming, "Farming", PerkFactory.Perks.FarmingCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Husbandry, "Husbandry", PerkFactory.Perks.FarmingCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
+      AddPerk(PerkFactory.Perks.Butchering, "Butchering", PerkFactory.Perks.FarmingCategory, 50, 100, 200, 500, 1000, 2000, 3000, 4000, 5000, 6000);
    }
 
    public static void initTranslations() {
@@ -294,9 +304,9 @@ public final class PerkFactory {
       public static final Perk Strength = new Perk("Strength");
       public static final Perk Blunt = new Perk("Blunt");
       public static final Perk Axe = new Perk("Axe");
-      public static final Perk Sprinting = new Perk("Sprinting");
       public static final Perk Lightfoot = new Perk("Lightfoot");
       public static final Perk Nimble = new Perk("Nimble");
+      public static final Perk Sprinting = new Perk("Sprinting");
       public static final Perk Sneak = new Perk("Sneak");
       public static final Perk Woodwork = new Perk("Woodwork");
       public static final Perk Aiming = new Perk("Aiming");
@@ -321,6 +331,16 @@ public final class PerkFactory {
       public static final Perk SmallBlunt = new Perk("SmallBlunt");
       public static final Perk Combat = new Perk("Combat");
       public static final Perk Tailoring = new Perk("Tailoring");
+      public static final Perk Tracking = new Perk("Tracking");
+      public static final Perk Husbandry = new Perk("Husbandry");
+      public static final Perk FlintKnapping = new Perk("FlintKnapping");
+      public static final Perk Masonry = new Perk("Masonry");
+      public static final Perk Pottery = new Perk("Pottery");
+      public static final Perk Carving = new Perk("Carving");
+      public static final Perk Butchering = new Perk("Butchering");
+      public static final Perk Glassmaking = new Perk("Glassmaking");
+      public static final Perk FarmingCategory = new Perk("FarmingCategory");
+      public static final Perk PhysicalCategory = new Perk("PhysicalCategory");
       public static final Perk MAX = new Perk("MAX");
 
       public Perks() {

@@ -6,6 +6,7 @@ import zombie.ZomboidFileSystem;
 import zombie.asset.Asset;
 import zombie.asset.AssetStateObserver;
 import zombie.inventory.types.MapItem;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
 import zombie.util.StringUtils;
@@ -29,7 +30,7 @@ public final class WorldMap implements AssetStateObserver {
    }
 
    public void setBoundsInCells(int var1, int var2, int var3, int var4) {
-      this.setBoundsInSquares(var1 * 300, var2 * 300, var3 * 300 + 299, var4 * 300 + 299);
+      this.setBoundsInSquares(var1 * IsoCell.CellSizeInSquares, var2 * IsoCell.CellSizeInSquares, var3 * IsoCell.CellSizeInSquares + (IsoCell.CellSizeInSquares - 1), var4 * IsoCell.CellSizeInSquares + (IsoCell.CellSizeInSquares - 1));
    }
 
    public void setBoundsInSquares(int var1, int var2, int var3, int var4) {
@@ -71,6 +72,17 @@ public final class WorldMap implements AssetStateObserver {
 
    public WorldMapData getDataByIndex(int var1) {
       return (WorldMapData)this.m_data.get(var1);
+   }
+
+   public boolean isDataLoaded() {
+      for(int var1 = 0; var1 < this.getDataCount(); ++var1) {
+         WorldMapData var2 = this.getDataByIndex(var1);
+         if (var2.isEmpty()) {
+            return false;
+         }
+      }
+
+      return true;
    }
 
    public void clearData() {
@@ -136,6 +148,16 @@ public final class WorldMap implements AssetStateObserver {
       }
    }
 
+   public void addImagePyramid(String var1) {
+      if (!StringUtils.isNullOrWhitespace(var1)) {
+         WorldMapImages var2 = WorldMapImages.getOrCreateWithFileName(var1);
+         if (var2 != null && !this.m_images.contains(var2)) {
+            this.m_images.add(var2);
+         }
+
+      }
+   }
+
    public boolean hasImages() {
       return !this.m_images.isEmpty();
    }
@@ -148,20 +170,39 @@ public final class WorldMap implements AssetStateObserver {
       return (WorldMapImages)this.m_images.get(var1);
    }
 
+   public void clearImages() {
+      this.m_images.clear();
+   }
+
+   public WorldMapImages getWorldMapImagesByFileName(String var1) {
+      if (StringUtils.isNullOrWhitespace(var1)) {
+         return null;
+      } else {
+         for(int var2 = 0; var2 < this.getImagesCount(); ++var2) {
+            WorldMapImages var3 = this.getImagesByIndex(var2);
+            if (var1.equalsIgnoreCase(var3.getAbsolutePath())) {
+               return var3;
+            }
+         }
+
+         return null;
+      }
+   }
+
    public int getMinXInCells() {
-      return this.m_minX / 300;
+      return this.m_minX / IsoCell.CellSizeInSquares;
    }
 
    public int getMinYInCells() {
-      return this.m_minY / 300;
+      return this.m_minY / IsoCell.CellSizeInSquares;
    }
 
    public int getMaxXInCells() {
-      return this.m_maxX / 300;
+      return this.m_maxX / IsoCell.CellSizeInSquares;
    }
 
    public int getMaxYInCells() {
-      return this.m_maxY / 300;
+      return this.m_maxY / IsoCell.CellSizeInSquares;
    }
 
    public int getWidthInCells() {
@@ -219,11 +260,11 @@ public final class WorldMap implements AssetStateObserver {
    }
 
    public int getDataWidthInSquares() {
-      return this.getDataWidthInCells() * 300;
+      return this.getDataWidthInCells() * IsoCell.CellSizeInSquares;
    }
 
    public int getDataHeightInSquares() {
-      return this.getDataHeightInCells() * 300;
+      return this.getDataHeightInCells() * IsoCell.CellSizeInSquares;
    }
 
    public static void Reset() {

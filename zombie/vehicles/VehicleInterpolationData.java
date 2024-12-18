@@ -1,5 +1,7 @@
 package zombie.vehicles;
 
+import org.joml.Vector3f;
+
 public class VehicleInterpolationData implements Comparable<VehicleInterpolationData> {
    protected long time;
    protected float x;
@@ -57,6 +59,14 @@ public class VehicleInterpolationData implements Comparable<VehicleInterpolation
          this.wheelSuspensionLength[var2] = var1.wheelSuspensionLength[var2];
       }
 
+   }
+
+   public void getPosition(Vector3f var1) {
+      var1.set(this.x, this.y, this.z);
+   }
+
+   public void getVelocity(Vector3f var1) {
+      var1.set(this.vx, this.vy, this.vz);
    }
 
    public int compareTo(VehicleInterpolationData var1) {

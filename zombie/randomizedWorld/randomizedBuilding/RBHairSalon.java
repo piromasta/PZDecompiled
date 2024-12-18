@@ -1,6 +1,7 @@
 package zombie.randomizedWorld.randomizedBuilding;
 
-import zombie.core.Rand;
+import zombie.core.random.Rand;
+import zombie.inventory.ItemSpawner;
 import zombie.iso.BuildingDef;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
@@ -19,43 +20,7 @@ public final class RBHairSalon extends RandomizedBuildingBase {
                   for(int var7 = 0; var7 < var6.getObjects().size(); ++var7) {
                      IsoObject var8 = (IsoObject)var6.getObjects().get(var7);
                      if (Rand.NextBool(3) && var8.getSurfaceOffsetNoTable() > 0.0F && var6.getProperties().Val("waterAmount") == null && !var8.hasWater() && var8.getProperties().Val("BedType") == null) {
-                        int var9 = Rand.Next(12);
-                        switch (var9) {
-                           case 0:
-                              this.addWorldItem("Comb", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 1:
-                              this.addWorldItem("HairDyeBlonde", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 2:
-                              this.addWorldItem("HairDyeBlack", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 3:
-                              this.addWorldItem("HairDyeWhite", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                           case 4:
-                           default:
-                              break;
-                           case 5:
-                              this.addWorldItem("HairDyePink", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 6:
-                              this.addWorldItem("HairDyeYellow", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 7:
-                              this.addWorldItem("HairDyeRed", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 8:
-                              this.addWorldItem("HairDyeGinger", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 9:
-                              this.addWorldItem("Hairgel", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 10:
-                              this.addWorldItem("Hairspray", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                              break;
-                           case 11:
-                              this.addWorldItem("Razor", var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
-                        }
+                        ItemSpawner.spawnItem(RBBasic.getHairSalonClutterItem(), var6, 0.5F, 0.5F, var8.getSurfaceOffsetNoTable() / 96.0F);
                      }
                   }
                }

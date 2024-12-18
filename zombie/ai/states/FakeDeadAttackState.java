@@ -23,11 +23,7 @@ public final class FakeDeadAttackState extends State {
       var2.setFakeDead(false);
       var1.setVisibleToNPCs(true);
       var1.setCollidable(true);
-      String var3 = "MaleZombieAttack";
-      if (var1.isFemale()) {
-         var3 = "FemaleZombieAttack";
-      }
-
+      String var3 = var1.getDescriptor().getVoicePrefix() + "Attack";
       var1.getEmitter().playSound(var3);
       if (var2.target instanceof IsoPlayer && !((IsoPlayer)var2.target).getCharacterTraits().Desensitized.isSet()) {
          IsoPlayer var4 = (IsoPlayer)var2.target;

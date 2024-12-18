@@ -1,5 +1,6 @@
 package zombie;
 
+import java.nio.ByteBuffer;
 import zombie.iso.RoomDef;
 
 public abstract class BaseAmbientStreamManager {
@@ -11,6 +12,8 @@ public abstract class BaseAmbientStreamManager {
    public abstract void doAlarm(RoomDef var1);
 
    public abstract void doGunEvent();
+
+   public abstract void handleThunderEvent(int var1, int var2);
 
    public abstract void init();
 
@@ -27,4 +30,12 @@ public abstract class BaseAmbientStreamManager {
    public abstract void addAmbientEmitter(float var1, float var2, int var3, String var4);
 
    public abstract void addDaytimeAmbientEmitter(float var1, float var2, int var3, String var4);
+
+   public abstract void save(ByteBuffer var1);
+
+   public abstract void load(ByteBuffer var1, int var2);
+
+   public abstract void checkHaveElectricity();
+
+   public abstract boolean isParameterInsideTrue();
 }

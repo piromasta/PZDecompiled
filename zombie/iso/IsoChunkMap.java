@@ -4,15 +4,19 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantLock;
+import zombie.GameProfiler;
 import zombie.GameTime;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.core.Color;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
+import zombie.core.math.PZMath;
 import zombie.core.physics.WorldSimulation;
+import zombie.core.profiling.PerformanceProfileProbe;
 import zombie.core.textures.ColorInfo;
 import zombie.core.utils.UpdateLimit;
 import zombie.debug.DebugLog;
@@ -30,8 +34,13 @@ import zombie.vehicles.VehicleCache;
 import zombie.vehicles.VehicleManager;
 
 public final class IsoChunkMap {
-   public static final int LEVELS = 8;
-   public static final int ChunksPerWidth = 10;
+   public static final int LEVELS = 64;
+   public static final int GROUND_LEVEL = 32;
+   public static final int TOP_LEVEL = 31;
+   public static final int BOTTOM_LEVEL = -32;
+   public static final int OldChunksPerWidth = 10;
+   public static final int ChunksPerWidth = 8;
+   public static final int ChunkSizeInSquares = 8;
    public static final HashMap<Integer, IsoChunk> SharedChunks = new HashMap();
    public static int MPWorldXA = 0;
    public static int MPWorldYA = 0;
@@ -63,10 +72,13 @@ public final class IsoChunkMap {
    int YMaxTiles;
    private IsoCell cell;
    private final UpdateLimit checkVehiclesFrequency;
+   public int maxHeight;
+   public int minHeight;
+   public static final PerformanceProfileProbe ppp_update;
 
    public IsoChunkMap(IsoCell var1) {
-      this.WorldX = tileToChunk(WorldXA);
-      this.WorldY = tileToChunk(WorldYA);
+      this.WorldX = chunkMapSquareToChunkMapChunkXY(WorldXA);
+      this.WorldY = chunkMapSquareToChunkMapChunkXY(WorldYA);
       this.filenameServerRequests = new ArrayList();
       this.bReadBufferA = true;
       this.XMinTiles = -1;
@@ -81,28 +93,42 @@ public final class IsoChunkMap {
    }
 
    public static void CalcChunkWidth() {
-      if (DebugOptions.instance.WorldChunkMap5x5.getValue()) {
+      if (DebugOptions.instance.WorldChunkMap13x13.getValue()) {
+         ChunkGridWidth = 13;
+         ChunkWidthInTiles = ChunkGridWidth * 8;
+      } else if (DebugOptions.instance.WorldChunkMap11x11.getValue()) {
+         ChunkGridWidth = 11;
+         ChunkWidthInTiles = ChunkGridWidth * 8;
+      } else if (DebugOptions.instance.WorldChunkMap9x9.getValue()) {
+         ChunkGridWidth = 9;
+         ChunkWidthInTiles = ChunkGridWidth * 8;
+      } else if (DebugOptions.instance.WorldChunkMap7x7.getValue()) {
+         ChunkGridWidth = 7;
+         ChunkWidthInTiles = ChunkGridWidth * 8;
+      } else if (DebugOptions.instance.WorldChunkMap5x5.getValue()) {
          ChunkGridWidth = 5;
-         ChunkWidthInTiles = ChunkGridWidth * 10;
+         ChunkWidthInTiles = ChunkGridWidth * 8;
       } else {
-         float var0 = (float)Core.getInstance().getScreenWidth();
-         float var1 = var0 / 1920.0F;
-         if (var1 > 1.0F) {
-            var1 = 1.0F;
+         float var0 = (float)Core.getInstance().getScreenWidth() / 1920.0F;
+         float var1 = (float)Core.getInstance().getScreenHeight() / 1080.0F;
+         float var2 = Math.max(var0, var1);
+         if (var2 > 1.0F) {
+            var2 = 1.0F;
          }
 
-         ChunkGridWidth = (int)((double)((float)StartChunkGridWidth * var1) * 1.5);
+         ChunkGridWidth = (int)((double)((float)StartChunkGridWidth * var2) * 1.5);
          if (ChunkGridWidth / 2 * 2 == ChunkGridWidth) {
             ++ChunkGridWidth;
          }
 
-         ChunkWidthInTiles = ChunkGridWidth * 10;
+         ChunkGridWidth = PZMath.min(ChunkGridWidth, 19);
+         ChunkWidthInTiles = ChunkGridWidth * 8;
       }
    }
 
    public static void setWorldStartPos(int var0, int var1) {
-      SWorldX[IsoPlayer.getPlayerIndex()] = tileToChunk(var0);
-      SWorldY[IsoPlayer.getPlayerIndex()] = tileToChunk(var1);
+      SWorldX[IsoPlayer.getPlayerIndex()] = chunkMapSquareToChunkMapChunkXY(var0);
+      SWorldY[IsoPlayer.getPlayerIndex()] = chunkMapSquareToChunkMapChunkXY(var1);
    }
 
    public void Dispose() {
@@ -148,6 +174,10 @@ public final class IsoChunkMap {
    }
 
    public void update() {
+      ppp_update.invokeAndMeasure(this, IsoChunkMap::updateInternal);
+   }
+
+   private void updateInternal() {
       int var2 = IsoChunk.loadGridSquare.size();
       if (var2 != 0) {
          var2 = 1 + var2 * 3 / ChunkGridWidth;
@@ -178,7 +208,9 @@ public final class IsoChunkMap {
                bSettingChunk.lock();
 
                try {
-                  var1.doLoadGridsquare();
+                  GameProfiler var10000 = GameProfiler.getInstance();
+                  Objects.requireNonNull(var1);
+                  var10000.invokeAndMeasure("IsoChunk.doLoadGridsquare", var1::doLoadGridsquare);
                   if (GameClient.bClient) {
                      List var10 = VehicleCache.vehicleGet(var1.wx, var1.wy);
                      VehicleManager.instance.sendRequestGetFull(var10);
@@ -251,14 +283,14 @@ public final class IsoChunkMap {
          for(int var2 = IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldYMinTiles(); var2 < IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldYMaxTiles(); ++var2) {
             IsoGridSquare var3 = IsoWorld.instance.CurrentCell.getGridSquare(var1, var2, 0);
             if (var3 != null && (var3.getX() != var1 || var3.getY() != var2)) {
-               int var4 = var1 / 10;
-               int var5 = var2 / 10;
+               int var4 = var1 / 8;
+               int var5 = var2 / 8;
                var4 -= IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldXMin();
                var5 -= IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldYMin();
                IsoChunk var6 = null;
                var6 = new IsoChunk(IsoWorld.instance.CurrentCell);
                var6.refs.add(IsoWorld.instance.CurrentCell.ChunkMap[0]);
-               WorldStreamer.instance.addJob(var6, var1 / 10, var2 / 10, false);
+               WorldStreamer.instance.addJob(var6, var1 / 8, var2 / 8, false);
 
                while(!var6.bLoaded) {
                   try {
@@ -280,13 +312,13 @@ public final class IsoChunkMap {
          for(int var2 = IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldYMinTiles(); var2 < IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldYMaxTiles(); ++var2) {
             IsoGridSquare var3 = IsoWorld.instance.CurrentCell.getGridSquare(var1, var2, 0);
             if (var3 != null && (var3.getX() != var1 || var3.getY() != var2)) {
-               int var4 = var1 / 10;
-               int var5 = var2 / 10;
+               int var4 = var1 / 8;
+               int var5 = var2 / 8;
                var4 -= IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldXMin();
                var5 -= IsoWorld.instance.CurrentCell.ChunkMap[0].getWorldYMin();
                IsoChunk var6 = new IsoChunk(IsoWorld.instance.CurrentCell);
                var6.refs.add(IsoWorld.instance.CurrentCell.ChunkMap[0]);
-               WorldStreamer.instance.addJobInstant(var6, var1, var2, var1 / 10, var2 / 10);
+               WorldStreamer.instance.addJobInstant(var6, var1, var2, var1 / 8, var2 / 8);
             }
 
             if (var3 != null) {
@@ -311,6 +343,7 @@ public final class IsoChunkMap {
             MPStatistics.decreaseStoredChunk();
          }
 
+         var5.assignLoadID();
          SharedChunks.put((var1 << 16) + var2, var5);
          var5.refs.add(this);
          WorldStreamer.instance.addJob(var5, var1, var2, false);
@@ -327,7 +360,7 @@ public final class IsoChunkMap {
             var5 = (IsoChunk)SharedChunks.get((var1 << 16) + var2);
             if (!var5.refs.contains(this)) {
                var5.refs.add(this);
-               var5.lightCheck[this.PlayerID] = true;
+               var5.checkLightingLater_OnePlayer_AllLevels(this.PlayerID);
             }
 
             if (!var5.bLoaded) {
@@ -343,6 +376,7 @@ public final class IsoChunkMap {
                MPStatistics.decreaseStoredChunk();
             }
 
+            var5.assignLoadID();
             SharedChunks.put((var1 << 16) + var2, var5);
             var5.refs.add(this);
             WorldStreamer.instance.addJob(var5, var1, var2, true);
@@ -353,9 +387,15 @@ public final class IsoChunkMap {
    }
 
    public IsoChunk getChunkForGridSquare(int var1, int var2) {
-      var1 = this.gridSquareToTileX(var1);
-      var2 = this.gridSquareToTileY(var2);
-      return !this.isTileOutOfrange(var1) && !this.isTileOutOfrange(var2) ? this.getChunk(tileToChunk(var1), tileToChunk(var2)) : null;
+      int var3 = this.worldSquareToChunkMapSquareX(var1);
+      int var4 = this.worldSquareToChunkMapSquareY(var2);
+      if (!this.isChunkMapSquareOutOfRangeXY(var3) && !this.isChunkMapSquareOutOfRangeXY(var4)) {
+         int var5 = chunkMapSquareToChunkMapChunkXY(var3);
+         int var6 = chunkMapSquareToChunkMapChunkXY(var4);
+         return this.getChunk(var5, var6);
+      } else {
+         return null;
+      }
    }
 
    public IsoChunk getChunkCurrent(int var1, int var2) {
@@ -369,59 +409,65 @@ public final class IsoChunkMap {
    public void setGridSquare(IsoGridSquare var1, int var2, int var3, int var4) {
       assert var1 == null || var1.x == var2 && var1.y == var3 && var1.z == var4;
 
-      int var5 = this.gridSquareToTileX(var2);
-      int var6 = this.gridSquareToTileY(var3);
-      if (!this.isTileOutOfrange(var5) && !this.isTileOutOfrange(var6) && !this.isGridSquareOutOfRangeZ(var4)) {
-         IsoChunk var7 = this.getChunk(tileToChunk(var5), tileToChunk(var6));
-         if (var7 != null) {
-            if (var4 > var7.maxLevel) {
-               var7.maxLevel = var4;
-            }
-
-            var7.setSquare(this.tileToGridSquare(var5), this.tileToGridSquare(var6), var4, var1);
+      int var5 = this.worldSquareToChunkMapSquareX(var2);
+      int var6 = this.worldSquareToChunkMapSquareY(var3);
+      if (!this.isChunkMapSquareOutOfRangeXY(var5) && !this.isChunkMapSquareOutOfRangeXY(var6) && !this.isWorldSquareOutOfRangeZ(var4)) {
+         int var7 = chunkMapSquareToChunkMapChunkXY(var5);
+         int var8 = chunkMapSquareToChunkMapChunkXY(var6);
+         IsoChunk var9 = this.getChunk(var7, var8);
+         if (var9 != null) {
+            var9.setSquare(this.chunkMapSquareToChunkSquareXY(var5), this.chunkMapSquareToChunkSquareXY(var6), var4, var1);
          }
       }
    }
 
    public IsoGridSquare getGridSquare(int var1, int var2, int var3) {
-      var1 = this.gridSquareToTileX(var1);
-      var2 = this.gridSquareToTileY(var2);
-      return this.getGridSquareDirect(var1, var2, var3);
+      int var4 = this.worldSquareToChunkMapSquareX(var1);
+      int var5 = this.worldSquareToChunkMapSquareY(var2);
+      return this.getGridSquareDirect(var4, var5, var3);
    }
 
    public IsoGridSquare getGridSquareDirect(int var1, int var2, int var3) {
-      if (!this.isTileOutOfrange(var1) && !this.isTileOutOfrange(var2) && !this.isGridSquareOutOfRangeZ(var3)) {
-         IsoChunk var4 = this.getChunk(tileToChunk(var1), tileToChunk(var2));
-         return var4 == null ? null : var4.getGridSquare(this.tileToGridSquare(var1), this.tileToGridSquare(var2), var3);
+      if (!this.isChunkMapSquareOutOfRangeXY(var1) && !this.isChunkMapSquareOutOfRangeXY(var2) && !this.isWorldSquareOutOfRangeZ(var3)) {
+         int var4 = chunkMapSquareToChunkMapChunkXY(var1);
+         int var5 = chunkMapSquareToChunkMapChunkXY(var2);
+         IsoChunk var6 = this.getChunk(var4, var5);
+         if (var6 == null) {
+            return null;
+         } else if (!var6.bLoaded) {
+            return null;
+         } else {
+            int var7 = this.chunkMapSquareToChunkSquareXY(var1);
+            int var8 = this.chunkMapSquareToChunkSquareXY(var2);
+            return var6.getGridSquare(var7, var8, var3);
+         }
       } else {
          return null;
       }
    }
 
-   private int tileToGridSquare(int var1) {
-      return var1 % 10;
+   private int chunkMapSquareToChunkSquareXY(int var1) {
+      return var1 % 8;
    }
 
-   private static int tileToChunk(int var0) {
-      return var0 / 10;
+   private static int chunkMapSquareToChunkMapChunkXY(int var0) {
+      return var0 / 8;
    }
 
-   private boolean isTileOutOfrange(int var1) {
+   private boolean isChunkMapSquareOutOfRangeXY(int var1) {
       return var1 < 0 || var1 >= this.getWidthInTiles();
    }
 
-   private boolean isGridSquareOutOfRangeZ(int var1) {
-      return var1 < 0 || var1 >= 8;
+   private boolean isWorldSquareOutOfRangeZ(int var1) {
+      return var1 < -32 || var1 > 31;
    }
 
-   private int gridSquareToTileX(int var1) {
-      int var2 = var1 - (this.WorldX - ChunkGridWidth / 2) * 10;
-      return var2;
+   private int worldSquareToChunkMapSquareX(int var1) {
+      return var1 - (this.WorldX - ChunkGridWidth / 2) * 8;
    }
 
-   private int gridSquareToTileY(int var1) {
-      int var2 = var1 - (this.WorldY - ChunkGridWidth / 2) * 10;
-      return var2;
+   private int worldSquareToChunkMapSquareY(int var1) {
+      return var1 - (this.WorldY - ChunkGridWidth / 2) * 8;
    }
 
    public IsoChunk getChunk(int var1, int var2) {
@@ -430,6 +476,10 @@ public final class IsoChunkMap {
       } else {
          return null;
       }
+   }
+
+   public IsoChunk[] getChunks() {
+      return this.bReadBufferA ? this.chunksSwapA : this.chunksSwapB;
    }
 
    private void setChunk(int var1, int var2, IsoChunk var3) {
@@ -651,17 +701,6 @@ public final class IsoChunkMap {
    }
 
    private void UpdateCellCache() {
-      int var1 = this.getWidthInTiles();
-
-      for(int var2 = 0; var2 < var1; ++var2) {
-         for(int var3 = 0; var3 < var1; ++var3) {
-            for(int var4 = 0; var4 < 8; ++var4) {
-               IsoGridSquare var5 = this.getGridSquare(var2 + this.getWorldXMinTiles(), var3 + this.getWorldYMinTiles(), var4);
-               IsoWorld.instance.CurrentCell.setCacheGridSquareLocal(var2, var3, var4, var5, this.PlayerID);
-            }
-         }
-      }
-
    }
 
    private void Up() {
@@ -825,9 +864,9 @@ public final class IsoChunkMap {
    }
 
    public void ProcessChunkPos(IsoGameCharacter var1) {
-      int var2 = (int)var1.getX();
-      int var3 = (int)var1.getY();
-      int var4 = (int)var1.getZ();
+      float var2 = var1.getX();
+      float var3 = var1.getY();
+      int var4 = PZMath.fastfloor(var1.getZ());
       if (IsoPlayer.getInstance() != null && IsoPlayer.getInstance().getVehicle() != null) {
          IsoPlayer var5 = IsoPlayer.getInstance();
          BaseVehicle var6 = var5.getVehicle();
@@ -836,76 +875,105 @@ public final class IsoChunkMap {
             var7 = Math.min(var7 * 2.0F, 20.0F);
          }
 
-         var2 += Math.round(var5.getForwardDirection().x * var7);
-         var3 += Math.round(var5.getForwardDirection().y * var7);
+         var2 += (float)Math.round(var5.getForwardDirection().x * var7);
+         var3 += (float)Math.round(var5.getForwardDirection().y * var7);
       }
 
-      var2 /= 10;
-      var3 /= 10;
-      if (var2 != this.WorldX || var3 != this.WorldY) {
-         long var21 = System.nanoTime();
-         double var22 = 0.0;
+      int var24 = PZMath.fastfloor(var2 / 8.0F);
+      int var25 = PZMath.fastfloor(var3 / 8.0F);
+      if (var24 != this.WorldX || var25 != this.WorldY) {
+         long var26 = System.nanoTime();
+         double var9 = 0.0;
          bSettingChunk.lock();
-         long var9 = System.nanoTime();
+         long var11 = System.nanoTime();
+         boolean var13 = false;
 
          try {
-            if (Math.abs(var2 - this.WorldX) < ChunkGridWidth && Math.abs(var3 - this.WorldY) < ChunkGridWidth) {
-               if (var2 != this.WorldX) {
-                  if (var2 < this.WorldX) {
+            if (Math.abs(var24 - this.WorldX) < ChunkGridWidth && Math.abs(var25 - this.WorldY) < ChunkGridWidth) {
+               if (var24 != this.WorldX) {
+                  if (var24 < this.WorldX) {
                      this.LoadLeft();
                   } else {
                      this.LoadRight();
                   }
-               } else if (var3 != this.WorldY) {
-                  if (var3 < this.WorldY) {
+
+                  var13 = true;
+               } else if (var25 != this.WorldY) {
+                  if (var25 < this.WorldY) {
                      this.LoadUp();
                   } else {
                      this.LoadDown();
                   }
+
+                  var13 = true;
                }
             } else {
                if (LightingJNI.init) {
-                  LightingJNI.teleport(this.PlayerID, var2 - ChunkGridWidth / 2, var3 - ChunkGridWidth / 2);
+                  LightingJNI.teleport(this.PlayerID, var24 - ChunkGridWidth / 2, var25 - ChunkGridWidth / 2);
                }
 
                this.Unload();
-               IsoPlayer var11 = IsoPlayer.players[this.PlayerID];
-               var11.removeFromSquare();
-               var11.square = null;
-               this.WorldX = var2;
-               this.WorldY = var3;
+               IsoPlayer var14 = IsoPlayer.players[this.PlayerID];
+               var14.removeFromSquare();
+               var14.square = null;
+               this.WorldX = var24;
+               this.WorldY = var25;
                if (!GameServer.bServer) {
                   WorldSimulation.instance.activateChunkMap(this.PlayerID);
                }
 
-               int var12 = this.WorldX - ChunkGridWidth / 2;
-               int var13 = this.WorldY - ChunkGridWidth / 2;
-               int var14 = this.WorldX + ChunkGridWidth / 2;
-               int var15 = this.WorldY + ChunkGridWidth / 2;
+               int var15 = this.WorldX - ChunkGridWidth / 2;
+               int var16 = this.WorldY - ChunkGridWidth / 2;
+               int var17 = this.WorldX + ChunkGridWidth / 2;
+               int var18 = this.WorldY + ChunkGridWidth / 2;
 
-               for(int var16 = var12; var16 <= var14; ++var16) {
-                  for(int var17 = var13; var17 <= var15; ++var17) {
-                     this.LoadChunkForLater(var16, var17, var16 - var12, var17 - var13);
+               for(int var19 = var15; var19 <= var17; ++var19) {
+                  for(int var20 = var16; var20 <= var18; ++var20) {
+                     this.LoadChunkForLater(var19, var20, var19 - var15, var20 - var16);
                   }
                }
 
                this.SwapChunkBuffers();
                this.UpdateCellCache();
-               if (!IsoWorld.instance.getCell().getObjectList().contains(var11)) {
-                  IsoWorld.instance.getCell().getAddList().add(var11);
+               if (!IsoWorld.instance.getCell().getObjectList().contains(var14)) {
+                  IsoWorld.instance.getCell().getAddList().add(var14);
                }
+
+               var13 = true;
             }
          } finally {
             bSettingChunk.unlock();
+            if (var13) {
+               this.calculateZExtentsForChunkMap();
+            }
+
          }
 
-         var22 = (double)(System.nanoTime() - var9) / 1000000.0;
-         double var23 = (double)(System.nanoTime() - var21) / 1000000.0;
-         if (LightingThread.DebugLockTime && var23 > 10.0) {
-            DebugLog.log("ProcessChunkPos time " + var22 + "/" + var23 + " ms");
+         var9 = (double)(System.nanoTime() - var11) / 1000000.0;
+         double var27 = (double)(System.nanoTime() - var26) / 1000000.0;
+         if (LightingThread.DebugLockTime && var27 > 10.0) {
+            DebugLog.log("ProcessChunkPos time " + var9 + "/" + var27 + " ms");
          }
 
       }
+   }
+
+   public void calculateZExtentsForChunkMap() {
+      int var1 = 0;
+      int var2 = 0;
+
+      for(int var3 = 0; var3 < this.chunksSwapA.length; ++var3) {
+         for(int var4 = 0; var4 < this.chunksSwapA.length; ++var4) {
+            IsoChunk var5 = this.getChunk(var3, var4);
+            if (var5 != null) {
+               var1 = Math.max(var5.maxLevel, var1);
+               var2 = Math.min(var2, var5.minLevel);
+            }
+         }
+      }
+
+      this.maxHeight = var1;
+      this.minHeight = var2;
    }
 
    public IsoRoom getRoom(int var1) {
@@ -920,7 +988,7 @@ public final class IsoChunkMap {
       if (this.XMinTiles != -1) {
          return this.XMinTiles;
       } else {
-         this.XMinTiles = this.getWorldXMin() * 10;
+         this.XMinTiles = this.getWorldXMin() * 8;
          return this.XMinTiles;
       }
    }
@@ -929,7 +997,7 @@ public final class IsoChunkMap {
       if (this.YMinTiles != -1) {
          return this.YMinTiles;
       } else {
-         this.YMinTiles = this.getWorldYMin() * 10;
+         this.YMinTiles = this.getWorldYMin() * 8;
          return this.YMinTiles;
       }
    }
@@ -938,7 +1006,7 @@ public final class IsoChunkMap {
       if (this.XMaxTiles != -1) {
          return this.XMaxTiles;
       } else {
-         this.XMaxTiles = this.getWorldXMin() * 10 + this.getWidthInTiles();
+         this.XMaxTiles = this.getWorldXMin() * 8 + this.getWidthInTiles();
          return this.XMaxTiles;
       }
    }
@@ -947,7 +1015,7 @@ public final class IsoChunkMap {
       if (this.YMaxTiles != -1) {
          return this.YMaxTiles;
       } else {
-         this.YMaxTiles = this.getWorldYMin() * 10 + this.getWidthInTiles();
+         this.YMaxTiles = this.getWorldYMin() * 8 + this.getWidthInTiles();
          return this.YMaxTiles;
       }
    }
@@ -972,36 +1040,37 @@ public final class IsoChunkMap {
 
    public void renderBloodForChunks(int var1) {
       if (DebugOptions.instance.Terrain.RenderTiles.BloodDecals.getValue()) {
-         if (!((float)var1 > IsoCamera.CamCharacter.z)) {
-            if (Core.OptionBloodDecals != 0) {
-               float var2 = (float)GameTime.getInstance().getWorldAgeHours();
-               int var3 = IsoCamera.frameState.playerIndex;
+         if (!((float)var1 > IsoCamera.getCameraCharacterZ())) {
+            int var2 = Core.getInstance().getOptionBloodDecals();
+            if (var2 != 0) {
+               float var3 = (float)GameTime.getInstance().getWorldAgeHours();
+               int var4 = IsoCamera.frameState.playerIndex;
 
-               int var4;
-               for(var4 = 0; var4 < IsoFloorBloodSplat.FloorBloodTypes.length; ++var4) {
-                  ((ArrayList)splatByType.get(var4)).clear();
+               int var5;
+               for(var5 = 0; var5 < IsoFloorBloodSplat.FloorBloodTypes.length; ++var5) {
+                  ((ArrayList)splatByType.get(var5)).clear();
                }
 
-               for(var4 = 0; var4 < ChunkGridWidth; ++var4) {
-                  for(int var5 = 0; var5 < ChunkGridWidth; ++var5) {
-                     IsoChunk var6 = this.getChunk(var4, var5);
-                     if (var6 != null) {
-                        int var7;
-                        IsoFloorBloodSplat var8;
-                        for(var7 = 0; var7 < var6.FloorBloodSplatsFade.size(); ++var7) {
-                           var8 = (IsoFloorBloodSplat)var6.FloorBloodSplatsFade.get(var7);
-                           if ((var8.index < 1 || var8.index > 10 || IsoChunk.renderByIndex[Core.OptionBloodDecals - 1][var8.index - 1] != 0) && (int)var8.z == var1 && var8.Type >= 0 && var8.Type < IsoFloorBloodSplat.FloorBloodTypes.length) {
-                              var8.chunk = var6;
-                              ((ArrayList)splatByType.get(var8.Type)).add(var8);
+               for(var5 = 0; var5 < ChunkGridWidth; ++var5) {
+                  for(int var6 = 0; var6 < ChunkGridWidth; ++var6) {
+                     IsoChunk var7 = this.getChunk(var5, var6);
+                     if (var7 != null) {
+                        int var8;
+                        IsoFloorBloodSplat var9;
+                        for(var8 = 0; var8 < var7.FloorBloodSplatsFade.size(); ++var8) {
+                           var9 = (IsoFloorBloodSplat)var7.FloorBloodSplatsFade.get(var8);
+                           if ((var9.index < 1 || var9.index > 10 || IsoChunk.renderByIndex[var2 - 1][var9.index - 1] != 0) && PZMath.fastfloor(var9.z) == var1 && var9.Type >= 0 && var9.Type < IsoFloorBloodSplat.FloorBloodTypes.length) {
+                              var9.chunk = var7;
+                              ((ArrayList)splatByType.get(var9.Type)).add(var9);
                            }
                         }
 
-                        if (!var6.FloorBloodSplats.isEmpty()) {
-                           for(var7 = 0; var7 < var6.FloorBloodSplats.size(); ++var7) {
-                              var8 = (IsoFloorBloodSplat)var6.FloorBloodSplats.get(var7);
-                              if ((var8.index < 1 || var8.index > 10 || IsoChunk.renderByIndex[Core.OptionBloodDecals - 1][var8.index - 1] != 0) && (int)var8.z == var1 && var8.Type >= 0 && var8.Type < IsoFloorBloodSplat.FloorBloodTypes.length) {
-                                 var8.chunk = var6;
-                                 ((ArrayList)splatByType.get(var8.Type)).add(var8);
+                        if (!var7.FloorBloodSplats.isEmpty()) {
+                           for(var8 = 0; var8 < var7.FloorBloodSplats.size(); ++var8) {
+                              var9 = (IsoFloorBloodSplat)var7.FloorBloodSplats.get(var8);
+                              if ((var9.index < 1 || var9.index > 10 || IsoChunk.renderByIndex[var2 - 1][var9.index - 1] != 0) && PZMath.fastfloor(var9.z) == var1 && var9.Type >= 0 && var9.Type < IsoFloorBloodSplat.FloorBloodTypes.length) {
+                                 var9.chunk = var7;
+                                 ((ArrayList)splatByType.get(var9.Type)).add(var9);
                               }
                            }
                         }
@@ -1009,65 +1078,65 @@ public final class IsoChunkMap {
                   }
                }
 
-               for(var4 = 0; var4 < splatByType.size(); ++var4) {
-                  ArrayList var31 = (ArrayList)splatByType.get(var4);
-                  if (!var31.isEmpty()) {
-                     String var32 = IsoFloorBloodSplat.FloorBloodTypes[var4];
-                     IsoSprite var33 = null;
-                     if (!IsoFloorBloodSplat.SpriteMap.containsKey(var32)) {
-                        IsoSprite var34 = IsoSprite.CreateSprite(IsoSpriteManager.instance);
-                        var34.LoadFramesPageSimple(var32, var32, var32, var32);
-                        IsoFloorBloodSplat.SpriteMap.put(var32, var34);
-                        var33 = var34;
+               for(var5 = 0; var5 < splatByType.size(); ++var5) {
+                  ArrayList var32 = (ArrayList)splatByType.get(var5);
+                  if (!var32.isEmpty()) {
+                     String var33 = IsoFloorBloodSplat.FloorBloodTypes[var5];
+                     IsoSprite var34 = null;
+                     if (!IsoFloorBloodSplat.SpriteMap.containsKey(var33)) {
+                        IsoSprite var35 = IsoSprite.CreateSprite(IsoSpriteManager.instance);
+                        var35.LoadFramesPageSimple(var33, var33, var33, var33);
+                        IsoFloorBloodSplat.SpriteMap.put(var33, var35);
+                        var34 = var35;
                      } else {
-                        var33 = (IsoSprite)IsoFloorBloodSplat.SpriteMap.get(var32);
+                        var34 = (IsoSprite)IsoFloorBloodSplat.SpriteMap.get(var33);
                      }
 
-                     for(int var35 = 0; var35 < var31.size(); ++var35) {
-                        IsoFloorBloodSplat var9 = (IsoFloorBloodSplat)var31.get(var35);
+                     for(int var36 = 0; var36 < var32.size(); ++var36) {
+                        IsoFloorBloodSplat var10 = (IsoFloorBloodSplat)var32.get(var36);
                         inf.r = 1.0F;
                         inf.g = 1.0F;
                         inf.b = 1.0F;
                         inf.a = 0.27F;
-                        float var10 = (var9.x + var9.y / var9.x) * (float)(var9.Type + 1);
-                        float var11 = var10 * var9.x / var9.y * (float)(var9.Type + 1) / (var10 + var9.y);
-                        float var12 = var11 * var10 * var11 * var9.x / (var9.y + 2.0F);
-                        var10 *= 42367.543F;
-                        var11 *= 6367.123F;
-                        var12 *= 23367.133F;
-                        var10 %= 1000.0F;
+                        float var11 = (var10.x + var10.y / var10.x) * (float)(var10.Type + 1);
+                        float var12 = var11 * var10.x / var10.y * (float)(var10.Type + 1) / (var11 + var10.y);
+                        float var13 = var12 * var11 * var12 * var10.x / (var10.y + 2.0F);
+                        var11 *= 42367.543F;
+                        var12 *= 6367.123F;
+                        var13 *= 23367.133F;
                         var11 %= 1000.0F;
                         var12 %= 1000.0F;
-                        var10 /= 1000.0F;
+                        var13 %= 1000.0F;
                         var11 /= 1000.0F;
                         var12 /= 1000.0F;
-                        if (var10 > 0.25F) {
-                           var10 = 0.25F;
+                        var13 /= 1000.0F;
+                        if (var11 > 0.25F) {
+                           var11 = 0.25F;
                         }
 
                         ColorInfo var10000 = inf;
-                        var10000.r -= var10 * 2.0F;
+                        var10000.r -= var11 * 2.0F;
                         var10000 = inf;
-                        var10000.g -= var10 * 2.0F;
+                        var10000.g -= var11 * 2.0F;
                         var10000 = inf;
-                        var10000.b -= var10 * 2.0F;
+                        var10000.b -= var11 * 2.0F;
                         var10000 = inf;
-                        var10000.r += var11 / 3.0F;
+                        var10000.r += var12 / 3.0F;
                         var10000 = inf;
-                        var10000.g -= var12 / 3.0F;
+                        var10000.g -= var13 / 3.0F;
                         var10000 = inf;
-                        var10000.b -= var12 / 3.0F;
-                        float var13 = var2 - var9.worldAge;
-                        if (var13 >= 0.0F && var13 < 72.0F) {
-                           float var14 = 1.0F - var13 / 72.0F;
+                        var10000.b -= var13 / 3.0F;
+                        float var14 = var3 - var10.worldAge;
+                        if (var14 >= 0.0F && var14 < 72.0F) {
+                           float var15 = 1.0F - var14 / 72.0F;
                            var10000 = inf;
-                           var10000.r *= 0.2F + var14 * 0.8F;
+                           var10000.r *= 0.2F + var15 * 0.8F;
                            var10000 = inf;
-                           var10000.g *= 0.2F + var14 * 0.8F;
+                           var10000.g *= 0.2F + var15 * 0.8F;
                            var10000 = inf;
-                           var10000.b *= 0.2F + var14 * 0.8F;
+                           var10000.b *= 0.2F + var15 * 0.8F;
                            var10000 = inf;
-                           var10000.a *= 0.25F + var14 * 0.75F;
+                           var10000.a *= 0.25F + var15 * 0.75F;
                         } else {
                            var10000 = inf;
                            var10000.r *= 0.2F;
@@ -1079,41 +1148,41 @@ public final class IsoChunkMap {
                            var10000.a *= 0.25F;
                         }
 
-                        if (var9.fade > 0) {
+                        if (var10.fade > 0) {
                            var10000 = inf;
-                           var10000.a *= (float)var9.fade / ((float)PerformanceSettings.getLockFPS() * 5.0F);
-                           if (--var9.fade == 0) {
-                              var9.chunk.FloorBloodSplatsFade.remove(var9);
+                           var10000.a *= (float)var10.fade / ((float)PerformanceSettings.getLockFPS() * 5.0F);
+                           if (--var10.fade == 0) {
+                              var10.chunk.FloorBloodSplatsFade.remove(var10);
                            }
                         }
 
-                        IsoGridSquare var36 = var9.chunk.getGridSquare((int)var9.x, (int)var9.y, (int)var9.z);
-                        if (var36 != null) {
-                           int var15 = var36.getVertLight(0, var3);
-                           int var16 = var36.getVertLight(1, var3);
-                           int var17 = var36.getVertLight(2, var3);
-                           int var18 = var36.getVertLight(3, var3);
-                           float var19 = Color.getRedChannelFromABGR(var15);
-                           float var20 = Color.getGreenChannelFromABGR(var15);
-                           float var21 = Color.getBlueChannelFromABGR(var15);
-                           float var22 = Color.getRedChannelFromABGR(var16);
-                           float var23 = Color.getGreenChannelFromABGR(var16);
-                           float var24 = Color.getBlueChannelFromABGR(var16);
-                           float var25 = Color.getRedChannelFromABGR(var17);
-                           float var26 = Color.getGreenChannelFromABGR(var17);
-                           float var27 = Color.getBlueChannelFromABGR(var17);
-                           float var28 = Color.getRedChannelFromABGR(var18);
-                           float var29 = Color.getGreenChannelFromABGR(var18);
-                           float var30 = Color.getBlueChannelFromABGR(var18);
+                        IsoGridSquare var37 = var10.chunk.getGridSquare(PZMath.fastfloor(var10.x), PZMath.fastfloor(var10.y), PZMath.fastfloor(var10.z));
+                        if (var37 != null) {
+                           int var16 = var37.getVertLight(0, var4);
+                           int var17 = var37.getVertLight(1, var4);
+                           int var18 = var37.getVertLight(2, var4);
+                           int var19 = var37.getVertLight(3, var4);
+                           float var20 = Color.getRedChannelFromABGR(var16);
+                           float var21 = Color.getGreenChannelFromABGR(var16);
+                           float var22 = Color.getBlueChannelFromABGR(var16);
+                           float var23 = Color.getRedChannelFromABGR(var17);
+                           float var24 = Color.getGreenChannelFromABGR(var17);
+                           float var25 = Color.getBlueChannelFromABGR(var17);
+                           float var26 = Color.getRedChannelFromABGR(var18);
+                           float var27 = Color.getGreenChannelFromABGR(var18);
+                           float var28 = Color.getBlueChannelFromABGR(var18);
+                           float var29 = Color.getRedChannelFromABGR(var19);
+                           float var30 = Color.getGreenChannelFromABGR(var19);
+                           float var31 = Color.getBlueChannelFromABGR(var19);
                            var10000 = inf;
-                           var10000.r *= (var19 + var22 + var25 + var28) / 4.0F;
+                           var10000.r *= (var20 + var23 + var26 + var29) / 4.0F;
                            var10000 = inf;
-                           var10000.g *= (var20 + var23 + var26 + var29) / 4.0F;
+                           var10000.g *= (var21 + var24 + var27 + var30) / 4.0F;
                            var10000 = inf;
-                           var10000.b *= (var21 + var24 + var27 + var30) / 4.0F;
+                           var10000.b *= (var22 + var25 + var28 + var31) / 4.0F;
                         }
 
-                        var33.renderBloodSplat((float)(var9.chunk.wx * 10) + var9.x, (float)(var9.chunk.wy * 10) + var9.y, var9.z, inf);
+                        var34.renderBloodSplat((float)(var10.chunk.wx * 8) + var10.x, (float)(var10.chunk.wy * 8) + var10.y, var10.z, inf);
                      }
                   }
                }
@@ -1180,7 +1249,7 @@ public final class IsoChunkMap {
 
    static {
       ChunkGridWidth = StartChunkGridWidth;
-      ChunkWidthInTiles = 10 * ChunkGridWidth;
+      ChunkWidthInTiles = 8 * ChunkGridWidth;
       inf = new ColorInfo();
       saveList = new ArrayList();
       splatByType = new ArrayList();
@@ -1189,5 +1258,6 @@ public final class IsoChunkMap {
          splatByType.add(new ArrayList());
       }
 
+      ppp_update = new PerformanceProfileProbe("IsoChunkMap.update");
    }
 }

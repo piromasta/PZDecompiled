@@ -1,12 +1,17 @@
 package zombie.audio;
 
 import fmod.javafmod;
+import fmod.fmod.FMODManager;
 
 public abstract class FMODGlobalParameter extends FMODParameter {
    public FMODGlobalParameter(String var1) {
       super(var1);
-      if (this.getParameterDescription() != null && !this.getParameterDescription().isGlobal()) {
-         boolean var2 = true;
+      if (this.getParameterDescription() != null) {
+         if (!this.getParameterDescription().isGlobal()) {
+            boolean var2 = true;
+         } else {
+            FMODManager.instance.addGlobalParameter(this);
+         }
       }
 
    }

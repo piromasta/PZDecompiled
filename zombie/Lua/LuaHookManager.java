@@ -130,6 +130,7 @@ public final class LuaHookManager implements JavaFunction {
       AddEvent("UseItem");
       AddEvent("Attack");
       AddEvent("CalculateStats");
+      AddEvent("ContextualAction");
       AddEvent("WeaponHitCharacter");
       AddEvent("WeaponSwing");
       AddEvent("WeaponSwingHitPoint");

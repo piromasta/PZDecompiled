@@ -24,6 +24,8 @@ import zombie.debug.DebugLog;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 import zombie.network.PacketTypes;
+import zombie.network.packets.service.GlobalModDataPacket;
+import zombie.network.packets.service.GlobalModDataRequestPacket;
 import zombie.world.WorldDictionary;
 
 public final class GlobalModData {
@@ -109,42 +111,38 @@ public final class GlobalModData {
    public void transmit(String var1) {
       KahluaTable var2 = this.get(var1);
       if (var2 != null) {
+         GlobalModDataPacket var3;
          if (GameClient.bClient) {
-            ByteBufferWriter var3 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.GlobalModData.doPacket(var3);
-            ByteBuffer var4 = var3.bb;
+            var3 = new GlobalModDataPacket();
+            var3.set(var1, var2);
+            ByteBufferWriter var4 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.GlobalModData.doPacket(var4);
 
             try {
-               GameWindow.WriteString(var4, var1);
-               var4.put((byte)1);
-               var2.save(var4);
-            } catch (Exception var21) {
-               var21.printStackTrace();
-               GameClient.connection.cancelPacket();
-            } finally {
+               var3.write(var4);
                PacketTypes.PacketType.GlobalModData.send(GameClient.connection);
+            } catch (RuntimeException var9) {
+               GameClient.connection.cancelPacket();
             }
          } else if (GameServer.bServer) {
             try {
-               for(int var24 = 0; var24 < GameServer.udpEngine.connections.size(); ++var24) {
-                  UdpConnection var25 = (UdpConnection)GameServer.udpEngine.connections.get(var24);
-                  ByteBufferWriter var5 = var25.startPacket();
-                  PacketTypes.PacketType.GlobalModData.doPacket(var5);
-                  ByteBuffer var6 = var5.bb;
+               var3 = new GlobalModDataPacket();
+               var3.set(var1, var2);
+
+               for(int var11 = 0; var11 < GameServer.udpEngine.connections.size(); ++var11) {
+                  UdpConnection var5 = (UdpConnection)GameServer.udpEngine.connections.get(var11);
+                  ByteBufferWriter var6 = var5.startPacket();
+                  PacketTypes.PacketType.GlobalModData.doPacket(var6);
 
                   try {
-                     GameWindow.WriteString(var6, var1);
-                     var6.put((byte)1);
-                     var2.save(var6);
-                  } catch (Exception var19) {
-                     var19.printStackTrace();
-                     var25.cancelPacket();
-                  } finally {
-                     PacketTypes.PacketType.GlobalModData.send(var25);
+                     var3.write(var6);
+                     PacketTypes.PacketType.GlobalModData.send(var5);
+                  } catch (RuntimeException var8) {
+                     var5.cancelPacket();
                   }
                }
-            } catch (Exception var23) {
-               DebugLog.log(var23.getMessage());
+            } catch (Exception var10) {
+               DebugLog.log(var10.getMessage());
             }
          }
       } else {
@@ -153,36 +151,18 @@ public final class GlobalModData {
 
    }
 
-   public void receive(ByteBuffer var1) {
-      try {
-         String var2 = GameWindow.ReadString(var1);
-         if (var1.get() != 1) {
-            LuaEventManager.triggerEvent("OnReceiveGlobalModData", var2, false);
-            return;
-         }
-
-         KahluaTable var3 = this.createModDataTable();
-         var3.load(var1, 195);
-         LuaEventManager.triggerEvent("OnReceiveGlobalModData", var2, var3);
-      } catch (Exception var4) {
-         var4.printStackTrace();
-      }
-
-   }
-
    public void request(String var1) {
       if (GameClient.bClient) {
-         ByteBufferWriter var2 = GameClient.connection.startPacket();
-         PacketTypes.PacketType.GlobalModDataRequest.doPacket(var2);
-         ByteBuffer var3 = var2.bb;
+         GlobalModDataRequestPacket var2 = new GlobalModDataRequestPacket();
+         var2.set(var1);
+         ByteBufferWriter var3 = GameClient.connection.startPacket();
+         PacketTypes.PacketType.GlobalModDataRequest.doPacket(var3);
 
          try {
-            GameWindow.WriteString(var3, var1);
-         } catch (Exception var8) {
-            var8.printStackTrace();
-            GameClient.connection.cancelPacket();
-         } finally {
+            var2.write(var3);
             PacketTypes.PacketType.GlobalModDataRequest.send(GameClient.connection);
+         } catch (RuntimeException var5) {
+            GameClient.connection.cancelPacket();
          }
       } else {
          DebugLog.log("GlobalModData -> can only request from Client.");
@@ -243,7 +223,7 @@ public final class GlobalModData {
          try {
             DebugLog.log("Saving GlobalModData");
             ByteBuffer var1 = ByteBuffer.allocate(LAST_BLOCK_SIZE == -1 ? 1048576 : LAST_BLOCK_SIZE);
-            var1.putInt(195);
+            var1.putInt(219);
             var1.putInt(this.modData.size());
             int var2 = 0;
             Iterator var3 = this.modData.entrySet().iterator();
@@ -309,7 +289,7 @@ public final class GlobalModData {
                FileInputStream var3 = new FileInputStream(var2);
 
                try {
-                  DebugLog.log("Loading GlobalModData:" + var1);
+                  DebugLog.DetailedInfo.trace("Loading GlobalModData:" + var1);
                   this.modData.clear();
                   ByteBuffer var4 = ByteBuffer.allocate((int)var2.length());
                   var4.clear();

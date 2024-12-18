@@ -15,16 +15,21 @@ import java.util.List;
 import java.util.TreeMap;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoZombie;
+import zombie.characters.ZombiesStageDefinitions;
 import zombie.characters.ZombiesZoneDefinition;
 import zombie.characters.AttachedItems.AttachedWeaponDefinitions;
+import zombie.characters.WornItems.WornItem;
 import zombie.core.Core;
-import zombie.core.Rand;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.random.Rand;
 import zombie.core.skinnedmodel.population.Outfit;
 import zombie.core.skinnedmodel.population.OutfitManager;
 import zombie.core.skinnedmodel.population.OutfitRNG;
 import zombie.core.skinnedmodel.visual.ItemVisual;
 import zombie.core.skinnedmodel.visual.ItemVisuals;
+import zombie.inventory.InventoryItem;
+import zombie.inventory.InventoryItemFactory;
+import zombie.inventory.types.Clothing;
 import zombie.iso.IsoWorld;
 import zombie.iso.SliceY;
 import zombie.network.GameClient;
@@ -175,6 +180,11 @@ public class PersistentOutfits {
    }
 
    public int pickOutfit(String var1, boolean var2) {
+      String var3 = ZombiesStageDefinitions.instance.getAdvancedOutfitName(var1);
+      if (var3 != null) {
+         var1 = var3;
+      }
+
       return var2 ? this.pickOutfitFemale(var1) : this.pickOutfitMale(var1);
    }
 
@@ -389,6 +399,64 @@ public class PersistentOutfits {
                var2.getItemVisuals().remove(var5);
                var3 = true;
             }
+         }
+
+         return var3;
+      }
+   }
+
+   public InventoryItem processFallingHat(IsoGameCharacter var1, boolean var2) {
+      if (instance.isHatFallen(var1)) {
+         return null;
+      } else {
+         InventoryItem var3 = null;
+         IsoZombie var4 = (IsoZombie)Type.tryCastTo(var1, IsoZombie.class);
+         int var5;
+         int var8;
+         if (var4 != null && !var4.isUsingWornItems()) {
+            var4.getItemVisuals(tempItemVisuals);
+
+            for(var5 = 0; var5 < tempItemVisuals.size(); ++var5) {
+               ItemVisual var9 = (ItemVisual)tempItemVisuals.get(var5);
+               Item var10 = var9.getScriptItem();
+               if (var10 != null && var10.getType() == Item.Type.Clothing && var10.getChanceToFall() > 0) {
+                  var8 = var10.getChanceToFall();
+                  if (var2) {
+                     var8 += 40;
+                  }
+
+                  if (Rand.Next(100) <= var8) {
+                     var3 = InventoryItemFactory.CreateItem(var10.getFullName());
+                     if (var3 != null) {
+                        if (var3.getVisual() != null) {
+                           var3.getVisual().copyFrom(var9);
+                           var3.synchWithVisual();
+                        }
+                        break;
+                     }
+                  }
+               }
+            }
+         } else if (var1.getWornItems() != null && !var1.getWornItems().isEmpty()) {
+            for(var5 = 0; var5 < var1.getWornItems().size(); ++var5) {
+               WornItem var6 = var1.getWornItems().get(var5);
+               InventoryItem var7 = var6.getItem();
+               if (var7 instanceof Clothing) {
+                  var8 = ((Clothing)var7).getChanceToFall();
+                  if (var2) {
+                     var8 += 40;
+                  }
+
+                  if (((Clothing)var7).getChanceToFall() > 0 && Rand.Next(100) <= var8) {
+                     var3 = var7;
+                     break;
+                  }
+               }
+            }
+         }
+
+         if (var3 != null) {
+            instance.setFallenHat(var1, true);
          }
 
          return var3;

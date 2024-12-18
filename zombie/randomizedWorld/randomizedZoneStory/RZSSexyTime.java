@@ -2,10 +2,10 @@ package zombie.randomizedWorld.randomizedZoneStory;
 
 import java.util.ArrayList;
 import zombie.characters.IsoZombie;
-import zombie.core.Rand;
+import zombie.core.random.Rand;
 import zombie.iso.IsoChunk;
 import zombie.iso.IsoDirections;
-import zombie.iso.IsoMetaGrid;
+import zombie.iso.zones.Zone;
 import zombie.vehicles.BaseVehicle;
 
 public class RZSSexyTime extends RandomizedZoneStoryBase {
@@ -39,11 +39,12 @@ public class RZSSexyTime extends RandomizedZoneStoryBase {
       this.topItems.add("Base.Tshirt_WhiteTINT");
    }
 
-   public void randomizeZoneStory(IsoMetaGrid.Zone var1) {
+   public void randomizeZoneStory(Zone var1) {
       this.cleanAreaForStory(this, var1);
-      BaseVehicle var2 = this.addVehicle(var1, this.getSq(var1.pickedXForZoneStory, var1.pickedYForZoneStory, var1.z), (IsoChunk)null, (String)null, "Base.VanAmbulance", (Integer)null, (IsoDirections)null, (String)null);
+      BaseVehicle var2 = this.addVehicle(var1, getSq(var1.pickedXForZoneStory, var1.pickedYForZoneStory, var1.z), (IsoChunk)null, (String)null, "Base.VanAmbulance", (Integer)null, (IsoDirections)null, (String)null);
       if (var2 != null) {
          var2.setAlarmed(false);
+         var2.setPreviouslyMoved(true);
       }
 
       boolean var3 = Rand.Next(7) == 0;
@@ -61,7 +62,7 @@ public class RZSSexyTime extends RandomizedZoneStoryBase {
 
    }
 
-   private void addItemsOnGround(IsoMetaGrid.Zone var1, boolean var2, BaseVehicle var3) {
+   private void addItemsOnGround(Zone var1, boolean var2, BaseVehicle var3) {
       byte var4 = 100;
       if (!var2) {
          var4 = 0;

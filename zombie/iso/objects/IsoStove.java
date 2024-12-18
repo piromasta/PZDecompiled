@@ -7,16 +7,19 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import zombie.GameTime;
 import zombie.SoundManager;
-import zombie.SystemDisabler;
 import zombie.audio.BaseSoundEmitter;
-import zombie.core.Rand;
+import zombie.core.ImportantAreaManager;
+import zombie.core.math.PZMath;
 import zombie.core.network.ByteBufferWriter;
 import zombie.core.raknet.UdpConnection;
+import zombie.core.random.Rand;
 import zombie.inventory.InventoryItem;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
+import zombie.iso.fboRenderChunk.FBORenderChunk;
 import zombie.iso.objects.interfaces.Activatable;
 import zombie.iso.sprite.IsoSprite;
 import zombie.iso.sprite.IsoSpriteGrid;
@@ -68,86 +71,83 @@ public class IsoStove extends IsoObject implements Activatable {
 
       boolean var1 = GameServer.bServer || !GameClient.bClient && !GameServer.bServer;
       if (var1 && this.Activated() && this.hasMetal && Rand.Next(Rand.AdjustForFramerate(200)) == 100) {
-         IsoFireManager.StartFire(this.container.SourceGrid.getCell(), this.container.SourceGrid, true, 10000);
-         this.setBroken(true);
-         this.activated = false;
-         this.stopTime = 0.0;
-         this.startTime = 0.0;
          this.secondsTimer = -1;
-      }
-
-      if (!GameServer.bServer) {
-         if (this.Activated()) {
-            if (this.stopTime > 0.0 && this.stopTime < GameTime.instance.getWorldAgeHours()) {
-               if (!this.isMicrowave() && "stove".equals(this.container.getType()) && this.isSpriteGridOriginObject()) {
-                  BaseSoundEmitter var2 = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)((int)this.getZ()));
-                  var2.playSoundImpl("StoveTimerExpired", (IsoObject)this);
-               }
-
-               this.stopTime = 0.0;
-               this.startTime = 0.0;
-               this.secondsTimer = -1;
-            }
-
-            if (this.getMaxTemperature() > 0.0F && this.currentTemperature < this.getMaxTemperature()) {
-               float var3 = (this.getMaxTemperature() - this.currentTemperature) / 700.0F;
-               if (var3 < 0.05F) {
-                  var3 = 0.05F;
-               }
-
-               this.currentTemperature += var3 * GameTime.instance.getMultiplier();
-               if (this.currentTemperature > this.getMaxTemperature()) {
-                  this.currentTemperature = this.getMaxTemperature();
-               }
-            } else if (this.currentTemperature > this.getMaxTemperature()) {
-               this.currentTemperature -= (this.currentTemperature - this.getMaxTemperature()) / 1000.0F * GameTime.instance.getMultiplier();
-               if (this.currentTemperature < 0.0F) {
-                  this.currentTemperature = 0.0F;
-               }
-            }
-         } else if (this.currentTemperature > 0.0F) {
-            this.currentTemperature -= 0.1F * GameTime.instance.getMultiplier();
-            this.currentTemperature = Math.max(this.currentTemperature, 0.0F);
+         if (this.emitter != null && this.soundInstance != -1L) {
+            this.emitter.stopSound(this.soundInstance);
+            this.soundInstance = -1L;
          }
 
-         if (this.container != null && this.isMicrowave()) {
-            if (this.Activated()) {
+         this.setActivated(false);
+         this.setBroken(true);
+         IsoFireManager.StartFire(this.container.SourceGrid.getCell(), this.container.SourceGrid, true, 10000);
+      }
+
+      if (this.Activated()) {
+         if (this.hasMetal || this.stopTime != 0.0 || this.currentTemperature < this.getMaxTemperature() || this.container.getItems().size() > 0) {
+            ImportantAreaManager.getInstance().updateOrAdd((int)this.getX(), (int)this.getY());
+         }
+
+         if (this.stopTime > 0.0 && this.stopTime < GameTime.instance.getWorldAgeHours()) {
+            boolean var2 = this.getContainer() != null && this.getContainer().isStove();
+            if (!this.isMicrowave() && var2 && this.isSpriteGridOriginObject()) {
+               BaseSoundEmitter var3 = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)((int)this.getZ()));
+               var3.playSoundImpl("StoveTimerExpired", (IsoObject)this);
+            }
+
+            this.stopTime = 0.0;
+            this.startTime = 0.0;
+            this.secondsTimer = -1;
+         }
+
+         if (this.getMaxTemperature() > 0.0F && this.currentTemperature < this.getMaxTemperature()) {
+            float var4 = (this.getMaxTemperature() - this.currentTemperature) / 700.0F;
+            if (var4 < 0.05F) {
+               var4 = 0.05F;
+            }
+
+            this.currentTemperature += var4 * GameTime.instance.getMultiplier();
+            if (this.currentTemperature > this.getMaxTemperature()) {
                this.currentTemperature = this.getMaxTemperature();
-            } else {
+            }
+         } else if (this.currentTemperature > this.getMaxTemperature()) {
+            this.currentTemperature -= (this.currentTemperature - this.getMaxTemperature()) / 1000.0F * GameTime.instance.getMultiplier();
+            if (this.currentTemperature < 0.0F) {
                this.currentTemperature = 0.0F;
             }
          }
-
-         if (this.isSpriteGridOriginObject() && this.emitter != null) {
-            if (this.Activated() && this.secondsTimer > 0) {
-               if (!this.emitter.isPlaying("StoveTimer")) {
-                  this.emitter.playSoundImpl("StoveTimer", (IsoObject)this);
-               }
-            } else if (this.emitter.isPlaying("StoveTimer")) {
-               this.emitter.stopSoundByName("StoveTimer");
-            }
-         }
-
+      } else if (this.currentTemperature > 0.0F) {
+         this.currentTemperature -= 0.1F * GameTime.instance.getMultiplier();
+         this.currentTemperature = Math.max(this.currentTemperature, 0.0F);
       }
+
+      if (this.container != null && this.isMicrowave()) {
+         if (this.Activated()) {
+            this.currentTemperature = this.getMaxTemperature();
+         } else {
+            this.currentTemperature = 0.0F;
+         }
+      }
+
+      if (this.isSpriteGridOriginObject() && this.emitter != null) {
+         if (this.Activated() && this.secondsTimer > 0) {
+            if (!this.emitter.isPlaying("StoveTimer")) {
+               this.emitter.playSoundImpl("StoveTimer", (IsoObject)this);
+            }
+         } else if (this.emitter.isPlaying("StoveTimer")) {
+            this.emitter.stopSoundByName("StoveTimer");
+         }
+      }
+
+      this.checkLightSourceActive();
    }
 
    public void load(ByteBuffer var1, int var2, boolean var3) throws IOException {
       super.load(var1, var2, var3);
-      if (var2 >= 28) {
-         this.activated = var1.get() == 1;
-      }
-
-      if (var2 >= 106) {
-         this.secondsTimer = var1.getInt();
-         this.maxTemperature = var1.getFloat();
-         this.firstTurnOn = var1.get() == 1;
-         this.broken = var1.get() == 1;
-      }
-
-      if (SystemDisabler.doObjectStateSyncEnable && GameClient.bClient) {
-         GameClient.instance.objectSyncReq.putRequestLoad(this.square);
-      }
-
+      this.activated = var1.get() == 1;
+      this.secondsTimer = var1.getInt();
+      this.maxTemperature = var1.getFloat();
+      this.firstTurnOn = var1.get() == 1;
+      this.broken = var1.get() == 1;
    }
 
    public void save(ByteBuffer var1, boolean var2) throws IOException {
@@ -165,16 +165,18 @@ public class IsoStove extends IsoObject implements Activatable {
          var1.addToProcessIsoObject(this);
          this.container.addItemsToProcessItems();
          this.setActivated(this.activated);
+         this.addLightSourceToWorld();
       }
    }
 
    public void Toggle() {
-      SoundManager.instance.PlayWorldSound(this.isMicrowave() ? "ToggleMicrowave" : "ToggleStove", this.getSquare(), 1.0F, 1.0F, 1.0F, false);
       this.setActivated(!this.activated);
       this.container.addItemsToProcessItems();
       IsoGenerator.updateGenerator(this.square);
-      this.syncIsoObject(false, (byte)(this.activated ? 1 : 0), (UdpConnection)null, (ByteBuffer)null);
-      this.syncSpriteGridObjects(true, true);
+   }
+
+   public void PlayToggleSound() {
+      SoundManager.instance.PlayWorldSound(this.isMicrowave() ? "ToggleMicrowave" : "ToggleStove", this.getSquare(), 1.0F, 1.0F, 1.0F, false);
    }
 
    public void sync() {
@@ -185,6 +187,7 @@ public class IsoStove extends IsoObject implements Activatable {
       if (GameServer.bServer) {
          this.hasMetal();
       } else if (this.isSpriteGridOriginObject()) {
+         boolean var1 = this.getContainer() != null && this.getContainer().isStove();
          if (this.isMicrowave()) {
             if (this.activated) {
                if (this.emitter != null) {
@@ -195,7 +198,7 @@ public class IsoStove extends IsoObject implements Activatable {
                   this.emitter.stopSoundByName("StoveTimer");
                }
 
-               this.emitter = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)((int)this.getZ()));
+               this.emitter = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)PZMath.fastfloor(this.getZ()));
                IsoWorld.instance.setEmitterOwner(this.emitter, this);
                if (this.hasMetal()) {
                   this.soundInstance = this.emitter.playSoundLoopedImpl("MicrowaveCookingMetal");
@@ -211,11 +214,11 @@ public class IsoStove extends IsoObject implements Activatable {
 
                this.soundInstance = -1L;
                if (this.container != null && this.container.isPowered()) {
-                  BaseSoundEmitter var1 = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)((int)this.getZ()));
-                  var1.playSoundImpl("MicrowaveTimerExpired", (IsoObject)this);
+                  BaseSoundEmitter var2 = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)PZMath.fastfloor(this.getZ()));
+                  var2.playSoundImpl("MicrowaveTimerExpired", (IsoObject)this);
                }
             }
-         } else if (this.getContainer() != null && "stove".equals(this.container.getType())) {
+         } else if (this.getContainer() != null && var1) {
             if (this.Activated()) {
                if (this.emitter == null) {
                   this.emitter = IsoWorld.instance.getFreeEmitter(this.getX() + 0.5F, this.getY() + 0.5F, (float)((int)this.getZ()));
@@ -278,9 +281,9 @@ public class IsoStove extends IsoObject implements Activatable {
          var10000.println("ERROR: " + var10001 + " not found on square " + this.square.getX() + "," + this.square.getY() + "," + this.square.getZ());
       } else {
          if (GameClient.bClient && !var1) {
-            ByteBufferWriter var9 = GameClient.connection.startPacket();
-            PacketTypes.PacketType.SyncIsoObject.doPacket(var9);
-            this.syncIsoObjectSend(var9);
+            ByteBufferWriter var8 = GameClient.connection.startPacket();
+            PacketTypes.PacketType.SyncIsoObject.doPacket(var8);
+            this.syncIsoObjectSend(var8);
             PacketTypes.PacketType.SyncIsoObject.send(GameClient.connection);
          } else if (var1) {
             boolean var5 = var2 == 1;
@@ -288,27 +291,27 @@ public class IsoStove extends IsoObject implements Activatable {
             this.maxTemperature = var4.getFloat();
             this.setActivated(var5);
             this.container.addItemsToProcessItems();
-            if (GameServer.bServer) {
-               Iterator var6 = GameServer.udpEngine.connections.iterator();
-
-               while(true) {
-                  UdpConnection var7;
-                  do {
-                     if (!var6.hasNext()) {
-                        return;
-                     }
-
-                     var7 = (UdpConnection)var6.next();
-                  } while(var3 != null && var7.getConnectedGUID() == var3.getConnectedGUID());
-
-                  ByteBufferWriter var8 = var7.startPacket();
-                  PacketTypes.PacketType.SyncIsoObject.doPacket(var8);
-                  this.syncIsoObjectSend(var8);
-                  PacketTypes.PacketType.SyncIsoObject.send(var7);
-               }
-            }
          }
 
+         if (GameServer.bServer) {
+            Iterator var9 = GameServer.udpEngine.connections.iterator();
+
+            while(true) {
+               UdpConnection var6;
+               do {
+                  if (!var9.hasNext()) {
+                     return;
+                  }
+
+                  var6 = (UdpConnection)var9.next();
+               } while(var3 != null && var6.getConnectedGUID() == var3.getConnectedGUID());
+
+               ByteBufferWriter var7 = var6.startPacket();
+               PacketTypes.PacketType.SyncIsoObject.doPacket(var7);
+               this.syncIsoObjectSend(var7);
+               PacketTypes.PacketType.SyncIsoObject.send(var6);
+            }
+         }
       }
    }
 
@@ -316,11 +319,12 @@ public class IsoStove extends IsoObject implements Activatable {
       if (!this.isBroken()) {
          this.activated = var1;
          if (this.firstTurnOn && this.getMaxTemperature() == 0.0F) {
+            boolean var2 = this.getContainer() != null && this.getContainer().isStove();
             if (this.isMicrowave() && this.secondsTimer < 0) {
                this.maxTemperature = 100.0F;
             }
 
-            if ("stove".equals(this.getContainer().getType()) && this.secondsTimer < 0) {
+            if (var2 && this.secondsTimer < 0) {
                this.maxTemperature = 200.0F;
             }
          }
@@ -345,7 +349,15 @@ public class IsoStove extends IsoObject implements Activatable {
          }
 
          this.doSound();
-         this.doOverlay();
+         if (this.getOnOverlay() != null) {
+            this.invalidateRenderChunkLevel(FBORenderChunk.DIRTY_OBJECT_MODIFY);
+         }
+
+         if (GameServer.bServer) {
+            this.sync();
+            this.syncSpriteGridObjects(true, true);
+         }
+
       }
    }
 
@@ -434,7 +446,6 @@ public class IsoStove extends IsoObject implements Activatable {
             var4.startTime = this.startTime;
             var4.stopTime = this.stopTime;
             var4.hasMetal = this.hasMetal;
-            var4.doOverlay();
             var4.doSound();
             if (var1) {
                if (var4.container != null) {
@@ -450,5 +461,18 @@ public class IsoStove extends IsoObject implements Activatable {
          }
       }
 
+   }
+
+   public boolean shouldShowOnOverlay() {
+      if (!this.Activated()) {
+         return false;
+      } else {
+         int var1 = IsoCamera.frameState.playerIndex;
+         return this.getSquare() != null && this.getSquare().isSeen(var1);
+      }
+   }
+
+   protected boolean shouldLightSourceBeActive() {
+      return this.Activated();
    }
 }

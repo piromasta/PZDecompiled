@@ -19,6 +19,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import se.krka.kahlua.vm.KahluaTable;
 import zombie.ZomboidFileSystem;
+import zombie.core.Core;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.textures.PNGDecoder;
 
@@ -551,74 +552,121 @@ public class SteamWorkshopItem {
 
       try {
          DirectoryStream var3;
-         String var7;
-         label90: {
-            label83: {
-               var3 = Files.newDirectoryStream(var1);
+         label122: {
+            String var8;
+            label123: {
+               String var9;
+               label124: {
+                  label125: {
+                     var3 = Files.newDirectoryStream(var1);
 
-               try {
-                  Iterator var4 = var3.iterator();
+                     String var10;
+                     try {
+                        Iterator var4 = var3.iterator();
 
-                  while(true) {
-                     if (!var4.hasNext()) {
-                        break label83;
-                     }
+                        while(true) {
+                           if (!var4.hasNext()) {
+                              break label122;
+                           }
 
-                     Path var5 = (Path)var4.next();
-                     String var6;
-                     if (Files.isDirectory(var5, new LinkOption[0])) {
-                        if ("media".equals(var5.getFileName().toString())) {
-                           var6 = this.validateMediaFolder(var5);
-                           if (var6 != null) {
-                              var7 = var6;
-                              break;
+                           Path var5 = (Path)var4.next();
+                           if (Files.isDirectory(var5, new LinkOption[0])) {
+                              Path var15;
+                              if ("common".equals(var5.getFileName().toString())) {
+                                 Path var6 = var5.resolve("media");
+                                 if (Files.exists(var6, new LinkOption[0])) {
+                                    String var7 = this.validateMediaFolder(var6);
+                                    if (var7 != null) {
+                                       var8 = var7;
+                                       break label123;
+                                    }
+                                 }
+
+                                 var15 = var5.resolve("mod.info");
+                                 if (Files.exists(var15, new LinkOption[0])) {
+                                    var8 = this.validateModDotInfo(var15);
+                                    if (var8 != null) {
+                                       var9 = var8;
+                                       break label124;
+                                    }
+
+                                    var2 = true;
+                                 }
+                              } else {
+                                 Integer var14 = ZomboidFileSystem.instance.getGameVersionIntFromName(var5.getFileName().toString());
+                                 if (var14 != null && var14 >= 42000 && var14 <= Core.getInstance().getGameVersion().getInt()) {
+                                    var15 = var5.resolve("media");
+                                    if (Files.exists(var15, new LinkOption[0])) {
+                                       var8 = this.validateMediaFolder(var15);
+                                       if (var8 != null) {
+                                          var9 = var8;
+                                          break label125;
+                                       }
+                                    }
+
+                                    Path var16 = var5.resolve("mod.info");
+                                    if (Files.exists(var16, new LinkOption[0])) {
+                                       var9 = this.validateModDotInfo(var16);
+                                       if (var9 != null) {
+                                          var10 = var9;
+                                          break;
+                                       }
+
+                                       var2 = true;
+                                    }
+                                 }
+                              }
                            }
                         }
-                     } else if ("mod.info".equals(var5.getFileName().toString())) {
-                        var6 = this.validateModDotInfo(var5);
-                        if (var6 != null) {
-                           var7 = var6;
-                           break label90;
+                     } catch (Throwable var12) {
+                        if (var3 != null) {
+                           try {
+                              var3.close();
+                           } catch (Throwable var11) {
+                              var12.addSuppressed(var11);
+                           }
                         }
 
-                        var2 = true;
+                        throw var12;
                      }
-                  }
-               } catch (Throwable var9) {
-                  if (var3 != null) {
-                     try {
+
+                     if (var3 != null) {
                         var3.close();
-                     } catch (Throwable var8) {
-                        var9.addSuppressed(var8);
                      }
+
+                     return var10;
                   }
 
-                  throw var9;
+                  if (var3 != null) {
+                     var3.close();
+                  }
+
+                  return var9;
                }
 
                if (var3 != null) {
                   var3.close();
                }
 
-               return var7;
+               return var9;
             }
 
             if (var3 != null) {
                var3.close();
             }
 
-            return !var2 ? "MissingModDotInfo" : null;
+            return var8;
          }
 
          if (var3 != null) {
             var3.close();
          }
-
-         return var7;
-      } catch (Exception var10) {
-         var10.printStackTrace();
+      } catch (Exception var13) {
+         var13.printStackTrace();
          return "IOError";
       }
+
+      return !var2 ? "MissingModDotInfo" : null;
    }
 
    private String validateModsFolder(Path var1) {

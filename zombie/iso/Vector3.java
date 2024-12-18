@@ -1,8 +1,5 @@
 package zombie.iso;
 
-import java.awt.Dimension;
-import java.awt.Point;
-
 public final class Vector3 implements Cloneable {
    public float x;
    public float y;
@@ -24,10 +21,6 @@ public final class Vector3 implements Cloneable {
       this.x = var1;
       this.y = var2;
       this.z = var3;
-   }
-
-   public static Vector2 fromAwtPoint(Point var0) {
-      return new Vector2((float)var0.x, (float)var0.y);
    }
 
    public static Vector2 fromLengthDirection(float var0, float var1) {
@@ -95,6 +88,10 @@ public final class Vector3 implements Cloneable {
       return (float)Math.sqrt(Math.pow((double)(var1.x - this.x), 2.0) + Math.pow((double)(var1.y - this.y), 2.0));
    }
 
+   public float distanceTo(Vector3 var1) {
+      return (float)Math.sqrt(Math.pow((double)(var1.x - this.x), 2.0) + Math.pow((double)(var1.y - this.y), 2.0) + Math.pow((double)(var1.z - this.z), 2.0));
+   }
+
    public float dot(Vector2 var1) {
       return this.x * var1.x + this.y * var1.y;
    }
@@ -104,10 +101,10 @@ public final class Vector3 implements Cloneable {
    }
 
    public boolean equals(Object var1) {
-      if (!(var1 instanceof Vector2 var2)) {
+      if (!(var1 instanceof Vector3 var2)) {
          return false;
       } else {
-         return var2.x == this.x && var2.y == this.y;
+         return var2.x == this.x && var2.y == this.y && var2.z == this.z;
       }
    }
 
@@ -170,14 +167,6 @@ public final class Vector3 implements Cloneable {
       this.x = (float)(Math.cos((double)var1) * (double)var2);
       this.y = (float)(Math.sin((double)var1) * (double)var2);
       return this;
-   }
-
-   public Dimension toAwtDimension() {
-      return new Dimension((int)this.x, (int)this.y);
-   }
-
-   public Point toAwtPoint() {
-      return new Point((int)this.x, (int)this.y);
    }
 
    public String toString() {

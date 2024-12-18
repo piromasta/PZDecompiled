@@ -158,6 +158,70 @@ public class Bits {
       }
    }
 
+   public static byte removeFlags(byte var0, int var1) {
+      if (var1 >= 0 && var1 <= 64) {
+         return (byte)(var0 & ~var1);
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding byte bounds or negative number flags. (" + var1 + ")");
+      }
+   }
+
+   public static byte removeFlags(byte var0, long var1) {
+      if (var1 >= 0L && var1 <= 64L) {
+         return (byte)((int)((long)var0 & ~var1));
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding byte bounds or negative number flags. (" + var1 + ")");
+      }
+   }
+
+   public static short removeFlags(short var0, int var1) {
+      if (var1 >= 0 && var1 <= 16384) {
+         return (short)(var0 & ~var1);
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding short bounds or negative number flags. (" + var1 + ")");
+      }
+   }
+
+   public static short removeFlags(short var0, long var1) {
+      if (var1 >= 0L && var1 <= 16384L) {
+         return (short)((int)((long)var0 & ~var1));
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding short bounds or negative number flags. (" + var1 + ")");
+      }
+   }
+
+   public static int removeFlags(int var0, int var1) {
+      if (var1 >= 0 && var1 <= 1073741824) {
+         return var0 & ~var1;
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding short bounds or negative number flags. (" + var1 + ")");
+      }
+   }
+
+   public static int removeFlags(int var0, long var1) {
+      if (var1 >= 0L && var1 <= 1073741824L) {
+         return (int)((long)var0 & ~var1);
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding integer bounds or negative number flags. (" + var1 + ")");
+      }
+   }
+
+   public static long removeFlags(long var0, int var2) {
+      if (var2 >= 0 && (long)var2 <= 4611686018427387904L) {
+         return var0 & (long)(~var2);
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding long bounds or negative number flags. (" + var2 + ")");
+      }
+   }
+
+   public static long removeFlags(long var0, long var2) {
+      if (var2 >= 0L && var2 <= 4611686018427387904L) {
+         return var0 & ~var2;
+      } else {
+         throw new RuntimeException("Cannot remove flags, exceeding long bounds or negative number flags. (" + var2 + ")");
+      }
+   }
+
    public static boolean hasFlags(byte var0, int var1) {
       return checkFlags(var0, var1, 64, Bits.CompareOption.ContainsAll);
    }

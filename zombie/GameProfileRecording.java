@@ -188,8 +188,8 @@ public final class GameProfileRecording extends GenericNameValueRecordingFrame {
 
    }
 
-   protected void writeHeader() {
-      super.writeHeader();
+   protected void writeHeaderToMemory() {
+      super.writeHeaderToMemory();
       this.m_outHeader.println();
       this.m_outHeader.println("Segmentation Info");
       this.m_outHeader.println("FirstFrame," + this.m_firstFrameNo);

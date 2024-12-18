@@ -1,6 +1,7 @@
 package zombie.scripting.objects;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
@@ -13,9 +14,10 @@ import zombie.debug.DebugLog;
 import zombie.network.GameServer;
 import zombie.scripting.ScriptManager;
 import zombie.scripting.ScriptParser;
+import zombie.scripting.ScriptType;
 import zombie.util.StringUtils;
 
-public final class ModelScript extends BaseScriptObject {
+public final class ModelScript extends BaseScriptObject implements IModelAttachmentOwner {
    public static final String DEFAULT_SHADER_NAME = "basicEffect";
    public String fileName;
    public String name;
@@ -25,36 +27,45 @@ public final class ModelScript extends BaseScriptObject {
    public boolean bStatic = true;
    public float scale = 1.0F;
    public final ArrayList<ModelAttachment> m_attachments = new ArrayList();
+   public HashMap<String, ModelAttachment> m_attachmentById = new HashMap();
    public boolean invertX = false;
+   public String postProcess = null;
    public Model loadedModel;
    public final ArrayList<AnimBoneWeight> boneWeights = new ArrayList();
    public String animationsMesh = null;
    private static final HashSet<String> reported = new HashSet();
 
    public ModelScript() {
+      super(ScriptType.Model);
    }
 
-   public void Load(String var1, String var2) {
-      ScriptManager var3 = ScriptManager.instance;
-      this.fileName = var3.currentFileName;
+   public void InitLoadPP(String var1) {
+      super.InitLoadPP(var1);
+      ScriptManager var2 = ScriptManager.instance;
+      this.fileName = var2.currentFileName;
       this.name = var1;
-      ScriptParser.Block var4 = ScriptParser.parse(var2);
-      var4 = (ScriptParser.Block)var4.children.get(0);
-      Iterator var5 = var4.children.iterator();
+   }
 
-      while(var5.hasNext()) {
-         ScriptParser.Block var6 = (ScriptParser.Block)var5.next();
-         if ("attachment".equals(var6.type)) {
-            this.LoadAttachment(var6);
+   public void Load(String var1, String var2) throws Exception {
+      ScriptParser.Block var3 = ScriptParser.parse(var2);
+      var3 = (ScriptParser.Block)var3.children.get(0);
+      super.LoadCommonBlock(var3);
+      Iterator var4 = var3.children.iterator();
+
+      while(var4.hasNext()) {
+         ScriptParser.Block var5 = (ScriptParser.Block)var4.next();
+         if ("attachment".equals(var5.type)) {
+            this.LoadAttachment(var5);
          }
       }
 
-      var5 = var4.values.iterator();
+      boolean var11 = false;
+      Iterator var12 = var3.values.iterator();
 
-      while(var5.hasNext()) {
-         ScriptParser.Value var11 = (ScriptParser.Value)var5.next();
-         String var7 = var11.getKey().trim();
-         String var8 = var11.getValue().trim();
+      while(var12.hasNext()) {
+         ScriptParser.Value var6 = (ScriptParser.Value)var12.next();
+         String var7 = var6.getKey().trim();
+         String var8 = var6.getValue().trim();
          if ("mesh".equalsIgnoreCase(var7)) {
             this.meshName = var8;
          } else if ("scale".equalsIgnoreCase(var7)) {
@@ -67,6 +78,10 @@ public final class ModelScript extends BaseScriptObject {
             this.textureName = var8;
          } else if ("invertX".equalsIgnoreCase(var7)) {
             this.invertX = Boolean.parseBoolean(var8);
+         } else if ("postProcess".equalsIgnoreCase(var7)) {
+            this.postProcess = var8;
+         } else if ("undoCoreScale".equalsIgnoreCase(var7)) {
+            var11 = Boolean.parseBoolean(var8);
          } else if ("boneWeight".equalsIgnoreCase(var7)) {
             String[] var9 = var8.split("\\s+");
             if (var9.length == 2) {
@@ -79,13 +94,19 @@ public final class ModelScript extends BaseScriptObject {
          }
       }
 
+      if (var11) {
+         this.scale *= 0.6666667F;
+      }
+
    }
 
    private ModelAttachment LoadAttachment(ScriptParser.Block var1) {
       ModelAttachment var2 = this.getAttachmentById(var1.id);
       if (var2 == null) {
          var2 = new ModelAttachment(var1.id);
+         var2.setOwner(this);
          this.m_attachments.add(var2);
+         this.m_attachmentById.put(var2.getId(), var2);
       }
 
       Iterator var3 = var1.values.iterator();
@@ -100,6 +121,8 @@ public final class ModelScript extends BaseScriptObject {
             this.LoadVector3f(var6, var2.getOffset());
          } else if ("rotate".equals(var5)) {
             this.LoadVector3f(var6, var2.getRotate());
+         } else if ("scale".equals(var5)) {
+            var2.setScale(PZMath.tryParseFloat(var6, 1.0F));
          }
       }
 
@@ -116,7 +139,7 @@ public final class ModelScript extends BaseScriptObject {
    }
 
    public String getFullType() {
-      return this.module.name + "." + this.name;
+      return this.getModule().name + "." + this.name;
    }
 
    public String getMeshName() {
@@ -148,33 +171,55 @@ public final class ModelScript extends BaseScriptObject {
    }
 
    public ModelAttachment getAttachmentById(String var1) {
-      for(int var2 = 0; var2 < this.m_attachments.size(); ++var2) {
-         ModelAttachment var3 = (ModelAttachment)this.m_attachments.get(var2);
-         if (var3.getId().equals(var1)) {
-            return var3;
-         }
-      }
-
-      return null;
+      return (ModelAttachment)this.m_attachmentById.get(var1);
    }
 
    public ModelAttachment addAttachment(ModelAttachment var1) {
+      var1.setOwner(this);
       this.m_attachments.add(var1);
+      this.m_attachmentById.put(var1.getId(), var1);
       return var1;
    }
 
    public ModelAttachment removeAttachment(ModelAttachment var1) {
+      var1.setOwner((IModelAttachmentOwner)null);
       this.m_attachments.remove(var1);
+      this.m_attachmentById.remove(var1.getId());
       return var1;
    }
 
    public ModelAttachment addAttachmentAt(int var1, ModelAttachment var2) {
+      var2.setOwner(this);
       this.m_attachments.add(var1, var2);
+      this.m_attachmentById.put(var2.getId(), var2);
       return var2;
    }
 
    public ModelAttachment removeAttachment(int var1) {
-      return (ModelAttachment)this.m_attachments.remove(var1);
+      ModelAttachment var2 = (ModelAttachment)this.m_attachments.remove(var1);
+      this.m_attachmentById.remove(var2.getId());
+      var2.setOwner((IModelAttachmentOwner)null);
+      return var2;
+   }
+
+   public void scaleAttachmentOffset(float var1) {
+      for(int var2 = 0; var2 < this.getAttachmentCount(); ++var2) {
+         ModelAttachment var3 = this.getAttachment(var2);
+         var3.getOffset().mul(var1);
+      }
+
+   }
+
+   public void beforeRenameAttachment(ModelAttachment var1) {
+      this.m_attachmentById.remove(var1.getId());
+   }
+
+   public void afterRenameAttachment(ModelAttachment var1) {
+      this.m_attachmentById.put(var1.getId(), var1);
+   }
+
+   public boolean isStatic() {
+      return this.bStatic;
    }
 
    public void reset() {
@@ -245,19 +290,39 @@ public final class ModelScript extends BaseScriptObject {
          check(var2.getFullName(), var2.getStaticModel());
          check(var2.getFullName(), var2.getWeaponSprite());
          check(var2.getFullName(), var2.worldStaticModel, var2.getClothingItem());
-      }
+         if (var2.getType() == Item.Type.Food) {
+            String var3 = var2.getStaticModel();
+            if (!StringUtils.isNullOrWhitespace(var3)) {
+               ModelScript var4 = ScriptManager.instance.getModelScript(var3);
+               if (var4 != null && var4.getAttachmentCount() != 0) {
+                  ModelScript var5 = ScriptManager.instance.getModelScript(var3 + "Burnt");
+                  if (var5 != null) {
+                     checkTexture(var5.getName(), var5.textureName);
+                  }
 
-      ArrayList var4 = ScriptManager.instance.getAllRecipes();
-      Iterator var5 = var4.iterator();
+                  if (var5 != null && var5.getAttachmentCount() != var4.getAttachmentCount()) {
+                     DebugLog.Script.warn("different number of attachments on %s and %s", var4.name, var5.name);
+                  }
 
-      while(var5.hasNext()) {
-         Recipe var3 = (Recipe)var5.next();
-         if (var3.getProp1() != null && !var3.getProp1().startsWith("Source=")) {
-            check(var3.getFullType(), var3.getProp1());
-         }
+                  var5 = ScriptManager.instance.getModelScript(var3 + "Cooked");
+                  if (var5 != null) {
+                     checkTexture(var5.getName(), var5.textureName);
+                  }
 
-         if (var3.getProp2() != null && !var3.getProp2().startsWith("Source=")) {
-            check(var3.getFullType(), var3.getProp2());
+                  if (var5 != null && var5.getAttachmentCount() != var4.getAttachmentCount()) {
+                     DebugLog.Script.warn("different number of attachments on %s and %s", var4.name, var5.name);
+                  }
+
+                  var5 = ScriptManager.instance.getModelScript(var3 + "Rotten");
+                  if (var5 != null) {
+                     checkTexture(var5.getName(), var5.textureName);
+                  }
+
+                  if (var5 != null && var5.getAttachmentCount() != var4.getAttachmentCount()) {
+                     DebugLog.Script.warn("different number of attachments on %s and %s", var4.name, var5.name);
+                  }
+               }
+            }
          }
       }
 

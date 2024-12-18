@@ -167,7 +167,7 @@ public class ServerGUI {
          } else {
             IsoPlayer.setInstance(var3);
             IsoPlayer.players[var2] = var3;
-            IsoCamera.CamCharacter = var3;
+            IsoCamera.setCameraCharacter(var3);
             Core.getInstance().StartFrame(var2, true);
             renderWorld();
             Core.getInstance().EndFrame(var2);
@@ -198,8 +198,8 @@ public class ServerGUI {
    private static void updateCamera(IsoPlayer var0) {
       byte var2 = 0;
       PlayerCamera var3 = IsoCamera.cameras[var2];
-      float var4 = IsoUtils.XToScreen(var0.x + var3.DeferedX, var0.y + var3.DeferedY, var0.z, 0);
-      float var5 = IsoUtils.YToScreen(var0.x + var3.DeferedX, var0.y + var3.DeferedY, var0.z, 0);
+      float var4 = IsoUtils.XToScreen(var0.getX() + var3.DeferedX, var0.getY() + var3.DeferedY, var0.getZ(), 0);
+      float var5 = IsoUtils.YToScreen(var0.getX() + var3.DeferedX, var0.getY() + var3.DeferedY, var0.getZ(), 0);
       var4 -= (float)(IsoCamera.getOffscreenWidth(var2) / 2);
       var5 -= (float)(IsoCamera.getOffscreenHeight(var2) / 2);
       var5 -= var0.getOffsetY() * 1.5F;
@@ -207,19 +207,20 @@ public class ServerGUI {
       var5 += (float)IsoCamera.PLAYER_OFFSET_Y;
       var3.OffX = var4;
       var3.OffY = var5;
-      IsoCamera.FrameState var6 = IsoCamera.frameState;
-      var6.Paused = false;
-      var6.playerIndex = var2;
-      var6.CamCharacter = var0;
-      var6.CamCharacterX = IsoCamera.CamCharacter.getX();
-      var6.CamCharacterY = IsoCamera.CamCharacter.getY();
-      var6.CamCharacterZ = IsoCamera.CamCharacter.getZ();
-      var6.CamCharacterSquare = IsoCamera.CamCharacter.getCurrentSquare();
-      var6.CamCharacterRoom = var6.CamCharacterSquare == null ? null : var6.CamCharacterSquare.getRoom();
-      var6.OffX = IsoCamera.getOffX();
-      var6.OffY = IsoCamera.getOffY();
-      var6.OffscreenWidth = IsoCamera.getOffscreenWidth(var2);
-      var6.OffscreenHeight = IsoCamera.getOffscreenHeight(var2);
+      IsoGameCharacter var6 = IsoCamera.getCameraCharacter();
+      IsoCamera.FrameState var7 = IsoCamera.frameState;
+      var7.Paused = false;
+      var7.playerIndex = var2;
+      var7.CamCharacter = var0;
+      var7.CamCharacterX = var6.getX();
+      var7.CamCharacterY = var6.getY();
+      var7.CamCharacterZ = var6.getZ();
+      var7.CamCharacterSquare = var6.getCurrentSquare();
+      var7.CamCharacterRoom = var7.CamCharacterSquare == null ? null : var7.CamCharacterSquare.getRoom();
+      var7.OffX = IsoCamera.getOffX();
+      var7.OffY = IsoCamera.getOffY();
+      var7.OffscreenWidth = IsoCamera.getOffscreenWidth(var2);
+      var7.OffscreenHeight = IsoCamera.getOffscreenHeight(var2);
    }
 
    private static void renderWorld() {
@@ -228,12 +229,13 @@ public class ServerGUI {
          byte var1 = 0;
          IsoPlayer.setInstance(var0);
          IsoPlayer.players[0] = var0;
-         IsoCamera.CamCharacter = var0;
+         IsoCamera.setCameraCharacter(var0);
          updateCamera(var0);
-         SpriteRenderer.instance.doCoreIntParam(0, IsoCamera.CamCharacter.x);
-         SpriteRenderer.instance.doCoreIntParam(1, IsoCamera.CamCharacter.y);
-         SpriteRenderer.instance.doCoreIntParam(2, IsoCamera.CamCharacter.z);
+         SpriteRenderer.instance.doCoreIntParam(0, var0.getX());
+         SpriteRenderer.instance.doCoreIntParam(1, var0.getY());
+         SpriteRenderer.instance.doCoreIntParam(2, var0.getZ());
          IsoWorld.instance.sceneCullZombies();
+         IsoWorld.instance.sceneCullAnimals();
          IsoSprite.globalOffsetX = -1.0F;
          byte var2 = 0;
          byte var3 = 0;
@@ -288,49 +290,43 @@ public class ServerGUI {
       }
 
       var1.setSize(maxX - minX + 1, maxY - minY + 1);
-      short[][][] var2 = var1.StencilValues;
 
-      for(int var3 = 0; var3 <= maxZ; ++var3) {
+      for(int var2 = 0; var2 <= maxZ; ++var2) {
          GridStack.clear();
 
-         int var4;
-         int var7;
-         label104:
-         for(var4 = minY; var4 < maxY; ++var4) {
-            int var5 = minX;
-            IsoGridSquare var6 = ServerMap.instance.getGridSquare(var5, var4, var3);
-            var7 = IsoDirections.E.index();
+         int var3;
+         int var6;
+         label100:
+         for(var3 = minY; var3 < maxY; ++var3) {
+            int var4 = minX;
+            IsoGridSquare var5 = ServerMap.instance.getGridSquare(var4, var3, var2);
+            var6 = IsoDirections.E.index();
 
             while(true) {
                while(true) {
-                  if (var5 >= maxX) {
-                     continue label104;
+                  if (var4 >= maxX) {
+                     continue label100;
                   }
 
-                  if (var3 == 0) {
-                     var2[var5 - minX][var4 - minY][0] = 0;
-                     var2[var5 - minX][var4 - minY][1] = 0;
+                  if (var5 != null && var5.getY() != var3) {
+                     var5 = null;
                   }
 
-                  if (var6 != null && var6.getY() != var4) {
-                     var6 = null;
-                  }
-
-                  if (var6 == null) {
-                     var6 = ServerMap.instance.getGridSquare(var5, var4, var3);
-                     if (var6 == null) {
-                        ++var5;
+                  if (var5 == null) {
+                     var5 = ServerMap.instance.getGridSquare(var4, var3, var2);
+                     if (var5 == null) {
+                        ++var4;
                         continue;
                      }
                   }
 
-                  IsoChunk var8 = var6.getChunk();
-                  if (var8 != null && var6.IsOnScreen()) {
-                     GridStack.add(var6);
+                  IsoChunk var7 = var5.getChunk();
+                  if (var7 != null && var5.IsOnScreen()) {
+                     GridStack.add(var5);
                   }
 
-                  var6 = var6.nav[var7];
-                  ++var5;
+                  var5 = var5.nav[var6];
+                  ++var4;
                }
             }
          }
@@ -339,56 +335,56 @@ public class ServerGUI {
          VegetationCorpses.clear();
          MinusFloorCharacters.clear();
 
-         IsoGridSquare var11;
-         for(var4 = 0; var4 < GridStack.size(); ++var4) {
-            var11 = (IsoGridSquare)GridStack.get(var4);
-            var11.setLightInfoServerGUIOnly(defColorInfo);
-            int var12 = renderFloor(var11);
-            if (!var11.getStaticMovingObjects().isEmpty()) {
-               var12 |= 2;
+         IsoGridSquare var10;
+         for(var3 = 0; var3 < GridStack.size(); ++var3) {
+            var10 = (IsoGridSquare)GridStack.get(var3);
+            var10.setLightInfoServerGUIOnly(defColorInfo);
+            int var11 = renderFloor(var10);
+            if (!var10.getStaticMovingObjects().isEmpty()) {
+               var11 |= 2;
             }
 
-            for(var7 = 0; var7 < var11.getMovingObjects().size(); ++var7) {
-               IsoMovingObject var13 = (IsoMovingObject)var11.getMovingObjects().get(var7);
-               boolean var9 = var13.isOnFloor();
-               if (var9 && var13 instanceof IsoZombie var10) {
-                  var9 = var10.bCrawling || var10.legsSprite.CurrentAnim != null && var10.legsSprite.CurrentAnim.name.equals("ZombieDeath") && var10.def.isFinished();
+            for(var6 = 0; var6 < var10.getMovingObjects().size(); ++var6) {
+               IsoMovingObject var12 = (IsoMovingObject)var10.getMovingObjects().get(var6);
+               boolean var8 = var12.isOnFloor();
+               if (var8 && var12 instanceof IsoZombie var9) {
+                  var8 = var9.bCrawling || var9.legsSprite.CurrentAnim != null && var9.legsSprite.CurrentAnim.name.equals("ZombieDeath") && var9.def.isFinished();
                }
 
-               if (var9) {
-                  var12 |= 2;
+               if (var8) {
+                  var11 |= 2;
                } else {
-                  var12 |= 4;
+                  var11 |= 4;
                }
             }
 
-            if ((var12 & 1) != 0) {
-               SolidFloor.add(var11);
+            if ((var11 & 1) != 0) {
+               SolidFloor.add(var10);
             }
 
-            if ((var12 & 2) != 0) {
-               VegetationCorpses.add(var11);
+            if ((var11 & 2) != 0) {
+               VegetationCorpses.add(var10);
             }
 
-            if ((var12 & 4) != 0) {
-               MinusFloorCharacters.add(var11);
+            if ((var11 & 4) != 0) {
+               MinusFloorCharacters.add(var10);
             }
          }
 
-         LuaEventManager.triggerEvent("OnPostFloorLayerDraw", var3);
+         LuaEventManager.triggerEvent("OnPostFloorLayerDraw", var2);
 
-         for(var4 = 0; var4 < VegetationCorpses.size(); ++var4) {
-            var11 = (IsoGridSquare)VegetationCorpses.get(var4);
-            renderMinusFloor(var11, false, true);
-            renderCharacters(var11, true);
+         for(var3 = 0; var3 < VegetationCorpses.size(); ++var3) {
+            var10 = (IsoGridSquare)VegetationCorpses.get(var3);
+            renderMinusFloor(var10, false, true);
+            renderCharacters(var10, true);
          }
 
-         for(var4 = 0; var4 < MinusFloorCharacters.size(); ++var4) {
-            var11 = (IsoGridSquare)MinusFloorCharacters.get(var4);
-            boolean var14 = renderMinusFloor(var11, false, false);
-            renderCharacters(var11, false);
-            if (var14) {
-               renderMinusFloor(var11, true, false);
+         for(var3 = 0; var3 < MinusFloorCharacters.size(); ++var3) {
+            var10 = (IsoGridSquare)MinusFloorCharacters.get(var3);
+            boolean var13 = renderMinusFloor(var10, false, false);
+            renderCharacters(var10, false);
+            if (var13) {
+               renderMinusFloor(var10, true, false);
             }
          }
       }
@@ -492,11 +488,12 @@ public class ServerGUI {
          }
 
          if ((!var2 || var15.sprite == null || var15.sprite.Properties.Is(IsoFlagType.canBeRemoved) || var15.sprite.Properties.Is(IsoFlagType.attachedFloor)) && (var2 || var15.sprite == null || !var15.sprite.Properties.Is(IsoFlagType.canBeRemoved) && !var15.sprite.Properties.Is(IsoFlagType.attachedFloor))) {
-            if (var15.sprite != null && (var15.sprite.getType() == IsoObjectType.WestRoofB || var15.sprite.getType() == IsoObjectType.WestRoofM || var15.sprite.getType() == IsoObjectType.WestRoofT) && var0.z == maxZ && var0.z == (int)IsoCamera.CamCharacter.getZ()) {
+            IsoGameCharacter var17 = IsoCamera.getCameraCharacter();
+            if (var15.sprite != null && (var15.sprite.getType() == IsoObjectType.WestRoofB || var15.sprite.getType() == IsoObjectType.WestRoofM || var15.sprite.getType() == IsoObjectType.WestRoofT) && var0.z == maxZ && var0.z == (int)var17.getZ()) {
                var16 = false;
             }
 
-            if (IsoCamera.CamCharacter.isClimbing() && var15.sprite != null && !var15.sprite.getProperties().Is(IsoFlagType.solidfloor)) {
+            if (var17.isClimbing() && var15.sprite != null && !var15.sprite.getProperties().Is(IsoFlagType.solidfloor)) {
                var16 = true;
             }
 
@@ -512,32 +509,32 @@ public class ServerGUI {
 
             if (var16) {
                IndieGL.glAlphaFunc(516, 0.0F);
-               IsoGridSquare var21;
+               IsoGridSquare var22;
                if (var15.sprite != null && !var0.getProperties().Is(IsoFlagType.blueprint) && (var15.sprite.getType() == IsoObjectType.doorFrW || var15.sprite.getType() == IsoObjectType.doorFrN || var15.sprite.getType() == IsoObjectType.doorW || var15.sprite.getType() == IsoObjectType.doorN || var15.sprite.getProperties().Is(IsoFlagType.cutW) || var15.sprite.getProperties().Is(IsoFlagType.cutN)) && PerformanceSettings.LightingFrameSkip < 3) {
                   if (var15.getTargetAlpha(var5) < 1.0F) {
-                     boolean var20 = false;
-                     if (var20) {
+                     boolean var21 = false;
+                     if (var21) {
                         if (var15.sprite.getProperties().Is(IsoFlagType.cutW) && var0.getProperties().Is(IsoFlagType.WallSE)) {
-                           var21 = var0.nav[IsoDirections.NW.index()];
-                           if (var21 == null || var21.getRoom() == null) {
-                              var20 = false;
+                           var22 = var0.nav[IsoDirections.NW.index()];
+                           if (var22 == null || var22.getRoom() == null) {
+                              var21 = false;
                            }
                         } else if (var15.sprite.getType() != IsoObjectType.doorFrW && var15.sprite.getType() != IsoObjectType.doorW && !var15.sprite.getProperties().Is(IsoFlagType.cutW)) {
                            if (var15.sprite.getType() == IsoObjectType.doorFrN || var15.sprite.getType() == IsoObjectType.doorN || var15.sprite.getProperties().Is(IsoFlagType.cutN)) {
-                              var21 = var0.nav[IsoDirections.N.index()];
-                              if (var21 == null || var21.getRoom() == null) {
-                                 var20 = false;
+                              var22 = var0.nav[IsoDirections.N.index()];
+                              if (var22 == null || var22.getRoom() == null) {
+                                 var21 = false;
                               }
                            }
                         } else {
-                           var21 = var0.nav[IsoDirections.W.index()];
-                           if (var21 == null || var21.getRoom() == null) {
-                              var20 = false;
+                           var22 = var0.nav[IsoDirections.W.index()];
+                           if (var22 == null || var22.getRoom() == null) {
+                              var21 = false;
                            }
                         }
                      }
 
-                     if (!var20) {
+                     if (!var21) {
                         IsoGridSquare.CircleStencil = var10;
                      }
 
@@ -558,19 +555,19 @@ public class ServerGUI {
                   }
 
                   var15.setTargetAlpha(var5, 1.0F);
-                  if (IsoCamera.CamCharacter != null && var15.getProperties() != null && (var15.getProperties().Is(IsoFlagType.solid) || var15.getProperties().Is(IsoFlagType.solidtrans))) {
-                     int var17 = var0.getX() - (int)IsoCamera.CamCharacter.getX();
-                     int var18 = var0.getY() - (int)IsoCamera.CamCharacter.getY();
-                     if (var17 > 0 && var17 < 3 && var18 >= 0 && var18 < 3 || var18 > 0 && var18 < 3 && var17 >= 0 && var17 < 3) {
+                  if (var17 != null && var15.getProperties() != null && (var15.getProperties().Is(IsoFlagType.solid) || var15.getProperties().Is(IsoFlagType.solidtrans))) {
+                     int var18 = var0.getX() - (int)var17.getX();
+                     int var19 = var0.getY() - (int)var17.getY();
+                     if (var18 > 0 && var18 < 3 && var19 >= 0 && var19 < 3 || var19 > 0 && var19 < 3 && var18 >= 0 && var18 < 3) {
                         var15.setTargetAlpha(var5, 0.99F);
                      }
                   }
 
                   if (var15 instanceof IsoWindow && var15.getTargetAlpha(var5) < 1.0E-4F) {
-                     IsoWindow var19 = (IsoWindow)var15;
-                     var21 = var19.getOppositeSquare();
-                     if (var21 != null && var21 != var0 && var21.lighting[var5].bSeen()) {
-                        var15.setTargetAlpha(var5, var21.lighting[var5].darkMulti() * 2.0F);
+                     IsoWindow var20 = (IsoWindow)var15;
+                     var22 = var20.getOppositeSquare();
+                     if (var22 != null && var22 != var0 && var22.lighting[var5].bSeen()) {
+                        var15.setTargetAlpha(var5, var22.lighting[var5].darkMulti() * 2.0F);
                      }
                   }
 

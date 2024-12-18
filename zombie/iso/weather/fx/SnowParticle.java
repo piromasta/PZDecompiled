@@ -1,6 +1,7 @@
 package zombie.iso.weather.fx;
 
-import zombie.core.Rand;
+import zombie.core.Core;
+import zombie.core.random.Rand;
 import zombie.core.textures.Texture;
 import zombie.iso.Vector2;
 
@@ -44,9 +45,9 @@ public class SnowParticle extends WeatherParticle {
 
       if (this.life >= this.fadeTime) {
          Vector2 var10000 = this.position;
-         var10000.x += this.velocity.x * IsoWeatherFX.instance.windSpeed * var1;
+         var10000.x += this.velocity.x * IsoWeatherFX.instance.windSpeed * var1 * Core.getInstance().getOptionPrecipitationSpeedMultiplier();
          var10000 = this.position;
-         var10000.y += this.velocity.y * IsoWeatherFX.instance.windSpeed * var1;
+         var10000.y += this.velocity.y * IsoWeatherFX.instance.windSpeed * var1 * Core.getInstance().getOptionPrecipitationSpeedMultiplier();
       } else {
          this.incarnateAlpha = this.life / this.fadeTime;
       }

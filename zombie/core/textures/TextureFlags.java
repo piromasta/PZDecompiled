@@ -11,6 +11,7 @@ public final class TextureFlags {
    public static final int MIPMAPS = 64;
    public static final int LIMIT_TEXTURE_SIZE_1 = 128;
    public static final int LIMIT_TEXTURE_SIZE_2 = 256;
+   public static final int FBODepth = 512;
 
    public TextureFlags() {
    }

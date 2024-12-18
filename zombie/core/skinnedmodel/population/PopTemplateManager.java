@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.WornItems.BodyLocationGroup;
+import zombie.characters.WornItems.BodyLocations;
 import zombie.core.ImmutableColor;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.model.CharacterMask;
@@ -28,6 +29,8 @@ public class PopTemplateManager {
    public final ArrayList<String> m_FemaleSkins_Zombie2 = new ArrayList();
    public final ArrayList<String> m_MaleSkins_Zombie3 = new ArrayList();
    public final ArrayList<String> m_FemaleSkins_Zombie3 = new ArrayList();
+   public ArrayList<String> m_CowSkins = new ArrayList();
+   public ArrayList<String> m_RatSkins = new ArrayList();
    public final ArrayList<String> m_SkeletonMaleSkins_Zombie = new ArrayList();
    public final ArrayList<String> m_SkeletonFemaleSkins_Zombie = new ArrayList();
    public static final int SKELETON_BURNED_SKIN_INDEX = 0;
@@ -64,36 +67,47 @@ public class PopTemplateManager {
       this.m_SkeletonFemaleSkins_Zombie.add("SkeletonBurned");
       this.m_SkeletonFemaleSkins_Zombie.add("Skeleton");
       this.m_SkeletonFemaleSkins_Zombie.add("SkeletonMuscle");
+      this.m_CowSkins.add("Cow_Black");
+      this.m_CowSkins.add("Cow_Purple");
+      this.m_RatSkins.add("Rat");
    }
 
    public ModelInstance addClothingItem(IsoGameCharacter var1, ModelManager.ModelSlot var2, ItemVisual var3, ClothingItem var4) {
-      String var5 = var4.getModel(var1.isFemale());
-      if (StringUtils.isNullOrWhitespace(var5)) {
+      return this.addClothingItem(var1, var2, var3, var4, false);
+   }
+
+   public ModelInstance addClothingItem(IsoGameCharacter var1, ModelManager.ModelSlot var2, ItemVisual var3, ClothingItem var4, boolean var5) {
+      String var6 = var4.getModel(var1.isFemale());
+      if (var5 && var4.getAltModel(var1.isFemale()) != null) {
+         var6 = var4.getAltModel(var1.isFemale());
+      }
+
+      if (StringUtils.isNullOrWhitespace(var6)) {
          if (DebugLog.isEnabled(DebugType.Clothing)) {
             DebugLog.Clothing.debugln("No model specified by item: " + var4.m_Name);
          }
 
          return null;
       } else {
-         var5 = this.processModelFileName(var5);
-         String var6 = var3.getTextureChoice(var4);
-         ImmutableColor var7 = var3.getTint(var4);
+         var6 = this.processModelFileName(var6);
+         String var7 = var3.getTextureChoice(var4);
+         ImmutableColor var8 = var3.getTint(var4);
          var3.getHue(var4);
-         String var9 = var4.m_AttachBone;
-         String var10 = var4.m_Shader;
-         ModelInstance var11;
-         if (var9 != null && var9.length() > 0) {
-            var11 = ModelManager.instance.newStaticInstance(var2, var5, var6, var9, var10);
+         String var10 = var4.m_AttachBone;
+         String var11 = var4.m_Shader;
+         ModelInstance var12;
+         if (var10 != null && var10.length() > 0) {
+            var12 = ModelManager.instance.newStaticInstance(var2, var6, var7, var10, var11);
          } else {
-            var11 = ModelManager.instance.newAdditionalModelInstance(var5, var6, var1, var2.model.AnimPlayer, var10);
+            var12 = ModelManager.instance.newAdditionalModelInstance(var6, var7, var1, var2.model.AnimPlayer, var11);
          }
 
-         if (var11 == null) {
+         if (var12 == null) {
             return null;
          } else {
-            this.postProcessNewItemInstance(var11, var2, var7);
-            var11.setItemVisual(var3);
-            return var11;
+            this.postProcessNewItemInstance(var12, var2, var8);
+            var12.setItemVisual(var3);
+            return var12;
          }
       }
    }
@@ -195,7 +209,11 @@ public class PopTemplateManager {
                   DebugLog.Clothing.warn("ClothingItem not found for ItemVisual:" + var7);
                }
             } else if (!this.isItemModelHidden(var1.getBodyLocationGroup(), var4, var7)) {
-               this.addClothingItem(var1, var2, var7, var8);
+               if (this.isItemModelAlt(var1.getBodyLocationGroup(), var4, var7)) {
+                  this.addClothingItem(var1, var2, var7, var8, true);
+               } else {
+                  this.addClothingItem(var1, var2, var7, var8);
+               }
             }
          }
 
@@ -212,7 +230,6 @@ public class PopTemplateManager {
          }
 
          var1.postUpdateModelTextures();
-         var1.updateSpeedModifiers();
       }
    }
 
@@ -232,6 +249,50 @@ public class PopTemplateManager {
       } else {
          return false;
       }
+   }
+
+   public boolean isItemModelHidden(ItemVisuals var1, String var2) {
+      BodyLocationGroup var3 = BodyLocations.getGroup("Human");
+
+      for(int var4 = 0; var4 < var1.size(); ++var4) {
+         Item var5 = ((ItemVisual)var1.get(var4)).getScriptItem();
+         if (var5 != null && var3.getLocation(var5.getBodyLocation()) != null && var3.isHideModel(var5.getBodyLocation(), var2)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   public boolean isItemModelAlt(BodyLocationGroup var1, ItemVisuals var2, ItemVisual var3) {
+      Item var4 = var3.getScriptItem();
+      if (var4 != null && var1.getLocation(var4.getBodyLocation()) != null) {
+         for(int var5 = 0; var5 < var2.size(); ++var5) {
+            if (var2.get(var5) != var3) {
+               Item var6 = ((ItemVisual)var2.get(var5)).getScriptItem();
+               if (var6 != null && var1.getLocation(var6.getBodyLocation()) != null && var1.isAltModel(var6.getBodyLocation(), var4.getBodyLocation())) {
+                  return true;
+               }
+            }
+         }
+
+         return false;
+      } else {
+         return false;
+      }
+   }
+
+   public boolean isItemModelAlt(ItemVisuals var1, String var2) {
+      BodyLocationGroup var3 = BodyLocations.getGroup("Human");
+
+      for(int var4 = 0; var4 < var1.size(); ++var4) {
+         Item var5 = ((ItemVisual)var1.get(var4)).getScriptItem();
+         if (var5 != null && var3.getLocation(var5.getBodyLocation()) != null && var3.isAltModel(var5.getBodyLocation(), var2)) {
+            return true;
+         }
+      }
+
+      return false;
    }
 
    private String processModelFileName(String var1) {

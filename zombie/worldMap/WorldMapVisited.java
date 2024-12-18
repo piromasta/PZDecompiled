@@ -13,19 +13,27 @@ import java.util.Objects;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 import zombie.SandboxOptions;
 import zombie.ZomboidFileSystem;
 import zombie.characters.IsoPlayer;
+import zombie.core.DefaultShader;
+import zombie.core.SceneShaderStore;
+import zombie.core.ShaderHelper;
 import zombie.core.logger.ExceptionLogger;
 import zombie.core.math.PZMath;
 import zombie.core.opengl.RenderThread;
 import zombie.core.opengl.ShaderProgram;
+import zombie.core.opengl.VBORenderer;
 import zombie.core.textures.TextureID;
 import zombie.core.utils.ImageUtils;
+import zombie.iso.IsoCell;
 import zombie.iso.IsoMetaGrid;
 import zombie.iso.IsoWorld;
 import zombie.iso.SliceY;
 import zombie.iso.Vector2;
+import zombie.network.GameServer;
+import zombie.network.ServerGUI;
 import zombie.worldMap.styles.WorldMapStyleLayer;
 
 public class WorldMapVisited {
@@ -55,9 +63,9 @@ public class WorldMapVisited {
    private boolean m_mainMenu;
    private static ShaderProgram m_shaderProgram;
    private static ShaderProgram m_gridShaderProgram;
-   static final int UNITS_PER_CELL = 10;
-   static final int SQUARES_PER_CELL = 300;
-   static final int SQUARES_PER_UNIT = 30;
+   static final int UNITS_PER_CELL = 8;
+   static final int SQUARES_PER_CELL;
+   static final int SQUARES_PER_UNIT;
    static final int TEXTURE_PAD = 1;
    static final int BIT_VISITED = 1;
    static final int BIT_KNOWN = 2;
@@ -89,9 +97,9 @@ public class WorldMapVisited {
       this.m_changed = true;
       this.m_changeX1 = 0;
       this.m_changeY1 = 0;
-      this.m_changeX2 = this.getWidthInCells() * 10 - 1;
-      this.m_changeY2 = this.getHeightInCells() * 10 - 1;
-      this.m_visited = new byte[this.getWidthInCells() * 10 * this.getHeightInCells() * 10];
+      this.m_changeX2 = this.getWidthInCells() * 8 - 1;
+      this.m_changeY2 = this.getHeightInCells() * 8 - 1;
+      this.m_visited = new byte[this.getWidthInCells() * 8 * this.getHeightInCells() * 8];
       this.m_textureW = this.calcTextureWidth();
       this.m_textureH = this.calcTextureHeight();
       this.m_textureBuffer = BufferUtils.createByteBuffer(this.m_textureW * this.m_textureH * 4);
@@ -108,7 +116,10 @@ public class WorldMapVisited {
          this.m_textureBuffer.put(var9 + 3, var8);
       }
 
-      this.m_textureID = new TextureID(this.m_textureW, this.m_textureH, 0);
+      if (!GameServer.bServer || ServerGUI.isCreated()) {
+         this.m_textureID = new TextureID(this.m_textureW, this.m_textureH, 0);
+      }
+
    }
 
    public int getMinX() {
@@ -128,27 +139,27 @@ public class WorldMapVisited {
    }
 
    private int calcTextureWidth() {
-      return ImageUtils.getNextPowerOfTwo(this.getWidthInCells() * 10 + 2);
+      return ImageUtils.getNextPowerOfTwo(this.getWidthInCells() * 8 + 2);
    }
 
    private int calcTextureHeight() {
-      return ImageUtils.getNextPowerOfTwo(this.getHeightInCells() * 10 + 2);
+      return ImageUtils.getNextPowerOfTwo(this.getHeightInCells() * 8 + 2);
    }
 
    public void setKnownInCells(int var1, int var2, int var3, int var4) {
-      this.setFlags(var1 * 300, var2 * 300, (var3 + 1) * 300, (var4 + 1) * 300, 2);
+      this.setFlags(var1 * SQUARES_PER_CELL, var2 * SQUARES_PER_CELL, (var3 + 1) * SQUARES_PER_CELL, (var4 + 1) * SQUARES_PER_CELL, 2);
    }
 
    public void clearKnownInCells(int var1, int var2, int var3, int var4) {
-      this.clearFlags(var1 * 300, var2 * 300, (var3 + 1) * 300, (var4 + 1) * 300, 2);
+      this.clearFlags(var1 * SQUARES_PER_CELL, var2 * SQUARES_PER_CELL, (var3 + 1) * SQUARES_PER_CELL, (var4 + 1) * SQUARES_PER_CELL, 2);
    }
 
    public void setVisitedInCells(int var1, int var2, int var3, int var4) {
-      this.setFlags(var1 * 300, var2 * 300, var3 * 300, var4 * 300, 1);
+      this.setFlags(var1 * SQUARES_PER_CELL, var2 * SQUARES_PER_CELL, var3 * SQUARES_PER_CELL, var4 * SQUARES_PER_CELL, 1);
    }
 
    public void clearVisitedInCells(int var1, int var2, int var3, int var4) {
-      this.clearFlags(var1 * 300, var2 * 300, var3 * 300, var4 * 300, 1);
+      this.clearFlags(var1 * SQUARES_PER_CELL, var2 * SQUARES_PER_CELL, var3 * SQUARES_PER_CELL, var4 * SQUARES_PER_CELL, 1);
    }
 
    public void setKnownInSquares(int var1, int var2, int var3, int var4) {
@@ -177,7 +188,7 @@ public class WorldMapVisited {
    }
 
    private void initShader() {
-      m_shaderProgram = ShaderProgram.createShaderProgram("worldMapVisited", false, true);
+      m_shaderProgram = ShaderProgram.createShaderProgram("worldMapVisited", false, false, true);
       if (m_shaderProgram.isCompiled()) {
       }
 
@@ -186,7 +197,6 @@ public class WorldMapVisited {
    public void render(float var1, float var2, int var3, int var4, int var5, int var6, float var7, boolean var8) {
       if (!this.m_mainMenu) {
          GL13.glActiveTexture(33984);
-         GL13.glClientActiveTexture(33984);
          GL11.glEnable(3553);
          if (this.m_textureChanged) {
             this.m_textureChanged = false;
@@ -199,6 +209,8 @@ public class WorldMapVisited {
          GL11.glTexParameteri(3553, 10240, var9);
          GL11.glEnable(3042);
          GL11.glTexEnvi(8960, 8704, 8448);
+         GL11.glTexParameteri(3553, 10242, 33071);
+         GL11.glTexParameteri(3553, 10243, 33071);
          GL11.glColor4f(this.m_color.r, this.m_color.g, this.m_color.b, this.m_color.a);
          if (m_shaderProgram == null) {
             this.initShader();
@@ -206,25 +218,27 @@ public class WorldMapVisited {
 
          if (m_shaderProgram.isCompiled()) {
             m_shaderProgram.Start();
-            float var10 = (float)(1 + (var3 - this.m_minX) * 10) / (float)this.m_textureW;
-            float var11 = (float)(1 + (var4 - this.m_minY) * 10) / (float)this.m_textureH;
-            float var12 = (float)(1 + (var5 + 1 - this.m_minX) * 10) / (float)this.m_textureW;
-            float var13 = (float)(1 + (var6 + 1 - this.m_minY) * 10) / (float)this.m_textureH;
-            float var14 = (float)((var3 - this.m_minX) * 300) * var7;
-            float var15 = (float)((var4 - this.m_minY) * 300) * var7;
-            float var16 = (float)((var5 + 1 - this.m_minX) * 300) * var7;
-            float var17 = (float)((var6 + 1 - this.m_minY) * 300) * var7;
-            GL11.glBegin(7);
-            GL11.glTexCoord2f(var10, var11);
-            GL11.glVertex2f(var1 + var14, var2 + var15);
-            GL11.glTexCoord2f(var12, var11);
-            GL11.glVertex2f(var1 + var16, var2 + var15);
-            GL11.glTexCoord2f(var12, var13);
-            GL11.glVertex2f(var1 + var16, var2 + var17);
-            GL11.glTexCoord2f(var10, var13);
-            GL11.glVertex2f(var1 + var14, var2 + var17);
-            GL11.glEnd();
+            float var10 = (float)(1 + (var3 - this.m_minX) * 8) / (float)this.m_textureW;
+            float var11 = (float)(1 + (var4 - this.m_minY) * 8) / (float)this.m_textureH;
+            float var12 = (float)(1 + (var5 + 1 - this.m_minX) * 8) / (float)this.m_textureW;
+            float var13 = (float)(1 + (var6 + 1 - this.m_minY) * 8) / (float)this.m_textureH;
+            float var14 = (float)((var3 - this.m_minX) * SQUARES_PER_CELL) * var7;
+            float var15 = (float)((var4 - this.m_minY) * SQUARES_PER_CELL) * var7;
+            float var16 = (float)((var5 + 1 - this.m_minX) * SQUARES_PER_CELL) * var7;
+            float var17 = (float)((var6 + 1 - this.m_minY) * SQUARES_PER_CELL) * var7;
+            VBORenderer var18 = VBORenderer.getInstance();
+            var18.startRun(var18.FORMAT_PositionColorUV);
+            var18.setShaderProgram(m_shaderProgram);
+            var18.setMode(7);
+            var18.setTextureID(this.m_textureID);
+            var18.addQuad(var1 + var14, var2 + var15, var10, var11, var1 + var16, var2 + var17, var12, var13, 0.0F, this.m_color.r, this.m_color.g, this.m_color.b, this.m_color.a);
+            var18.endRun();
+            var18.flush();
             m_shaderProgram.End();
+            DefaultShader var10000 = SceneShaderStore.DefaultShader;
+            DefaultShader.isActive = false;
+            ShaderHelper.forgetCurrentlyBound();
+            GL20.glUseProgram(0);
          }
       }
    }
@@ -232,53 +246,106 @@ public class WorldMapVisited {
    public void renderGrid(float var1, float var2, int var3, int var4, int var5, int var6, float var7, float var8) {
       if (!(var8 < 11.0F)) {
          if (m_gridShaderProgram == null) {
-            m_gridShaderProgram = ShaderProgram.createShaderProgram("worldMapGrid", false, true);
+            m_gridShaderProgram = ShaderProgram.createShaderProgram("worldMapGrid", false, false, true);
          }
 
          if (m_gridShaderProgram.isCompiled()) {
-            m_gridShaderProgram.Start();
-            float var9 = var1 + (float)(var3 * 300 - this.m_minX * 300) * var7;
-            float var10 = var2 + (float)(var4 * 300 - this.m_minY * 300) * var7;
-            float var11 = var9 + (float)((var5 - var3 + 1) * 300) * var7;
-            float var12 = var10 + (float)((var6 - var4 + 1) * 300) * var7;
-            VBOLinesUV var13 = WorldMapRenderer.m_vboLinesUV;
-            var13.setMode(1);
-            var13.setLineWidth(0.5F);
-            var13.startRun(this.m_textureID);
-            float var14 = this.m_gridColor.r;
-            float var15 = this.m_gridColor.g;
-            float var16 = this.m_gridColor.b;
-            float var17 = this.m_gridColor.a;
-            byte var18 = 1;
+            float var9 = this.m_gridColor.r;
+            float var10 = this.m_gridColor.g;
+            float var11 = this.m_gridColor.b;
+            float var12 = this.m_gridColor.a;
+            byte var13 = 1;
             if (var8 < 13.0F) {
-               var18 = 8;
+               var13 = 8;
             } else if (var8 < 14.0F) {
-               var18 = 4;
+               var13 = 4;
             } else if (var8 < 15.0F) {
-               var18 = 2;
+               var13 = 2;
             }
 
-            m_gridShaderProgram.setValue("UVOffset", this.m_vector2.set(0.5F / (float)this.m_textureW, 0.0F));
+            VBORenderer var14 = VBORenderer.getInstance();
+            var14.startRun(var14.FORMAT_PositionColor);
+            var14.setMode(1);
+            var14.setLineWidth(0.5F);
+            this.renderGridLinesVertical(var1, var2, var3 * 8, var4 * 8, this.m_minX * 8, (var6 + 1) * 8, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesVertical(var1, var2, this.m_minX * 8, var4 * 8, (this.m_maxX + 1) * 8 + var13, this.m_minY * 8, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesVertical(var1, var2, this.m_minX * 8, (this.m_maxY + 1) * 8, (this.m_maxX + 1) * 8 + var13, (var6 + 1) * 8, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesVertical(var1, var2, (this.m_maxX + 1) * 8 + var13, var4 * 8, (var5 + 1) * 8, (var6 + 1) * 8, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesHorizontal(var1, var2, var3 * 8, var4 * 8, (var5 + 1) * 8, this.m_minY * 8, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesHorizontal(var1, var2, var3 * 8, this.m_minY * 8, this.m_minX * 8, (this.m_maxY + 1) * 8 + var13, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesHorizontal(var1, var2, (this.m_maxX + 1) * 8, this.m_minY * 8, (var5 + 1) * 8, (this.m_maxY + 1) * 8 + var13, var7, var13, var9, var10, var11, var12);
+            this.renderGridLinesHorizontal(var1, var2, var3 * 8, (this.m_maxY + 1) * 8 + var13, (var5 + 1) * 8, (var6 + 1) * 8, var7, var13, var9, var10, var11, var12);
+            var14.endRun();
+            var14.flush();
+            var10 = this.m_gridColor.g;
+            var3 = PZMath.clamp(var3, this.m_minX, this.m_maxX);
+            var4 = PZMath.clamp(var4, this.m_minY, this.m_maxY);
+            var5 = PZMath.clamp(var5, this.m_minX, this.m_maxX);
+            var6 = PZMath.clamp(var6, this.m_minY, this.m_maxY);
+            m_gridShaderProgram.Start();
+            float var15 = var1 + (float)(var3 * SQUARES_PER_CELL - this.m_minX * SQUARES_PER_CELL) * var7;
+            float var16 = var2 + (float)(var4 * SQUARES_PER_CELL - this.m_minY * SQUARES_PER_CELL) * var7;
+            float var17 = var15 + (float)((var5 - var3 + 1) * SQUARES_PER_CELL) * var7;
+            float var18 = var16 + (float)((var6 - var4 + 1) * SQUARES_PER_CELL) * var7;
+            var14.startRun(var14.FORMAT_PositionColorUV);
+            var14.setMode(1);
+            var14.setLineWidth(0.5F);
+            var14.setShaderProgram(m_gridShaderProgram);
+            var14.setTextureID(this.m_textureID);
+            var14.cmdShader2f("UVOffset", 0.5F / (float)this.m_textureW, 0.0F);
 
             int var19;
-            for(var19 = var3 * 10; var19 <= (var5 + 1) * 10; var19 += var18) {
-               var13.reserve(2);
-               var13.addElement(var1 + (float)(var19 * 30 - this.m_minX * 300) * var7, var10, 0.0F, (float)(1 + var19 - this.m_minX * 10) / (float)this.m_textureW, 1.0F / (float)this.m_textureH, var14, var15, var16, var17);
-               var13.addElement(var1 + (float)(var19 * 30 - this.m_minX * 300) * var7, var12, 0.0F, (float)(1 + var19 - this.m_minX * 10) / (float)this.m_textureW, (float)(1 + this.getHeightInCells() * 10) / (float)this.m_textureH, var14, var15, var16, var17);
+            for(var19 = var3 * 8; var19 <= (var5 + 1) * 8; var19 += var13) {
+               var14.reserve(2);
+               var14.addElement(var1 + (float)(var19 * SQUARES_PER_UNIT - this.m_minX * SQUARES_PER_CELL) * var7, var16, 0.0F, (float)(1 + var19 - this.m_minX * 8) / (float)this.m_textureW, 1.0F / (float)this.m_textureH, var9, var10, var11, var12);
+               var14.addElement(var1 + (float)(var19 * SQUARES_PER_UNIT - this.m_minX * SQUARES_PER_CELL) * var7, var18, 0.0F, (float)(1 + var19 - this.m_minX * 8) / (float)this.m_textureW, (float)(1 + this.getHeightInCells() * 8) / (float)this.m_textureH, var9, var10, var11, var12);
             }
 
-            m_gridShaderProgram.setValue("UVOffset", this.m_vector2.set(0.0F, 0.5F / (float)this.m_textureH));
+            var14.endRun();
+            var14.startRun(var14.FORMAT_PositionColorUV);
+            var14.setMode(1);
+            var14.setLineWidth(0.5F);
+            var14.setShaderProgram(m_gridShaderProgram);
+            var14.setTextureID(this.m_textureID);
+            var14.cmdShader2f("UVOffset", 0.0F, 0.5F / (float)this.m_textureH);
 
-            for(var19 = var4 * 10; var19 <= (var6 + 1) * 10; var19 += var18) {
-               var13.reserve(2);
-               var13.addElement(var9, var2 + (float)(var19 * 30 - this.m_minY * 300) * var7, 0.0F, 1.0F / (float)this.m_textureW, (float)(1 + var19 - this.m_minY * 10) / (float)this.m_textureH, var14, var15, var16, var17);
-               var13.addElement(var11, var2 + (float)(var19 * 30 - this.m_minY * 300) * var7, 0.0F, (float)(1 + this.getWidthInCells() * 10) / (float)this.m_textureW, (float)(1 + var19 - this.m_minY * 10) / (float)this.m_textureH, var14, var15, var16, var17);
+            for(var19 = var4 * 8; var19 <= (var6 + 1) * 8; var19 += var13) {
+               var14.reserve(2);
+               var14.addElement(var15, var2 + (float)(var19 * SQUARES_PER_UNIT - this.m_minY * SQUARES_PER_CELL) * var7, 0.0F, 1.0F / (float)this.m_textureW, (float)(1 + var19 - this.m_minY * 8) / (float)this.m_textureH, var9, var10, var11, var12);
+               var14.addElement(var17, var2 + (float)(var19 * SQUARES_PER_UNIT - this.m_minY * SQUARES_PER_CELL) * var7, 0.0F, (float)(1 + this.getWidthInCells() * 8) / (float)this.m_textureW, (float)(1 + var19 - this.m_minY * 8) / (float)this.m_textureH, var9, var10, var11, var12);
             }
 
-            var13.flush();
+            var14.endRun();
+            var14.flush();
             m_gridShaderProgram.End();
+            DefaultShader var10000 = SceneShaderStore.DefaultShader;
+            DefaultShader.isActive = false;
+            ShaderHelper.forgetCurrentlyBound();
+            GL20.glUseProgram(0);
          }
       }
+   }
+
+   private void renderGridLinesHorizontal(float var1, float var2, int var3, int var4, int var5, int var6, float var7, int var8, float var9, float var10, float var11, float var12) {
+      VBORenderer var13 = VBORenderer.getInstance();
+
+      for(int var14 = var4; var14 < var6; var14 += var8) {
+         var13.reserve(2);
+         var13.addElement(var1 + (float)(var3 * SQUARES_PER_UNIT) * var7, var2 + (float)(var14 * SQUARES_PER_UNIT - this.m_minY * SQUARES_PER_CELL) * var7, 0.0F, var9, var10, var11, var12);
+         var13.addElement(var1 + (float)(var5 * SQUARES_PER_UNIT) * var7, var2 + (float)(var14 * SQUARES_PER_UNIT - this.m_minY * SQUARES_PER_CELL) * var7, 0.0F, var9, var10, var11, var12);
+      }
+
+   }
+
+   private void renderGridLinesVertical(float var1, float var2, int var3, int var4, int var5, int var6, float var7, int var8, float var9, float var10, float var11, float var12) {
+      VBORenderer var13 = VBORenderer.getInstance();
+
+      for(int var14 = var3; var14 < var5; var14 += var8) {
+         var13.reserve(2);
+         var13.addElement(var1 + (float)(var14 * SQUARES_PER_UNIT - this.m_minX * SQUARES_PER_CELL) * var7, var2 + (float)(var4 * SQUARES_PER_UNIT) * var7, 0.0F, var9, var10, var11, var12);
+         var13.addElement(var1 + (float)(var14 * SQUARES_PER_UNIT - this.m_minX * SQUARES_PER_CELL) * var7, var2 + (float)(var6 * SQUARES_PER_UNIT) * var7, 0.0F, var9, var10, var11, var12);
+      }
+
    }
 
    private void destroy() {
@@ -292,76 +359,55 @@ public class WorldMapVisited {
       this.m_visited = null;
    }
 
-   public void save(ByteBuffer var1) {
+   private void saveHeader(ByteBuffer var1) {
+      var1.putInt(219);
       var1.putInt(this.m_minX);
       var1.putInt(this.m_minY);
       var1.putInt(this.m_maxX);
       var1.putInt(this.m_maxY);
-      var1.putInt(10);
-      var1.put(this.m_visited);
-   }
-
-   public void load(ByteBuffer var1, int var2) {
-      int var3 = var1.getInt();
-      int var4 = var1.getInt();
-      int var5 = var1.getInt();
-      int var6 = var1.getInt();
-      int var7 = var1.getInt();
-      if (var3 == this.m_minX && var4 == this.m_minY && var5 == this.m_maxX && var6 == this.m_maxY && var7 == 10) {
-         var1.get(this.m_visited);
-      } else {
-         byte[] var8 = new byte[(var5 - var3 + 1) * var7 * (var6 - var4 + 1) * var7];
-         var1.get(var8);
-         int var9 = 300 / var7;
-         int var10 = (var5 - var3 + 1) * var7;
-
-         for(int var11 = var4 * var7; var11 <= var6 * var7; ++var11) {
-            int var12 = var11 - var4 * var7;
-
-            for(int var13 = var3 * var7; var13 <= var5 * var7; ++var13) {
-               int var14 = var13 - var3 * var7;
-               this.setFlags(var13 * var9, var11 * var9, var13 * var9 + var9 - 1, var11 * var9 + var9 - 1, var8[var14 + var12 * var10]);
-            }
-         }
-
-      }
+      var1.putInt(8);
    }
 
    public void save() throws IOException {
-      ByteBuffer var1 = SliceY.SliceBuffer;
-      var1.clear();
-      var1.putInt(195);
-      this.save(var1);
-      File var2 = new File(ZomboidFileSystem.instance.getFileNameInCurrentSave("map_visited.bin"));
-      FileOutputStream var3 = new FileOutputStream(var2);
+      File var1 = new File(ZomboidFileSystem.instance.getFileNameInCurrentSave("map_visited.bin"));
+      FileOutputStream var2 = new FileOutputStream(var1);
 
       try {
-         BufferedOutputStream var4 = new BufferedOutputStream(var3);
+         BufferedOutputStream var3 = new BufferedOutputStream(var2);
 
          try {
-            var4.write(var1.array(), 0, var1.position());
-         } catch (Throwable var9) {
+            ByteBuffer var4 = SliceY.SliceBuffer;
+            var4.clear();
+            this.saveHeader(var4);
+            var3.write(var4.array(), 0, var4.position());
+
+            for(int var5 = 0; var5 < this.m_visited.length; var5 += var4.capacity()) {
+               var4.clear();
+               var4.put(Arrays.copyOfRange(this.m_visited, var5, PZMath.min(var5 + var4.capacity(), this.m_visited.length)));
+               var3.write(var4.array(), 0, var4.position());
+            }
+         } catch (Throwable var8) {
             try {
-               var4.close();
-            } catch (Throwable var8) {
-               var9.addSuppressed(var8);
+               var3.close();
+            } catch (Throwable var7) {
+               var8.addSuppressed(var7);
             }
 
-            throw var9;
+            throw var8;
          }
 
-         var4.close();
-      } catch (Throwable var10) {
+         var3.close();
+      } catch (Throwable var9) {
          try {
-            var3.close();
-         } catch (Throwable var7) {
-            var10.addSuppressed(var7);
+            var2.close();
+         } catch (Throwable var6) {
+            var9.addSuppressed(var6);
          }
 
-         throw var10;
+         throw var9;
       }
 
-      var3.close();
+      var2.close();
    }
 
    public void load() throws IOException {
@@ -370,69 +416,115 @@ public class WorldMapVisited {
       try {
          FileInputStream var2 = new FileInputStream(var1);
 
-         try {
-            BufferedInputStream var3 = new BufferedInputStream(var2);
-
+         label102: {
             try {
-               ByteBuffer var4 = SliceY.SliceBuffer;
-               var4.clear();
-               int var5 = var3.read(var4.array());
-               var4.limit(var5);
-               int var6 = var4.getInt();
-               this.load(var4, var6);
-            } catch (Throwable var9) {
-               try {
+               BufferedInputStream var3 = new BufferedInputStream(var2);
+
+               label82: {
+                  try {
+                     long var4 = var1.length();
+                     ByteBuffer var6 = SliceY.SliceBuffer;
+                     var6.clear();
+                     byte var7 = 24;
+                     var3.read(var6.array(), 0, var7);
+                     int var8 = var6.getInt();
+                     int var9 = var6.getInt();
+                     int var10 = var6.getInt();
+                     int var11 = var6.getInt();
+                     int var12 = var6.getInt();
+                     int var13 = var6.getInt();
+                     int var14;
+                     if (var9 == this.m_minX && var10 == this.m_minY && var11 == this.m_maxX && var12 == this.m_maxY && var13 == 8) {
+                        var14 = 0;
+
+                        while(true) {
+                           if (var14 >= this.m_visited.length) {
+                              break label82;
+                           }
+
+                           var6.clear();
+                           int var27 = var3.read(var6.array(), 0, var6.capacity());
+                           System.arraycopy(var6.array(), 0, this.m_visited, var14, var27);
+                           var14 += var6.capacity();
+                        }
+                     }
+
+                     var6.clear();
+                     var14 = var3.read(var6.array());
+                     var6.limit(var14);
+                     byte[] var15 = new byte[(var11 - var9 + 1) * var13 * (var12 - var10 + 1) * var13];
+                     var6.get(var15);
+                     int var16 = SQUARES_PER_CELL / var13;
+                     int var17 = (var11 - var9 + 1) * var13;
+
+                     for(int var18 = var10 * var13; var18 <= var12 * var13; ++var18) {
+                        int var19 = var18 - var10 * var13;
+
+                        for(int var20 = var9 * var13; var20 <= var11 * var13; ++var20) {
+                           int var21 = var20 - var9 * var13;
+                           this.setFlags(var20 * var16, var18 * var16, var20 * var16 + var16 - 1, var18 * var16 + var16 - 1, var15[var21 + var19 * var17]);
+                        }
+                     }
+                  } catch (Throwable var24) {
+                     try {
+                        var3.close();
+                     } catch (Throwable var23) {
+                        var24.addSuppressed(var23);
+                     }
+
+                     throw var24;
+                  }
+
                   var3.close();
-               } catch (Throwable var8) {
-                  var9.addSuppressed(var8);
+                  break label102;
                }
 
-               throw var9;
+               var3.close();
+            } catch (Throwable var25) {
+               try {
+                  var2.close();
+               } catch (Throwable var22) {
+                  var25.addSuppressed(var22);
+               }
+
+               throw var25;
             }
 
-            var3.close();
-         } catch (Throwable var10) {
-            try {
-               var2.close();
-            } catch (Throwable var7) {
-               var10.addSuppressed(var7);
-            }
-
-            throw var10;
+            var2.close();
+            return;
          }
 
          var2.close();
-      } catch (FileNotFoundException var11) {
+      } catch (FileNotFoundException var26) {
       }
-
    }
 
    private void setFlags(int var1, int var2, int var3, int var4, int var5) {
-      var1 -= this.m_minX * 300;
-      var2 -= this.m_minY * 300;
-      var3 -= this.m_minX * 300;
-      var4 -= this.m_minY * 300;
+      var1 -= this.m_minX * SQUARES_PER_CELL;
+      var2 -= this.m_minY * SQUARES_PER_CELL;
+      var3 -= this.m_minX * SQUARES_PER_CELL;
+      var4 -= this.m_minY * SQUARES_PER_CELL;
       int var6 = this.getWidthInCells();
       int var7 = this.getHeightInCells();
-      var1 = PZMath.clamp(var1, 0, var6 * 300 - 1);
-      var2 = PZMath.clamp(var2, 0, var7 * 300 - 1);
-      var3 = PZMath.clamp(var3, 0, var6 * 300 - 1);
-      var4 = PZMath.clamp(var4, 0, var7 * 300 - 1);
+      var1 = PZMath.clamp(var1, 0, var6 * SQUARES_PER_CELL - 1);
+      var2 = PZMath.clamp(var2, 0, var7 * SQUARES_PER_CELL - 1);
+      var3 = PZMath.clamp(var3, 0, var6 * SQUARES_PER_CELL - 1);
+      var4 = PZMath.clamp(var4, 0, var7 * SQUARES_PER_CELL - 1);
       if (var1 != var3 && var2 != var4) {
-         int var8 = var1 / 30;
-         int var9 = var3 / 30;
-         int var10 = var2 / 30;
-         int var11 = var4 / 30;
-         if (var3 % 30 == 0) {
+         int var8 = var1 / SQUARES_PER_UNIT;
+         int var9 = var3 / SQUARES_PER_UNIT;
+         int var10 = var2 / SQUARES_PER_UNIT;
+         int var11 = var4 / SQUARES_PER_UNIT;
+         if (var3 % SQUARES_PER_UNIT == 0) {
             --var9;
          }
 
-         if (var4 % 30 == 0) {
+         if (var4 % SQUARES_PER_UNIT == 0) {
             --var11;
          }
 
          boolean var12 = false;
-         int var13 = var6 * 10;
+         int var13 = var6 * 8;
 
          for(int var14 = var10; var14 <= var11; ++var14) {
             for(int var15 = var8; var15 <= var9; ++var15) {
@@ -456,31 +548,31 @@ public class WorldMapVisited {
    }
 
    private void clearFlags(int var1, int var2, int var3, int var4, int var5) {
-      var1 -= this.m_minX * 300;
-      var2 -= this.m_minY * 300;
-      var3 -= this.m_minX * 300;
-      var4 -= this.m_minY * 300;
+      var1 -= this.m_minX * SQUARES_PER_CELL;
+      var2 -= this.m_minY * SQUARES_PER_CELL;
+      var3 -= this.m_minX * SQUARES_PER_CELL;
+      var4 -= this.m_minY * SQUARES_PER_CELL;
       int var6 = this.getWidthInCells();
       int var7 = this.getHeightInCells();
-      var1 = PZMath.clamp(var1, 0, var6 * 300 - 1);
-      var2 = PZMath.clamp(var2, 0, var7 * 300 - 1);
-      var3 = PZMath.clamp(var3, 0, var6 * 300 - 1);
-      var4 = PZMath.clamp(var4, 0, var7 * 300 - 1);
+      var1 = PZMath.clamp(var1, 0, var6 * SQUARES_PER_CELL - 1);
+      var2 = PZMath.clamp(var2, 0, var7 * SQUARES_PER_CELL - 1);
+      var3 = PZMath.clamp(var3, 0, var6 * SQUARES_PER_CELL - 1);
+      var4 = PZMath.clamp(var4, 0, var7 * SQUARES_PER_CELL - 1);
       if (var1 != var3 && var2 != var4) {
-         int var8 = var1 / 30;
-         int var9 = var3 / 30;
-         int var10 = var2 / 30;
-         int var11 = var4 / 30;
-         if (var3 % 30 == 0) {
+         int var8 = var1 / SQUARES_PER_UNIT;
+         int var9 = var3 / SQUARES_PER_UNIT;
+         int var10 = var2 / SQUARES_PER_UNIT;
+         int var11 = var4 / SQUARES_PER_UNIT;
+         if (var3 % SQUARES_PER_UNIT == 0) {
             --var9;
          }
 
-         if (var4 % 30 == 0) {
+         if (var4 % SQUARES_PER_UNIT == 0) {
             --var11;
          }
 
          boolean var12 = false;
-         int var13 = var6 * 10;
+         int var13 = var6 * 8;
 
          for(int var14 = var10; var14 <= var11; ++var14) {
             for(int var15 = var8; var15 <= var9; ++var15) {
@@ -509,7 +601,7 @@ public class WorldMapVisited {
       } else {
          this.m_changed = false;
          byte var3 = 4;
-         int var4 = this.getWidthInCells() * 10;
+         int var4 = this.getWidthInCells() * 8;
 
          for(int var5 = this.m_changeY1; var5 <= this.m_changeY2; ++var5) {
             var1.position((1 + this.m_changeX1) * var3 + (1 + var5) * var2 * var3);
@@ -541,30 +633,30 @@ public class WorldMapVisited {
    }
 
    boolean hasFlags(int var1, int var2, int var3, int var4, int var5, boolean var6) {
-      var1 -= this.m_minX * 300;
-      var2 -= this.m_minY * 300;
-      var3 -= this.m_minX * 300;
-      var4 -= this.m_minY * 300;
+      var1 -= this.m_minX * SQUARES_PER_CELL;
+      var2 -= this.m_minY * SQUARES_PER_CELL;
+      var3 -= this.m_minX * SQUARES_PER_CELL;
+      var4 -= this.m_minY * SQUARES_PER_CELL;
       int var7 = this.getWidthInCells();
       int var8 = this.getHeightInCells();
-      var1 = PZMath.clamp(var1, 0, var7 * 300 - 1);
-      var2 = PZMath.clamp(var2, 0, var8 * 300 - 1);
-      var3 = PZMath.clamp(var3, 0, var7 * 300 - 1);
-      var4 = PZMath.clamp(var4, 0, var8 * 300 - 1);
+      var1 = PZMath.clamp(var1, 0, var7 * SQUARES_PER_CELL - 1);
+      var2 = PZMath.clamp(var2, 0, var8 * SQUARES_PER_CELL - 1);
+      var3 = PZMath.clamp(var3, 0, var7 * SQUARES_PER_CELL - 1);
+      var4 = PZMath.clamp(var4, 0, var8 * SQUARES_PER_CELL - 1);
       if (var1 != var3 && var2 != var4) {
-         int var9 = var1 / 30;
-         int var10 = var3 / 30;
-         int var11 = var2 / 30;
-         int var12 = var4 / 30;
-         if (var3 % 30 == 0) {
+         int var9 = var1 / SQUARES_PER_UNIT;
+         int var10 = var3 / SQUARES_PER_UNIT;
+         int var11 = var2 / SQUARES_PER_UNIT;
+         int var12 = var4 / SQUARES_PER_UNIT;
+         if (var3 % SQUARES_PER_UNIT == 0) {
             --var10;
          }
 
-         if (var4 % 30 == 0) {
+         if (var4 % SQUARES_PER_UNIT == 0) {
             --var12;
          }
 
-         int var13 = var7 * 10;
+         int var13 = var7 * 8;
 
          for(int var14 = var11; var14 <= var12; ++var14) {
             for(int var15 = var9; var15 <= var10; ++var15) {
@@ -586,7 +678,19 @@ public class WorldMapVisited {
    }
 
    boolean isCellVisible(int var1, int var2) {
-      return this.hasFlags(var1 * 300, var2 * 300, (var1 + 1) * 300, (var2 + 1) * 300, 3, true);
+      boolean var3 = true;
+      int var4 = var3 ? 1 : 0;
+      return this.hasFlags(var1 * SQUARES_PER_CELL - var4, var2 * SQUARES_PER_CELL - var4, (var1 + 1) * SQUARES_PER_CELL + var4, (var2 + 1) * SQUARES_PER_CELL + var4, 3, true);
+   }
+
+   public boolean isVisited(int var1, int var2) {
+      byte var3 = 1;
+      return this.hasFlags(var1 - var3, var2 - var3, var1 + var3, var2 + var3, 1, true);
+   }
+
+   public boolean isVisited(int var1, int var2, int var3, int var4) {
+      byte var5 = 1;
+      return this.hasFlags(var1 - var5, var2 - var5, var3 + var5, var4 + var5, 1, true);
    }
 
    public static WorldMapVisited getInstance() {
@@ -596,12 +700,15 @@ public class WorldMapVisited {
       } else {
          if (instance == null) {
             instance = new WorldMapVisited();
-            instance.setBounds(var0.getMinX(), var0.getMinY(), var0.getMaxX(), var0.getMaxY());
+            instance.setBounds(var0.minX, var0.minY, var0.maxX, var0.maxY);
+            if (instance.m_mainMenu) {
+               return instance;
+            }
 
             try {
                instance.load();
                if (SandboxOptions.getInstance().Map.MapAllKnown.getValue()) {
-                  instance.setKnownInCells(var0.getMinX(), var0.getMinY(), var0.getMaxX(), var0.getMaxY());
+                  instance.setKnownInCells(var0.minX, var0.minY, var0.maxX, var0.maxY);
                }
             } catch (Throwable var2) {
                ExceptionLogger.logException(var2);
@@ -620,15 +727,15 @@ public class WorldMapVisited {
                IsoPlayer var2 = IsoPlayer.players[var1];
                if (var2 != null && !var2.isDead()) {
                   byte var3 = 25;
-                  int var4 = ((int)var2.x - var3) / 30;
-                  int var5 = ((int)var2.y - var3) / 30;
-                  int var6 = ((int)var2.x + var3) / 30;
-                  int var7 = ((int)var2.y + var3) / 30;
-                  if (((int)var2.x + var3) % 30 == 0) {
+                  int var4 = ((int)var2.getX() - var3) / SQUARES_PER_UNIT;
+                  int var5 = ((int)var2.getY() - var3) / SQUARES_PER_UNIT;
+                  int var6 = ((int)var2.getX() + var3) / SQUARES_PER_UNIT;
+                  int var7 = ((int)var2.getY() + var3) / SQUARES_PER_UNIT;
+                  if (((int)var2.getX() + var3) % SQUARES_PER_UNIT == 0) {
                      --var6;
                   }
 
-                  if (((int)var2.y + var3) % 30 == 0) {
+                  if (((int)var2.getY() + var3) % SQUARES_PER_UNIT == 0) {
                      --var7;
                   }
 
@@ -637,7 +744,7 @@ public class WorldMapVisited {
                      var0.m_updateMinY[var1] = var5;
                      var0.m_updateMaxX[var1] = var6;
                      var0.m_updateMaxY[var1] = var7;
-                     var0.setFlags((int)var2.x - var3, (int)var2.y - var3, (int)var2.x + var3, (int)var2.y + var3, 3);
+                     var0.setFlags((int)var2.getX() - var3, (int)var2.getY() - var3, (int)var2.getX() + var3, (int)var2.getY() + var3, 3);
                   }
                }
             }
@@ -674,5 +781,10 @@ public class WorldMapVisited {
          instance = null;
       }
 
+   }
+
+   static {
+      SQUARES_PER_CELL = IsoCell.CellSizeInSquares;
+      SQUARES_PER_UNIT = SQUARES_PER_CELL / 8;
    }
 }

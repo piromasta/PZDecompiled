@@ -5,7 +5,7 @@ import java.util.ArrayList;
 
 public final class FMODParameterList {
    public final ArrayList<FMODParameter> parameterList = new ArrayList();
-   public final FMODParameter[] parameterArray = new FMODParameter[96];
+   public final FMODParameter[] parameterArray = new FMODParameter[128];
 
    public FMODParameterList() {
    }

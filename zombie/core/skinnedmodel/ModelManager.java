@@ -11,12 +11,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.Stack;
 import java.util.TreeMap;
+import org.joml.Matrix4f;
 import org.lwjgl.opengl.ARBFramebufferObject;
-import org.lwjgl.opengl.ARBShaderObjects;
 import org.lwjgl.opengl.EXTFramebufferObject;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjglx.opengl.Display;
 import org.lwjglx.opengl.Util;
@@ -26,15 +26,23 @@ import zombie.PredicatedFileWatcher;
 import zombie.ZomboidFileSystem;
 import zombie.asset.AssetPath;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
+import zombie.characters.SurvivorFactory;
 import zombie.characters.AttachedItems.AttachedModels;
+import zombie.characters.WornItems.BodyLocations;
+import zombie.characters.animals.IsoAnimal;
 import zombie.core.Core;
 import zombie.core.PerformanceSettings;
+import zombie.core.ShaderHelper;
 import zombie.core.SpriteRenderer;
 import zombie.core.logger.ExceptionLogger;
+import zombie.core.opengl.GLStateRenderThread;
 import zombie.core.opengl.PZGLUtil;
 import zombie.core.opengl.RenderThread;
 import zombie.core.opengl.Shader;
+import zombie.core.opengl.ShaderPrograms;
+import zombie.core.opengl.VBORenderer;
 import zombie.core.skinnedmodel.advancedanimation.AdvancedAnimator;
 import zombie.core.skinnedmodel.animation.AnimationClip;
 import zombie.core.skinnedmodel.animation.AnimationPlayer;
@@ -51,8 +59,10 @@ import zombie.core.skinnedmodel.model.ModelMesh;
 import zombie.core.skinnedmodel.model.SkinningData;
 import zombie.core.skinnedmodel.model.VehicleModelInstance;
 import zombie.core.skinnedmodel.model.VehicleSubModelInstance;
+import zombie.core.skinnedmodel.model.VertexBufferObject;
 import zombie.core.skinnedmodel.population.PopTemplateManager;
 import zombie.core.skinnedmodel.visual.ItemVisual;
+import zombie.core.skinnedmodel.visual.ItemVisuals;
 import zombie.core.textures.Texture;
 import zombie.core.textures.TextureDraw;
 import zombie.core.textures.TextureFBO;
@@ -65,14 +75,11 @@ import zombie.inventory.InventoryItem;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.WeaponPart;
 import zombie.iso.FireShader;
-import zombie.iso.IsoLightSource;
+import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoMovingObject;
 import zombie.iso.IsoPuddles;
-import zombie.iso.IsoUtils;
 import zombie.iso.IsoWater;
 import zombie.iso.IsoWorld;
-import zombie.iso.LightingJNI;
-import zombie.iso.LosUtil;
 import zombie.iso.ParticlesFire;
 import zombie.iso.PlayerCamera;
 import zombie.iso.PuddlesShader;
@@ -90,10 +97,8 @@ import zombie.scripting.objects.ItemReplacement;
 import zombie.scripting.objects.ModelScript;
 import zombie.scripting.objects.ModelWeaponPart;
 import zombie.scripting.objects.VehicleScript;
-import zombie.util.Lambda;
 import zombie.util.StringUtils;
 import zombie.util.Type;
-import zombie.util.list.PZArrayUtil;
 import zombie.vehicles.BaseVehicle;
 
 public final class ModelManager {
@@ -118,15 +123,10 @@ public final class ModelManager {
    private final HashMap<String, ModAnimations> m_modAnimations = new HashMap();
    private final ArrayList<StaticAnimation> m_cachedAnims = new ArrayList();
    private final HashSet<IsoGameCharacter> m_contains = new HashSet();
-   private final ArrayList<IsoGameCharacter.TorchInfo> m_torches = new ArrayList();
-   private final Stack<IsoLightSource> m_freeLights = new Stack();
-   private final ArrayList<IsoLightSource> m_torchLights = new ArrayList();
    private final ArrayList<IsoGameCharacter> ToRemove = new ArrayList();
    private final ArrayList<IsoGameCharacter> ToResetNextFrame = new ArrayList();
    private final ArrayList<IsoGameCharacter> ToResetEquippedNextFrame = new ArrayList();
    private final ArrayList<ModelSlot> m_resetAfterRender = new ArrayList();
-   private final Stack<IsoLightSource> m_lights = new Stack();
-   private final Stack<IsoLightSource> m_lightsTemp = new Stack();
    private final Vector2 m_tempVec2 = new Vector2();
    private final Vector2 m_tempVec2_2 = new Vector2();
    private static final TreeMap<String, ModelMetaData> modelMetaData;
@@ -151,10 +151,11 @@ public final class ModelManager {
       if (!this.m_bCreated) {
          if (!GameServer.bServer || ServerGUI.isCreated()) {
             Texture var1 = new Texture(1024, 1024, 16);
+            Texture var2 = new Texture(1024, 1024, 512);
             PerformanceSettings.UseFBOs = false;
 
             try {
-               this.bitmap = new TextureFBO(var1, false);
+               this.bitmap = new TextureFBO(var1, var2, false);
             } catch (Exception var7) {
                var7.printStackTrace();
                PerformanceSettings.UseFBOs = false;
@@ -167,25 +168,25 @@ public final class ModelManager {
          this.initAnimationMeshes(false);
          this.m_modAnimations.put(this.m_gameAnimations.m_modID, this.m_gameAnimations);
          AnimationsMesh var8 = ScriptManager.instance.getAnimationsMesh("Human");
-         ModelMesh var2 = var8.modelMesh;
+         ModelMesh var9 = var8.modelMesh;
          if (!NoOpenGL && this.bCreateSoftwareMeshes) {
-            SoftwareSkinnedModelAnim var3 = new SoftwareSkinnedModelAnim((StaticAnimation[])this.m_cachedAnims.toArray(new StaticAnimation[0]), var2.softwareMesh, var2.skinningData);
-            this.SoftwareMeshAnims.put(var2.getPath().getPath(), var3);
+            SoftwareSkinnedModelAnim var3 = new SoftwareSkinnedModelAnim((StaticAnimation[])this.m_cachedAnims.toArray(new StaticAnimation[0]), var9.softwareMesh, var9.skinningData);
+            this.SoftwareMeshAnims.put(var9.getPath().getPath(), var3);
          }
 
-         Model var9 = this.loadModel("skinned/malebody", (String)null, var2);
-         Model var4 = this.loadModel("skinned/femalebody", (String)null, var2);
-         Model var5 = this.loadModel("skinned/Male_Skeleton", (String)null, var2);
-         Model var6 = this.loadModel("skinned/Female_Skeleton", (String)null, var2);
-         this.m_animModel = var2;
+         Model var10 = this.loadModel("skinned/malebody", (String)null, var9);
+         Model var4 = this.loadModel("skinned/femalebody", (String)null, var9);
+         Model var5 = this.loadModel("skinned/Male_Skeleton", (String)null, var9);
+         Model var6 = this.loadModel("skinned/Female_Skeleton", (String)null, var9);
+         this.m_animModel = var9;
          this.loadModAnimations();
-         var9.addDependency(this.getAnimationAssetRequired("bob/bob_idle"));
-         var9.addDependency(this.getAnimationAssetRequired("bob/bob_walk"));
-         var9.addDependency(this.getAnimationAssetRequired("bob/bob_run"));
+         var10.addDependency(this.getAnimationAssetRequired("bob/bob_idle"));
+         var10.addDependency(this.getAnimationAssetRequired("bob/bob_walk"));
+         var10.addDependency(this.getAnimationAssetRequired("bob/bob_run"));
          var4.addDependency(this.getAnimationAssetRequired("bob/bob_idle"));
          var4.addDependency(this.getAnimationAssetRequired("bob/bob_walk"));
          var4.addDependency(this.getAnimationAssetRequired("bob/bob_run"));
-         this.m_maleModel = var9;
+         this.m_maleModel = var10;
          this.m_femaleModel = var4;
          this.m_skeletonMaleModel = var5;
          this.m_skeletonFemaleModel = var6;
@@ -198,10 +199,10 @@ public final class ModelManager {
    public void loadAdditionalModel(String var1, String var2, boolean var3, String var4) {
       boolean var5 = this.bCreateSoftwareMeshes;
       if (DebugLog.isEnabled(DebugType.Animation)) {
-         DebugLog.Animation.debugln("createSoftwareMesh: %B, model: %s", var5, var1);
+         DebugType.ModelManager.debugln("createSoftwareMesh: %B, model: %s", var5, var1);
       }
 
-      Model var6 = this.loadModelInternal(var1, var2, var4, this.m_animModel, var3);
+      Model var6 = this.loadModelInternal(var1, var2, var4, this.m_animModel, var3, (String)null);
       if (var5) {
          SoftwareSkinnedModelAnim var7 = new SoftwareSkinnedModelAnim((StaticAnimation[])this.m_cachedAnims.toArray(new StaticAnimation[0]), var6.softwareMesh, (SkinningData)var6.Tag);
          this.SoftwareMeshAnims.put(var1.toLowerCase(), var7);
@@ -220,46 +221,70 @@ public final class ModelManager {
       return this.newInstance(var6, var3, var4);
    }
 
-   private void loadAnimsFromDir(String var1, ModelMesh var2) {
-      File var3 = new File(ZomboidFileSystem.instance.base, var1);
-      this.loadAnimsFromDir(ZomboidFileSystem.instance.baseURI, ZomboidFileSystem.instance.getMediaRootFile().toURI(), var3, var2, this.m_gameAnimations);
+   private void loadAnimsFromDir(String var1, ModelMesh var2, ArrayList<String> var3) {
+      File var4 = new File(ZomboidFileSystem.instance.base.canonicalFile, var1);
+      this.loadAnimsFromDir(ZomboidFileSystem.instance.base.lowercaseURI, ZomboidFileSystem.instance.getMediaLowercaseURI(), var4, var2, this.m_gameAnimations, var3);
    }
 
-   private void loadAnimsFromDir(URI var1, URI var2, File var3, ModelMesh var4, ModAnimations var5) {
+   private void loadAnimsFromDir(URI var1, URI var2, File var3, ModelMesh var4, ModAnimations var5, ArrayList<String> var6) {
       if (!var3.exists()) {
          DebugLog.General.error("ERROR: %s", var3.getPath());
 
-         for(File var6 = var3.getParentFile(); var6 != null; var6 = var6.getParentFile()) {
-            DebugLog.General.error(" - Parent exists: %B, %s", var6.exists(), var6.getPath());
+         for(File var7 = var3.getParentFile(); var7 != null; var7 = var7.getParentFile()) {
+            DebugLog.General.error(" - Parent exists: %B, %s", var7.exists(), var7.getPath());
          }
       }
 
       if (var3.isDirectory()) {
-         File[] var13 = var3.listFiles();
-         if (var13 != null) {
-            boolean var7 = false;
-            File[] var8 = var13;
-            int var9 = var13.length;
+         File[] var14 = var3.listFiles();
+         if (var14 != null) {
+            boolean var8 = false;
+            File[] var9 = var14;
+            int var10 = var14.length;
 
-            for(int var10 = 0; var10 < var9; ++var10) {
-               File var11 = var8[var10];
-               if (var11.isDirectory()) {
-                  this.loadAnimsFromDir(var1, var2, var11, var4, var5);
-               } else {
-                  String var12 = ZomboidFileSystem.instance.getAnimName(var2, var11);
-                  this.loadAnim(var12, var4, var5);
-                  var7 = true;
+            for(int var11 = 0; var11 < var10; ++var11) {
+               File var12 = var9[var11];
+               if (var12.isDirectory()) {
+                  this.loadAnimsFromDir(var1, var2, var12, var4, var5, var6);
+               } else if (this.checkAnimationMeshPrefixes(var12.getName(), var6)) {
+                  String var13 = ZomboidFileSystem.instance.getAnimName(var2, var12);
+                  this.loadAnim(var13, var4, var5);
+                  var8 = true;
                   if (!NoOpenGL && RenderThread.RenderThread == null) {
                      Display.processMessages();
                   }
                }
             }
 
-            if (var7) {
+            if (var8) {
                DebugFileWatcher.instance.add((new AnimDirReloader(var1, var2, var3.getPath(), var4, var5)).GetFileWatcher());
             }
 
          }
+      }
+   }
+
+   private boolean checkAnimationMeshPrefixes(String var1, ArrayList<String> var2) {
+      if (var2 == null) {
+         return true;
+      } else if (var2.isEmpty()) {
+         return true;
+      } else {
+         boolean var3 = false;
+         Iterator var4 = var2.iterator();
+
+         while(var4.hasNext()) {
+            String var5 = (String)var4.next();
+            if (var5.startsWith("!") && StringUtils.startsWithIgnoreCase(var1, var5.substring(1))) {
+               return false;
+            }
+
+            if (StringUtils.startsWithIgnoreCase(var1, var5)) {
+               var3 = true;
+            }
+         }
+
+         return var3;
       }
    }
 
@@ -278,40 +303,33 @@ public final class ModelManager {
 
       GL11.glPushClientAttrib(-1);
       GL11.glPushAttrib(1048575);
-      GL11.glMatrixMode(5889);
-      GL11.glPushMatrix();
-      GL11.glLoadIdentity();
-      GL11.glOrtho(0.0, 1.0, 1.0, 0.0, -1.0, 1.0);
+      Matrix4f var7 = Core.getInstance().projectionMatrixStack.alloc();
+      var7.setOrtho(0.0F, 1.0F, 1.0F, 0.0F, -1.0F, 1.0F);
+      Core.getInstance().projectionMatrixStack.push(var7);
       GL11.glViewport(0, 0, 512, 512);
-      GL11.glMatrixMode(5888);
-      GL11.glPushMatrix();
-      GL11.glLoadIdentity();
-      ARBShaderObjects.glUseProgramObjectARB(var2);
+      GL11.glClear(16384);
+      Matrix4f var8 = Core.getInstance().modelViewMatrixStack.alloc();
+      var8.identity();
+      Core.getInstance().modelViewMatrixStack.push(var8);
+      ShaderHelper.glUseProgramObjectARB(var2);
       if (Shader.ShaderMap.containsKey(var2)) {
          ((Shader)Shader.ShaderMap.get(var2)).startRenderThread(var1);
       }
 
-      GL11.glColor4f(0.13F, 0.96F, 0.13F, 1.0F);
-      GL11.glBegin(7);
-      GL11.glTexCoord2f(0.0F, 1.0F);
-      GL11.glVertex2f(0.0F, 0.0F);
-      GL11.glTexCoord2f(1.0F, 1.0F);
-      GL11.glVertex2f(0.0F, 1.0F);
-      GL11.glTexCoord2f(1.0F, 0.0F);
-      GL11.glVertex2f(1.0F, 1.0F);
-      GL11.glTexCoord2f(0.0F, 0.0F);
-      GL11.glVertex2f(1.0F, 0.0F);
-      GL11.glEnd();
-      ARBShaderObjects.glUseProgramObjectARB(0);
-      GL11.glMatrixMode(5888);
-      GL11.glPopMatrix();
-      GL11.glMatrixMode(5889);
-      GL11.glPopMatrix();
+      VBORenderer var9 = VBORenderer.getInstance();
+      var9.startRun(var9.FORMAT_PositionColorUV);
+      var9.setMode(7);
+      var9.setShaderProgram(ShaderPrograms.getInstance().getProgramByID(var2));
+      var9.addQuad(0.0F, 0.0F, 0.0F, 1.0F, 0.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 0.0F, 1.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.13F, 0.96F, 0.13F, 1.0F);
+      var9.endRun();
+      var9.flush();
+      ShaderHelper.forgetCurrentlyBound();
+      ShaderHelper.glUseProgramObjectARB(0);
+      Core.getInstance().projectionMatrixStack.pop();
+      Core.getInstance().modelViewMatrixStack.pop();
       GL11.glPopAttrib();
       GL11.glPopClientAttrib();
       Texture.lastTextureID = -1;
-      PlayerCamera var7 = SpriteRenderer.instance.getRenderingPlayerCamera(var3);
-      GL11.glViewport(0, 0, var7.OffscreenWidth, var7.OffscreenHeight);
       switch (var4) {
          case 1:
             GL30.glBindFramebuffer(36160, var6);
@@ -329,31 +347,29 @@ public final class ModelManager {
    public void RenderWater(TextureDraw var1, int var2, int var3, boolean var4) {
       try {
          Util.checkGLError();
-      } catch (Throwable var7) {
+      } catch (Throwable var9) {
       }
 
       GL11.glPushClientAttrib(-1);
       GL11.glPushAttrib(1048575);
-      GL11.glMatrixMode(5889);
-      GL11.glPushMatrix();
-      GL11.glLoadIdentity();
-      IsoWater.getInstance().waterProjection();
-      PlayerCamera var5 = SpriteRenderer.instance.getRenderingPlayerCamera(var3);
-      GL11.glMatrixMode(5888);
-      GL11.glPushMatrix();
-      GL11.glLoadIdentity();
-      ARBShaderObjects.glUseProgramObjectARB(var2);
-      Shader var6 = (Shader)Shader.ShaderMap.get(var2);
-      if (var6 instanceof WaterShader) {
-         ((WaterShader)var6).updateWaterParams(var1, var3);
+      Matrix4f var5 = Core.getInstance().projectionMatrixStack.alloc();
+      IsoWater.getInstance().waterProjection(var5);
+      Core.getInstance().projectionMatrixStack.push(var5);
+      PlayerCamera var6 = SpriteRenderer.instance.getRenderingPlayerCamera(var3);
+      Matrix4f var7 = Core.getInstance().modelViewMatrixStack.alloc();
+      var7.identity();
+      Core.getInstance().modelViewMatrixStack.push(var7);
+      ShaderHelper.glUseProgramObjectARB(var2);
+      Shader var8 = (Shader)Shader.ShaderMap.get(var2);
+      if (var8 instanceof WaterShader) {
+         ((WaterShader)var8).updateWaterParams(var1, var3);
       }
 
+      VertexBufferObject.setModelViewProjection(var8.getProgram());
       IsoWater.getInstance().waterGeometry(var4);
-      ARBShaderObjects.glUseProgramObjectARB(0);
-      GL11.glMatrixMode(5888);
-      GL11.glPopMatrix();
-      GL11.glMatrixMode(5889);
-      GL11.glPopMatrix();
+      ShaderHelper.glUseProgramObjectARB(0);
+      Core.getInstance().projectionMatrixStack.pop();
+      Core.getInstance().modelViewMatrixStack.pop();
       GL11.glPopAttrib();
       GL11.glPopClientAttrib();
       Texture.lastTextureID = -1;
@@ -362,34 +378,35 @@ public final class ModelManager {
          PZGLUtil.printGLState(DebugLog.General);
       }
 
+      GLStateRenderThread.restore();
    }
 
-   public void RenderPuddles(int var1, int var2, int var3) {
+   public void RenderPuddles(int var1, int var2, int var3, int var4) {
       PZGLUtil.checkGLError(true);
       GL11.glPushClientAttrib(-1);
       GL11.glPushAttrib(1048575);
-      GL11.glMatrixMode(5889);
-      GL11.glPushMatrix();
-      GL11.glLoadIdentity();
-      IsoPuddles.getInstance().puddlesProjection();
-      GL11.glMatrixMode(5888);
-      GL11.glPushMatrix();
-      GL11.glLoadIdentity();
-      ARBShaderObjects.glUseProgramObjectARB(var1);
-      Shader var4 = (Shader)Shader.ShaderMap.get(var1);
-      if (var4 instanceof PuddlesShader) {
-         ((PuddlesShader)var4).updatePuddlesParams(var2, var3);
+      Matrix4f var5 = Core.getInstance().projectionMatrixStack.alloc();
+      IsoPuddles.getInstance().puddlesProjection(var5);
+      Core.getInstance().projectionMatrixStack.push(var5);
+      Matrix4f var6 = Core.getInstance().modelViewMatrixStack.alloc();
+      var6.identity();
+      Core.getInstance().modelViewMatrixStack.push(var6);
+      int var7 = IsoPuddles.getInstance().Effect.getID();
+      ShaderHelper.glUseProgramObjectARB(var7);
+      Shader var8 = IsoPuddles.getInstance().Effect;
+      if (var8 instanceof PuddlesShader) {
+         ((PuddlesShader)var8).updatePuddlesParams(var1, var2);
       }
 
-      IsoPuddles.getInstance().puddlesGeometry(var3);
-      ARBShaderObjects.glUseProgramObjectARB(0);
-      GL11.glMatrixMode(5888);
-      GL11.glPopMatrix();
-      GL11.glMatrixMode(5889);
-      GL11.glPopMatrix();
+      VertexBufferObject.setModelViewProjection(var8.getProgram());
+      IsoPuddles.getInstance().puddlesGeometry(var3, var4);
+      ShaderHelper.glUseProgramObjectARB(0);
+      Core.getInstance().projectionMatrixStack.pop();
+      Core.getInstance().modelViewMatrixStack.pop();
       GL11.glPopAttrib();
       GL11.glPopClientAttrib();
       Texture.lastTextureID = -1;
+      GLStateRenderThread.restore();
       if (!PZGLUtil.checkGLError(true)) {
          DebugLog.General.println("DEBUG: EXCEPTION RenderPuddles");
          PZGLUtil.printGLState(DebugLog.General);
@@ -418,7 +435,7 @@ public final class ModelManager {
       GL11.glLoadIdentity();
       float var7 = ParticlesFire.getInstance().getShaderTime();
       GL11.glBlendFunc(770, 1);
-      ARBShaderObjects.glUseProgramObjectARB(var4);
+      ShaderHelper.glUseProgramObjectARB(var4);
       Shader var8 = (Shader)Shader.ShaderMap.get(var4);
       if (var8 instanceof FireShader) {
          ((FireShader)var8).updateFireParams(var1, var2, var7);
@@ -426,14 +443,14 @@ public final class ModelManager {
 
       ParticlesFire.getInstance().getGeometryFire(var3);
       GL11.glBlendFunc(770, 771);
-      ARBShaderObjects.glUseProgramObjectARB(var5);
+      ShaderHelper.glUseProgramObjectARB(var5);
       var8 = (Shader)Shader.ShaderMap.get(var5);
       if (var8 instanceof SmokeShader) {
          ((SmokeShader)var8).updateSmokeParams(var1, var2, var7);
       }
 
       ParticlesFire.getInstance().getGeometry(var3);
-      ARBShaderObjects.glUseProgramObjectARB(0);
+      GL20.glUseProgram(0);
       GL11.glMatrixMode(5888);
       GL11.glPopMatrix();
       GL11.glMatrixMode(5889);
@@ -467,7 +484,7 @@ public final class ModelManager {
          Model var5 = this.getBodyModel(var1);
          var2.model = this.newInstance(var5, var1, var1.getAnimationPlayer());
          var2.model.setOwner(var2);
-         var2.model.m_modelScript = ScriptManager.instance.getModelScript(var1.isFemale() ? "FemaleBody" : "MaleBody");
+         var2.model.m_modelScript = var1.getVisual().getModelScript();
          this.DoCharacterModelParts(var1, var2);
       }
    }
@@ -501,7 +518,7 @@ public final class ModelManager {
                Model var3 = this.getBodyModel(var1);
                var2.model = this.newInstance(var3, var1, var1.getAnimationPlayer());
                var2.model.setOwner(var2);
-               var2.model.m_modelScript = ScriptManager.instance.getModelScript(var1.isFemale() ? "FemaleBody" : "MaleBody");
+               var2.model.m_modelScript = var1.getVisual().getModelScript();
                this.DoCharacterModelParts(var1, var2);
                var2.active = true;
                var2.character = var1;
@@ -520,7 +537,7 @@ public final class ModelManager {
                var1.onCullStateChanged(this, false);
                if (var2.model.AnimPlayer != null && var2.model.AnimPlayer.isBoneTransformsNeedFirstFrame()) {
                   try {
-                     var2.Update();
+                     var2.Update(var1.getAnimationTimeDelta());
                   } catch (Throwable var6) {
                      ExceptionLogger.logException(var6);
                   }
@@ -539,6 +556,7 @@ public final class ModelManager {
          }
 
          if (var2.bDressInRandomOutfit) {
+            var2.getDescriptor().setForename(SurvivorFactory.getRandomForename(var2.isFemale()));
             var2.bDressInRandomOutfit = false;
             var2.dressInRandomOutfit();
          }
@@ -556,7 +574,9 @@ public final class ModelManager {
    }
 
    public Model getBodyModel(IsoGameCharacter var1) {
-      if (var1.isZombie() && ((IsoZombie)var1).isSkeleton()) {
+      if (var1.isAnimal()) {
+         return var1.getVisual().getModel();
+      } else if (var1.isZombie() && ((IsoZombie)var1).isSkeleton()) {
          return var1.isFemale() ? this.m_skeletonFemaleModel : this.m_skeletonMaleModel;
       } else {
          return var1.isFemale() ? this.m_femaleModel : this.m_maleModel;
@@ -573,6 +593,10 @@ public final class ModelManager {
       }
    }
 
+   public boolean shouldHideModel(ItemVisuals var1, String var2) {
+      return BodyLocations.getGroup("Human").getLocation(var2) != null && PopTemplateManager.instance.isItemModelHidden(var1, var2);
+   }
+
    private void DoCharacterModelEquipped(IsoGameCharacter var1, ModelSlot var2) {
       // $FF: Couldn't be decompiled
    }
@@ -580,7 +604,7 @@ public final class ModelManager {
    private ModelInstance addEquippedModelInstance(IsoGameCharacter var1, ModelSlot var2, InventoryItem var3, String var4, ItemReplacement var5, boolean var6) {
       HandWeapon var8 = (HandWeapon)Type.tryCastTo(var3, HandWeapon.class);
       ModelInstance var7;
-      if (var8 != null) {
+      if (var3.getClothingItem() == null && var8 != null && var3.getClothingItem() == null) {
          String var9 = var8.getStaticModel();
          var7 = this.addStatic(var2, var9, var4);
          this.addWeaponPartModels(var2, var8, var7);
@@ -738,13 +762,19 @@ public final class ModelManager {
          boolean var3 = false;
       }
 
-      if (DebugLog.isEnabled(DebugType.Clothing)) {
-         DebugLog.Clothing.debugln("Char: " + var1 + " Slot: " + var2);
-      }
+      if (var1 instanceof IsoAnimal) {
+         var1.postUpdateModelTextures();
+      } else {
+         if (DebugLog.isEnabled(DebugType.Clothing)) {
+            DebugLog.Clothing.debugln("Char: " + var1 + " Slot: " + var2);
+         }
 
-      var2.sub.clear();
-      PopTemplateManager.instance.populateCharacterModelSlot(var1, var2);
-      this.DoCharacterModelEquipped(var1, var2);
+         var2.sub.clear();
+         PopTemplateManager.instance.populateCharacterModelSlot(var1, var2);
+         this.DoCharacterModelEquipped(var1, var2);
+         var1.OnClothingUpdated();
+         var1.OnEquipmentUpdated();
+      }
    }
 
    public void update() {
@@ -772,42 +802,45 @@ public final class ModelManager {
       this.ToRemove.clear();
 
       for(var1 = 0; var1 < this.m_resetAfterRender.size(); ++var1) {
-         ModelSlot var4 = (ModelSlot)this.m_resetAfterRender.get(var1);
-         if (!var4.isRendering()) {
-            var4.reset();
+         ModelSlot var10 = (ModelSlot)this.m_resetAfterRender.get(var1);
+         if (!var10.isRendering()) {
+            var10.reset();
             this.m_resetAfterRender.remove(var1--);
          }
       }
 
-      this.m_lights.clear();
       if (IsoWorld.instance != null && IsoWorld.instance.CurrentCell != null) {
-         this.m_lights.addAll(IsoWorld.instance.CurrentCell.getLamppostPositions());
-         ArrayList var8 = IsoWorld.instance.CurrentCell.getVehicles();
+         ArrayList var12 = IsoWorld.instance.CurrentCell.getVehicles();
 
-         for(int var5 = 0; var5 < var8.size(); ++var5) {
-            BaseVehicle var3 = (BaseVehicle)var8.get(var5);
-            if (var3.sprite != null && var3.sprite.hasActiveModel()) {
-               ((VehicleModelInstance)var3.sprite.modelSlot.model).UpdateLights();
+         for(int var11 = 0; var11 < var12.size(); ++var11) {
+            BaseVehicle var3 = (BaseVehicle)var12.get(var11);
+            IsoGridSquare var4 = var3.getCurrentSquare();
+            if (var4 != null && var3.sprite != null && var3.sprite.hasActiveModel()) {
+               VehicleModelInstance var5 = (VehicleModelInstance)var3.sprite.modelSlot.model;
+               int var6 = -1;
+
+               for(int var7 = 0; var7 < IsoPlayer.numPlayers; ++var7) {
+                  IsoPlayer var8 = IsoPlayer.players[var7];
+                  if (var8 != null) {
+                     boolean var9 = var8.getVehicle() == var3;
+                     if ((var9 || var4.lighting[var7].bSeen()) && (var9 || var4.lighting[var7].bCouldSee())) {
+                        var6 = var7;
+                        break;
+                     }
+                  }
+               }
+
+               if (var6 == -1) {
+                  ModelInstance.EffectLight[] var13 = var5.getLights();
+
+                  for(int var14 = 0; var14 < var13.length; ++var14) {
+                     var13[var14].clear();
+                  }
+               } else {
+                  var5.UpdateLights(var6);
+               }
             }
          }
-      }
-
-      this.m_freeLights.addAll(this.m_torchLights);
-      this.m_torchLights.clear();
-      this.m_torches.clear();
-      LightingJNI.getTorches(this.m_torches);
-
-      for(var1 = 0; var1 < this.m_torches.size(); ++var1) {
-         IsoGameCharacter.TorchInfo var7 = (IsoGameCharacter.TorchInfo)this.m_torches.get(var1);
-         IsoLightSource var6 = this.m_freeLights.isEmpty() ? new IsoLightSource(0, 0, 0, 1.0F, 1.0F, 1.0F, 1) : (IsoLightSource)this.m_freeLights.pop();
-         var6.x = (int)var7.x;
-         var6.y = (int)var7.y;
-         var6.z = (int)var7.z;
-         var6.r = 1.0F;
-         var6.g = 0.85F;
-         var6.b = 0.6F;
-         var6.radius = (int)Math.ceil((double)var7.dist);
-         this.m_torchLights.add(var6);
       }
 
    }
@@ -918,82 +951,37 @@ public final class ModelManager {
 
             this.m_modelSlots.clear();
          } catch (Exception var6) {
-            DebugLog.Animation.error("Exception thrown removing Models.");
-            var6.printStackTrace();
+            DebugType.ModelManager.error("Exception thrown removing Models.");
+            ExceptionLogger.logException(var6);
          }
 
       });
-      this.m_lights.clear();
-      this.m_lightsTemp.clear();
    }
 
-   public void getClosestThreeLights(IsoMovingObject var1, IsoLightSource[] var2) {
-      this.m_lightsTemp.clear();
-      Iterator var3 = this.m_lights.iterator();
+   public void getSquareLighting(int var1, IsoMovingObject var2, ModelInstance.EffectLight[] var3) {
+      for(int var4 = 0; var4 < var3.length; ++var4) {
+         var3[var4].clear();
+      }
 
-      while(true) {
-         IsoLightSource var4;
-         do {
-            do {
-               do {
-                  if (!var3.hasNext()) {
-                     if (var1 instanceof BaseVehicle) {
-                        for(int var8 = 0; var8 < this.m_torches.size(); ++var8) {
-                           IsoGameCharacter.TorchInfo var9 = (IsoGameCharacter.TorchInfo)this.m_torches.get(var8);
-                           if (!(IsoUtils.DistanceTo(var1.x, var1.y, var9.x, var9.y) >= var9.dist) && LosUtil.lineClear(IsoWorld.instance.CurrentCell, (int)var1.x, (int)var1.y, (int)var1.z, (int)var9.x, (int)var9.y, (int)var9.z, false) != LosUtil.TestResults.Blocked) {
-                              if (var9.bCone) {
-                                 Vector2 var5 = this.m_tempVec2;
-                                 var5.x = var9.x - var1.x;
-                                 var5.y = var9.y - var1.y;
-                                 var5.normalize();
-                                 Vector2 var6 = this.m_tempVec2_2;
-                                 var6.x = var9.angleX;
-                                 var6.y = var9.angleY;
-                                 var6.normalize();
-                                 float var7 = var5.dot(var6);
-                                 if (var7 >= -0.92F) {
-                                    continue;
-                                 }
-                              }
+      IsoGridSquare var9 = var2.getCurrentSquare();
+      if (var9 != null) {
+         IsoGridSquare.ILighting var5 = var9.lighting[var1];
+         int var6 = var5.resultLightCount();
 
-                              this.m_lightsTemp.add((IsoLightSource)this.m_torchLights.get(var8));
-                           }
-                        }
-                     }
-
-                     PZArrayUtil.sort(this.m_lightsTemp, Lambda.comparator(var1, (var0, var1x, var2x) -> {
-                        float var3 = var2x.DistTo(var0.x, var0.y);
-                        float var4 = var2x.DistTo(var1x.x, var1x.y);
-                        if (var3 > var4) {
-                           return 1;
-                        } else {
-                           return var3 < var4 ? -1 : 0;
-                        }
-                     }));
-                     var2[0] = var2[1] = var2[2] = null;
-                     if (this.m_lightsTemp.size() > 0) {
-                        var2[0] = (IsoLightSource)this.m_lightsTemp.get(0);
-                     }
-
-                     if (this.m_lightsTemp.size() > 1) {
-                        var2[1] = (IsoLightSource)this.m_lightsTemp.get(1);
-                     }
-
-                     if (this.m_lightsTemp.size() > 2) {
-                        var2[2] = (IsoLightSource)this.m_lightsTemp.get(2);
-                     }
-
-                     return;
-                  }
-
-                  var4 = (IsoLightSource)var3.next();
-               } while(!var4.bActive);
-            } while(var4.life == 0);
-         } while(var4.localToBuilding != null && var1.getCurrentBuilding() != var4.localToBuilding);
-
-         if (!(IsoUtils.DistanceTo(var1.x, var1.y, (float)var4.x + 0.5F, (float)var4.y + 0.5F) >= (float)var4.radius) && LosUtil.lineClear(IsoWorld.instance.CurrentCell, (int)var1.x, (int)var1.y, (int)var1.z, var4.x, var4.y, var4.z, false) != LosUtil.TestResults.Blocked) {
-            this.m_lightsTemp.add(var4);
+         for(int var7 = 0; var7 < var6; ++var7) {
+            IsoGridSquare.ResultLight var8 = var5.getResultLight(var7);
+            var3[var7].x = (float)var8.x;
+            var3[var7].y = (float)var8.y;
+            var3[var7].z = (float)var8.z;
+            var3[var7].r = var8.r;
+            var3[var7].g = var8.g;
+            var3[var7].b = var8.b;
+            var3[var7].radius = var8.radius;
+            if (var7 == var3.length - 1) {
+               break;
+            }
          }
+
       }
    }
 
@@ -1005,10 +993,10 @@ public final class ModelManager {
                String var3 = var1.getScript().getModel().file;
                Model var4 = this.getLoadedModel(var3);
                if (var4 == null) {
-                  DebugLog.Animation.error("Failed to find vehicle model: %s", var3);
+                  DebugType.ModelManager.error("Failed to find vehicle model: %s", var3);
                } else {
                   if (DebugLog.isEnabled(DebugType.Animation)) {
-                     DebugLog.Animation.debugln("%s", var3);
+                     DebugType.ModelManager.debugln("%s", var3);
                   }
 
                   VehicleModelInstance var5 = new VehicleModelInstance();
@@ -1032,7 +1020,7 @@ public final class ModelManager {
                   if (var5.tex != null) {
                      var5.tex.bindAlways = true;
                   } else {
-                     DebugLog.Animation.error("texture not found:", var1.getSkin());
+                     DebugType.ModelManager.error("texture not found:", var1.getSkin());
                   }
 
                   ModelSlot var7 = this.getSlot((IsoGameCharacter)null);
@@ -1043,14 +1031,14 @@ public final class ModelManager {
 
                   for(int var8 = 0; var8 < var1.models.size(); ++var8) {
                      BaseVehicle.ModelInfo var9 = (BaseVehicle.ModelInfo)var1.models.get(var8);
-                     Model var10 = this.getLoadedModel(var9.scriptModel.file);
+                     Model var10 = this.getLoadedModel(var9.scriptModel.file == null ? var9.modelScript.name : var9.scriptModel.file);
                      if (var10 == null) {
-                        DebugLog.Animation.error("vehicle.models[%d] not found: %s", var8, var9.scriptModel.file);
+                        DebugType.ModelManager.error("vehicle.models[%d] not found: %s", var8, var9.scriptModel.file);
                      } else {
                         VehicleSubModelInstance var11 = new VehicleSubModelInstance();
                         var11.init(var10, (IsoGameCharacter)null, var9.getAnimationPlayer());
                         var11.setOwner(var7);
-                        var11.applyModelScriptScale(var9.scriptModel.file);
+                        var11.applyModelScriptScale(var9.scriptModel.file == null ? var9.modelScript.name : var9.scriptModel.file);
                         var11.object = var1;
                         var11.parent = var5;
                         var5.sub.add(var11);
@@ -1086,7 +1074,7 @@ public final class ModelManager {
 
    public ModelInstance newStaticInstance(ModelSlot var1, String var2, String var3, String var4, String var5) {
       if (DebugLog.isEnabled(DebugType.Animation)) {
-         DebugLog.Animation.debugln("Adding Static Model:" + var2);
+         DebugType.ModelManager.debugln("Adding Static Model:" + var2);
       }
 
       Model var6 = this.tryGetLoadedModel(var2, var3, true, var5, false);
@@ -1095,7 +1083,7 @@ public final class ModelManager {
          var6 = this.getLoadedModel(var2, var3, true, var5);
          if (var6 == null) {
             if (DebugLog.isEnabled(DebugType.Animation)) {
-               DebugLog.Animation.error("Model not found. model:" + var2 + " tex:" + var3);
+               DebugType.ModelManager.error("Model not found. model:" + var2 + " tex:" + var3);
             }
 
             return null;
@@ -1185,7 +1173,7 @@ public final class ModelManager {
          var10 = this.getLoadedModel(var6, var7, true, var8);
          if (var10 == null) {
             if (DebugLog.isEnabled(DebugType.Animation)) {
-               DebugLog.Animation.error("Model not found. model:" + var6 + " tex:" + var7);
+               DebugType.ModelManager.error("Model not found. model:" + var6 + " tex:" + var7);
             }
 
             return null;
@@ -1226,37 +1214,50 @@ public final class ModelManager {
       return var1;
    }
 
-   private Model loadModelInternal(String var1, String var2, String var3, ModelMesh var4, boolean var5) {
+   private Model loadModelInternal(String var1, String var2, String var3, ModelMesh var4, boolean var5, String var6) {
       var3 = this.modifyShaderName(var3);
-      Model.ModelAssetParams var6 = new Model.ModelAssetParams();
-      var6.animationsModel = var4;
-      var6.bStatic = var5;
-      var6.meshName = var1;
-      var6.shaderName = var3;
-      var6.textureName = var2;
+      Model.ModelAssetParams var7 = new Model.ModelAssetParams();
+      var7.animationsModel = var4;
+      var7.bStatic = var5;
+      var7.meshName = var1;
+      var7.shaderName = var3;
+      var7.textureName = var2;
+      var7.postProcess = var6;
       if (var3 != null && StringUtils.startsWithIgnoreCase(var3, "vehicle")) {
-         var6.textureFlags = TextureID.bUseCompression ? 4 : 0;
-         var6.textureFlags |= 256;
+         var7.textureFlags = TextureID.bUseCompression ? 4 : 0;
+         var7.textureFlags |= 256;
       } else {
-         var6.textureFlags = this.getTextureFlags();
+         var7.textureFlags = this.getTextureFlags();
       }
 
-      String var7 = this.createModelKey(var1, var2, var5, var3);
-      Model var8 = (Model)ModelAssetManager.instance.load(new AssetPath(var7), var6);
-      if (var8 != null) {
-         this.putLoadedModel(var1, var2, var5, var3, var8);
+      if (!this.shouldLimitTextureSize(var2)) {
+         var7.textureFlags &= -385;
       }
 
-      return var8;
+      String var8 = this.createModelKey(var1, var2, var5, var3);
+      Model var9 = (Model)ModelAssetManager.instance.load(new AssetPath(var8), var7);
+      if (var9 != null) {
+         this.putLoadedModel(var1, var2, var5, var3, var9);
+      }
+
+      return var9;
    }
 
    public int getTextureFlags() {
       int var1 = TextureID.bUseCompression ? 4 : 0;
-      if (Core.OptionModelTextureMipmaps) {
+      if (Core.getInstance().getOptionModelTextureMipmaps()) {
       }
 
       var1 |= 128;
       return var1;
+   }
+
+   public boolean shouldLimitTextureSize(String var1) {
+      if (var1 == null) {
+         return true;
+      } else {
+         return !var1.equals("IsoObject/MODELS_fixtures_doors_fences_01");
+      }
    }
 
    public void setModelMetaData(String var1, String var2, String var3, boolean var4) {
@@ -1274,11 +1275,15 @@ public final class ModelManager {
 
    public Model loadStaticModel(String var1, String var2, String var3) {
       String var4 = this.modifyShaderName(var3);
-      return this.loadModelInternal(var1, var2, var4, (ModelMesh)null, true);
+      return this.loadModelInternal(var1, var2, var4, (ModelMesh)null, true, (String)null);
+   }
+
+   public Model loadModel(String var1, String var2, ModelMesh var3, String var4) {
+      return this.loadModelInternal(var1, var2, var4, var3, false, (String)null);
    }
 
    private Model loadModel(String var1, String var2, ModelMesh var3) {
-      return this.loadModelInternal(var1, var2, "basicEffect", var3, false);
+      return this.loadModelInternal(var1, var2, "basicEffect", var3, false, (String)null);
    }
 
    public Model getLoadedModel(String var1) {
@@ -1295,7 +1300,7 @@ public final class ModelManager {
             } else {
                AnimationsMesh var11 = var2.animationsMesh == null ? null : ScriptManager.instance.getAnimationsMesh(var2.animationsMesh);
                ModelMesh var12 = var11 == null ? null : var11.modelMesh;
-               var10 = var2.bStatic ? this.loadModelInternal(var2.getMeshName(), var2.getTextureName(), var2.getShaderName(), (ModelMesh)null, true) : this.loadModelInternal(var2.getMeshName(), var2.getTextureName(), var2.getShaderName(), var12, false);
+               var10 = var2.bStatic ? this.loadModelInternal(var2.getMeshName(), var2.getTextureName(), var2.getShaderName(), (ModelMesh)null, true, var2.postProcess) : this.loadModelInternal(var2.getMeshName(), var2.getTextureName(), var2.getShaderName(), var12, false, var2.postProcess);
                var2.loadedModel = var10;
                return var10;
             }
@@ -1332,7 +1337,7 @@ public final class ModelManager {
                }
 
                if (var4 == null && DebugLog.isEnabled(DebugType.Animation)) {
-                  DebugLog.Animation.error("ModelManager.getLoadedModel> Model missing for key=\"" + var5 + "\"");
+                  DebugType.ModelManager.error("ModelManager.getLoadedModel> Model missing for key=\"" + var5 + "\"");
                }
 
                return var4;
@@ -1352,7 +1357,7 @@ public final class ModelManager {
       } else {
          Model var7 = (Model)this.m_modelMap.get(var6);
          if (var7 == null && var5 && DebugLog.isEnabled(DebugType.Animation)) {
-            DebugLog.Animation.error("ModelManager.getLoadedModel> Model missing for key=\"" + var6 + "\"");
+            DebugType.ModelManager.error("ModelManager.getLoadedModel> Model missing for key=\"" + var6 + "\"");
          }
 
          return var7;
@@ -1365,9 +1370,9 @@ public final class ModelManager {
          Model var7 = (Model)this.m_modelMap.get(var6);
          if (var7 != var5) {
             if (var7 != null) {
-               DebugLog.Animation.debugln("Override key=\"%s\" old=%s new=%s", var6, var7, var5);
+               DebugType.ModelManager.debugln("Override key=\"%s\" old=%s new=%s", var6, var7, var5);
             } else {
-               DebugLog.Animation.debugln("key=\"%s\" model=%s", var6, var5);
+               DebugType.ModelManager.debugln("key=\"%s\" model=%s", var6, var5);
             }
 
             this.m_modelMap.put(var6, var5);
@@ -1437,7 +1442,7 @@ public final class ModelManager {
    }
 
    private AnimationAsset loadAnim(String var1, ModelMesh var2, ModAnimations var3) {
-      DebugLog.Animation.debugln("Adding asset to queue: %s", var1);
+      DebugType.ModelManager.debugln("Adding asset to queue: %s", var1);
       AnimationAsset.AnimationAssetParams var4 = new AnimationAsset.AnimationAssetParams();
       var4.animationsMesh = var2;
       AnimationAsset var5 = (AnimationAsset)AnimationAssetManager.instance.load(new AssetPath(var1), var4);
@@ -1450,8 +1455,8 @@ public final class ModelManager {
       String var4 = var1.toLowerCase();
       AnimationAsset var5 = (AnimationAsset)var3.m_animationAssetMap.getOrDefault(var4, (Object)null);
       if (var5 != null) {
-         DebugLog.Animation.debugln("Overwriting asset: %s", this.animAssetToString(var5));
-         DebugLog.Animation.debugln("New asset        : %s", this.animAssetToString(var2));
+         DebugType.ModelManager.debugln("Overwriting asset: %s", this.animAssetToString(var5));
+         DebugType.ModelManager.debugln("New asset        : %s", this.animAssetToString(var2));
          var3.m_animationAssetList.remove(var5);
       }
 
@@ -1470,7 +1475,7 @@ public final class ModelManager {
       }
    }
 
-   private AnimationAsset getAnimationAsset(String var1) {
+   public AnimationAsset getAnimationAsset(String var1) {
       String var2 = var1.toLowerCase(Locale.ENGLISH);
       return (AnimationAsset)this.m_animationAssets.get(var2);
    }
@@ -1534,7 +1539,8 @@ public final class ModelManager {
             if (!var5.isEmpty()) {
                DebugLog.General.printf("reloading model %s\n", var4);
                ModelMesh.MeshAssetParams var6 = new ModelMesh.MeshAssetParams();
-               var6.animationsMesh = null;
+               var6.animationsMesh = var5.Mesh.m_animationsMesh;
+               var6.postProcess = var5.Mesh.postProcess;
                if (var5.Mesh.vb == null) {
                   var6.bStatic = var4.contains(";isStatic=true");
                } else {
@@ -1562,7 +1568,7 @@ public final class ModelManager {
       for(int var3 = 0; var3 < var13.size(); ++var3) {
          String var4 = (String)var13.get(var3);
          ChooseGameInfo.Mod var5 = ChooseGameInfo.getAvailableModDetails(var4);
-         if (var5 != null && var5.animsXFile.isDirectory()) {
+         if (var5 != null && (var5.animsXFile.common.absoluteFile.isDirectory() || var5.animsXFile.version.absoluteFile.isDirectory())) {
             ModAnimations var6 = (ModAnimations)this.m_modAnimations.get(var4);
             if (var6 != null) {
                var6.setPriority(var3 + 1);
@@ -1579,9 +1585,14 @@ public final class ModelManager {
                   while(var9.hasNext()) {
                      String var10 = (String)var9.next();
                      if (var8.modelMesh.isReady()) {
-                        File var11 = new File(var5.animsXFile, var10);
+                        File var11 = new File(var5.animsXFile.common.canonicalFile, var10);
                         if (var11.exists()) {
-                           this.loadAnimsFromDir(var5.baseFile.toURI(), var5.mediaFile.toURI(), var11, var8.modelMesh, var6);
+                           this.loadAnimsFromDir(var5.baseFile.common.lowercaseURI, var5.mediaFile.common.lowercaseURI, var11, var8.modelMesh, var6, var8.animationPrefixes);
+                        }
+
+                        var11 = new File(var5.animsXFile.version.canonicalFile, var10);
+                        if (var11.exists()) {
+                           this.loadAnimsFromDir(var5.baseFile.version.lowercaseURI, var5.mediaFile.version.lowercaseURI, var11, var8.modelMesh, var6, var8.animationPrefixes);
                         }
                      }
                   }
@@ -1604,12 +1615,15 @@ public final class ModelManager {
          AnimationsMesh var3 = (AnimationsMesh)var2.next();
          if (var3.modelMesh.isReady()) {
             var3.modelMesh.skinningData.AnimationClips.clear();
+            if (var3.bKeepMeshAnimations) {
+               var3.modelMesh.skinningData.AnimationClips.putAll(var3.modelMesh.meshAnimationClips);
+            }
          }
       }
 
       var2 = this.m_modAnimations.values().iterator();
 
-      label45:
+      label47:
       while(true) {
          ModAnimations var7;
          do {
@@ -1627,7 +1641,7 @@ public final class ModelManager {
             AnimationAsset var6;
             do {
                if (!var4.hasNext()) {
-                  continue label45;
+                  continue label47;
                }
 
                var5 = (AnimationAsset)var4.next();
@@ -1662,6 +1676,7 @@ public final class ModelManager {
          ModelMesh.MeshAssetParams var5 = new ModelMesh.MeshAssetParams();
          var5.bStatic = false;
          var5.animationsMesh = null;
+         var5.postProcess = var4.postProcess;
          var4.modelMesh = (ModelMesh)MeshAssetManager.instance.getAssetTable().get(var4.meshFile);
          if (var4.modelMesh == null) {
             var4.modelMesh = (ModelMesh)MeshAssetManager.instance.load(new AssetPath(var4.meshFile), var5);
@@ -1694,9 +1709,9 @@ public final class ModelManager {
             while(var9.hasNext()) {
                String var6 = (String)var9.next();
                if (var4.modelMesh.isReady()) {
-                  File var7 = new File(ZomboidFileSystem.instance.base, "media/anims_X/" + var6);
+                  File var7 = new File(ZomboidFileSystem.instance.getAnimsXFile(), var6);
                   if (var7.exists()) {
-                     this.loadAnimsFromDir("media/anims_X/" + var6, var4.modelMesh);
+                     this.loadAnimsFromDir("media/anims_X/" + var6, var4.modelMesh, var4.animationPrefixes);
                   }
                }
             }
@@ -1724,24 +1739,46 @@ public final class ModelManager {
    private void loadHumanAnimations(ChooseGameInfo.Mod var1, ModAnimations var2) {
       AnimationsMesh var3 = ScriptManager.instance.getAnimationsMesh("Human");
       if (var3 != null && var3.modelMesh != null && var3.modelMesh.isReady()) {
-         File[] var4 = var1.animsXFile.listFiles();
+         File[] var4 = var1.animsXFile.common.canonicalFile.listFiles();
          if (var4 != null) {
-            URI var5 = var1.animsXFile.toURI();
+            URI var5 = var1.animsXFile.common.lowercaseURI;
             File[] var6 = var4;
             int var7 = var4.length;
 
-            for(int var8 = 0; var8 < var7; ++var8) {
-               File var9 = var6[var8];
+            int var8;
+            File var9;
+            String var10;
+            for(var8 = 0; var8 < var7; ++var8) {
+               var9 = var6[var8];
                if (var9.isDirectory()) {
                   if (!this.isAnimationsMeshDirectory(var9.getName())) {
-                     this.loadAnimsFromDir(var1.baseFile.toURI(), var1.mediaFile.toURI(), var9, var3.modelMesh, var2);
+                     this.loadAnimsFromDir(var1.baseFile.common.lowercaseURI, var1.mediaFile.common.lowercaseURI, var9, var3.modelMesh, var2, (ArrayList)null);
                   }
                } else {
-                  String var10 = ZomboidFileSystem.instance.getAnimName(var5, var9);
+                  var10 = ZomboidFileSystem.instance.getAnimName(var5, var9);
                   this.loadAnim(var10, var3.modelMesh, var2);
                }
             }
 
+            var4 = var1.animsXFile.version.canonicalFile.listFiles();
+            if (var4 != null) {
+               var5 = var1.animsXFile.version.lowercaseURI;
+               var6 = var4;
+               var7 = var4.length;
+
+               for(var8 = 0; var8 < var7; ++var8) {
+                  var9 = var6[var8];
+                  if (var9.isDirectory()) {
+                     if (!this.isAnimationsMeshDirectory(var9.getName())) {
+                        this.loadAnimsFromDir(var1.baseFile.version.lowercaseURI, var1.mediaFile.version.lowercaseURI, var9, var3.modelMesh, var2, (ArrayList)null);
+                     }
+                  } else {
+                     var10 = ZomboidFileSystem.instance.getAnimName(var5, var9);
+                     this.loadAnim(var10, var3.modelMesh, var2);
+                  }
+               }
+
+            }
          }
       }
    }
@@ -1880,11 +1917,11 @@ public final class ModelManager {
          this.character = var3;
       }
 
-      public void Update() {
+      public void Update(float var1) {
          if (this.character != null && !this.bRemove) {
             ++this.framesSinceStart;
             if (this != this.character.legsSprite.modelSlot) {
-               boolean var1 = false;
+               boolean var2 = false;
             }
 
             if (this.model.AnimPlayer != this.character.getAnimationPlayer()) {
@@ -1893,10 +1930,10 @@ public final class ModelManager {
 
             synchronized(this.model.m_lock) {
                this.model.UpdateDir();
-               this.model.Update();
+               this.model.Update(var1);
 
-               for(int var2 = 0; var2 < this.sub.size(); ++var2) {
-                  ((ModelInstance)this.sub.get(var2)).AnimPlayer = this.model.AnimPlayer;
+               for(int var3 = 0; var3 < this.sub.size(); ++var3) {
+                  ((ModelInstance)this.sub.get(var3)).AnimPlayer = this.model.AnimPlayer;
                }
 
             }

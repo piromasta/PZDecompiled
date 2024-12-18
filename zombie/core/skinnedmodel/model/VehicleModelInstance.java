@@ -4,7 +4,6 @@ import java.util.Arrays;
 import org.joml.Vector3f;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.textures.Texture;
-import zombie.iso.IsoLightSource;
 
 public final class VehicleModelInstance extends ModelInstance {
    public Texture textureRust = null;
@@ -30,10 +29,14 @@ public final class VehicleModelInstance extends ModelInstance {
    public float refWindows = 0.5F;
    public float refBody = 0.4F;
    public final Vector3f painColor = new Vector3f(0.0F, 0.5F, 0.5F);
-   private IsoLightSource[] m_lights = new IsoLightSource[3];
+   private final ModelInstance.EffectLight[] m_lights = new ModelInstance.EffectLight[5];
    public final Object m_lightsLock = "Model Lights Lock";
 
    public VehicleModelInstance() {
+      for(int var1 = 0; var1 < this.m_lights.length; ++var1) {
+         this.m_lights[var1] = new ModelInstance.EffectLight();
+      }
+
    }
 
    public void reset() {
@@ -54,20 +57,20 @@ public final class VehicleModelInstance extends ModelInstance {
       this.refWindows = 0.5F;
       this.refBody = 0.4F;
       this.painColor.set(0.0F, 0.5F, 0.5F);
-      Arrays.fill(this.m_lights, (Object)null);
+
+      for(int var1 = 0; var1 < this.m_lights.length; ++var1) {
+         this.m_lights[var1].clear();
+      }
+
    }
 
-   public void setLights(IsoLightSource[] var1) {
-      this.m_lights = var1;
-   }
-
-   public IsoLightSource[] getLights() {
+   public ModelInstance.EffectLight[] getLights() {
       return this.m_lights;
    }
 
-   public void UpdateLights() {
+   public void UpdateLights(int var1) {
       synchronized(this.m_lightsLock) {
-         ModelManager.instance.getClosestThreeLights(this.object, this.m_lights);
+         ModelManager.instance.getSquareLighting(var1, this.object, this.m_lights);
       }
    }
 }
