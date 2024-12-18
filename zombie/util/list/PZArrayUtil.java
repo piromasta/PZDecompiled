@@ -223,24 +223,26 @@ public class PZArrayUtil {
       if (var0 instanceof List) {
          return find((List)var0, var1);
       } else {
-         Iterator var2;
+         Object var4;
          try {
-            var2 = var0.iterator();
+            Iterator var2 = var0.iterator();
 
-            while(var2.hasNext()) {
-               Object var3 = var2.next();
-               if (var1.test(var3)) {
-                  Object var4 = var3;
-                  return var4;
+            Object var3;
+            do {
+               if (!var2.hasNext()) {
+                  var2 = null;
+                  return var2;
                }
-            }
 
-            var2 = null;
+               var3 = var2.next();
+            } while(!var1.test(var3));
+
+            var4 = var3;
          } finally {
             Pool.tryRelease((Object)var1);
          }
 
-         return var2;
+         return var4;
       }
    }
 

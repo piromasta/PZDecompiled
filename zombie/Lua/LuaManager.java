@@ -4903,37 +4903,42 @@ public final class LuaManager {
          global = true
       )
       public static LuaFileWriter getSandboxFileWriter(String var0, boolean var1, boolean var2) {
-         String var10000 = LuaManager.getSandboxCacheDir();
-         String var3 = var10000 + File.separator + var0;
-         var3 = var3.replace("/", File.separator);
-         var3 = var3.replace("\\", File.separator);
-         String var4 = var3.substring(0, var3.lastIndexOf(File.separator));
-         var4 = var4.replace("\\", "/");
-         File var5 = new File(var4);
-         if (!var5.exists()) {
-            var5.mkdirs();
-         }
-
-         File var6 = new File(var3);
-         if (!var6.exists() && var1) {
-            try {
-               var6.createNewFile();
-            } catch (IOException var11) {
-               Logger.getLogger(LuaManager.class.getName()).log(Level.SEVERE, (String)null, var11);
+         if (StringUtils.containsDoubleDot(var0)) {
+            DebugLog.Lua.warn("relative paths not allowed");
+            return null;
+         } else {
+            String var10000 = LuaManager.getSandboxCacheDir();
+            String var3 = var10000 + File.separator + var0;
+            var3 = var3.replace("/", File.separator);
+            var3 = var3.replace("\\", File.separator);
+            String var4 = var3.substring(0, var3.lastIndexOf(File.separator));
+            var4 = var4.replace("\\", "/");
+            File var5 = new File(var4);
+            if (!var5.exists()) {
+               var5.mkdirs();
             }
+
+            File var6 = new File(var3);
+            if (!var6.exists() && var1) {
+               try {
+                  var6.createNewFile();
+               } catch (IOException var11) {
+                  Logger.getLogger(LuaManager.class.getName()).log(Level.SEVERE, (String)null, var11);
+               }
+            }
+
+            PrintWriter var7 = null;
+
+            try {
+               FileOutputStream var8 = new FileOutputStream(var6, var2);
+               OutputStreamWriter var9 = new OutputStreamWriter(var8, StandardCharsets.UTF_8);
+               var7 = new PrintWriter(var9);
+            } catch (IOException var10) {
+               Logger.getLogger(LuaManager.class.getName()).log(Level.SEVERE, (String)null, var10);
+            }
+
+            return new LuaFileWriter(var7);
          }
-
-         PrintWriter var7 = null;
-
-         try {
-            FileOutputStream var8 = new FileOutputStream(var6, var2);
-            OutputStreamWriter var9 = new OutputStreamWriter(var8, StandardCharsets.UTF_8);
-            var7 = new PrintWriter(var9);
-         } catch (IOException var10) {
-            Logger.getLogger(LuaManager.class.getName()).log(Level.SEVERE, (String)null, var10);
-         }
-
-         return new LuaFileWriter(var7);
       }
 
       @LuaMethod(

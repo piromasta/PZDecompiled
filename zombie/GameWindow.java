@@ -993,8 +993,8 @@ public final class GameWindow {
                } catch (Throwable var18) {
                   try {
                      var3.close();
-                  } catch (Throwable var7) {
-                     var18.addSuppressed(var7);
+                  } catch (Throwable var9) {
+                     var18.addSuppressed(var9);
                   }
 
                   throw var18;
@@ -1004,8 +1004,8 @@ public final class GameWindow {
             } catch (Throwable var19) {
                try {
                   var2.close();
-               } catch (Throwable var6) {
-                  var19.addSuppressed(var6);
+               } catch (Throwable var8) {
+                  var19.addSuppressed(var8);
                }
 
                throw var19;
@@ -1025,8 +1025,8 @@ public final class GameWindow {
                } catch (Throwable var16) {
                   try {
                      var22.close();
-                  } catch (Throwable var9) {
-                     var16.addSuppressed(var9);
+                  } catch (Throwable var7) {
+                     var16.addSuppressed(var7);
                   }
 
                   throw var16;
@@ -1036,8 +1036,8 @@ public final class GameWindow {
             } catch (Throwable var17) {
                try {
                   var2.close();
-               } catch (Throwable var8) {
-                  var17.addSuppressed(var8);
+               } catch (Throwable var6) {
+                  var17.addSuppressed(var6);
                }
 
                throw var17;

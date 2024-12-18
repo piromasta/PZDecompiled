@@ -277,8 +277,8 @@ public final class PlayerDBHelper {
                               if (var9 != null) {
                                  try {
                                     var9.close();
-                                 } catch (Throwable var15) {
-                                    var20.addSuppressed(var15);
+                                 } catch (Throwable var16) {
+                                    var20.addSuppressed(var16);
                                  }
                               }
 
@@ -301,16 +301,16 @@ public final class PlayerDBHelper {
                                  var9.setInt(1, var7 + 1);
                                  var9.setInt(2, 1);
                                  var9.executeUpdate();
-                              } catch (Throwable var19) {
+                              } catch (Throwable var17) {
                                  if (var9 != null) {
                                     try {
                                        var9.close();
-                                    } catch (Throwable var16) {
-                                       var19.addSuppressed(var16);
+                                    } catch (Throwable var13) {
+                                       var17.addSuppressed(var13);
                                     }
                                  }
 
-                                 throw var19;
+                                 throw var17;
                               }
 
                               if (var9 != null) {
@@ -360,16 +360,16 @@ public final class PlayerDBHelper {
                                  var9.setInt(1, 1);
                                  var9.setInt(2, var1);
                                  var9.executeUpdate();
-                              } catch (Throwable var17) {
+                              } catch (Throwable var19) {
                                  if (var9 != null) {
                                     try {
                                        var9.close();
-                                    } catch (Throwable var13) {
-                                       var17.addSuppressed(var13);
+                                    } catch (Throwable var15) {
+                                       var19.addSuppressed(var15);
                                     }
                                  }
 
-                                 throw var17;
+                                 throw var19;
                               }
 
                               if (var9 != null) {

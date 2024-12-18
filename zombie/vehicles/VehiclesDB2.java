@@ -158,31 +158,24 @@ public final class VehiclesDB2 {
       SQLStore var2 = (SQLStore)Type.tryCastTo(this.m_worldStreamer.m_store, SQLStore.class);
       if (var2 != null && var2.m_conn != null) {
          try {
+            DatabaseMetaData var3 = var2.m_conn.getMetaData();
+            ResultSet var4 = var3.getTables((String)null, (String)null, "localPlayers", (String[])null);
+
             label91: {
-               DatabaseMetaData var3 = var2.m_conn.getMetaData();
-               ResultSet var4 = var3.getTables((String)null, (String)null, "localPlayers", (String[])null);
-
-               label92: {
-                  try {
-                     if (!var4.next()) {
-                        break label92;
-                     }
-                  } catch (Throwable var21) {
-                     if (var4 != null) {
-                        try {
-                           var4.close();
-                        } catch (Throwable var16) {
-                           var21.addSuppressed(var16);
-                        }
-                     }
-
-                     throw var21;
+               try {
+                  if (var4.next()) {
+                     break label91;
                   }
-
+               } catch (Throwable var21) {
                   if (var4 != null) {
-                     var4.close();
+                     try {
+                        var4.close();
+                     } catch (Throwable var16) {
+                        var21.addSuppressed(var16);
+                     }
                   }
-                  break label91;
+
+                  throw var21;
                }
 
                if (var4 != null) {
@@ -190,6 +183,10 @@ public final class VehiclesDB2 {
                }
 
                return;
+            }
+
+            if (var4 != null) {
+               var4.close();
             }
          } catch (Exception var22) {
             ExceptionLogger.logException(var22);

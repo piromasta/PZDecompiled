@@ -1192,56 +1192,56 @@ public final class IngameState extends GameState {
          }
       } else {
          if (Core.bDebug) {
-            label368: {
-               if (!this.showGlobalObjectDebugger && (!GameKeyboard.isKeyPressed(60) || !GameKeyboard.isKeyDown(29))) {
-                  if (!this.showChunkDebugger && !GameKeyboard.isKeyPressed(60)) {
-                     if (this.showAnimationViewer || GameKeyboard.isKeyPressed(65) && GameKeyboard.isKeyDown(29)) {
-                        this.showAnimationViewer = false;
-                        DebugLog.General.debugln("Activating AnimationViewerState.");
-                        AnimationViewerState var16 = AnimationViewerState.checkInstance();
-                        this.RedirectState = var16;
-                        return GameStateMachine.StateAction.Yield;
-                     }
-
-                     if (!this.showAttachmentEditor && (!GameKeyboard.isKeyPressed(65) || !GameKeyboard.isKeyDown(42))) {
-                        if (this.showVehicleEditor == null && !GameKeyboard.isKeyPressed(65)) {
-                           if (this.showWorldMapEditor == null && !GameKeyboard.isKeyPressed(66)) {
-                              break label368;
-                           }
-
-                           WorldMapEditorState var13 = WorldMapEditorState.checkInstance();
-                           this.showWorldMapEditor = null;
-                           this.RedirectState = var13;
-                           return GameStateMachine.StateAction.Yield;
-                        }
-
-                        DebugLog.General.debugln("Activating EditVehicleState.");
-                        EditVehicleState var12 = EditVehicleState.checkInstance();
-                        if (!StringUtils.isNullOrWhitespace(this.showVehicleEditor)) {
-                           var12.setScript(this.showVehicleEditor);
-                        }
-
-                        this.showVehicleEditor = null;
-                        this.RedirectState = var12;
-                        return GameStateMachine.StateAction.Yield;
-                     }
-
-                     this.showAttachmentEditor = false;
-                     DebugLog.General.debugln("Activating AttachmentEditorState.");
-                     AttachmentEditorState var11 = AttachmentEditorState.checkInstance();
-                     this.RedirectState = var11;
-                     return GameStateMachine.StateAction.Yield;
-                  }
-
-                  this.showChunkDebugger = false;
-                  DebugLog.General.debugln("Activating DebugChunkState.");
-                  this.RedirectState = DebugChunkState.checkInstance();
+            label372: {
+               if (this.showGlobalObjectDebugger || GameKeyboard.isKeyPressed(60) && GameKeyboard.isKeyDown(29)) {
+                  this.showGlobalObjectDebugger = false;
+                  DebugLog.General.debugln("Activating DebugGlobalObjectState.");
+                  this.RedirectState = new DebugGlobalObjectState();
                   return GameStateMachine.StateAction.Yield;
                }
 
-               this.showGlobalObjectDebugger = false;
-               DebugLog.General.debugln("Activating DebugGlobalObjectState.");
-               this.RedirectState = new DebugGlobalObjectState();
+               if (!this.showChunkDebugger && !GameKeyboard.isKeyPressed(60)) {
+                  if (this.showAnimationViewer || GameKeyboard.isKeyPressed(65) && GameKeyboard.isKeyDown(29)) {
+                     this.showAnimationViewer = false;
+                     DebugLog.General.debugln("Activating AnimationViewerState.");
+                     AnimationViewerState var16 = AnimationViewerState.checkInstance();
+                     this.RedirectState = var16;
+                     return GameStateMachine.StateAction.Yield;
+                  }
+
+                  if (!this.showAttachmentEditor && (!GameKeyboard.isKeyPressed(65) || !GameKeyboard.isKeyDown(42))) {
+                     if (this.showVehicleEditor == null && !GameKeyboard.isKeyPressed(65)) {
+                        if (this.showWorldMapEditor == null && !GameKeyboard.isKeyPressed(66)) {
+                           break label372;
+                        }
+
+                        WorldMapEditorState var13 = WorldMapEditorState.checkInstance();
+                        this.showWorldMapEditor = null;
+                        this.RedirectState = var13;
+                        return GameStateMachine.StateAction.Yield;
+                     }
+
+                     DebugLog.General.debugln("Activating EditVehicleState.");
+                     EditVehicleState var12 = EditVehicleState.checkInstance();
+                     if (!StringUtils.isNullOrWhitespace(this.showVehicleEditor)) {
+                        var12.setScript(this.showVehicleEditor);
+                     }
+
+                     this.showVehicleEditor = null;
+                     this.RedirectState = var12;
+                     return GameStateMachine.StateAction.Yield;
+                  }
+
+                  this.showAttachmentEditor = false;
+                  DebugLog.General.debugln("Activating AttachmentEditorState.");
+                  AttachmentEditorState var11 = AttachmentEditorState.checkInstance();
+                  this.RedirectState = var11;
+                  return GameStateMachine.StateAction.Yield;
+               }
+
+               this.showChunkDebugger = false;
+               DebugLog.General.debugln("Activating DebugChunkState.");
+               this.RedirectState = DebugChunkState.checkInstance();
                return GameStateMachine.StateAction.Yield;
             }
          }

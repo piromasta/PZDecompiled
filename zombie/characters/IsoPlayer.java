@@ -5912,39 +5912,37 @@ public final class IsoPlayer extends IsoLivingCharacter implements IHumanVisual 
          }
 
          this.setVariable("pressedRunButton", var2);
-         if (var1 || !this.isBlockMovement() && !this.isIgnoreInputsForDirection()) {
-            if (this.PlayerIndex != 0 || !GameKeyboard.isKeyDown(Core.getInstance().getKey("Left")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Right")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Forward")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Backward"))) {
-               if (this.JoypadBind != -1) {
-                  float var3 = JoypadManager.instance.getMovementAxisY(this.JoypadBind);
-                  float var4 = JoypadManager.instance.getMovementAxisX(this.JoypadBind);
-                  float var5 = JoypadManager.instance.getDeadZone(this.JoypadBind, 0);
-                  if (Math.abs(var3) > var5 || Math.abs(var4) > var5) {
-                     if (GameClient.bClient && this.isLocal()) {
-                        this.networkAI.setPressedMovement(true);
-                     }
-
-                     return true;
-                  }
-               }
-
-               if (GameClient.bClient && this.isLocal()) {
-                  this.networkAI.setPressedMovement(false);
-               }
-
-               return false;
-            } else {
-               if (GameClient.bClient && this.isLocal()) {
-                  this.networkAI.setPressedMovement(true);
-               }
-
-               return true;
-            }
-         } else {
+         if (!var1 && (this.isBlockMovement() || this.isIgnoreInputsForDirection())) {
             if (GameClient.bClient && this.isLocal()) {
                this.networkAI.setPressedMovement(false);
             }
 
             return false;
+         } else if (this.PlayerIndex != 0 || !GameKeyboard.isKeyDown(Core.getInstance().getKey("Left")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Right")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Forward")) && !GameKeyboard.isKeyDown(Core.getInstance().getKey("Backward"))) {
+            if (this.JoypadBind != -1) {
+               float var3 = JoypadManager.instance.getMovementAxisY(this.JoypadBind);
+               float var4 = JoypadManager.instance.getMovementAxisX(this.JoypadBind);
+               float var5 = JoypadManager.instance.getDeadZone(this.JoypadBind, 0);
+               if (Math.abs(var3) > var5 || Math.abs(var4) > var5) {
+                  if (GameClient.bClient && this.isLocal()) {
+                     this.networkAI.setPressedMovement(true);
+                  }
+
+                  return true;
+               }
+            }
+
+            if (GameClient.bClient && this.isLocal()) {
+               this.networkAI.setPressedMovement(false);
+            }
+
+            return false;
+         } else {
+            if (GameClient.bClient && this.isLocal()) {
+               this.networkAI.setPressedMovement(true);
+            }
+
+            return true;
          }
       }
    }

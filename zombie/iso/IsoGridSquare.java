@@ -2182,13 +2182,13 @@ public final class IsoGridSquare {
 
                      try {
                         var12.load(var1, var2, var3);
-                     } catch (Exception var16) {
+                     } catch (Exception var18) {
                         this.debugPrintGridSquare();
                         if (lastLoaded != null) {
                            lastLoaded.debugPrintGridSquare();
                         }
 
-                        throw new RuntimeException(var16);
+                        throw new RuntimeException(var18);
                      }
 
                      if (var3) {
@@ -2261,13 +2261,13 @@ public final class IsoGridSquare {
 
                   try {
                      var25 = (IsoMovingObject)IsoObject.factoryFromFileInput(this.getCell(), var1);
-                  } catch (Exception var18) {
+                  } catch (Exception var16) {
                      this.debugPrintGridSquare();
                      if (lastLoaded != null) {
                         lastLoaded.debugPrintGridSquare();
                      }
 
-                     throw new RuntimeException(var18);
+                     throw new RuntimeException(var16);
                   }
 
                   if (var25 != null) {
@@ -6800,40 +6800,42 @@ public final class IsoGridSquare {
                         }
 
                         float var41;
-                        if ((var33 == IsoObjectType.WestRoofB || var33 == IsoObjectType.WestRoofM || var33 == IsoObjectType.WestRoofT) && (this.getRoomID() == -1 && (var7 || var5) && (IsoPlayer.players[var10].getX() < (float)this.x && IsoPlayer.players[var10].getY() < (float)this.y || IsoPlayer.players[var10].getZ() < (float)this.z) || (this.getRoomID() != -1 || var29 != -1) && IsoPlayer.players[var10].getX() + IsoPlayer.players[var10].getY() <= (float)(this.x + this.y + 6) && IsoPlayer.players[var10].getZ() < (float)(this.z + 1))) {
-                           var48.setTargetAlpha(var10, 0.0F);
-                        } else if (var11 != null && !var13 && this.getRoomID() != var29 && var14 < 0.5F) {
-                           var48.setTargetAlpha(var10, var14 * 2.0F);
-                        } else {
-                           if (!var37) {
-                              var48.setTargetAlpha(var10, 1.0F);
-                           }
+                        if (var33 != IsoObjectType.WestRoofB && var33 != IsoObjectType.WestRoofM && var33 != IsoObjectType.WestRoofT || (this.getRoomID() != -1 || !var7 && !var5 || (!(IsoPlayer.players[var10].getX() < (float)this.x) || !(IsoPlayer.players[var10].getY() < (float)this.y)) && !(IsoPlayer.players[var10].getZ() < (float)this.z)) && (this.getRoomID() == -1 && var29 == -1 || !(IsoPlayer.players[var10].getX() + IsoPlayer.players[var10].getY() <= (float)(this.x + this.y + 6)) || !(IsoPlayer.players[var10].getZ() < (float)(this.z + 1)))) {
+                           if (var11 != null && !var13 && this.getRoomID() != var29 && var14 < 0.5F) {
+                              var48.setTargetAlpha(var10, var14 * 2.0F);
+                           } else {
+                              if (!var37) {
+                                 var48.setTargetAlpha(var10, 1.0F);
+                              }
 
-                           if (IsoPlayer.getInstance() != null && var48.getProperties() != null && (var48.getProperties().Is(IsoFlagType.solid) || var48.getProperties().Is(IsoFlagType.solidtrans) || var48.getProperties().Is(IsoFlagType.attachedCeiling) || var48.getSprite().getProperties().Is(IsoFlagType.attachedE) || var48.getSprite().getProperties().Is(IsoFlagType.attachedS)) || var33.index() > 2 && var33.index() < 9 && IsoCamera.frameState.CamCharacterZ <= var48.getZ()) {
-                              byte var40 = 2;
-                              var41 = 0.75F;
-                              if (var33.index() > 2 && var33.index() < 9 || var48.getSprite().getProperties().Is(IsoFlagType.attachedE) || var48.getSprite().getProperties().Is(IsoFlagType.attachedS)) {
-                                 var40 = 4;
-                                 if (var33.index() > 2 && var33.index() < 9) {
-                                    var41 = 0.5F;
+                              if (IsoPlayer.getInstance() != null && var48.getProperties() != null && (var48.getProperties().Is(IsoFlagType.solid) || var48.getProperties().Is(IsoFlagType.solidtrans) || var48.getProperties().Is(IsoFlagType.attachedCeiling) || var48.getSprite().getProperties().Is(IsoFlagType.attachedE) || var48.getSprite().getProperties().Is(IsoFlagType.attachedS)) || var33.index() > 2 && var33.index() < 9 && IsoCamera.frameState.CamCharacterZ <= var48.getZ()) {
+                                 byte var40 = 2;
+                                 var41 = 0.75F;
+                                 if (var33.index() > 2 && var33.index() < 9 || var48.getSprite().getProperties().Is(IsoFlagType.attachedE) || var48.getSprite().getProperties().Is(IsoFlagType.attachedS)) {
+                                    var40 = 4;
+                                    if (var33.index() > 2 && var33.index() < 9) {
+                                       var41 = 0.5F;
+                                    }
                                  }
-                              }
 
-                              int var42 = this.getX() - (int)IsoPlayer.getInstance().getX();
-                              int var43 = this.getY() - (int)IsoPlayer.getInstance().getY();
-                              if (var42 > 0 && var42 < var40 && var43 >= 0 && var43 < var40 || var43 > 0 && var43 < var40 && var42 >= 0 && var42 < var40) {
-                                 var48.setTargetAlpha(var10, var41);
-                              }
-
-                              IsoZombie var44 = IsoCell.getInstance().getNearestVisibleZombie(var10);
-                              if (var44 != null && var44.getCurrentSquare() != null && var44.getCurrentSquare().isCanSee(var10)) {
-                                 int var45 = this.getX() - (int)var44.x;
-                                 int var46 = this.getY() - (int)var44.y;
-                                 if (var45 > 0 && var45 < var40 && var46 >= 0 && var46 < var40 || var46 > 0 && var46 < var40 && var45 >= 0 && var45 < var40) {
+                                 int var42 = this.getX() - (int)IsoPlayer.getInstance().getX();
+                                 int var43 = this.getY() - (int)IsoPlayer.getInstance().getY();
+                                 if (var42 > 0 && var42 < var40 && var43 >= 0 && var43 < var40 || var43 > 0 && var43 < var40 && var42 >= 0 && var42 < var40) {
                                     var48.setTargetAlpha(var10, var41);
                                  }
+
+                                 IsoZombie var44 = IsoCell.getInstance().getNearestVisibleZombie(var10);
+                                 if (var44 != null && var44.getCurrentSquare() != null && var44.getCurrentSquare().isCanSee(var10)) {
+                                    int var45 = this.getX() - (int)var44.x;
+                                    int var46 = this.getY() - (int)var44.y;
+                                    if (var45 > 0 && var45 < var40 && var46 >= 0 && var46 < var40 || var46 > 0 && var46 < var40 && var45 >= 0 && var45 < var40) {
+                                       var48.setTargetAlpha(var10, var41);
+                                    }
+                                 }
                               }
                            }
+                        } else {
+                           var48.setTargetAlpha(var10, 0.0F);
                         }
 
                         if (var48 instanceof IsoWindow) {

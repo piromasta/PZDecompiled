@@ -245,30 +245,30 @@ public final class PlayerDB {
    private boolean loadPlayer(int var1, IsoPlayer var2) {
       PlayerData var3 = this.allocPlayerData();
 
-      boolean var4;
       try {
          var3.m_sqlID = var1;
-         if (!this.m_store.load(var3)) {
-            var4 = false;
+         boolean var4;
+         if (this.m_store.load(var3)) {
+            var2.load(var3.m_byteBuffer, var3.m_WorldVersion);
+            if (var3.m_isDead) {
+               var2.getBodyDamage().setOverallBodyHealth(0.0F);
+               var2.setHealth(0.0F);
+            }
+
+            var2.sqlID = var1;
+            var4 = true;
             return var4;
          }
 
-         var2.load(var3.m_byteBuffer, var3.m_WorldVersion);
-         if (var3.m_isDead) {
-            var2.getBodyDamage().setOverallBodyHealth(0.0F);
-            var2.setHealth(0.0F);
-         }
-
-         var2.sqlID = var1;
-         var4 = true;
+         var4 = false;
+         return var4;
       } catch (Exception var8) {
          ExceptionLogger.logException(var8);
-         return false;
       } finally {
          this.releasePlayerData(var3);
       }
 
-      return var4;
+      return false;
    }
 
    public boolean loadLocalPlayer(int var1) {

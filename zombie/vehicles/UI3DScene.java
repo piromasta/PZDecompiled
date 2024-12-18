@@ -1540,35 +1540,35 @@ public final class UI3DScene extends UIElement {
       Vector3f var3 = allocVector3f().set(var1.direction).mul(100.0F);
       Vector3f var4 = allocVector3f().set(var1.origin).sub(var0.point);
 
-      byte var7;
+      byte var8;
       try {
          float var5 = var0.normal.dot(var3);
          float var6 = -var0.normal.dot(var4);
-         if (!(Math.abs(var5) < 1.0E-8F)) {
-            float var12 = var6 / var5;
-            byte var8;
-            if (!(var12 < 0.0F) && !(var12 > 1.0F)) {
-               var2.set(var1.origin).add(var3.mul(var12));
-               var8 = 1;
-               return var8;
+         if (Math.abs(var5) < 1.0E-8F) {
+            byte var12;
+            if (var6 == 0.0F) {
+               var12 = 2;
+               return var12;
             }
 
+            var12 = 0;
+            return var12;
+         }
+
+         float var7 = var6 / var5;
+         if (var7 < 0.0F || var7 > 1.0F) {
             var8 = 0;
             return var8;
          }
 
-         if (var6 == 0.0F) {
-            var7 = 2;
-            return var7;
-         }
-
-         var7 = 0;
+         var2.set(var1.origin).add(var3.mul(var7));
+         var8 = 1;
       } finally {
          releaseVector3f(var3);
          releaseVector3f(var4);
       }
 
-      return var7;
+      return var8;
    }
 
    float distance_between_point_ray(Vector3f var1, Ray var2) {

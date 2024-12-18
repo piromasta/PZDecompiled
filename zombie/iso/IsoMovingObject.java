@@ -634,7 +634,9 @@ public class IsoMovingObject extends IsoObject implements Mover {
 
          this.impulsex = 0.0F;
          this.impulsey = 0.0F;
-         if (var3 == null || (int)this.z != 0 || this.getCurrentBuilding() != null || this.isInLoadedArea((int)this.nx, (int)this.ny) || !var3.isCurrentState(PathFindState.instance()) && !var3.isCurrentState(WalkTowardState.instance())) {
+         if (var3 != null && (int)this.z == 0 && this.getCurrentBuilding() == null && !this.isInLoadedArea((int)this.nx, (int)this.ny) && (var3.isCurrentState(PathFindState.instance()) || var3.isCurrentState(WalkTowardState.instance()))) {
+            ZombiePopulationManager.instance.virtualizeZombie(var3);
+         } else {
             float var14 = this.nx;
             float var5 = this.ny;
             this.collidedWithVehicle = false;
@@ -794,8 +796,6 @@ public class IsoMovingObject extends IsoObject implements Mover {
             this.scriptnx = this.nx;
             this.scriptny = this.ny;
             this.firstUpdate = false;
-         } else {
-            ZombiePopulationManager.instance.virtualizeZombie(var3);
          }
       }
    }

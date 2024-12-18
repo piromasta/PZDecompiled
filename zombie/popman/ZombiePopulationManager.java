@@ -598,55 +598,56 @@ public final class ZombiePopulationManager {
    }
 
    private void addZombieMoving(float var1, float var2, float var3, IsoDirections var4, int var5, int var6, int var7, int var8) {
-      IsoGridSquare var9;
-      label51: {
-         var9 = IsoWorld.instance.CurrentCell.getGridSquare((int)var1, (int)var2, (int)var3);
-         if (var9 != null) {
+      IsoGridSquare var9 = IsoWorld.instance.CurrentCell.getGridSquare((int)var1, (int)var2, (int)var3);
+      if (var9 != null) {
+         label53: {
             if (var9.SolidFloorCached) {
-               if (var9.SolidFloor) {
-                  break label51;
+               if (!var9.SolidFloor) {
+                  break label53;
                }
-            } else if (var9.TreatAsSolidFloor()) {
-               break label51;
+            } else if (!var9.TreatAsSolidFloor()) {
+               break label53;
             }
-         }
 
-         noise("real -> virtual " + var1 + "," + var2);
-         n_addZombie(var1, var2, var3, (byte)var4.index(), var5, var6, var7, var8);
-         return;
+            if (!Core.bLastStand && !this.playerSpawns.allowZombie(var9)) {
+               noise("removed zombie near player spawn " + (int)var1 + "," + (int)var2 + "," + (int)var3);
+               return;
+            }
+
+            VirtualZombieManager.instance.choices.clear();
+            VirtualZombieManager.instance.choices.add(var9);
+            IsoZombie var10 = VirtualZombieManager.instance.createRealZombieAlways(var5, var4.index(), false);
+            if (var10 != null) {
+               var10.setX(var1);
+               var10.setY(var2);
+               if (this.isCrawling(var6)) {
+                  var10.setCrawler(true);
+                  var10.setCanWalk(this.isCanWalk(var6));
+                  var10.setOnFloor(true);
+                  var10.setFallOnFront(true);
+                  var10.walkVariant = "ZombieWalk";
+                  var10.DoZombieStats();
+               }
+
+               if (this.isInitialized(var6)) {
+                  var10.setCanCrawlUnderVehicle(this.isCanCrawlUnderVehicle(var6));
+               } else {
+                  this.firstTimeLoaded(var10, var6);
+               }
+
+               if (Math.abs((float)var7 - var1) > 1.0F || Math.abs((float)var8 - var2) > 1.0F) {
+                  var10.AllowRepathDelay = -1.0F;
+                  var10.pathToLocation(var7, var8, 0);
+                  return;
+               }
+            }
+
+            return;
+         }
       }
 
-      if (!Core.bLastStand && !this.playerSpawns.allowZombie(var9)) {
-         noise("removed zombie near player spawn " + (int)var1 + "," + (int)var2 + "," + (int)var3);
-      } else {
-         VirtualZombieManager.instance.choices.clear();
-         VirtualZombieManager.instance.choices.add(var9);
-         IsoZombie var10 = VirtualZombieManager.instance.createRealZombieAlways(var5, var4.index(), false);
-         if (var10 != null) {
-            var10.setX(var1);
-            var10.setY(var2);
-            if (this.isCrawling(var6)) {
-               var10.setCrawler(true);
-               var10.setCanWalk(this.isCanWalk(var6));
-               var10.setOnFloor(true);
-               var10.setFallOnFront(true);
-               var10.walkVariant = "ZombieWalk";
-               var10.DoZombieStats();
-            }
-
-            if (this.isInitialized(var6)) {
-               var10.setCanCrawlUnderVehicle(this.isCanCrawlUnderVehicle(var6));
-            } else {
-               this.firstTimeLoaded(var10, var6);
-            }
-
-            if (Math.abs((float)var7 - var1) > 1.0F || Math.abs((float)var8 - var2) > 1.0F) {
-               var10.AllowRepathDelay = -1.0F;
-               var10.pathToLocation(var7, var8, 0);
-            }
-         }
-
-      }
+      noise("real -> virtual " + var1 + "," + var2);
+      n_addZombie(var1, var2, var3, (byte)var4.index(), var5, var6, var7, var8);
    }
 
    private boolean isInitialized(int var1) {

@@ -467,35 +467,35 @@ public final class WorldMapRenderer {
       Vector3f var4 = allocVector3f().set(var2.direction).mul(10000.0F);
       Vector3f var5 = allocVector3f().set(var2.origin).sub(var1.point);
 
-      byte var8;
+      byte var9;
       try {
          float var6 = var1.normal.dot(var4);
          float var7 = -var1.normal.dot(var5);
-         if (!(Math.abs(var6) < 1.0E-8F)) {
-            float var13 = var7 / var6;
-            byte var9;
-            if (!(var13 < 0.0F) && !(var13 > 1.0F)) {
-               var3.set(var2.origin).add(var4.mul(var13));
-               var9 = 1;
-               return var9;
+         if (Math.abs(var6) < 1.0E-8F) {
+            byte var13;
+            if (var7 == 0.0F) {
+               var13 = 2;
+               return var13;
             }
 
+            var13 = 0;
+            return var13;
+         }
+
+         float var8 = var7 / var6;
+         if (var8 < 0.0F || var8 > 1.0F) {
             var9 = 0;
             return var9;
          }
 
-         if (var7 != 0.0F) {
-            var8 = 0;
-            return var8;
-         }
-
-         var8 = 2;
+         var3.set(var2.origin).add(var4.mul(var8));
+         var9 = 1;
       } finally {
          releaseVector3f(var4);
          releaseVector3f(var5);
       }
 
-      return var8;
+      return var9;
    }
 
    public ConfigOption getOptionByName(String var1) {
